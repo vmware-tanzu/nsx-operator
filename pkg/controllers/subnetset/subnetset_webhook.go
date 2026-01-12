@@ -12,6 +12,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -19,6 +20,7 @@ import (
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -32,10 +34,12 @@ var NSXOperatorSA = "system:serviceaccount:vmware-system-nsx:ncp-svc-account"
 // name=subnetset.validating.crd.nsx.vmware.com,admissionReviewVersions=v1
 
 type SubnetSetValidator struct {
-	Client     client.Client
-	decoder    admission.Decoder
-	nsxClient  *nsx.Client
-	vpcService common.VPCServiceProvider
+	Client            client.Client
+	decoder           admission.Decoder
+	nsxClient         *nsx.Client
+	vpcService        common.VPCServiceProvider
+	subnetService     common.SubnetServiceProvider
+	subnetPortService common.SubnetPortServiceProvider
 }
 
 type SubnetSetType string
@@ -149,6 +153,21 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if result {
 			return admission.Denied(msg)
 		}
+		// Only check for user defined SubnetSet as Subnets for default network
+		// is allowed to be removed from SubnetSet when there is port on it
+		if subnetSet.Spec.SubnetNames != nil && oldSubnetSet.Spec.SubnetNames != nil && req.UserInfo.Username != NSXOperatorSA {
+			// Lock the SubnetSet to avoid new SubnetPort created on the removed Subnet
+			subnetSetLock := controllercommon.WLockSubnetSet(subnetSet.UID)
+			defer controllercommon.WUnlockSubnetSet(subnetSet.UID, subnetSetLock)
+			removedSubnetNames := nsxutil.DiffArrays(*oldSubnetSet.Spec.SubnetNames, *subnetSet.Spec.SubnetNames)
+			valid, err = v.validateRemovedSubnets(ctx, subnetSet.Namespace, subnetSet.Name, removedSubnetNames)
+			if err != nil {
+				return admission.Errored(http.StatusBadRequest, err)
+			}
+			if !valid {
+				return admission.Denied(fmt.Sprintf("Subnets %s on SubnetSet %s/%s used by SubnetPorts cannot be removed", removedSubnetNames, subnetSet.Namespace, subnetSet.Name))
+			}
+		}
 	case admissionv1.Delete:
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be deleted by nsx-operator")
@@ -191,6 +210,41 @@ func (v *SubnetSetValidator) checkSubnetPort(ctx context.Context, ns string, sub
 		}
 	}
 	return false, nil
+}
+
+// Verify that all the SubnetPorts on the SubnetSet does not use the removed Subnets
+func (v *SubnetSetValidator) validateRemovedSubnets(ctx context.Context, ns string, subnetSetName string, subnetNames []string) (bool, error) {
+	log.Debug("Verify if Subnets can be removed from SubnetSet", "Namespace", ns, "subnetSetName", subnetSetName, "subnetNames", subnetNames)
+	usedSubnetPaths := sets.New[string]()
+	crdSubnetPorts := &v1alpha1.SubnetPortList{}
+	err := v.Client.List(ctx, crdSubnetPorts, client.InNamespace(ns))
+	if err != nil {
+		return false, fmt.Errorf("failed to list SubnetPort: %v", err)
+	}
+	for _, crdSubnetPort := range crdSubnetPorts.Items {
+		if crdSubnetPort.Spec.SubnetSet == subnetSetName {
+			subnetPath := v.subnetPortService.GetSubnetPathForSubnetPortFromStore(crdSubnetPort.GetUID())
+			if subnetPath != "" {
+				usedSubnetPaths.Insert(subnetPath)
+			}
+		}
+	}
+
+	for _, subnetName := range subnetNames {
+		crdSubnet := &v1alpha1.Subnet{}
+		err := v.Client.Get(ctx, types.NamespacedName{Name: subnetName, Namespace: ns}, crdSubnet)
+		if err != nil {
+			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
+		}
+		nsxSubnet, err := v.subnetService.GetSubnetByCR(crdSubnet)
+		if err != nil {
+			return false, fmt.Errorf("failed to get NSX Subnet %s/%s: %v", ns, subnetName, err)
+		}
+		if usedSubnetPaths.Has(*nsxSubnet.Path) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (v *SubnetSetValidator) getVPCPath(ns string) (string, error) {

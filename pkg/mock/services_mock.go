@@ -7,6 +7,7 @@ import (
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -102,7 +103,11 @@ func (m *MockSubnetServiceProvider) ListSubnetBySubnetSetName(ns, subnetSetName 
 }
 
 func (m *MockSubnetServiceProvider) GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
-	return nil, nil
+	args := m.Called(subnet)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.VpcSubnet), args.Error(1)
 }
 
 func (m *MockSubnetServiceProvider) GetNSXSubnetFromCacheOrAPI(associate string, forceAPI bool) (*model.VpcSubnet, error) {
@@ -138,7 +143,8 @@ func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(nsxSubnetID string) (po
 }
 
 func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error) {
-	return true, nil
+	args := m.Called(subnet)
+	return args.Bool(0), args.Error(1)
 }
 
 func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string) {
@@ -151,6 +157,11 @@ func (m *MockSubnetPortServiceProvider) IsEmptySubnet(id string, path string) bo
 
 func (m *MockSubnetPortServiceProvider) DeletePortCount(path string) {
 	return
+}
+
+func (m *MockSubnetPortServiceProvider) GetSubnetPathForSubnetPortFromStore(crUid types.UID) string {
+	args := m.Called(crUid)
+	return args.String(0)
 }
 
 type MockIPAddressAllocationProvider struct {

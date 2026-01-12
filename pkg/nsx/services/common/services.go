@@ -5,6 +5,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -47,6 +48,7 @@ type SubnetPortServiceProvider interface {
 	ReleasePortInSubnet(path string)
 	IsEmptySubnet(id string, path string) bool
 	DeletePortCount(path string)
+	GetSubnetPathForSubnetPortFromStore(crUid types.UID) string
 }
 
 type NodeServiceReader interface {

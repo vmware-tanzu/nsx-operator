@@ -9,9 +9,12 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -20,6 +23,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	pkgmock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -110,6 +114,26 @@ func TestSubnetSetValidator(t *testing.T) {
 		},
 	}
 
+	oldSubnetSetWithSubnets := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "validator-set",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			SubnetNames: &[]string{"subnet-1", "subnet-2"},
+		},
+	}
+
+	newSubnetSetWithSubnets := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "validator-set",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			SubnetNames: &[]string{"subnet-1"},
+		},
+	}
+
 	fakeClient.Create(context.TODO(), &v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{Name: "subnetport-1", Namespace: "ns-1"},
 		Spec: v1alpha1.SubnetPortSpec{
@@ -152,6 +176,14 @@ func TestSubnetSetValidator(t *testing.T) {
 		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "default", VPCID: "ns-1"}}
 	})
 	defer patches.Reset()
+
+	patches.ApplyPrivateMethod(reflect.TypeOf(validator), "validateRemovedSubnets",
+		func(_ *SubnetSetValidator, _ context.Context, _ string, _ string, subnetNames []string) (bool, error) {
+			if len(subnetNames) > 0 && subnetNames[0] == "subnet-2" {
+				return false, nil
+			}
+			return true, nil
+		})
 
 	testcases := []struct {
 		name            string
@@ -421,6 +453,15 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:         NSXOperatorSA,
 			isAllowed:    false,
 		},
+		{
+			name:         "Update SubnetSet - Deny if removed subnet is still in use",
+			op:           admissionv1.Update,
+			user:         "fake-user",
+			oldSubnetSet: oldSubnetSetWithSubnets,
+			subnetSet:    newSubnetSetWithSubnets,
+			isAllowed:    false,
+			msg:          "used by SubnetPorts cannot be removed",
+		},
 	}
 	for _, testCase := range testcases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -578,6 +619,118 @@ func TestSwitchSubnetSetType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, _ := switchSubnetSetType(tt.old, tt.new)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidateRemovedSubnets(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	ns := "ns-1"
+	subnetsetName := "test-subnetset"
+	subnetName := "subnet-1"
+	subnetPath := "/orgs/default/projects/default/vps/ns-1/subnets/subnet-1"
+
+	tests := []struct {
+		name            string
+		subnetNames     []string
+		existingObjects []runtime.Object
+		mockSetup       func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider)
+		want            bool
+		wantErr         bool
+	}{
+		{
+			name:        "Success - Subnet is not used by any SubnetPort",
+			subnetNames: []string{subnetName},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns}},
+				&v1alpha1.SubnetPortList{Items: []v1alpha1.SubnetPort{}},
+			},
+			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {
+				ms.On("GetSubnetByCR", mock.Anything).Return(&model.VpcSubnet{Path: &subnetPath}, nil)
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name:        "Failure - Subnet is currently used by a SubnetPort",
+			subnetNames: []string{subnetName},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns}},
+				&v1alpha1.SubnetPortList{
+					Items: []v1alpha1.SubnetPort{
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "port-1", Namespace: ns, UID: "uid-1"},
+							Spec:       v1alpha1.SubnetPortSpec{SubnetSet: subnetsetName},
+						},
+					},
+				},
+			},
+			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {
+				mp.On("GetSubnetPathForSubnetPortFromStore", types.UID("uid-1")).Return(subnetPath)
+				ms.On("GetSubnetByCR", mock.Anything).Return(&model.VpcSubnet{Path: &subnetPath}, nil)
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name:        "Error - Subnet CR not found",
+			subnetNames: []string{"non-existent"},
+			existingObjects: []runtime.Object{
+				&v1alpha1.SubnetPortList{Items: []v1alpha1.SubnetPort{}},
+			},
+			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {},
+			want:      false,
+			wantErr:   true,
+		},
+		{
+			name:        "Success - Port exists but belongs to a different SubnetSet",
+			subnetNames: []string{subnetName},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns}},
+				&v1alpha1.SubnetPortList{
+					Items: []v1alpha1.SubnetPort{
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "port-other", Namespace: ns, UID: "uid-2"},
+							Spec:       v1alpha1.SubnetPortSpec{SubnetSet: "other-subnetset"},
+						},
+					},
+				},
+			},
+			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {
+				ms.On("GetSubnetByCR", mock.Anything).Return(&model.VpcSubnet{Path: &subnetPath}, nil)
+			},
+			want:    true,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockSubnetSvc := new(pkgmock.MockSubnetServiceProvider)
+			mockPortSvc := new(pkgmock.MockSubnetPortServiceProvider)
+			tt.mockSetup(mockSubnetSvc, mockPortSvc)
+
+			client := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(tt.existingObjects...).
+				Build()
+
+			validator := &SubnetSetValidator{
+				Client:            client,
+				subnetService:     mockSubnetSvc,
+				subnetPortService: mockPortSvc,
+			}
+			got, err := validator.validateRemovedSubnets(context.TODO(), ns, subnetsetName, tt.subnetNames)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+			mockSubnetSvc.AssertExpectations(t)
+			mockPortSvc.AssertExpectations(t)
 		})
 	}
 }

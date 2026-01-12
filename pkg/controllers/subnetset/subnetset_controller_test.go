@@ -365,11 +365,36 @@ func TestReconcile(t *testing.T) {
 
 func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 	testCases := []struct {
-		name        string
-		subnetset   *v1alpha1.SubnetSet
-		subnets     []*v1alpha1.Subnet
-		expectedErr string
+		name            string
+		subnetset       *v1alpha1.SubnetSet
+		subnets         []*v1alpha1.Subnet
+		expectedErr     string
+		expectedSubnets []string
 	}{
+		{
+			name: "DeduplicateSubnetNames",
+			subnetset: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-1", Namespace: "ns-1"},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"subnet-1", "subnet-2", "subnet-1"}},
+			},
+			subnets: []*v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1"},
+					Status: v1alpha1.SubnetStatus{
+						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
+						GatewayAddresses: []string{"10.0.0.1/28"},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-2", Namespace: "ns-1"},
+					Status: v1alpha1.SubnetStatus{
+						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
+						GatewayAddresses: []string{"10.0.0.17/28"},
+					},
+				},
+			},
+			expectedSubnets: []string{"subnet-1", "subnet-2"},
+		},
 		{
 			name: "UpdateSubnetSetSuccess",
 			subnetset: &v1alpha1.SubnetSet{
@@ -406,6 +431,7 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 					},
 				},
 			},
+			expectedSubnets: []string{"subnet-1", "subnet-2"},
 		},
 		{
 			name: "UnrealizedSubnet",
@@ -438,7 +464,8 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 					Status: v1alpha1.SubnetStatus{},
 				},
 			},
-			expectedErr: "Subnet ns-1/subnet-2 is not realized",
+			expectedErr:     "Subnet ns-1/subnet-2 is not realized",
+			expectedSubnets: []string{"subnet-1", "subnet-2"},
 		},
 	}
 
@@ -456,6 +483,10 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 				assert.Contains(t, err.Error(), tc.expectedErr)
 			} else {
 				assert.Nil(t, err)
+				updatedSubnetSet := &v1alpha1.SubnetSet{}
+				err := r.Client.Get(ctx, types.NamespacedName{Name: tc.subnetset.Name, Namespace: tc.subnetset.Namespace}, updatedSubnetSet)
+				assert.Nil(t, err)
+				assert.Equal(t, tc.expectedSubnets, *updatedSubnetSet.Spec.SubnetNames)
 			}
 		})
 	}
@@ -1171,7 +1202,7 @@ func TestDeleteSubnets(t *testing.T) {
 		Id:   common.String("net2"),
 		Path: common.String("subnet2-path"),
 	}}
-	testLock := &sync.Mutex{}
+	testLock := &sync.RWMutex{}
 	for _, tc := range []struct {
 		name              string
 		nsxSubnets        []*model.VpcSubnet
@@ -1191,11 +1222,11 @@ func TestDeleteSubnets(t *testing.T) {
 			nsxSubnets:        nsxSubnets,
 			deleteBindingMaps: false,
 			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.LockSubnetSet, func(uuid types.UID) *sync.Mutex {
+				patches := gomonkey.ApplyFunc(ctlcommon.WLockSubnetSet, func(uuid types.UID) *sync.RWMutex {
 					testLock.Lock()
 					return testLock
 				})
-				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(_ types.UID, subnetSetLock *sync.Mutex) {
+				patches.ApplyFunc(ctlcommon.WUnlockSubnetSet, func(_ types.UID, subnetSetLock *sync.RWMutex) {
 					testLock.Unlock()
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
@@ -1220,11 +1251,11 @@ func TestDeleteSubnets(t *testing.T) {
 			nsxSubnets:        nsxSubnets,
 			deleteBindingMaps: false,
 			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.LockSubnetSet, func(uuid types.UID) *sync.Mutex {
+				patches := gomonkey.ApplyFunc(ctlcommon.WLockSubnetSet, func(uuid types.UID) *sync.RWMutex {
 					testLock.Lock()
 					return testLock
 				})
-				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
+				patches.ApplyFunc(ctlcommon.WUnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.RWMutex) {
 					testLock.Unlock()
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
@@ -1246,11 +1277,11 @@ func TestDeleteSubnets(t *testing.T) {
 			nsxSubnets:        nsxSubnets,
 			deleteBindingMaps: false,
 			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.LockSubnetSet, func(uuid types.UID) *sync.Mutex {
+				patches := gomonkey.ApplyFunc(ctlcommon.WLockSubnetSet, func(uuid types.UID) *sync.RWMutex {
 					testLock.Lock()
 					return testLock
 				})
-				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
+				patches.ApplyFunc(ctlcommon.WUnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.RWMutex) {
 					testLock.Unlock()
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
@@ -1269,11 +1300,11 @@ func TestDeleteSubnets(t *testing.T) {
 			nsxSubnets:        nsxSubnets,
 			deleteBindingMaps: true,
 			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.LockSubnetSet, func(uuid types.UID) *sync.Mutex {
+				patches := gomonkey.ApplyFunc(ctlcommon.WLockSubnetSet, func(uuid types.UID) *sync.RWMutex {
 					testLock.Lock()
 					return testLock
 				})
-				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
+				patches.ApplyFunc(ctlcommon.WUnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.RWMutex) {
 					testLock.Unlock()
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
@@ -1301,11 +1332,11 @@ func TestDeleteSubnets(t *testing.T) {
 			nsxSubnets:        nsxSubnets,
 			deleteBindingMaps: true,
 			patches: func(t *testing.T, r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(ctlcommon.LockSubnetSet, func(uuid types.UID) *sync.Mutex {
+				patches := gomonkey.ApplyFunc(ctlcommon.WLockSubnetSet, func(uuid types.UID) *sync.RWMutex {
 					testLock.Lock()
 					return testLock
 				})
-				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
+				patches.ApplyFunc(ctlcommon.WUnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.RWMutex) {
 					testLock.Unlock()
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {

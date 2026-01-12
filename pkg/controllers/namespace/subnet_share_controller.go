@@ -161,7 +161,7 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 				log.Debug("Update default SubnetSet with shared Subnets", "Name", name, "Namespace", ns, "subnetNames", subnetNames)
 				return r.Client.Update(ctx, subnetSetCR)
 			}
-
+			return nil
 		}
 		// Create the default SubnetSet with the pre-created Subnets
 		if len(subnetNames) > 0 {

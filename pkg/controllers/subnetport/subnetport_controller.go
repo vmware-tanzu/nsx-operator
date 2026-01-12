@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
@@ -102,17 +103,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		r.StatusUpdater.IncreaseUpdateTotal()
 
 		old_status := subnetPort.Status.DeepCopy()
-		subnetCR, isParentResourceTerminating, err := r.getSubnetCR(ctx, subnetPort)
-		if isParentResourceTerminating {
-			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
-			return common.ResultNormal, err
+		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+		if subnetSetLock != nil {
+			defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
 		}
-		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get Subnet CR", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
-			return common.ResultRequeue, err
-		}
-		isExisting, isParentResourceTerminating, nsxSubnetPath, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort, subnetCR)
 		if isParentResourceTerminating {
 			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
@@ -135,9 +129,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if vm != nil {
 			labels = &vm.Labels
 		}
-		inSharedSubnet := false
-		if subnetCR != nil {
-			inSharedSubnet = servicecommon.IsSharedSubnet(subnetCR)
+		inSharedSubnet, err := common.IsSharedSubnetPath(ctx, r.Client, nsxSubnetPath, req.Namespace)
+		if err != nil {
+			log.Error(err, "Failed to check if the Subnet is a shared Subnet", "path", nsxSubnetPath)
+			return common.ResultNormal, err
 		}
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
@@ -363,6 +358,18 @@ func subnetPortMACInNeedIndexFunc(obj client.Object) []string {
 	}
 }
 
+func subnetAssociatedResourceIndexFunc(obj client.Object) []string {
+	if subnet, ok := obj.(*v1alpha1.Subnet); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if associatedResource, exists := subnet.Annotations[servicecommon.AnnotationAssociatedResource]; exists {
+			return []string{associatedResource}
+		}
+	}
+	return []string{}
+}
+
 func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns string, name string) error {
 	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
@@ -416,6 +423,9 @@ func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 		return err
 	}
 	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.SubnetPort{}, util.SubnetPortMACInNeed, subnetPortMACInNeedIndexFunc); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.Subnet{}, util.SubnetAssociatedResource, subnetAssociatedResourceIndexFunc); err != nil {
 		return err
 	}
 	return nil
@@ -759,9 +769,11 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 
 // getSubnetBySubnetPort is only used in restore mode to find the Subnet by comparing the desired GatewayIP of the SubnetPort with the target NSX Subnet
 // For SubnetPort on Subnet, subnetCR is required to find NSX Subnet for shared Subnet or auto-created Subnet
-// For SubnetPort on SubnetSet, NSX Subnets are find from cache based on SubnetSet Name
+// For SubnetPort on auto-created SubnetSet, NSX Subnets are found from cache based on SubnetSet Name
+// For SubnetPort on pre-created SubnetSet, NSX Subnets are found based on the Subnet CRs
 func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (string, error) {
 	var subnets []*model.VpcSubnet
+	var err error
 	if len(subnetPort.Spec.Subnet) > 0 {
 		// Use GetSubnetByCR to get NSX Subnet for shared Subnet or auto-created Subnet based on SubnetCR annotation
 		if subnetCR == nil {
@@ -774,23 +786,44 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 		}
 		subnets = append(subnets, nsxSubnet)
 	} else if len(subnetPort.Spec.SubnetSet) > 0 {
-		subnets = r.SubnetService.ListSubnetBySubnetSetName(subnetPort.Namespace, subnetPort.Spec.SubnetSet)
+		subnetSet := &v1alpha1.SubnetSet{}
+		namespacedName := types.NamespacedName{
+			Name:      subnetPort.Spec.SubnetSet,
+			Namespace: subnetPort.Namespace,
+		}
+		if err := r.Client.Get(context.TODO(), namespacedName, subnetSet); err != nil {
+			log.Error(err, "Failed to get SubnetSet CR", "SubnetSetCR", namespacedName)
+			return "", err
+		}
+		subnets, err = common.GetNSXSubnetsForSubnetSet(r.Client, subnetSet, r.SubnetService)
+		if err != nil {
+			return "", err
+		}
 	} else {
 		subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.DefaultVMNetwork)
 		if err != nil {
 			return "", err
 		}
-		subnets = r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.UID))
+		subnets, err = common.GetNSXSubnetsForSubnetSet(r.Client, subnetSet, r.SubnetService)
+		if err != nil {
+			return "", err
+		}
 	}
 	gatewayIP := net.ParseIP(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway)
 	return common.GetSubnetByIP(subnets, gatewayIP)
 }
 
-func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (existing bool, isStale bool, subnetPath string, err error) {
+func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, subnetSetUID *types.UID, subnetSetLock *sync.RWMutex, err error) {
+	var subnetCR *v1alpha1.Subnet
+	subnetCR, isStale, err = r.getSubnetCR(ctx, subnetPort)
+	if err != nil {
+		log.Error(err, "Failed to get Subnet CR for SubnetPort")
+		return
+	}
 	existingSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 	if err != nil {
 		log.Error(err, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
-		return false, false, "", err
+		return false, false, "", nil, nil, err
 	}
 	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
 		subnetPath = *existingSubnetPort.ParentPath
@@ -847,9 +880,9 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("subnetset %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return
 		}
-		log.Info("got subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
-		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("Got SubnetSet for SubnetPort CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
+		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return
 		}
@@ -864,12 +897,12 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("default subnetset %s is being deleted, cannot operate subnetport %s", subnetSet.Name, subnetPort.Name)
 			return
 		}
-		log.Info("got default subnetset for subnetport CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, err = common.AllocateSubnetFromSubnetSet(subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
-		log.Info("allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		log.Info("Got default SubnetSet for SubnetPort CR, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
+		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
 		if err != nil {
 			return
 		}
+		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 	}
 	return
 }
