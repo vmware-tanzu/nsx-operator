@@ -187,9 +187,23 @@ func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors 
 	defer wg.Done()
 	count, err := service.SearchResource("", queryParam, store, filter)
 	if err != nil {
-		fatalErrors <- err
+		if !safeSendError(fatalErrors, err) {
+			log.Error(err, "Failed to initialize store", "resourceType", resourceTypeValue)
+		}
+		return
 	}
 	log.Info("Initialized store", "resourceType", resourceTypeValue, "count", count)
+}
+
+// safeSendError sends an error to a channel, returning false if the channel is closed.
+func safeSendError(ch chan error, err error) (sent bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			sent = false
+		}
+	}()
+	ch <- err
+	return true
 }
 
 // InitializeCommonStore is the common method used by InitializeResourceStore and InitializeVPCResourceStore
