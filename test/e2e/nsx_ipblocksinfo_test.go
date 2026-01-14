@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,38 +21,58 @@ import (
 )
 
 var (
-	ipBlocksInfoCRDName = "ip-blocks-info"
-	defaultOrg          = "default"
-	defaultProject      = "project-quality"
-	defaultVPCProfile   = ""
-	enableIPRangesCIDRs = false
+	ipBlocksInfoCRDName   = "ip-blocks-info"
+	defaultOrg            = "default"
+	defaultProject        = "project-quality"
+	defaultVPCProfile     = ""
+	defaultVPCProfileOnce sync.Once
+	defaultVPCProfileErr  error
 )
 
 func TestIPBlocksInfo(t *testing.T) {
+	TrackTest(t)
+	StartParallel(t)
 	// initialize vpc profile id
 	getDefaultVPCProfileID(t)
-	t.Run("case=InitialIPBlocksInfo", InitialIPBlocksInfo)
-	t.Run("case=CustomIPBlocksInfo", CustomIPBlocksInfo)
+
+	// SequentialTests: These tests share global IPBlocksInfo state and NSX resources
+	// CustomIPBlocksInfo creates/modifies VPCNetworkConfiguration and VPC resources
+	// that affect InitialIPBlocksInfo, so they MUST run sequentially
+	RunSubtest(t, "SequentialTests", func(t *testing.T) {
+		RunSubtest(t, "InitialIPBlocksInfo", func(t *testing.T) {
+			InitialIPBlocksInfo(t)
+		})
+		RunSubtest(t, "CustomIPBlocksInfo", func(t *testing.T) {
+			CustomIPBlocksInfo(t)
+		})
+	})
 }
 
 func getDefaultVPCProfileID(t *testing.T) {
-	if defaultVPCProfile != "" {
-		return
-	}
-	result, err := testData.nsxClient.VPCConnectivityProfilesClient.List(defaultOrg, defaultProject, nil, common.Bool(false), nil, nil, nil, nil)
-	require.NoError(t, err)
-
-	for _, vpcProfile := range result.Results {
-		if vpcProfile.IsDefault != nil && *vpcProfile.IsDefault {
-			defaultVPCProfile = *vpcProfile.Id
-			break
+	// Use sync.Once to ensure thread-safe initialization when running tests in parallel
+	defaultVPCProfileOnce.Do(func() {
+		result, err := testData.nsxClient.VPCConnectivityProfilesClient.List(defaultOrg, defaultProject, nil, common.Bool(false), nil, nil, nil, nil)
+		if err != nil {
+			defaultVPCProfileErr = err
+			return
 		}
-	}
+
+		for _, vpcProfile := range result.Results {
+			if vpcProfile.IsDefault != nil && *vpcProfile.IsDefault {
+				defaultVPCProfile = *vpcProfile.Id
+				break
+			}
+		}
+		if defaultVPCProfile == "" {
+			defaultVPCProfileErr = fmt.Errorf("no default VPC Profile is found for default Project")
+		}
+	})
+	require.NoError(t, defaultVPCProfileErr)
 	require.NotEqual(t, "", defaultVPCProfile, "No default VPC Profile is found for default Project")
 }
 
 func InitialIPBlocksInfo(t *testing.T) {
-	privateTGWIPCIDRs, externalIPCIDRs, privateRanges, externalRanges := getDefaultIPBlocksCidrs(t)
+	privateTGWIPCIDRs, externalIPCIDRs, privateRanges, externalRanges, _ := getDefaultIPBlocksCidrs(t)
 	assertIPBlocksInfo(t, privateTGWIPCIDRs, externalIPCIDRs, privateRanges, externalRanges)
 }
 
@@ -65,7 +86,10 @@ func CustomIPBlocksInfo(t *testing.T) {
 	var ipBlockRanges []model.IpPoolRange
 	var ipBlockCidr string
 	ipBlockName := "ipblocksinfo-test-10.0.0.0-netmask-28"
-	if enableIPRangesCIDRs {
+
+	// Get enableIPRangesCIDRs first to determine which path to take
+	_, _, _, _, enableIPRanges := getDefaultIPBlocksCidrs(t)
+	if enableIPRanges {
 		ipBlockCidrs = []string{"10.0.0.0/28", "10.0.1.0/28"}
 		ipBlockRanges = []model.IpPoolRange{{Start: stringPointer("10.0.2.0"), End: stringPointer("10.0.2.15")},
 			{Start: stringPointer("10.0.2.50"), End: stringPointer("10.0.2.60")}}
@@ -135,7 +159,7 @@ func CustomIPBlocksInfo(t *testing.T) {
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	privateTGWIPCIDRs, externalIPCIDRs, privateRanges, externalRanges := getDefaultIPBlocksCidrs(t)
+	privateTGWIPCIDRs, externalIPCIDRs, privateRanges, externalRanges, _ := getDefaultIPBlocksCidrs(t)
 	defer func() {
 		// Delete VPCNetworkConfigurations and check
 		log.Info("Deleting VPCNetworkConfigurations", "vpcConfigName", vpcConfigName)
@@ -146,7 +170,7 @@ func CustomIPBlocksInfo(t *testing.T) {
 
 	// Check IPBlocksInfo
 	var updatedPrivateTGWIPCIDRs []string
-	if enableIPRangesCIDRs {
+	if enableIPRanges {
 		updatedPrivateTGWIPCIDRs = append(privateTGWIPCIDRs, ipBlockCidrs...)
 		var updatePrivateRanges = privateRanges
 		for _, r := range ipBlockRanges {
@@ -160,7 +184,7 @@ func CustomIPBlocksInfo(t *testing.T) {
 	}
 }
 
-func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, externalIPCIDRs []string, privateRanges []v1alpha1.IPPoolRange, externalRanges []v1alpha1.IPPoolRange) {
+func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, externalIPCIDRs []string, privateRanges []v1alpha1.IPPoolRange, externalRanges []v1alpha1.IPPoolRange, enableIPRanges bool) {
 	vpcProfile, err := testData.nsxClient.VPCConnectivityProfilesClient.Get(defaultOrg, defaultProject, defaultVPCProfile)
 	require.NoError(t, err)
 
@@ -171,7 +195,7 @@ func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, external
 	for _, ipblock := range res {
 		if util.Contains(vpcProfile.ExternalIpBlocks, *ipblock.Path) {
 			if len(ipblock.Ranges) != 0 {
-				enableIPRangesCIDRs = true
+				enableIPRanges = true
 				for _, r := range ipblock.Ranges {
 					ipRange := v1alpha1.IPPoolRange{
 						Start: *r.Start,
@@ -181,17 +205,17 @@ func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, external
 				}
 			}
 			if len(ipblock.Cidrs) != 0 {
-				enableIPRangesCIDRs = true
+				enableIPRanges = true
 				externalIPCIDRs = append(externalIPCIDRs, ipblock.Cidrs...)
 			}
-			if !enableIPRangesCIDRs && ipblock.Cidr != nil { //nolint:staticcheck //ipblock.Cidr is deprecated
+			if !enableIPRanges && ipblock.Cidr != nil { //nolint:staticcheck //ipblock.Cidr is deprecated
 				externalIPCIDRs = append(externalIPCIDRs, *ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
 			}
 
 		}
 		if util.Contains(vpcProfile.PrivateTgwIpBlocks, *ipblock.Path) {
 			if len(ipblock.Ranges) != 0 {
-				enableIPRangesCIDRs = true
+				enableIPRanges = true
 				for _, r := range ipblock.Ranges {
 					ipRange := v1alpha1.IPPoolRange{
 						Start: *r.Start,
@@ -201,10 +225,10 @@ func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, external
 				}
 			}
 			if len(ipblock.Cidrs) != 0 {
-				enableIPRangesCIDRs = true
+				enableIPRanges = true
 				privateTGWIPCIDRs = append(privateTGWIPCIDRs, ipblock.Cidrs...)
 			}
-			if !enableIPRangesCIDRs && ipblock.Cidr != nil { //nolint:staticcheck //ipblock.Cidr is deprecated
+			if !enableIPRanges && ipblock.Cidr != nil { //nolint:staticcheck //ipblock.Cidr is deprecated
 				privateTGWIPCIDRs = append(privateTGWIPCIDRs, *ipblock.Cidr) //nolint:staticcheck //ipblock.Cidr is deprecated
 			}
 		}

@@ -114,9 +114,8 @@ func createHttpClient() *http.Client {
 	return &http.Client{Transport: transport, Timeout: time.Minute}
 }
 
-func (c *vcClient) startSession() error {
-	c.sessionMutex.Lock()
-	defer c.sessionMutex.Unlock()
+// startSessionLocked creates a new session. Caller must hold sessionMutex.
+func (c *vcClient) startSessionLocked() error {
 	if c.sessionKey == "" {
 		url := fmt.Sprintf("%s://%s%s", c.url.Scheme, c.url.Host, sessionURLPath)
 		request, err := http.NewRequest(http.MethodPost, url, nil)
@@ -133,32 +132,25 @@ func (c *vcClient) startSession() error {
 		}
 
 		c.sessionKey = sessionData
+		log.Info("Created new vCenter session")
 	}
 	return nil
 }
 
-func (c *vcClient) closeSession() error {
+// ensureSession ensures a valid session exists, creating one if needed.
+// This is the preferred method for API calls - it handles session reuse automatically.
+func (c *vcClient) ensureSession() error {
 	c.sessionMutex.Lock()
 	defer c.sessionMutex.Unlock()
-	if c.sessionKey == "" {
-		return nil
-	}
-	request, err := c.prepareRequest(http.MethodDelete, sessionURLPath, nil)
-	if err != nil {
-		return err
-	}
 
-	if _, err = c.handleRequest(request, nil); err != nil {
-		return err
+	if c.sessionKey != "" {
+		return nil // Session already exists, reuse it
 	}
-
-	c.sessionKey = ""
-	return nil
+	return c.startSessionLocked()
 }
 
 func (c *vcClient) getSupervisorID() (string, error) {
-	err := c.startSession()
-	if err != nil {
+	if err := c.ensureSession(); err != nil {
 		return "", err
 	}
 	urlPath := "/api/vcenter/namespace-management/supervisors/summaries"
@@ -183,8 +175,7 @@ func (c *vcClient) getSupervisorID() (string, error) {
 }
 
 func (c *vcClient) getStoragePolicyID() (string, string, error) {
-	err := c.startSession()
-	if err != nil {
+	if err := c.ensureSession(); err != nil {
 		return "", "", err
 	}
 
@@ -231,8 +222,7 @@ func (c *vcClient) getClusterVirtualMachineImage() (string, error) {
 
 // Get the first content library ID by default
 func (c *vcClient) getContentLibraryID() (string, error) {
-	err := c.startSession()
-	if err != nil {
+	if err := c.ensureSession(); err != nil {
 		return "", err
 	}
 
@@ -256,6 +246,9 @@ func (c *vcClient) getContentLibraryID() (string, error) {
 }
 
 func (c *vcClient) createNamespaceWithPreCreatedVPC(namespace string, vpcPath string, supervisorID string) error {
+	if err := c.ensureSession(); err != nil {
+		return err
+	}
 	vcNamespace := createVCNamespaceSpec(namespace, supervisorID, vpcPath)
 	data, err := json.Marshal(vcNamespace)
 	if err != nil {
@@ -272,6 +265,9 @@ func (c *vcClient) createNamespaceWithPreCreatedVPC(namespace string, vpcPath st
 }
 
 func (c *vcClient) getNamespaceInfoByName(namespace string) (*VCNamespaceGetInfo, int, error) {
+	if err := c.ensureSession(); err != nil {
+		return nil, 0, err
+	}
 	urlPath := fmt.Sprintf("/api/vcenter/namespaces/instances/v2/%s", namespace)
 	request, err := c.prepareRequest(http.MethodGet, urlPath, nil)
 	if err != nil {
@@ -286,6 +282,9 @@ func (c *vcClient) getNamespaceInfoByName(namespace string) (*VCNamespaceGetInfo
 }
 
 func (c *vcClient) deleteNamespace(namespace string) error {
+	if err := c.ensureSession(); err != nil {
+		return err
+	}
 	urlPath := fmt.Sprintf("/api/vcenter/namespaces/instances/%s", namespace)
 	request, err := c.prepareRequest(http.MethodDelete, urlPath, nil)
 	if err != nil {
