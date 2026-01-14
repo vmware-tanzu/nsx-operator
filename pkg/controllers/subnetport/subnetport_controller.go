@@ -127,7 +127,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 
 		var labels *map[string]string
-		vm, nicName, err := r.getVirtualMachine(ctx, subnetPort)
+		vm, nicName, err := r.getVirtualMachine(ctx, subnetPort, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get labels from VirtualMachine", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
@@ -888,7 +888,7 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 	return nil
 }
 
-func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*vmv1alpha1.VirtualMachine, string, error) {
+func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort *v1alpha1.SubnetPort, restoreMode bool) (*vmv1alpha1.VirtualMachine, string, error) {
 	vmName, nicName, err := common.GetVirtualMachineNameForSubnetPort(subnetPort)
 	if vmName == "" || err != nil {
 		return nil, "", err
@@ -898,7 +898,15 @@ func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort
 		Name:      vmName,
 		Namespace: subnetPort.Namespace,
 	}
-	if err := r.Client.Get(ctx, namespacedName, vm); err != nil {
+	// vmoperator webhook may be down if cpvm network is not restored
+	// In this case, using Get function from cache Client might be stuck
+	// as controller manager keeps retrying as informer sync never succeeds
+	if restoreMode {
+		err = r.APIReader.Get(ctx, namespacedName, vm)
+	} else {
+		err = r.Client.Get(ctx, namespacedName, vm)
+	}
+	if err != nil {
 		return nil, "", err
 	}
 	log.Info("Got VirtualMachine for SubnetPort", "subnetPort.UID", subnetPort.UID, "vmName", vmName, "nicName", nicName, "labels", vm.ObjectMeta.Labels)
