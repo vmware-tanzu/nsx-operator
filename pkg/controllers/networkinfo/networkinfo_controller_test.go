@@ -967,8 +967,153 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
 					})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
 					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) {
+						require.Equal(t, "", nsxLBSPath)
+						require.Equal(t, "vpc-name", vpcName)
+					})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultNormal,
+			wantErr: false,
+		},
+		{
+			name: "Pre-create VPC without attachment with AVILB enabled",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
+					return "pre-vpc-nc", nil
+				})
+				// Return empty connectivity profile path to simulate VPC without attachment
+				patches.ApplyMethod(reflect.TypeOf(r), "GetVpcConnectivityProfilePathByVpcPath", func(_ *NetworkInfoReconciler, _ string) (string, error) {
+					return "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							NSXProject: "/orgs/default/projects/project-quality",
+							VPC:        "/orgs/default/projects/nsx_operator_e2e_test/vpcs/pre-vpc",
+						},
+					}, true, nil
+				})
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+					return true, ""
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+					return vpc.AVILB, nil
+				})
+				// Return VPC with LoadBalancerVpcEndpoint.Enabled = true to trigger AVI LB path retrieval
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
+					return &model.Vpc{
+						DisplayName: servicecommon.String("vpc-name"),
+						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:          servicecommon.String("vpc-id"),
+						LoadBalancerVpcEndpoint: &model.LoadBalancerVPCEndpoint{
+							Enabled: servicecommon.Bool(true),
+						},
+					}, nil
+				})
+				// GetAVISubnetInfo should be called even without connectivity profile
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetAVISubnetInfo", func(_ *vpc.VPCService, _ model.Vpc) (string, string, error) {
+					return "/orgs/default/projects/project-quality/vpcs/fake-vpc/subnets/avi-subnet", "100.64.0.0/24", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyFunc(setNSNetworkReadyCondition,
+					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
+						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
+					})
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
+					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) {
+						// aviSubnetPath should be set even without connectivity profile
+						require.Equal(t, "/orgs/default/projects/project-quality/vpcs/fake-vpc/subnets/avi-subnet", aviSubnetPath)
+						require.Equal(t, "", nsxLBSPath)
+						require.Equal(t, "vpc-name", vpcName)
+					})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultNormal,
+			wantErr: false,
+		},
+		{
+			name: "Pre-create VPC without attachment with NSXLB",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
+					return "pre-vpc-nc", nil
+				})
+				// Return empty connectivity profile path to simulate VPC without attachment
+				patches.ApplyMethod(reflect.TypeOf(r), "GetVpcConnectivityProfilePathByVpcPath", func(_ *NetworkInfoReconciler, _ string) (string, error) {
+					return "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							NSXProject: "/orgs/default/projects/project-quality",
+							VPC:        "/orgs/default/projects/nsx_operator_e2e_test/vpcs/pre-vpc",
+						},
+					}, true, nil
+				})
+				patches.ApplyFunc(getGatewayConnectionStatus, func(_ *v1alpha1.VPCNetworkConfiguration) (bool, string) {
+					return true, ""
+				})
+				// Use NSXLB provider to verify GetLBSsFromNSXByVPC is NOT called when connectivity profile is empty
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+					return vpc.NSXLB, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
+					return &model.Vpc{
+						DisplayName: servicecommon.String("vpc-name"),
+						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+						Id:          servicecommon.String("vpc-id"),
+					}, nil
+				})
+				// This should NOT be called when vpcConnectivityProfilePath is empty
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBSsFromNSXByVPC", func(_ *vpc.VPCService, _ string) (string, error) {
+					assert.FailNow(t, "GetLBSsFromNSXByVPC should not be called when vpcConnectivityProfilePath is empty")
+					return "", nil
+				})
+				// This should NOT be called when vpcConnectivityProfilePath is empty
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
+					assert.FailNow(t, "GetNSXLBSNATIP should not be called when vpcConnectivityProfilePath is empty")
+					return "", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyFunc(setNSNetworkReadyCondition,
+					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
+						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
+					})
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
+					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) {
+						// nsxLBSPath should be empty since GetLBSsFromNSXByVPC was not called
 						require.Equal(t, "", nsxLBSPath)
 						require.Equal(t, "vpc-name", vpcName)
 					})
