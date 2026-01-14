@@ -374,10 +374,11 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 		if ncName == commonservice.SystemVPCNetworkConfigurationName {
-			log.Info("Got the AutoSnat status", "autoSnatEnabled", autoSnatEnabled, "NetworkInfo", req.NamespacedName)
-			setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, systemVpcNetCfg, autoSnatEnabled)
-			if !autoSnatEnabled && !retryWithSystemVPC {
-				log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "autoSnatEnabled", autoSnatEnabled, "req", req)
+			log.Info("Got the AutoSnat status", "autoSnatEnabled", autoSnatEnabled, "networkStack", networkStack, "NetworkInfo", req.NamespacedName)
+			setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, systemVpcNetCfg, autoSnatEnabled, networkStack)
+			// No need to update namespace condition when AutoSnat is false for Tepless mode
+			if !autoSnatEnabled && networkStack == v1alpha1.FullStackVPC && !retryWithSystemVPC {
+				log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "autoSnatEnabled", autoSnatEnabled, "networkStack", networkStack, "req", req)
 				retryWithSystemVPC = true
 				systemNSCondition = nsMsgVPCAutoSNATDisabled.getNSNetworkCondition()
 			}

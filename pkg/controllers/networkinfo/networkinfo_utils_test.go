@@ -104,6 +104,7 @@ func TestSetVPCNetworkConfigurationStatusWithSnatEnabled(t *testing.T) {
 		name                    string
 		prepareFunc             func(*testing.T, context.Context, client.Client, string, bool, *v1alpha1.VPCNetworkConfiguration) *gomonkey.Patches
 		autoSnatEnabled         bool
+		networkStack            v1alpha1.NetworkStackType
 		expectedConditionType   v1alpha1.ConditionType
 		expectedConditionStatus corev1.ConditionStatus
 		expectedConditionReason string
@@ -123,9 +124,10 @@ func TestSetVPCNetworkConfigurationStatusWithSnatEnabled(t *testing.T) {
 			expectedConditionType:   v1alpha1.AutoSnatEnabled,
 			expectedConditionStatus: corev1.ConditionTrue,
 			expectedConditionReason: "",
+			networkStack:            v1alpha1.FullStackVPC,
 		},
 		{
-			name: "AutoSnatDisabled",
+			name: "AutoSnatDisabled for TEP mode",
 			prepareFunc: func(_ *testing.T, ctx context.Context, client client.Client, _ string, _ bool, nc *v1alpha1.VPCNetworkConfiguration) (patches *gomonkey.Patches) {
 				assert.NoError(t, client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
 					ObjectMeta: metav1.ObjectMeta{
@@ -138,6 +140,24 @@ func TestSetVPCNetworkConfigurationStatusWithSnatEnabled(t *testing.T) {
 			autoSnatEnabled:         false,
 			expectedConditionType:   v1alpha1.AutoSnatEnabled,
 			expectedConditionStatus: corev1.ConditionFalse,
+			networkStack:            v1alpha1.FullStackVPC,
+		},
+		{
+			name: "AutoSnatDisabled for TEPLess mode",
+			prepareFunc: func(_ *testing.T, ctx context.Context, client client.Client, _ string, _ bool, nc *v1alpha1.VPCNetworkConfiguration) (patches *gomonkey.Patches) {
+				assert.NoError(t, client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "ncName",
+					},
+				}))
+				patches = &gomonkey.Patches{}
+				return patches
+			},
+			autoSnatEnabled:         false,
+			expectedConditionType:   v1alpha1.AutoSnatEnabled,
+			expectedConditionStatus: corev1.ConditionFalse,
+			networkStack:            v1alpha1.VLANBackedVPC,
+			expectedConditionReason: common.ReasonSNATNotSupportedInTEPLess,
 		},
 	}
 	for _, tt := range tests {
@@ -155,9 +175,10 @@ func TestSetVPCNetworkConfigurationStatusWithSnatEnabled(t *testing.T) {
 				patches := tt.prepareFunc(t, ctx, client, "ncName", tt.autoSnatEnabled, actualCR)
 				defer patches.Reset()
 			}
-			setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, client, actualCR, tt.autoSnatEnabled)
+			setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, client, actualCR, tt.autoSnatEnabled, tt.networkStack)
 			assert.Equal(t, tt.expectedConditionType, actualCR.Status.Conditions[0].Type)
 			assert.Equal(t, tt.expectedConditionStatus, actualCR.Status.Conditions[0].Status)
+			assert.Equal(t, tt.expectedConditionReason, actualCR.Status.Conditions[0].Reason)
 		})
 	}
 }
