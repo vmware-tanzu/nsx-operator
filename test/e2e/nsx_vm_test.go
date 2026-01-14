@@ -22,18 +22,8 @@ func testCreateVMBasic(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := fmt.Sprintf("test-create-vm-basic-%s", getRandomString())
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
+	// Use pre-created namespace
+	ns := NsCreateVM
 
 	// Create public vm
 	storageClassName, storagePolicyID, _ := testData.vcClient.getStoragePolicyID()

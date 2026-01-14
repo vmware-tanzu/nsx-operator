@@ -16,9 +16,7 @@ import (
 )
 
 var (
-	lbNs          = fmt.Sprintf("test-lb-%s", getRandomString())
 	port          = int32(80)
-	podNs         = fmt.Sprintf("test-pod-%s", getRandomString())
 	sourcePodName = fmt.Sprintf("test-source-pod-%s", getRandomString())
 	host          = "coffee.example.com"
 )
@@ -41,33 +39,18 @@ type ingress struct {
 	secretName     string
 }
 
-func prepareNS(t *testing.T, ns string) {
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-}
-func destroyNS(t *testing.T, ns string) {
-	err := testData.deleteVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to delete VC namespace: %v", err)
-	}
-}
-
 func TestLoadBalancer(t *testing.T) {
-	prepareNS(t, lbNs)
-	defer destroyNS(t, lbNs)
-	prepareNS(t, podNs)
-	defer destroyNS(t, podNs)
+	// Use pre-created namespaces
+	lbNs := NsLoadBalancerLB
+	podNs := NsLoadBalancerPod
 
 	createPodAndWaitingRunning(t, sourcePodName, podNs)
 	t.Run("testIngress", func(t *testing.T) {
-		testIngress(t)
+		testIngress(t, lbNs, podNs)
 	})
 	t.Run("testUpdateServiceVIP", func(t *testing.T) {
-		testUpdateSvcIP(t)
+		testUpdateSvcIP(t, lbNs, podNs)
 	})
-
 }
 
 func waitForIngressReady(t *testing.T, ingressName string, ns string) string {
@@ -195,7 +178,7 @@ func getNthIPFromCIDR(cidr string, n int) (string, error) {
 	return resultIP.String(), nil
 }
 
-func testUpdateSvcIP(t *testing.T) {
+func testUpdateSvcIP(t *testing.T, lbNs, podNs string) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 	coffeeSvc := backendSvc{
@@ -243,7 +226,7 @@ func testUpdateSvcIP(t *testing.T) {
 	require.NoError(t, trafficErr, "Service traffic should work")
 }
 
-func testIngress(t *testing.T) {
+func testIngress(t *testing.T, lbNs, podNs string) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 

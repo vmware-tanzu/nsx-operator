@@ -106,33 +106,11 @@ func TestSubnetSet(t *testing.T) {
 }
 
 func TestSubnetPrecreated(t *testing.T) {
-	// Create three namespaces: precreatedSubnetNs1, precreatedSubnetNs2, and precreatedSubnetNsTargetNs
-	err := testData.createVCNamespace(precreatedSubnetNs1)
-	require.NoError(t, err)
-	defer func() {
-		err := testData.deleteVCNamespace(precreatedSubnetNs1)
-		if err != nil {
-			t.Logf("Failed to delete VC namespace %s: %v", precreatedSubnetNs1, err)
-		}
-	}()
-
-	err = testData.createVCNamespace(precreatedSubnetNs2)
-	require.NoError(t, err)
-	defer func() {
-		err := testData.deleteVCNamespace(precreatedSubnetNs2)
-		if err != nil {
-			t.Logf("Failed to delete VC namespace %s: %v", precreatedSubnetNs2, err)
-		}
-	}()
-
-	err = testData.createVCNamespace(precreatedSubnetNsTargetNs)
-	require.NoError(t, err)
-	defer func() {
-		err := testData.deleteVCNamespace(precreatedSubnetNsTargetNs)
-		if err != nil {
-			t.Logf("Failed to delete VC namespace %s: %v", precreatedSubnetNsTargetNs, err)
-		}
-	}()
+	// Use pre-created namespaces instead of creating new ones
+	// Map the old variable names to pre-created namespace names
+	precreatedSubnetNs1 = NsSubnetPrecreated1
+	precreatedSubnetNs2 = NsSubnetPrecreated2
+	precreatedSubnetNsTargetNs = NsSubnetPrecreatedTarget
 
 	t.Run("case=PrecreatedSubnetBasic", PrecreatedSharedSubnetBasic)
 	t.Run("case=PrecreatedSubnetRemovePath", PrecreatedSharedSubnetRemovePath)

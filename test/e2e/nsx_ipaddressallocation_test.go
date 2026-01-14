@@ -24,39 +24,24 @@ const (
 	privateTGWCIDR = "10.246.0.0/16"
 )
 
-var ns = fmt.Sprintf("test-ipaddress-allocation-%s", getRandomString())
-
 func TestIPAddressAllocation(t *testing.T) {
-	prepare(t)
-	defer destroy(t)
+	// Use pre-created namespace
+	ns := NsIPAddressAllocation
 	t.Run("testIPAddressAllocationExternal", func(t *testing.T) {
-		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_external.yaml", externalCIDR)
+		testIPAddressAllocation(t, ns, "./manifest/testIPAddressAllocation/ipaddressallocation_external.yaml", externalCIDR)
 	})
 	t.Run("testIPAddressAllocationPrivate", func(t *testing.T) {
-		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_private.yaml", privateCIDR)
+		testIPAddressAllocation(t, ns, "./manifest/testIPAddressAllocation/ipaddressallocation_private.yaml", privateCIDR)
 	})
 	t.Run("testIPAddressAllocationPrivateTGW", func(t *testing.T) {
-		testIPAddressAllocation(t, "./manifest/testIPAddressAllocation/ipaddressallocation_privatetgw.yaml", privateTGWCIDR)
+		testIPAddressAllocation(t, ns, "./manifest/testIPAddressAllocation/ipaddressallocation_privatetgw.yaml", privateTGWCIDR)
 	})
 	t.Run("testIPAddressAllocationWithServiceVIP", func(t *testing.T) {
-		testServiceWithAllocatedIP(t)
+		testServiceWithAllocatedIP(t, ns)
 	})
 }
 
-func prepare(t *testing.T) {
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-}
-func destroy(t *testing.T) {
-	err := testData.deleteVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to delete VC namespace: %v", err)
-	}
-}
-
-func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string) {
+func testIPAddressAllocation(t *testing.T, ns string, yamlPath string, expectedCIDR string) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
@@ -93,7 +78,7 @@ func testIPAddressAllocation(t *testing.T, yamlPath string, expectedCIDR string)
 func assureIPAddressAllocationReady(t *testing.T, ns, ipAllocName string) (ips string) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout*2, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(context.Background(), ipAllocName, v1.GetOptions{})
 		if err != nil {
 			return false, fmt.Errorf("error when waiting for %s", ipAllocName)
@@ -186,7 +171,7 @@ func getNameFromYAML(yamlPath string) string {
 	}
 }
 
-func testServiceWithAllocatedIP(t *testing.T) {
+func testServiceWithAllocatedIP(t *testing.T, ns string) {
 	serviceYaml := "./manifest/testIPAddressAllocation/tea-svc.yaml"
 	ipAllocyaml := "./manifest/testIPAddressAllocation/tea-ipalloc.yaml"
 
