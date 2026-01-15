@@ -84,6 +84,29 @@ webhooks:
     - v1alpha1
     operations:
     - DELETE
+    - UPDATE
+    - CREATE
     resources:
     - ipaddressallocations
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: vmware-system-nsx-operator-webhook-service
+      namespace: vmware-system-nsx
+      path: /validate-crd-nsx-vmware-com-v1alpha1-staticroute
+  failurePolicy: Fail
+  name: staticroute.validating.crd.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - crd.nsx.vmware.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - staticroutes
   sideEffects: None

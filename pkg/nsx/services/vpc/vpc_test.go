@@ -64,6 +64,7 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 
 	mockCtrl := gomock.NewController(t)
 	mockVpcclient := mocks.NewMockVpcsClient(mockCtrl)
+	fakeAttachmentClient := &fakeVpcAttachmentClient{}
 	mockTransitStateClient := mock_stateclient.NewMockStateClient(mockCtrl)
 	k8sClient := mock_client.NewMockClient(mockCtrl)
 
@@ -85,9 +86,10 @@ func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVp
 		Service: common.Service{
 			Client: k8sClient,
 			NSXClient: &nsx.Client{
-				QueryClient:   &fakeQueryClient{},
-				VPCClient:     mockVpcclient,
-				RestConnector: rc,
+				QueryClient:         &fakeQueryClient{},
+				VPCClient:           mockVpcclient,
+				VpcAttachmentClient: fakeAttachmentClient,
+				RestConnector:       rc,
 				NsxConfig: &config.NSXOperatorConfig{
 					CoeConfig: &config.CoeConfig{
 						Cluster: "k8scl-one:test",
@@ -992,7 +994,7 @@ func TestIsLBProviderChanged(t *testing.T) {
 
 type mockStateClientSetup func(client *mock_stateclient.MockStateClient)
 
-func TestGetNetworkStackFromProfile(t *testing.T) {
+func TestGetNetworkStackFromTGW(t *testing.T) {
 	service, _, _, _, mockStateClient := createService(t)
 
 	full := "FULL_STACK_VPC"
@@ -1017,7 +1019,7 @@ func TestGetNetworkStackFromProfile(t *testing.T) {
 			expectStack: v1alpha1.FullStackVPC,
 			profile: &model.VpcConnectivityProfile{
 				ParentPath:         common.String("/orgs/default/projects/project"),
-				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+				TransitGatewayPath: common.String("/orgs/default/projects/project/transit-gateways/tg1"),
 			},
 		},
 		{
@@ -1032,7 +1034,7 @@ func TestGetNetworkStackFromProfile(t *testing.T) {
 			expectStack: v1alpha1.VLANBackedVPC,
 			profile: &model.VpcConnectivityProfile{
 				ParentPath:         common.String("/orgs/default/projects/project"),
-				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+				TransitGatewayPath: common.String("/orgs/default/projects/project/transit-gateways/tg1"),
 			},
 		},
 		{
@@ -1047,7 +1049,7 @@ func TestGetNetworkStackFromProfile(t *testing.T) {
 			expectErrLike: "backend failure",
 			profile: &model.VpcConnectivityProfile{
 				ParentPath:         common.String("/orgs/default/projects/project"),
-				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+				TransitGatewayPath: common.String("/orgs/default/projects/project/transit-gateways/tg1"),
 			},
 		},
 		{
@@ -1057,12 +1059,12 @@ func TestGetNetworkStackFromProfile(t *testing.T) {
 			profile:          nil,
 		},
 		{
-			name:             "profile path is bad format",
-			expectErrLike:    "invalid NSX project path",
+			name:             "TGW path is nil",
+			expectErrLike:    "profile.TransitGatewayPath is nil",
 			mockExpectations: func(client *mock_stateclient.MockStateClient) {},
 			profile: &model.VpcConnectivityProfile{
 				ParentPath:         common.String("/orgs/default/"),
-				TransitGatewayPath: common.String("/infra/transit-gateways/tg1"),
+				TransitGatewayPath: nil,
 			},
 		},
 	}
@@ -1071,7 +1073,7 @@ func TestGetNetworkStackFromProfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// set the fake client
 			tc.mockExpectations(mockStateClient)
-			stack, err := service.GetNetworkStackFromProfile(tc.profile)
+			stack, err := service.GetNetworkStackFromTGW(tc.profile)
 			if tc.expectErrLike != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectErrLike)
@@ -2970,7 +2972,7 @@ func TestGetNetworkStackFromNC(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "GetVpcConnectivityProfile", func(s *VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
 					return &model.VpcConnectivityProfile{}, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(service), "GetNetworkStackFromProfile", func(s *VPCService, _ *model.VpcConnectivityProfile) (v1alpha1.NetworkStackType, error) {
+				patches.ApplyMethod(reflect.TypeOf(service), "GetNetworkStackFromTGW", func(s *VPCService, _ *model.VpcConnectivityProfile) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
@@ -3039,6 +3041,114 @@ func TestGetNetworkStackFromNC(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tt.expectStackType, resultStack)
+		})
+	}
+}
+
+type fakeVpcAttachmentClient struct{}
+
+func (c *fakeVpcAttachmentClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcAttachmentListResult, error) {
+	return model.VpcAttachmentListResult{}, nil
+}
+
+func (c *fakeVpcAttachmentClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) (model.VpcAttachment, error) {
+	return model.VpcAttachment{}, nil
+}
+
+func (c *fakeVpcAttachmentClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) error {
+	return nil
+}
+
+func (c *fakeVpcAttachmentClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string, vpcAttachmentParam model.VpcAttachment) (model.VpcAttachment, error) {
+	return model.VpcAttachment{}, nil
+}
+
+func (c *fakeVpcAttachmentClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, vpcAttachmentIdParam string) error {
+	return nil
+}
+
+func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing.T) {
+
+	tests := []struct {
+		name        string
+		vpcPath     string
+		prepareFunc func(*testing.T, *VPCService, context.Context) *gomonkey.Patches
+		want        string
+		wantErr     bool
+	}{
+		{
+			name:    "Invalid VPC Path",
+			vpcPath: "/invalid/path",
+			prepareFunc: func(t *testing.T, service *VPCService, ctx context.Context) *gomonkey.Patches {
+				return nil
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "Failed to list VPC attachment",
+			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
+			prepareFunc: func(t *testing.T, service *VPCService, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+					return model.VpcAttachmentListResult{}, fmt.Errorf("list error")
+				})
+				return patches
+			},
+			want:    "",
+			wantErr: true,
+		},
+		{
+			name:    "No VPC attachment found",
+			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
+			prepareFunc: func(t *testing.T, service *VPCService, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+					return model.VpcAttachmentListResult{Results: []model.VpcAttachment{}}, nil
+				})
+				return patches
+			},
+			want:    "",
+			wantErr: false,
+		},
+		{
+			name:    "Successful VPC attachment retrieval",
+			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
+			prepareFunc: func(t *testing.T, service *VPCService, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+					return model.VpcAttachmentListResult{
+						Results: []model.VpcAttachment{
+							{
+								VpcConnectivityProfile: common.String("/orgs/default/projects/project-quality/vpc-connectivity-profiles/default"),
+								ParentPath:             common.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
+								Path:                   common.String("/orgs/default/projects/project-quality/vpcs/fake-vpc/attachments/default"),
+							},
+						},
+					}, nil
+				})
+				return patches
+			},
+			want:    "/orgs/default/projects/project-quality/vpc-connectivity-profiles/default",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service, _, _, _, _ := createService(t)
+			ctx := context.TODO()
+			if tt.prepareFunc != nil {
+				patches := tt.prepareFunc(t, service, ctx)
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+			got, err := service.GetVpcConnectivityProfilePathByVpcPath(tt.vpcPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetVpcConnectivityProfilePathByVpcPath() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetVpcConnectivityProfilePathByVpcPath() got = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }

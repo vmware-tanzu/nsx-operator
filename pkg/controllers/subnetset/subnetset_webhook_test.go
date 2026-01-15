@@ -3,6 +3,7 @@ package subnetset
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -13,10 +14,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -76,6 +79,7 @@ func TestSubnetSetValidator(t *testing.T) {
 		},
 		Spec: v1alpha1.SubnetSetSpec{
 			IPv4SubnetSize: 32,
+			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 		},
 	}
 
@@ -130,43 +134,48 @@ func TestSubnetSetValidator(t *testing.T) {
 	defer patches.Reset()
 
 	testcases := []struct {
-		name         string
-		op           admissionv1.Operation
-		oldSubnetSet *v1alpha1.SubnetSet
-		subnetSet    *v1alpha1.SubnetSet
-		user         string
-		isAllowed    bool
-		msg          string
+		name            string
+		op              admissionv1.Operation
+		oldSubnetSet    *v1alpha1.SubnetSet
+		subnetSet       *v1alpha1.SubnetSet
+		user            string
+		isAllowed       bool
+		msg             string
+		accessModeCheck bool
 	}{
 		{
-			name:      "Create default SubnetSet with NSXOperatorSA user",
-			op:        admissionv1.Create,
-			subnetSet: defaultSubnetSet,
-			user:      NSXOperatorSA,
-			isAllowed: true,
+			name:            "Create default SubnetSet with NSXOperatorSA user",
+			op:              admissionv1.Create,
+			subnetSet:       defaultSubnetSet,
+			user:            NSXOperatorSA,
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:      "Create default SubnetSet(with default label) with NSXOperatorSA user",
-			op:        admissionv1.Create,
-			subnetSet: defaultSubnetSet1,
-			user:      NSXOperatorSA,
-			isAllowed: true,
+			name:            "Create default SubnetSet(with default label) with NSXOperatorSA user",
+			op:              admissionv1.Create,
+			subnetSet:       defaultSubnetSet1,
+			user:            NSXOperatorSA,
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:      "Create default SubnetSet without NSXOperatorSA user",
-			op:        admissionv1.Create,
-			subnetSet: defaultSubnetSet,
-			user:      "fake-user",
-			isAllowed: false,
-			msg:       "default SubnetSet only can be created by nsx-operator",
+			name:            "Create default SubnetSet without NSXOperatorSA user",
+			op:              admissionv1.Create,
+			subnetSet:       defaultSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			msg:             "default SubnetSet only can be created by nsx-operator",
+			accessModeCheck: true,
 		},
 		{
-			name:      "Create default SubnetSet with invalid IPv4SubnetSize",
-			op:        admissionv1.Create,
-			subnetSet: invalidSubnetSet,
-			user:      NSXOperatorSA,
-			isAllowed: false,
-			msg:       "SubnetSet ns-1/fake-subnetset has invalid size 24: Subnet size must be a power of 2",
+			name:            "Create default SubnetSet with invalid IPv4SubnetSize",
+			op:              admissionv1.Create,
+			subnetSet:       invalidSubnetSet,
+			user:            NSXOperatorSA,
+			isAllowed:       false,
+			msg:             "SubnetSet ns-1/fake-subnetset has invalid size 24: Subnet size must be a power of 2",
+			accessModeCheck: true,
 		},
 		{
 			name: "Create SubnetSet with Subnets belong to the same VPC",
@@ -180,8 +189,9 @@ func TestSubnetSetValidator(t *testing.T) {
 					SubnetNames: []string{"subnet-1", "subnet-3"},
 				},
 			},
-			user:      "fake-user",
-			isAllowed: true,
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
 			name: "Create SubnetSet with Subnets belong to 2 VPCs",
@@ -223,126 +233,150 @@ func TestSubnetSetValidator(t *testing.T) {
 			isAllowed: false,
 		},
 		{
-			name:      "Create normal SubnetSet",
-			op:        admissionv1.Create,
-			subnetSet: subnetSet,
-			user:      "fake-user",
-			isAllowed: true,
+			name:            "Create normal SubnetSet",
+			op:              admissionv1.Create,
+			subnetSet:       subnetSet,
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Delete default SubnetSet with NSXOperatorSA user",
-			op:           admissionv1.Delete,
-			oldSubnetSet: defaultSubnetSet,
-			user:         NSXOperatorSA,
-			isAllowed:    true,
+			name:            "Create normal SubnetSet accessmode not allowed",
+			op:              admissionv1.Create,
+			subnetSet:       subnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			accessModeCheck: false,
 		},
 		{
-			name:         "Delete default SubnetSet(with default label) with NSXOperatorSA user",
-			op:           admissionv1.Delete,
-			oldSubnetSet: defaultSubnetSet1,
-			user:         NSXOperatorSA,
-			isAllowed:    true,
+			name:            "Delete default SubnetSet with NSXOperatorSA user",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    defaultSubnetSet,
+			user:            NSXOperatorSA,
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Delete default SubnetSet without NSXOperatorSA user",
-			op:           admissionv1.Delete,
-			oldSubnetSet: defaultSubnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
-			msg:          "default SubnetSet only can be deleted by nsx-operator",
+			name:            "Delete default SubnetSet(with default label) with NSXOperatorSA user",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    defaultSubnetSet1,
+			user:            NSXOperatorSA,
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Delete normal SubnetSet",
-			op:           admissionv1.Delete,
-			oldSubnetSet: subnetSet,
-			user:         "fake-user",
-			isAllowed:    true,
+			name:            "Delete default SubnetSet without NSXOperatorSA user",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    defaultSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			msg:             "default SubnetSet only can be deleted by nsx-operator",
+			accessModeCheck: true,
 		},
 		{
-			name:         "Delete SubnetSet with stale SubnetPort",
-			op:           admissionv1.Delete,
-			oldSubnetSet: subnetSetWithStalePorts,
-			user:         "fake-user",
-			isAllowed:    false,
-			msg:          "SubnetSet ns-1/subnetset-1 with stale SubnetPorts cannot be deleted",
+			name:            "Delete normal SubnetSet",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    subnetSet,
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Delete SubnetSet with stale SubnetPort by nsx-operator",
-			op:           admissionv1.Delete,
-			oldSubnetSet: subnetSetWithStalePorts,
-			user:         NSXOperatorSA,
-			isAllowed:    true,
+			name:            "Delete SubnetSet with stale SubnetPort",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    subnetSetWithStalePorts,
+			user:            "fake-user",
+			isAllowed:       false,
+			msg:             "SubnetSet ns-1/subnetset-1 with stale SubnetPorts cannot be deleted",
+			accessModeCheck: true,
 		},
 		{
-			name:         "Update normal SubnetSet",
-			op:           admissionv1.Update,
-			oldSubnetSet: subnetSet,
-			subnetSet:    subnetSet,
-			user:         "fake-user",
-			isAllowed:    true,
+			name:            "Delete SubnetSet with stale SubnetPort by nsx-operator",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    subnetSetWithStalePorts,
+			user:            NSXOperatorSA,
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Update default SubnetSet",
-			op:           admissionv1.Update,
-			oldSubnetSet: defaultSubnetSet,
-			subnetSet:    subnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
+			name:            "Update normal SubnetSet",
+			op:              admissionv1.Update,
+			oldSubnetSet:    subnetSet,
+			subnetSet:       subnetSet,
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Update conflict SubnetSet",
-			op:           admissionv1.Update,
-			oldSubnetSet: defaultSubnetSet,
-			subnetSet:    conflictSubnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
+			name:            "Update default SubnetSet",
+			op:              admissionv1.Update,
+			oldSubnetSet:    defaultSubnetSet,
+			subnetSet:       subnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Create conflict SubnetSet",
-			op:           admissionv1.Create,
-			oldSubnetSet: defaultSubnetSet,
-			subnetSet:    conflictSubnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
+			name:            "Update conflict SubnetSet",
+			op:              admissionv1.Update,
+			oldSubnetSet:    defaultSubnetSet,
+			subnetSet:       conflictSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Update default SubnetSet without NSXOperatorSA user",
-			op:           admissionv1.Update,
-			oldSubnetSet: defaultSubnetSet,
-			subnetSet:    conflictSubnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
+			name:            "Create conflict SubnetSet",
+			op:              admissionv1.Create,
+			oldSubnetSet:    defaultSubnetSet,
+			subnetSet:       conflictSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Update old format default SubnetSet without NSXOperatorSA user",
-			op:           admissionv1.Update,
-			oldSubnetSet: oldDefaultSubnetSet,
-			subnetSet:    conflictSubnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
+			name:            "Update default SubnetSet without NSXOperatorSA user",
+			op:              admissionv1.Update,
+			oldSubnetSet:    defaultSubnetSet,
+			subnetSet:       conflictSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Change to old format default SubnetSet without NSXOperatorSA user",
-			op:           admissionv1.Update,
-			oldSubnetSet: subnetSet,
-			subnetSet:    oldDefaultSubnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
+			name:            "Update old format default SubnetSet without NSXOperatorSA user",
+			op:              admissionv1.Update,
+			oldSubnetSet:    oldDefaultSubnetSet,
+			subnetSet:       conflictSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Delete old default SubnetSet without NSXOperatorSA user",
-			op:           admissionv1.Delete,
-			oldSubnetSet: oldDefaultSubnetSet,
-			user:         "fake-user",
-			isAllowed:    false,
-			msg:          "default SubnetSet only can be deleted by nsx-operator",
+			name:            "Change to old format default SubnetSet without NSXOperatorSA user",
+			op:              admissionv1.Update,
+			oldSubnetSet:    subnetSet,
+			subnetSet:       oldDefaultSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			accessModeCheck: true,
 		},
 		{
-			name:         "Delete old default SubnetSet with NSXOperatorSA user",
-			op:           admissionv1.Delete,
-			oldSubnetSet: oldDefaultSubnetSet,
-			user:         NSXOperatorSA,
-			isAllowed:    true,
+			name:            "Delete old default SubnetSet without NSXOperatorSA user",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    oldDefaultSubnetSet,
+			user:            "fake-user",
+			isAllowed:       false,
+			msg:             "default SubnetSet only can be deleted by nsx-operator",
+			accessModeCheck: true,
+		},
+		{
+			name:            "Delete old default SubnetSet with NSXOperatorSA user",
+			op:              admissionv1.Delete,
+			oldSubnetSet:    oldDefaultSubnetSet,
+			user:            NSXOperatorSA,
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 	}
 	for _, testCase := range testcases {
@@ -359,6 +393,13 @@ func TestSubnetSetValidator(t *testing.T) {
 				return &nsx.NsxVersion{
 					NodeVersion: "9.0.0.0.12345",
 				}, nil
+			})
+			patches.ApplyFunc(controllercommon.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+				if testCase.accessModeCheck {
+					return nil
+				} else {
+					return errors.New("AccessMode other than Public is not supported VLANBackedVPC VPC")
+				}
 			})
 			defer patches.Reset()
 			req.Operation = testCase.op

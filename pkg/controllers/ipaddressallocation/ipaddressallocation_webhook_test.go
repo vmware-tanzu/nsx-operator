@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -106,6 +107,12 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 		},
 		{
 			name: "create success",
+			prepareFunc: func(t *testing.T, k8sClient client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+					return nil
+				})
+				return patches
+			},
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
 				Operation: admissionv1.Create,
 				Object:    runtime.RawExtension{Raw: reqCreate},
@@ -113,6 +120,46 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 			want: admission.Allowed(""),
 		},
 		{
+			name: "create failed",
+			prepareFunc: func(t *testing.T, k8sClient client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+					return errors.New("IPAddressVisibility other than External is not supported VLANBackedVPC VPC")
+				})
+				return patches
+			},
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: reqCreate},
+			}}},
+			want: admission.Denied("IPAddressVisibility other than External is not supported VLANBackedVPC VPC"),
+		}, {
+			name: "create retry when networkinfo missing",
+			prepareFunc: func(t *testing.T, k8sClient client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+					return nil
+				})
+				return patches
+			},
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: reqCreate},
+			}}},
+			want: admission.Allowed(""),
+		},
+		{
+			name: "create retry when networkinfo list failed",
+			prepareFunc: func(t *testing.T, k8sClient client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+					return fmt.Errorf("%w in namespace %s: %v", common.ErrFailedToListNetworkInfo, ns, fmt.Errorf("mock list error"))
+				})
+				return patches
+			},
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: reqCreate},
+			}}},
+			want: admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("%w in namespace %s: %v", common.ErrFailedToListNetworkInfo, "ns1", fmt.Errorf("mock list error"))),
+		}, {
 			name: "update decode error",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
 				Operation: admissionv1.Update,
@@ -121,6 +168,12 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 		},
 		{
 			name: "update success",
+			prepareFunc: func(t *testing.T, k8sClient client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+					return nil
+				})
+				return patches
+			},
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
 				Operation: admissionv1.Update,
 				Object:    runtime.RawExtension{Raw: reqUpdate},

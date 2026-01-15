@@ -335,3 +335,54 @@ func GetNamespaceType(ns *v1.Namespace, vnc *v1alpha1.VPCNetworkConfiguration) N
 	}
 	return NormalNs
 }
+
+func CheckNetworkStack(k8sClient k8sclient.Client, ctx context.Context, ns string, resourceType string) error {
+	tepless, err := IsTepLessMode(k8sClient, ctx, ns)
+	if err != nil {
+		return err
+	}
+	if tepless {
+		return fmt.Errorf("%s is not supported in VLANBackedVPC VPC", resourceType)
+	}
+	return nil
+}
+
+func CheckAccessModeOrVisibility(client k8sclient.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+	tepLess, err := IsTepLessMode(client, ctx, ns)
+	if err != nil {
+		return err
+	}
+	log.Trace("CheckAccessModeOrVisibility", "accessMode", accessMode, "resourceType", resourceType, "namespace", ns)
+	if resourceType == servicecommon.ResourceTypeIPAddressAllocation {
+		if tepLess && accessMode != string(v1alpha1.IPAddressVisibilityExternal) {
+			return fmt.Errorf("IPAddressVisibility other than External is not supported for VLANBackedVPC")
+		}
+	} else {
+		if tepLess && accessMode != string(v1alpha1.AccessModePublic) {
+			return fmt.Errorf("AccessMode other than Public is not supported for VLANBackedVPC")
+		}
+	}
+	return nil
+}
+
+// ErrFailedToListNetworkInfo indicates the controller failed to list NetworkInfo resources
+var ErrFailedToListNetworkInfo = errors.New("failed to list NetworkInfo in namespace")
+
+func IsTepLessMode(k8sClient k8sclient.Client, ctx context.Context, ns string) (bool, error) {
+	networkInfoList := &v1alpha1.NetworkInfoList{}
+	err := k8sClient.List(ctx, networkInfoList, k8sclient.InNamespace(ns))
+	if err != nil {
+		return false, fmt.Errorf("%w %s: %v", ErrFailedToListNetworkInfo, ns, err)
+	}
+	// if no networkinfo found or no vpc realized, ignore it and let nsx validate it
+	if len(networkInfoList.Items) == 0 || len(networkInfoList.Items[0].VPCs) == 0 {
+		return false, nil
+	}
+	for _, vpc := range networkInfoList.Items[0].VPCs {
+		if vpc.NetworkStack == v1alpha1.VLANBackedVPC {
+			log.Debug("Check network stack", "networkstack", vpc.NetworkStack)
+			return true, nil
+		}
+	}
+	return false, nil
+}

@@ -767,16 +767,21 @@ func (s *VPCService) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (str
 	}
 }
 
-func (s *VPCService) GetNetworkStackFromProfile(profile *model.VpcConnectivityProfile) (v1alpha1.NetworkStackType, error) {
+func (s *VPCService) GetNetworkStackFromTGW(profile *model.VpcConnectivityProfile) (v1alpha1.NetworkStackType, error) {
 	networkStack := v1alpha1.FullStackVPC
 	if profile == nil || profile.ParentPath == nil {
 		err := fmt.Errorf("profile or its parent path is nil")
 		log.Error(err, "Failed to parse NSX project in VpcConnectivityProfile")
 		return networkStack, err
 	}
-	org, project, err := common.NSXProjectPathToId(*profile.ParentPath)
+	if profile.TransitGatewayPath == nil {
+		err := fmt.Errorf("profile.TransitGatewayPath is nil")
+		log.Error(err, "Failed to parse NSX project in VpcConnectivityProfile")
+		return networkStack, err
+	}
+	org, project, err := common.NSXProjectPathToId(*profile.TransitGatewayPath)
 	if err != nil {
-		log.Error(err, "Failed to parse NSX project in VpcConnectivityProfile", "ProjectPath", *profile.ParentPath)
+		log.Error(err, "Failed to parse NSX project in VpcConnectivityProfile", "ProjectPath", *profile.TransitGatewayPath)
 		return networkStack, err
 	}
 	transitGatewayPath := *profile.TransitGatewayPath
@@ -812,7 +817,7 @@ func (s *VPCService) GetNetworkStackFromNC(nc *v1alpha1.VPCNetworkConfiguration)
 		log.Error(err, "Failed to get VPCConnectivityProfile", "path", nc.Spec.VPCConnectivityProfile)
 		return v1alpha1.FullStackVPC, err
 	}
-	return s.GetNetworkStackFromProfile(profile)
+	return s.GetNetworkStackFromTGW(profile)
 }
 
 func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration, profilePath string) (*common.VPCConnectionStatus, error) {
