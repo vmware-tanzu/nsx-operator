@@ -244,22 +244,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get VPC connectivity profile path %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
 			return common.ResultRequeueAfter10sec, err
 		}
-		// Update NetworkConfig and NetworkInfo if no vpcConnectivityProfile
-		// to allow Namespace created without LB and SNAT
-		if len(vpcConnectivityProfilePath) == 0 {
-			state := &v1alpha1.VPCState{
-				Name:                    *createdVpc.DisplayName,
-				DefaultSNATIP:           "",
-				LoadBalancerIPAddresses: "",
-				PrivateIPs:              privateIPs,
-			}
-			setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, "", "", *createdVpc.Path)
-			r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
-			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition())
-			return common.ResultNormal, nil
-		}
 		// Retrieve NSX lbs path if Supervisor is configuring with NSX LB.
-		if lbProvider == vpc.NSXLB {
+		if lbProvider == vpc.NSXLB && len(vpcConnectivityProfilePath) > 0 {
 			nsxLBSPath, err = r.Service.GetLBSsFromNSXByVPC(vpcPath)
 			if err != nil {
 				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to get NSX LBS path with pre-created VPC %s", vpcPath), setNetworkInfoVPCStatusWithError, nil)
@@ -275,47 +261,53 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	snatIP, aviSubnetPath, aviSECIDR, nsxLBSNATIP, lbIP := "", "", "", "", ""
 
-	vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(nc, vpcConnectivityProfilePath)
-	if err != nil {
-		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get VPC connectivity profile", setNetworkInfoVPCStatusWithError, nil)
-		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
-		return common.ResultRequeueAfter10sec, err
-	}
-	// Check external IP blocks on system VPC network config.
-	if ncName == commonservice.SystemVPCNetworkConfigurationName {
-		hasExternalIPs := len(vpcConnectivityProfile.ExternalIpBlocks) > 0
-		setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, systemVpcNetCfg, hasExternalIPs)
-		if !hasExternalIPs && !retryWithSystemVPC {
-			log.Error(err, "There is no ExternalIPBlock in VPC ConnectivityProfile", "NetworkInfo", req.NamespacedName)
-			retryWithSystemVPC = true
-			systemNSCondition = nsMsgVPCNoExternalIPBlock.getNSNetworkCondition()
-		}
-	}
-
-	// currently, auto snat is not exposed, and use default value True
-	// checking autosnat to support future extension in VPC configuration
-	autoSnatEnabled := vpc.IsEnableAutoSNAT(vpcConnectivityProfile)
-	if autoSnatEnabled {
-		snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
+	// Only process vpcConnectivityProfile-dependent logic if path exists
+	if len(vpcConnectivityProfilePath) > 0 {
+		vpcConnectivityProfile, err := r.Service.GetVpcConnectivityProfile(nc, vpcConnectivityProfilePath)
 		if err != nil {
-			state := &v1alpha1.VPCState{
-				Name:                    *createdVpc.DisplayName,
-				DefaultSNATIP:           "",
-				LoadBalancerIPAddresses: "",
-				PrivateIPs:              privateIPs,
-			}
-			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read default SNAT IP from VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
-			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCDefaultSNATIPGetError.getNSNetworkCondition(err))
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get VPC connectivity profile", setNetworkInfoVPCStatusWithError, nil)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
-	}
-	if ncName == commonservice.SystemVPCNetworkConfigurationName {
-		log.Info("Got the AutoSnat status", "autoSnatEnabled", autoSnatEnabled, "NetworkInfo", req.NamespacedName)
-		setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, systemVpcNetCfg, autoSnatEnabled)
-		if !autoSnatEnabled && !retryWithSystemVPC {
-			log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "autoSnatEnabled", autoSnatEnabled, "req", req)
-			retryWithSystemVPC = true
-			systemNSCondition = nsMsgVPCAutoSNATDisabled.getNSNetworkCondition()
+
+		// Check external IP blocks on system VPC network config.
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			hasExternalIPs := len(vpcConnectivityProfile.ExternalIpBlocks) > 0
+			setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, systemVpcNetCfg, hasExternalIPs)
+			if !hasExternalIPs && !retryWithSystemVPC {
+				log.Error(err, "There is no ExternalIPBlock in VPC ConnectivityProfile", "NetworkInfo", req.NamespacedName)
+				retryWithSystemVPC = true
+				systemNSCondition = nsMsgVPCNoExternalIPBlock.getNSNetworkCondition()
+			}
+		}
+
+		// currently, auto snat is not exposed, and use default value True
+		// checking autosnat to support future extension in VPC configuration
+		autoSnatEnabled := vpc.IsEnableAutoSNAT(vpcConnectivityProfile)
+		if autoSnatEnabled {
+			snatIP, err = r.Service.GetDefaultSNATIP(*createdVpc)
+			if err != nil {
+				state := &v1alpha1.VPCState{
+					Name:                    *createdVpc.DisplayName,
+					DefaultSNATIP:           "",
+					LoadBalancerIPAddresses: "",
+					PrivateIPs:              privateIPs,
+				}
+				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, fmt.Sprintf("Failed to read default SNAT IP from VPC: %s", *createdVpc.Id), setNetworkInfoVPCStatusWithError, state)
+				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCDefaultSNATIPGetError.getNSNetworkCondition(err))
+				return common.ResultRequeueAfter10sec, err
+			}
+		}
+
+		// Check external IP blocks and autoSnat status on system VPC network config.
+		if ncName == commonservice.SystemVPCNetworkConfigurationName {
+			log.Info("Got the AutoSnat status", "autoSnatEnabled", autoSnatEnabled, "NetworkInfo", req.NamespacedName)
+			setVPCNetworkConfigurationStatusWithSnatEnabled(ctx, r.Client, systemVpcNetCfg, autoSnatEnabled)
+			if !autoSnatEnabled && !retryWithSystemVPC {
+				log.Info("Requeue NetworkInfo CR because VPCNetworkConfiguration system is not ready", "autoSnatEnabled", autoSnatEnabled, "req", req)
+				retryWithSystemVPC = true
+				systemNSCondition = nsMsgVPCAutoSNATDisabled.getNSNetworkCondition()
+			}
 		}
 	}
 
@@ -337,8 +329,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return common.ResultRequeueAfter10sec, err
 		}
 		lbIP = aviSECIDR
-	} else if lbProvider == vpc.NSXLB && len(nsxLBSPath) > 0 {
-		// Only check SNat IP when LB capability is ready.
+	} else if lbProvider == vpc.NSXLB && len(nsxLBSPath) > 0 && len(vpcConnectivityProfilePath) > 0 {
+		// Only check SNat IP when LB capability is ready and vpcConnectivityProfile exists.
 		nsxLBSNATIP, err = r.getNSXLBSNATIP(nc, createdVpc, vpcConnectivityProfilePath, gatewayConnectionReady, serviceClusterReady)
 		if err != nil {
 			log.Error(err, "Failed to read NSX LB SNAT IP", "VPC", createdVpc.Id)
