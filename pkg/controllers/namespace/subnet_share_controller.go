@@ -69,7 +69,7 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 		return err
 	}
 
-	_, err = r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedName, false)
+	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedName, false)
 	if err != nil {
 		return err
 	}
@@ -78,8 +78,8 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	// If subnet ID meets Kubernetes standards, use it; otherwise hash it
 	subnetName := generateValidSubnetName(subnetID)
 
-	// Create the Subnet CR object
-	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName)
+	// Create the Subnet CR object with spec populated from NSX subnet
+	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName, nsxSubnet)
 
 	// Create the Subnet CR in Kubernetes
 	err = r.createSubnetCRInK8s(ctx, subnetCR)

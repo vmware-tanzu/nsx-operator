@@ -1035,7 +1035,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 
 				// Mock BuildSubnetCR
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "BuildSubnetCR",
-					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string) *v1alpha1.Subnet {
+					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string, _ *model.VpcSubnet) *v1alpha1.Subnet {
 						return &v1alpha1.Subnet{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      subnetName,
@@ -1151,7 +1151,7 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 
 				// Mock BuildSubnetCR
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "BuildSubnetCR",
-					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string) *v1alpha1.Subnet {
+					func(_ *subnet.SubnetService, ns, subnetName, vpcFullID, associatedName string, _ *model.VpcSubnet) *v1alpha1.Subnet {
 						return &v1alpha1.Subnet{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:      subnetName,
