@@ -999,6 +999,76 @@ func TestBuildSubnetCR(t *testing.T) {
 			subnetName:     "test-subnet",
 			vpcFullID:      "proj-1:vpc-1",
 			associatedName: "proj-1:vpc-1:subnet-1",
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Private_TGW"),
+				Ipv4SubnetSize: common.Int64(24),
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName:        "proj-1:vpc-1",
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeProject),
+					IPv4SubnetSize: 24,
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(false),
+						},
+					},
+				},
+			},
+		},
+		{
+			// When creating shared Subnet CR, accessMode should be populated from NSX subnet
+			name:           "Build Subnet CR with NSX Subnet - Public AccessMode",
+			ns:             "test-ns",
+			subnetName:     "shared-subnet",
+			vpcFullID:      "proj-1:vpc-1",
+			associatedName: "proj-1:vpc-1:shared-subnet",
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(16),
+				IpAddresses:    []string{"192.168.0.80/28"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "shared-subnet",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "proj-1:vpc-1:shared-subnet",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName:        "proj-1:vpc-1",
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 16,
+					IPAddresses:    []string{"192.168.0.80/28"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(false),
+						},
+					},
+				},
+			},
+		},
+		{
+			name:           "Build Subnet CR with nil NSX Subnet",
+			ns:             "test-ns",
+			subnetName:     "test-subnet",
+			vpcFullID:      "proj-1:vpc-1",
+			associatedName: "proj-1:vpc-1:subnet-1",
+			nsxSubnet:      nil,
 			expectedSubnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-subnet",
@@ -1017,7 +1087,7 @@ func TestBuildSubnetCR(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &SubnetService{}
-			subnetCR := service.BuildSubnetCR(tt.ns, tt.subnetName, tt.vpcFullID, tt.associatedName)
+			subnetCR := service.BuildSubnetCR(tt.ns, tt.subnetName, tt.vpcFullID, tt.associatedName, tt.nsxSubnet)
 			assert.Equal(t, tt.expectedSubnet, subnetCR)
 		})
 	}
