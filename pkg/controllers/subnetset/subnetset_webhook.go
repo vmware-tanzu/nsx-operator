@@ -173,6 +173,9 @@ func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string,
 		if err != nil {
 			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
 		}
+		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
+			return false, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
+		}
 		var subnetVPC string
 		associatedResource, exists := crdSubnet.Annotations[common.AnnotationAssociatedResource]
 		if exists {
