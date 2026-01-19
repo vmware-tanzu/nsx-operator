@@ -109,7 +109,9 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
 		}
-		if nsxSubnetPortState != nil && len(nsxSubnetPortState.RealizedBindings) > 0 &&
+		// appplatform webhook may be down if cpvm network is not restored, which blocks annotation update
+		// Avoid to update the MAC annotation on Pod in restore mode as it should not change
+		if !r.restoreMode && nsxSubnetPortState != nil && len(nsxSubnetPortState.RealizedBindings) > 0 &&
 			nsxSubnetPortState.RealizedBindings[0].Binding != nil &&
 			nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress != nil {
 			podAnnotationChanges := map[string]string{
@@ -123,9 +125,9 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
 		if r.restoreMode {
-			// Add restore annotation on Pod to notify Spherelet
+			// Update restore status on Pod to notify Spherelet
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
-				log.Error(err, "Failed to update restore annotation on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
+				log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 				return err != nil
 			}, func() error {
 				return setReconfigureNicStatus(r.Client, ctx, pod)
