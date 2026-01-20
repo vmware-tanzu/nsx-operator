@@ -182,7 +182,10 @@ func (v *SubnetValidator) checkSubnetSet(ctx context.Context, ns string, subnetN
 		return false, fmt.Errorf("failed to list SubnetSet: %v", err)
 	}
 	for _, crdSubnetSet := range crdSubnetSets.Items {
-		for _, associatedSubnet := range crdSubnetSet.Spec.SubnetNames {
+		if crdSubnetSet.Spec.SubnetNames == nil {
+			continue
+		}
+		for _, associatedSubnet := range *crdSubnetSet.Spec.SubnetNames {
 			if associatedSubnet == subnetName {
 				return true, nil
 			}

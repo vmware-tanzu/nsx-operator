@@ -38,6 +38,15 @@ type SubnetSetValidator struct {
 	vpcService common.VPCServiceProvider
 }
 
+type SubnetSetType string
+
+const (
+	SubnetSetTypePreCreated  SubnetSetType = "PreCreated"
+	SubnetSetTypeAutoCreated SubnetSetType = "AutoCreated"
+	// Subnetset without Spec.SubnetNames or Spec.IPv4SubnetSize/AccessMode/SubnetDHCPConfig
+	SubnetSetTypeNone SubnetSetType = "None"
+)
+
 func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) bool {
 	var oldValue, value string
 	oldValue, oldExists := oldSubnetSet.ObjectMeta.Labels[common.LabelDefaultNetwork]
@@ -57,7 +66,32 @@ func isDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
 }
 
 func hasExclusiveFields(s *v1alpha1.SubnetSet) bool {
-	return len(s.Spec.SubnetNames) != 0 && (s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "")
+	return s.Spec.SubnetNames != nil && (s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "")
+}
+
+func subnetSetType(s *v1alpha1.SubnetSet) SubnetSetType {
+	if s.Spec.SubnetNames != nil {
+		return SubnetSetTypePreCreated
+	}
+	if s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "" {
+		return SubnetSetTypeAutoCreated
+	}
+	return SubnetSetTypeNone
+}
+
+// switchSubnetSetType check whether the SubnetSet type is switched between
+// Pre-created and Auto-created.
+// It returns true if the type is switched, otherwise false.
+func switchSubnetSetType(old *v1alpha1.SubnetSet, new *v1alpha1.SubnetSet) (bool, string) {
+	typeOld := subnetSetType(old)
+	typeNew := subnetSetType(new)
+	if typeOld != typeNew && typeOld != SubnetSetTypeNone && typeNew != SubnetSetTypeNone {
+		return true, "SubnetSet type cannot be switched between Pre-created and Auto-created"
+	}
+	if old.Spec.SubnetNames != nil && new.Spec.SubnetNames == nil {
+		return true, "SubnetName should at least have value like subnetNames:[]"
+	}
+	return false, ""
 }
 
 // Handle handles admission requests.
@@ -110,6 +144,10 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		}
 		if !valid {
 			return admission.Denied(fmt.Sprintf("Subnets under SubnetSet %s/%s should belong to the same VPC", subnetSet.Namespace, subnetSet.Name))
+		}
+		result, msg := switchSubnetSetType(oldSubnetSet, subnetSet)
+		if result {
+			return admission.Denied(msg)
 		}
 	case admissionv1.Delete:
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
@@ -164,10 +202,13 @@ func (v *SubnetSetValidator) getVPCPath(ns string) (string, error) {
 }
 
 // Check all Subnet CRs are created and associated NSX Subnet belongs to the same VPC.
-func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string, subnetNames []string) (bool, error) {
+func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string, subnetNames *[]string) (bool, error) {
 	var namespaceVpc string
 	var existingVPC string
-	for _, subnetName := range subnetNames {
+	if subnetNames == nil {
+		return true, nil
+	}
+	for _, subnetName := range *subnetNames {
 		crdSubnet := &v1alpha1.Subnet{}
 		err := v.Client.Get(ctx, types.NamespacedName{Name: subnetName, Namespace: ns}, crdSubnet)
 		if err != nil {

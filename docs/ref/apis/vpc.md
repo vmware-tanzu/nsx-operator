@@ -978,7 +978,7 @@ _Appears in:_
 | `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
-| `subnetNames` _string array_ | The names of the Subnets that have been created in advance.<br />It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.<br />Once this field is set, the other fields cannot be set. |  |  |
+| `subnetNames` _string_ | The names of the Subnets that have been created in advance.<br />It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.<br />Once this field is set, the other fields cannot be set. |  |  |
 
 
 #### SubnetSetStatus

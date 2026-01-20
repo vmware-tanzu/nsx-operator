@@ -1376,8 +1376,12 @@ func (in *SubnetSetSpec) DeepCopyInto(out *SubnetSetSpec) {
 	in.SubnetDHCPConfig.DeepCopyInto(&out.SubnetDHCPConfig)
 	if in.SubnetNames != nil {
 		in, out := &in.SubnetNames, &out.SubnetNames
-		*out = make([]string, len(*in))
-		copy(*out, *in)
+		*out = new([]string)
+		if **in != nil {
+			in, out := *in, *out
+			*out = make([]string, len(*in))
+			copy(*out, *in)
+		}
 	}
 }
 

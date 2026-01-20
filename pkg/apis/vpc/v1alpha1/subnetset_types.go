@@ -37,7 +37,7 @@ type SubnetSetSpec struct {
 	// The names of the Subnets that have been created in advance.
 	// It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.
 	// Once this field is set, the other fields cannot be set.
-	SubnetNames []string `json:"subnetNames,omitempty"`
+	SubnetNames *[]string `json:"subnetNames,omitempty"`
 }
 
 // SubnetInfo defines the observed state of a single Subnet of a SubnetSet.

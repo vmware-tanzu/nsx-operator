@@ -136,13 +136,13 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 		}
 		if subnetSetCR != nil {
 			// Delete the default SubnetSet if it is created with auto-created Subnets and there is no cidr
-			if !hasCIDR && len(subnetSetCR.Spec.SubnetNames) == 0 {
+			if !hasCIDR && subnetSetCR.Spec.SubnetNames == nil {
 				log.Debug("Delete default SubnetSet", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns)
 				return r.Client.Delete(ctx, subnetSetCR)
 			}
 			// Do nothing if the default SubnetSet uses the pre-created Subnets
 			// or there is CIDR for auto-created SubnetSet
-			log.Debug("Default SubnetSet already exists", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "auto-created", len(subnetSetCR.Spec.SubnetNames) == 0)
+			log.Debug("Default SubnetSet already exists", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "auto-created", subnetSetCR.Spec.SubnetNames == nil)
 			return nil
 		}
 		// Only create the auto-created SubnetSet if there is no pre-created Subnet for default network

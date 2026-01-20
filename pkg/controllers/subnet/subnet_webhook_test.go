@@ -219,7 +219,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 					a.Items = append(a.Items, v1alpha1.SubnetSet{
 						ObjectMeta: metav1.ObjectMeta{Name: "subnetport-1", Namespace: "ns-1"},
 						Spec: v1alpha1.SubnetSetSpec{
-							SubnetNames: []string{"subnet-1"},
+							SubnetNames: &[]string{"subnet-1"},
 						},
 					})
 					return nil
