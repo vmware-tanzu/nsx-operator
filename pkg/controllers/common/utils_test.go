@@ -11,11 +11,13 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -765,6 +767,113 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 
 			mockSubnetSvc.AssertExpectations(t)
 			mockPortSvc.AssertExpectations(t)
+		})
+	}
+}
+
+func TestIsNamespaceVLANBacked(t *testing.T) {
+	tests := []struct {
+		name        string
+		namespace   string
+		setupFunc   func(client.Client)
+		expected    bool
+		expectedErr string
+	}{
+		{
+			name:      "VLANBackedVPC",
+			namespace: "ns-1",
+			setupFunc: func(client client.Client) {
+				networkInfo := &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "network-info-1",
+						Namespace: "ns-1",
+					},
+					VPCs: []v1alpha1.VPCState{
+						{
+							NetworkStack: v1alpha1.VLANBackedVPC,
+						},
+					},
+				}
+				assert.NoError(t, client.Create(context.TODO(), networkInfo))
+			},
+			expected: true,
+		},
+		{
+			name:      "FullStackVPC",
+			namespace: "ns-1",
+			setupFunc: func(client client.Client) {
+				networkInfo := &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "network-info-1",
+						Namespace: "ns-1",
+					},
+					VPCs: []v1alpha1.VPCState{
+						{
+							NetworkStack: v1alpha1.FullStackVPC,
+						},
+					},
+				}
+				assert.NoError(t, client.Create(context.TODO(), networkInfo))
+			},
+			expected: false,
+		},
+		{
+			name:      "NetworkInfoExistsButNoNetworkStack",
+			namespace: "ns-1",
+			setupFunc: func(client client.Client) {
+				networkInfo := &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "network-info-1",
+						Namespace: "ns-1",
+					},
+					VPCs: []v1alpha1.VPCState{
+						{
+							LoadBalancerIPAddresses: "",
+						},
+					},
+				}
+				assert.NoError(t, client.Create(context.TODO(), networkInfo))
+			},
+			expectedErr: "NetworkStack is not set in NetworkInfo CRD",
+		},
+		{
+			name:      "NetworkInfoExistsButNoVPCs",
+			namespace: "ns-1",
+			setupFunc: func(client client.Client) {
+				networkInfo := &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "network-info-1",
+						Namespace: "ns-1",
+					},
+					VPCs: []v1alpha1.VPCState{}, // Empty VPCs
+				}
+				assert.NoError(t, client.Create(context.TODO(), networkInfo))
+			},
+			expectedErr: "no VPC found in NetworkInfo",
+		},
+		{
+			name:        "NoNetworkInfo",
+			namespace:   "ns-1",
+			setupFunc:   func(client client.Client) {},
+			expectedErr: "no NetworkInfo found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newScheme := runtime.NewScheme()
+			utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+			fakeClient := fake.NewClientBuilder().WithScheme(newScheme).Build()
+
+			tt.setupFunc(fakeClient)
+
+			got, err := IsNamespaceInTepLessMode(fakeClient, tt.namespace)
+			if tt.expectedErr != "" {
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, got)
+			}
 		})
 	}
 }

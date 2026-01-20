@@ -110,6 +110,34 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 	return "", fmt.Errorf("all Subnets for SubnetSet %s/%s are not available", subnetSet.Namespace, subnetSet.Name)
 }
 
+// IsNamespaceInTepLessMode checks if the namespace has a VLAN-backed VPC (tepless mode).
+func IsNamespaceInTepLessMode(client k8sclient.Client, namespace string) (bool, error) {
+	log.Debug("Checking if namespace is in tepless mode", "namespace", namespace)
+	networkInfoList := &v1alpha1.NetworkInfoList{}
+	err := client.List(context.TODO(), networkInfoList, &k8sclient.ListOptions{Namespace: namespace})
+	if err != nil {
+		log.Error(err, "Failed to list NetworkInfo for tepless check", "namespace", namespace)
+		return false, fmt.Errorf("failed to list NetworkInfo: %v", err)
+	}
+	if len(networkInfoList.Items) == 0 {
+		err := fmt.Errorf("no NetworkInfo found in namespace %s", namespace)
+		log.Error(err, "NetworkInfo not ready")
+		return false, err
+	}
+	networkInfo := &networkInfoList.Items[0]
+	if len(networkInfo.VPCs) == 0 {
+		err := fmt.Errorf("no VPC found in NetworkInfo for namespace %s", namespace)
+		log.Error(err, "NetworkInfo not ready")
+		return false, err
+	}
+	if networkInfo.VPCs[0].NetworkStack == "" {
+		err := errors.New("NetworkStack is not set in NetworkInfo CRD")
+		log.Error(err, "NetworkInfo not ready")
+		return false, err
+	}
+	return networkInfo.VPCs[0].NetworkStack == v1alpha1.VLANBackedVPC, nil
+}
+
 func AllocateSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
 	if subnetSet.Spec.SubnetNames != nil {
 		// Use Read lock to allow SubnetPorts created parallelly on the pre-created SubnetSet

@@ -69,6 +69,20 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 	assert.NoError(t, fakeClient.Create(context.TODO(), namespace))
 
+	// Create NetworkInfo with VLANBackedVPC for TEP-less mode
+	networkInfo := &v1alpha1.NetworkInfo{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-ns", // Same as namespace name
+			Namespace: "test-ns",
+		},
+		VPCs: []v1alpha1.VPCState{
+			{
+				NetworkStack: v1alpha1.VLANBackedVPC,
+			},
+		},
+	}
+	assert.NoError(t, fakeClient.Create(context.TODO(), networkInfo))
+
 	// Define the Subnet object
 	subnet := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -82,13 +96,16 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 	// Validate the tags
 	assert.NotNil(t, tags)
-	assert.Equal(t, 4, len(tags)) // 4 tags should be generated
+	assert.Equal(t, 5, len(tags)) // 5 tags should be generated (including TEP-less tag)
 
 	// Check specific tags
 	assert.Equal(t, "nsx-op", *tags[0].Tag)
 	assert.Equal(t, "namespace-uid", *tags[1].Tag)
 	assert.Equal(t, "test-ns", *tags[2].Tag)
-	assert.Equal(t, "test", *tags[3].Tag)
+	assert.Equal(t, "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE", *tags[3].Tag)
+	assert.Equal(t, "ENABLED", *tags[3].Scope)
+	assert.Equal(t, "test", *tags[4].Tag)
+	assert.Equal(t, "env", *tags[4].Scope)
 
 	// Define the SubnetSet object
 	subnetSet := &v1alpha1.SubnetSet{
