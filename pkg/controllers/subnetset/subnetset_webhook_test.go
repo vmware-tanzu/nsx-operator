@@ -136,6 +136,17 @@ func TestSubnetSetValidator(t *testing.T) {
 			Namespace: "ns-1",
 		},
 	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnet-4",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay),
+			},
+		},
+	})
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "default", VPCID: "ns-1"}}
@@ -212,6 +223,21 @@ func TestSubnetSetValidator(t *testing.T) {
 				},
 				Spec: v1alpha1.SubnetSetSpec{
 					SubnetNames: &[]string{"subnet-1", "subnet-2"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
+		},
+		{
+			name: "Create SubnetSet with DHCPRelay Subnets",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: []string{"subnet-4"},
 				},
 			},
 			user:      "fake-user",

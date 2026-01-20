@@ -119,6 +119,9 @@ spec:
               rule: '!has(self.subnetDHCPConfig) || has(self.subnetDHCPConfig) &&
                 !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) || has(self.subnetDHCPConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)'
+            - message: DHCPRelay is not supported in SubnetSet
+              rule: '!has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode)
+                || self.subnetDHCPConfig.mode!=''DHCPRelay'''
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
             properties:
