@@ -33,6 +33,7 @@ const (
 	NSXLB           = LBProvider("nsx-lb")
 	AVILB           = LBProvider("avi")
 	NoneLB          = LBProvider("none")
+	NSXLBEIPID      = "_DEFAULT--VPC_SERVICE_IP"
 
 	nsxVpcNameIndexKey = "nsxVpcNameIndex"
 
@@ -405,8 +406,26 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	return path, cidr, nil
 }
 
-func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc, interfaceID string) (string, error) {
+func (s *VPCService) GetNSXLBSNATIPForTepLessVPC(vpcPath string) (string, error) {
+	pathInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		return "", err
+	}
+	log.Info("Getting VPC NSX LB SNAT IP", "Path", vpcPath)
+	ipaddressallocation, err := s.NSXClient.IPAddressAllocationClient.Get(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID, NSXLBEIPID)
+	if err != nil {
+		log.Error(err, "Failed to get NSX LB SNAT IP for TEP-less VPC", "VPC", pathInfo.VPCID)
+		return "", err
+	}
+	log.Info("Getting VPC NSX LB SNAT IP", "VPC", pathInfo.VPCID, "SNATIP", *ipaddressallocation.AllocationIps)
+	return *ipaddressallocation.AllocationIps, nil
+}
+
+func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc, interfaceID string, tepLess bool) (string, error) {
 	log.Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id)
+	if tepLess {
+		return s.GetNSXLBSNATIPForTepLessVPC(*vpc.Path)
+	}
 	vpcInfo, err := common.ParseVPCResourcePath(*vpc.Path)
 	if err != nil {
 		return "", err

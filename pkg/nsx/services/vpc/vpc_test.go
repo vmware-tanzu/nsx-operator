@@ -203,6 +203,28 @@ func (c fakeVPCAttachmentsClient) Update(orgIdParam string, projectIdParam strin
 	return model.VpcAttachment{}, nil
 }
 
+type fakeIPAddressAllocationClient struct{}
+
+func (c fakeIPAddressAllocationClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, ipAddressAllocationIdParam string) error {
+	return nil
+}
+
+func (c fakeIPAddressAllocationClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, ipAddressAllocationIdParam string) (model.VpcIpAddressAllocation, error) {
+	return model.VpcIpAddressAllocation{}, nil
+}
+
+func (c fakeIPAddressAllocationClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcIpAddressAllocationListResult, error) {
+	return model.VpcIpAddressAllocationListResult{}, nil
+}
+
+func (c fakeIPAddressAllocationClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, ipAddressAllocationIdParam string, ipAddressAllocationParam model.VpcIpAddressAllocation) error {
+	return nil
+}
+
+func (c fakeIPAddressAllocationClient) Update(orgIdParam string, projectIdParam string, vpcIdParam string, ipAddressAllocationIdParam string, ipAddressAllocationParam model.VpcIpAddressAllocation) (model.VpcIpAddressAllocation, error) {
+	return model.VpcIpAddressAllocation{}, nil
+}
+
 func TestGetSharedVPCNamespaceFromNS(t *testing.T) {
 	tests := []struct {
 		name                    string
@@ -2730,6 +2752,7 @@ func TestInitializeVPC(t *testing.T) {
 }
 
 func TestGetNSXLBSNATIP(t *testing.T) {
+	var fakeIPAddressAllocationClientInstance fakeIPAddressAllocationClient
 	vpcService := &VPCService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -2739,7 +2762,8 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 				},
 			},
 			NSXClient: &nsx.Client{
-				Cluster: &nsx.Cluster{},
+				Cluster:                   &nsx.Cluster{},
+				IPAddressAllocationClient: &fakeIPAddressAllocationClientInstance,
 			},
 		},
 		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
@@ -2757,6 +2781,7 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 	testCases := []struct {
 		name         string
 		vpc          model.Vpc
+		isTepLess    bool
 		prepareFuncs func() *gomonkey.Patches
 		wantObj      string
 		wantErr      string
@@ -2785,6 +2810,34 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 			},
 			wantErr: "tier1 uplink port IP not found",
 		},
+		{
+			name:      "TEP-less VPC success",
+			vpc:       vpc1,
+			isTepLess: true,
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeIPAddressAllocationClientInstance), "Get",
+					func(_ *fakeIPAddressAllocationClient, _, _, _ string) (model.VpcIpAddressAllocation, error) {
+						return model.VpcIpAddressAllocation{
+							AllocationIps: ptr.To("100.64.0.5"),
+						}, nil
+					})
+				return patches
+			},
+			wantObj: "100.64.0.5",
+		},
+		{
+			name:      "TEP-less VPC IPAddressAllocation error",
+			vpc:       vpc1,
+			isTepLess: true,
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeIPAddressAllocationClientInstance), "Get",
+					func(_ *fakeIPAddressAllocationClient, _, _, _ string) (model.VpcIpAddressAllocation, error) {
+						return model.VpcIpAddressAllocation{}, fmt.Errorf("IPAddressAllocation get failed")
+					})
+				return patches
+			},
+			wantErr: "IPAddressAllocation get failed",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -2794,7 +2847,7 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			got, err := vpcService.GetNSXLBSNATIP(testCase.vpc, "")
+			got, err := vpcService.GetNSXLBSNATIP(testCase.vpc, "", testCase.isTepLess)
 			if testCase.wantErr != "" {
 				assert.ErrorContains(t, err, testCase.wantErr)
 			} else {
