@@ -257,6 +257,44 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					assert.Equal(t, "aa:bb:cc:dd:ee:ff", pod.GetAnnotations()[servicecommon.AnnotationPodMAC])
 					return nil
 				})
+				return patches
+			},
+			expectedResult: common.ResultNormal,
+			restoreMode:    false,
+		},
+		{
+			name: "RestorePod",
+			prepareFunc: func(t *testing.T, r *PodReconciler) *gomonkey.Patches {
+				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					podCR := obj.(*v1.Pod)
+					podCR.Spec.NodeName = "node-1"
+					return nil
+				})
+				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, error) {
+						return false, "subnet-path-1", nil
+					})
+				patches.ApplyFunc((*PodReconciler).GetNodeByName,
+					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
+						return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
+					})
+				patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
+					func(s *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
+						return &model.VpcSubnet{}, nil
+					})
+				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, bool, error) {
+						return &model.SegmentPortState{
+							RealizedBindings: []model.AddressBindingEntry{
+								{
+									Binding: &model.PacketAddressClassifier{
+										MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+									},
+								},
+							},
+						}, false, nil
+					})
 				patches.ApplyFunc(common.UpdateReconfigureNicAnnotation, func(client client.Client, ctx context.Context, obj client.Object, value string) error {
 					assert.Equal(t, "true", value)
 					return nil
