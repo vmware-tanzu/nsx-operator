@@ -1476,7 +1476,7 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 	var err error
 	opInIdx := 0
 	var opInMatchExpressions []v1.LabelSelectorRequirement
-	memberType := ""
+	isVpcEnable := isVpcEnabled(service)
 
 	nsFound, opInIdx1 := service.matchExpressionOpInExist(nsMatchExpressions)
 	portFound, opInIdx2 := service.matchExpressionOpInExist(matchExpressions)
@@ -1487,22 +1487,30 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 		return err
 	}
 
+	nsMemberType := "Segment"
+	if isVpcEnable {
+		nsMemberType = "VPCSubnet"
+	}
+	portMemberType, memberType := "SegmentPort", "SegmentPort"
+	if isVpcEnable {
+		portMemberType, memberType = "VPCSubnetPort", "VPCSubnetPort"
+	}
+
 	if nsFound {
 		opInIdx = opInIdx1
-		memberType = "Segment"
+		memberType = nsMemberType
 		opInMatchExpressions = nsMatchExpressions
 	} else if portFound {
 		opInIdx = opInIdx2
-		memberType = "SegmentPort"
 		opInMatchExpressions = matchExpressions
 	}
 
 	if !nsFound && !portFound {
-		err = service.buildExpressionsMatchExpression(matchExpressions, "SegmentPort", expressions)
+		err = service.buildExpressionsMatchExpression(matchExpressions, portMemberType, expressions)
 		if err == nil {
 			err = service.buildExpressionsMatchExpression(
 				nsMatchExpressions,
-				"Segment",
+				nsMemberType,
 				expressions,
 			)
 		}
@@ -1523,14 +1531,14 @@ func (service *SecurityPolicyService) updateMixedExpressionsMatchExpression(nsMa
 					expressions.Add(tagValueExpression)
 				}
 
-				service.updateExpressionsMatchLabels(matchLabels, "SegmentPort", expressions)
-				service.updateExpressionsMatchLabels(nsMatchLabels, "Segment", expressions)
+				service.updateExpressionsMatchLabels(matchLabels, portMemberType, expressions)
+				service.updateExpressionsMatchLabels(nsMatchLabels, nsMemberType, expressions)
 			}
 
 			if nsFound {
-				err = service.buildExpressionsMatchExpression(matchExpressions, "SegmentPort", expressions)
+				err = service.buildExpressionsMatchExpression(matchExpressions, portMemberType, expressions)
 			} else {
-				err = service.buildExpressionsMatchExpression(nsMatchExpressions, "Segment", expressions)
+				err = service.buildExpressionsMatchExpression(nsMatchExpressions, nsMemberType, expressions)
 			}
 			if err != nil {
 				break
@@ -1616,9 +1624,16 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 	// If NamespaceSelector is specified, peer group must be put under project level for sharing with VPC.
 	// VpcSubnet and VpcSubnetPort types are not supported in project level group.
 	// Project level group can support SegmentPort and Segment type.
-	// If groupShared is True, it means there are NamespaceSelectors in the rule groups, so we can use mixed criteria.
-	if isVpcEnable && !groupShared {
-		clusterMemberType = "VpcSubnetPort"
+	if isVpcEnable {
+		if !groupShared {
+			clusterMemberType = "VpcSubnetPort"
+		}
+		// If groupShared is True, it means there are NamespaceSelectors in the rule groups, so we can use mixed criteria.
+		if clusterMemberType == "Segment" {
+			clusterMemberType = "VpcSubnet"
+		} else {
+			clusterMemberType = "VpcSubnetPort"
+		}
 		memberType = "VpcSubnetPort"
 	}
 
@@ -1694,10 +1709,10 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 				// 1. A non-empty expression list, must be of odd size
 				// 2. An expression list size is equal to or greater than 3
 				// 3. In a list, with indices starting from 0, all non-conjunction expressions must be at even indices
-				// Hence, add one more SegmentPort member condition to meet the criteria aforementioned
+				// Hence, add one more SegmentPort/VpcSubnetPort member condition to meet the criteria aforementioned
 				service.addOperatorIfNeeded(expressions, "AND")
 				clusterSegPortExpression := service.buildExpression(
-					"Condition", "SegmentPort",
+					"Condition", memberType,
 					fmt.Sprintf("%s|%s", getScopeCluserTag(service), getCluster(service)),
 					"Tag", "EQUALS", "EQUALS",
 				)
@@ -1707,6 +1722,9 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			} else {
 				tagValueExpression = nil
 				memberType = "Segment"
+				if isVpcEnable {
+					memberType = "VpcSubnet"
+				}
 				matchLabels = peer.NamespaceSelector.MatchLabels
 				matchExpressions = &peer.NamespaceSelector.MatchExpressions
 				// NamespaceSelector has one more built-in labels
@@ -1714,6 +1732,11 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			}
 		} else { // Handle PodSelector or VMSelector mixed with NamespaceSelector
 			memberType = "Segment"
+			portMemberType := "SegmentPort"
+			if isVpcEnable {
+				memberType = "VpcSubnet"
+				portMemberType = "VpcSubnetPort"
+			}
 			nsMatchLabels := peer.NamespaceSelector.MatchLabels
 			nsMatchExpressions := &peer.NamespaceSelector.MatchExpressions
 
@@ -1743,7 +1766,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			matchExpressionsCount = len(*mergedMatchExpressions) + len(*nsMergedMatchExpressions)
 			opInValueCount += nsOpInValCount
 
-			service.updateExpressionsMatchLabels(matchLabels, "SegmentPort", expressions)
+			service.updateExpressionsMatchLabels(matchLabels, portMemberType, expressions)
 			service.updateExpressionsMatchLabels(nsMatchLabels, memberType, expressions)
 
 			// NamespaceSelector AND with PodSelector or VMSelector expressions to produce final expressions
@@ -1801,7 +1824,8 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 				false,
 			)
 		} else {
-			// Since cluster memberType is set as "Segment" or "SegmentPort", So the final produced group criteria is always treated as a mixed criteria
+			// Since cluster memberType is set as "Segment" or "SegmentPort",
+			// or "VpcSubnet" or "VpcSubnetPort", So the final produced group criteria is always treated as a mixed criteria
 			totalCriteriaCount, totalExprCount, err = service.validateSelectorExpressions(
 				matchLabelsCount,
 				matchExpressionsCount,
