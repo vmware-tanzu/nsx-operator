@@ -237,7 +237,7 @@ func TestSubnetSetValidator(t *testing.T) {
 					Namespace: "ns-1",
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					SubnetNames: []string{"subnet-4"},
+					SubnetNames: &[]string{"subnet-4"},
 				},
 			},
 			user:      "fake-user",
