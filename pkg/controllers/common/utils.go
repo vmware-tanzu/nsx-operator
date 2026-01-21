@@ -21,6 +21,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -32,43 +33,127 @@ var (
 	}
 )
 
-func AllocateSubnetFromSubnetSet(subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
-	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created
-	subnetSetLock := LockSubnetSet(subnetSet.GetUID())
-	defer UnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
-	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
-	for _, nsxSubnet := range subnetList {
+func IsSharedSubnetPath(ctx context.Context, client k8sclient.Client, path string, ns string) (bool, error) {
+	associatedResource, err := servicecommon.ConvertSubnetPathToAssociatedResource(path)
+	if err != nil {
+		return false, err
+	}
+	subnetList := &v1alpha1.SubnetList{}
+	err = client.List(ctx, subnetList, k8sclient.InNamespace(ns), k8sclient.MatchingFields{util.SubnetAssociatedResource: associatedResource})
+	if err != nil {
+		log.Error(err, "Failed to list Subnet CR", "indexValue", associatedResource)
+		return false, err
+	}
+	if len(subnetList.Items) == 0 {
+		log.Debug("Subnet is not a shared Subnet", "path", path)
+		return false, nil
+	}
+	log.Debug("Subnet is a shared Subnet", "path", path)
+	return true, nil
+}
+
+// For auto-created SubnetSet, get NSX Subnets by SubnetSet CR ID
+// For SubnetSet with Subnet specified, get NSX Subnets based on the SubnetCR
+func GetNSXSubnetsForSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, subnetService servicecommon.SubnetServiceProvider) ([]*model.VpcSubnet, error) {
+	var subnets []*model.VpcSubnet
+	if subnetSet.Spec.SubnetNames == nil {
+		return subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.UID)), nil
+	}
+	for _, subnetName := range *subnetSet.Spec.SubnetNames {
+		subnetCR := &v1alpha1.Subnet{}
+		namespacedName := types.NamespacedName{
+			Name:      subnetName,
+			Namespace: subnetSet.Namespace,
+		}
+		if err := client.Get(context.TODO(), namespacedName, subnetCR); err != nil {
+			log.Error(err, "Failed to get Subnet CR", "SubnetCR", namespacedName)
+			return subnets, err
+		}
+		nsxSubnet, err := subnetService.GetSubnetByCR(subnetCR)
+		if err != nil {
+			log.Error(err, "Failed to get NSX Subnet under SubnetSet", "Namespace", subnetCR.Namespace, "SubnetSet", subnetSet.Name, "Subnet", subnetCR.Name)
+			return subnets, err
+		}
+		subnets = append(subnets, nsxSubnet)
+	}
+	return subnets, nil
+}
+
+func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
+	var errList []error
+	for _, subnetName := range *subnetSet.Spec.SubnetNames {
+		subnetCR := &v1alpha1.Subnet{}
+		if err := client.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetName}, subnetCR); err != nil {
+			log.Error(err, "Failed to get Subnet for SubnetSet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace)
+			errList = append(errList, err)
+			continue
+		}
+		nsxSubnet, err := subnetService.GetSubnetByCR(subnetCR)
+		if err != nil {
+			log.Error(err, "Failed to get NSX Subnet for SubnetSet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace)
+			errList = append(errList, err)
+			continue
+		}
 		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
 		if err != nil {
-			return "", err
+			log.Error(err, "Failed to check capacity of NSX Subnet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace, "NSXSubnet", nsxSubnet.Id)
+			errList = append(errList, err)
+			continue
 		}
 		if canAllocate {
 			return *nsxSubnet.Path, nil
 		}
 	}
+	if len(errList) > 0 {
+		return "", errors.Join(errList...)
+	}
+	return "", fmt.Errorf("all Subnets for SubnetSet %s/%s are not available", subnetSet.Namespace, subnetSet.Name)
+}
+
+func AllocateSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
+	if subnetSet.Spec.SubnetNames != nil {
+		// Use Read lock to allow SubnetPorts created parallelly on the pre-created SubnetSet
+		// and block the SubnetPort creation when the SubnetSet is updated
+		subnetSetLock := RLockSubnetSet(subnetSet.UID)
+		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, subnetService, subnetPortService)
+		return nsxSubnet, &subnetSet.UID, subnetSetLock, err
+	}
+	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created
+	subnetSetLock := WLockSubnetSet(subnetSet.GetUID())
+	defer WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
+	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
+	for _, nsxSubnet := range subnetList {
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if canAllocate {
+			return *nsxSubnet.Path, nil, nil, nil
+		}
+	}
 	tags := subnetService.GenerateSubnetNSTags(subnetSet)
 	if tags == nil {
-		return "", errors.New("failed to generate subnet tags")
+		return "", nil, nil, errors.New("failed to generate subnet tags")
 	}
 	log.Info("The existing subnets are not available, creating new subnet", "subnetList", subnetList, "subnetSet.Name", subnetSet.Name, "subnetSet.Namespace", subnetSet.Namespace)
 	vpcInfoList := vpcService.ListVPCInfo(subnetSet.Namespace)
 	if len(vpcInfoList) == 0 {
 		err := errors.New("no VPC found")
 		log.Error(err, "Failed to allocate Subnet")
-		return "", err
+		return "", nil, nil, err
 	}
 	nsxSubnet, err := subnetService.CreateOrUpdateSubnet(subnetSet, vpcInfoList[0], tags)
 	if err != nil {
-		return "", err
+		return "", nil, nil, err
 	}
 	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
 	if err != nil {
-		return "", err
+		return "", nil, nil, err
 	}
 	if canAllocate {
-		return *nsxSubnet.Path, nil
+		return *nsxSubnet.Path, nil, nil, nil
 	}
-	return "", fmt.Errorf("cannot allocate Port from SubnetSet %s", subnetSet.Name)
+	return "", nil, nil, fmt.Errorf("cannot allocate Port from SubnetSet %s", subnetSet.Name)
 }
 
 func GetDefaultSubnetSetByNamespace(client k8sclient.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
@@ -222,18 +307,32 @@ func NewStatusUpdater(client k8sclient.Client, nsxConfig *config.NSXOperatorConf
 	}
 }
 
-func LockSubnetSet(uuid types.UID) *sync.Mutex {
-	lock := sync.Mutex{}
+func WLockSubnetSet(uuid types.UID) *sync.RWMutex {
+	lock := sync.RWMutex{}
 	subnetSetLock, _ := SubnetSetLocks.LoadOrStore(uuid, &lock)
-	log.Trace("Lock SubnetSet", "uuid", uuid)
-	subnetSetLock.(*sync.Mutex).Lock()
-	return subnetSetLock.(*sync.Mutex)
+	log.Trace("Write lock SubnetSet", "uuid", uuid)
+	subnetSetLock.(*sync.RWMutex).Lock()
+	return subnetSetLock.(*sync.RWMutex)
 }
 
-func UnlockSubnetSet(uuid types.UID, subnetSetLock *sync.Mutex) {
+func RLockSubnetSet(uuid types.UID) *sync.RWMutex {
+	lock := sync.RWMutex{}
+	subnetSetLock, _ := SubnetSetLocks.LoadOrStore(uuid, &lock)
+	log.Trace("Read lock SubnetSet", "uuid", uuid)
+	subnetSetLock.(*sync.RWMutex).RLock()
+	return subnetSetLock.(*sync.RWMutex)
+}
+
+func WUnlockSubnetSet(uuid types.UID, subnetSetLock *sync.RWMutex) {
 	if subnetSetLock != nil {
-		log.Trace("Unlock SubnetSet", "uuid", uuid)
+		log.Trace("Write unlock SubnetSet", "uuid", uuid)
 		subnetSetLock.Unlock()
+	}
+}
+
+func RUnlockSubnetSet(uuid types.UID, subnetSetLock *sync.RWMutex) {
+	if subnetSetLock != nil {
+		subnetSetLock.RUnlock()
 	}
 }
 

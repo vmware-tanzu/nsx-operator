@@ -737,6 +737,13 @@ func CompareArraysWithoutOrder[T comparable](oldArray []T, newArray []T) bool {
 	return oldSet.Equal(newSet)
 }
 
+func DiffArrays[T comparable](firstArray []T, secondArray []T) []T {
+	firstSet := sets.New(firstArray...)
+	secondSet := sets.New(secondArray...)
+	diffSet := firstSet.Difference(secondSet)
+	return diffSet.UnsortedList()
+}
+
 func IsInvalidLicense(err error) bool {
 	invalidLicense := false
 	if apiErr, ok := err.(*NSXApiError); ok {

@@ -55,6 +55,27 @@ type SubnetSetReconciler struct {
 }
 
 func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context, subnetsetCR *v1alpha1.SubnetSet) error {
+	// Deduplicate the SubnetNames
+	dedupSubnetNames := []string{}
+	existedSubnetNames := sets.New[string]()
+	specChanged := false
+	for _, subnetName := range *subnetsetCR.Spec.SubnetNames {
+		if !existedSubnetNames.Has(subnetName) {
+			existedSubnetNames.Insert(subnetName)
+			dedupSubnetNames = append(dedupSubnetNames, subnetName)
+		} else {
+			specChanged = true
+		}
+	}
+	if specChanged {
+		subnetsetCR.Spec.SubnetNames = &dedupSubnetNames
+		err := r.Client.Update(ctx, subnetsetCR)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
+			return err
+		}
+	}
+	// Update Subnet Info on SubnetSet
 	var subnetInfoList []v1alpha1.SubnetInfo
 	for _, subnetName := range *subnetsetCR.Spec.SubnetNames {
 		subnet := &v1alpha1.Subnet{}
@@ -63,6 +84,9 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 		}
 		if !common.IsObjectReady(subnet.Status.Conditions) {
 			return fmt.Errorf("Subnet %s/%s is not realized", subnet.Namespace, subnet.Name)
+		}
+		if len(subnet.Status.GatewayAddresses) == 0 {
+			return fmt.Errorf("Subnet %s/%s gateway is not updated", subnet.Namespace, subnet.Name)
 		}
 		subnetInfo := v1alpha1.SubnetInfo{}
 		subnetInfo.NetworkAddresses = subnet.Status.NetworkAddresses
@@ -75,6 +99,7 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 		log.Error(err, "Failed to update SubnetSet status for SubnetNames")
 		return err
 	}
+	log.Info("Successfully updated SubnetSet with Subnet Status", "Subnets", subnetInfoList)
 	return nil
 }
 
@@ -242,6 +267,12 @@ func updateLabels(subnetSet *v1alpha1.SubnetSet, systemNs bool) bool {
 			value = servicecommon.DefaultVMNetwork
 		default:
 			log.Error(errors.New("Unknown value"), "Update labels", "Label values", value)
+		}
+		// No need to update the label if it already existed
+		if existingValue, exists := subnetSet.Labels[servicecommon.LabelDefaultNetwork]; exists {
+			if existingValue == value {
+				return metadataChanged
+			}
 		}
 		subnetSet.Labels[servicecommon.LabelDefaultNetwork] = value
 		metadataChanged = true
@@ -446,7 +477,7 @@ func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, s
 }
 
 func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
-	subnetSetLock := common.LockSubnetSet(subnetSet.GetUID())
+	subnetSetLock := common.WLockSubnetSet(subnetSet.GetUID())
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 
 	// For restore mode, we use SubnetSet CR status as source of the truth to sync the NSX Subnet
@@ -471,7 +502,7 @@ func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.Subnet
 	// For SubnetSet CR deletion event, we don't delete the existing SubnetConnectionBindingMaps but let the
 	// SubnetConnectionBindingMap controller do it after the binding CR is removed.
 	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, ignoreStaleSubnetPort)
-	common.UnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
+	common.WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	// Skip SubnetSet status update for restore case, as we need the stale status to restore the NSX Subnet
 	if updateStatus && !r.restoreMode {
 		if err := r.SubnetService.UpdateSubnetSetStatus(&subnetSet); err != nil {
@@ -557,7 +588,8 @@ func (r *SubnetSetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	}
 	for _, subnetSet := range subnetSetList.Items {
 		// Restore a SubnetSet if it has Subnets in status
-		if len(subnetSet.Status.Subnets) > 0 {
+		// No need to restore pre-created SubnetSet
+		if subnetSet.Spec.SubnetNames == nil && len(subnetSet.Status.Subnets) > 0 {
 			restoreList = append(restoreList, types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name})
 		}
 	}
@@ -600,10 +632,12 @@ func (r *SubnetSetReconciler) Start(mgr ctrl.Manager, hookServer webhook.Server)
 		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnetset",
 			&webhook.Admission{
 				Handler: &SubnetSetValidator{
-					Client:     mgr.GetClient(),
-					decoder:    admission.NewDecoder(mgr.GetScheme()),
-					nsxClient:  r.SubnetService.NSXClient,
-					vpcService: r.VPCService,
+					Client:            mgr.GetClient(),
+					decoder:           admission.NewDecoder(mgr.GetScheme()),
+					nsxClient:         r.SubnetService.NSXClient,
+					vpcService:        r.VPCService,
+					subnetService:     r.SubnetService,
+					subnetPortService: r.SubnetPortService,
 				},
 			})
 	}

@@ -25,6 +25,7 @@ import (
 	pkg_mock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
@@ -101,6 +102,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 						},
 					})
 				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("GetPortsOfSubnet", mock.Anything).Return([]*model.VpcSubnetPort{})
+				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything).Return(true, nil)
 			},
 			expectedResult: expectedSubnetPath,
 		},
@@ -122,6 +124,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GenerateSubnetNSTags", mock.Anything)
 				vsp.(*pkg_mock.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{{}})
 				ssp.(*pkg_mock.MockSubnetServiceProvider).On("CreateOrUpdateSubnet", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&model.VpcSubnet{Path: &expectedSubnetPath}, nil)
+				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything).Return(true, nil)
 			},
 			expectedResult: expectedSubnetPath,
 		},
@@ -132,7 +135,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 			ssp := &pkg_mock.MockSubnetServiceProvider{}
 			spsp := &pkg_mock.MockSubnetPortServiceProvider{}
 			tt.prepareFunc(t, vps, ssp, spsp)
-			subnetPath, err := AllocateSubnetFromSubnetSet(&v1alpha1.SubnetSet{
+			subnetPath, _, _, err := AllocateSubnetFromSubnetSet(fake.NewClientBuilder().Build(), &v1alpha1.SubnetSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "subnetset-1",
 					Namespace: "ns-1",
@@ -477,6 +480,291 @@ func TestGetNamespaceType(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := GetNamespaceType(tc.ns, tc.vnc)
 			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+func TestIsSharedSubnetPath(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	namespace := "ns-1"
+	validPath := "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"
+	expectedResource := "default:ns-1:subnet-1"
+
+	tests := []struct {
+		name            string
+		path            string
+		existingSubnets []v1alpha1.Subnet
+		expectedResult  bool
+		expectedError   bool
+	}{
+		{
+			name: "shared-subnet",
+			path: validPath,
+			existingSubnets: []v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "shared-subnet",
+						Namespace: namespace,
+					},
+				},
+			},
+			expectedResult: true,
+			expectedError:  false,
+		},
+		{
+			name:            "not-shared-subnet",
+			path:            validPath,
+			existingSubnets: []v1alpha1.Subnet{},
+			expectedResult:  false,
+			expectedError:   false,
+		},
+		{
+			name:           "invalid-path",
+			path:           "invalid-path",
+			expectedResult: false,
+			expectedError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objs := []client.Object{}
+			for i := range tt.existingSubnets {
+				objs = append(objs, &tt.existingSubnets[i])
+			}
+
+			cb := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.Subnet{})
+			// Mock the Field Indexer for MatchingFields
+			cb.WithIndex(&v1alpha1.Subnet{}, util.SubnetAssociatedResource, func(o client.Object) []string {
+				return []string{expectedResource}
+			})
+			fakeClient := cb.WithObjects(objs...).Build()
+
+			result, err := IsSharedSubnetPath(context.TODO(), fakeClient, tt.path, namespace)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedResult, result)
+			}
+		})
+	}
+}
+
+func TestGetNSXSubnetsForSubnetSet(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	namespace := "default"
+	subnetSetUID := "uid-123"
+	nsxSubnet := &model.VpcSubnet{Id: servicecommon.String("subnet-1")}
+
+	tests := []struct {
+		name            string
+		subnetSet       *v1alpha1.SubnetSet
+		existingObjects []runtime.Object
+		mockSetup       func(m *pkg_mock.MockSubnetServiceProvider)
+		wantErr         bool
+		expectedLen     int
+	}{
+		{
+			name: "Return subnets by Index when SubnetNames is empty",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-1", Namespace: namespace, UID: types.UID(subnetSetUID)},
+				Spec:       v1alpha1.SubnetSetSpec{},
+			},
+			mockSetup: func(m *pkg_mock.MockSubnetServiceProvider) {
+				m.On("GetSubnetsByIndex", servicecommon.TagScopeSubnetSetCRUID, subnetSetUID).
+					Return([]*model.VpcSubnet{nsxSubnet})
+			},
+			wantErr:     false,
+			expectedLen: 1,
+		},
+		{
+			name: "Successfully fetch specific subnets by name",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-2", Namespace: namespace},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"subnet-1"}},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: namespace}},
+			},
+			mockSetup: func(m *pkg_mock.MockSubnetServiceProvider) {
+				m.On("GetSubnetByCR", mock.AnythingOfType("*v1alpha1.Subnet")).Return(nsxSubnet, nil)
+			},
+			wantErr:     false,
+			expectedLen: 1,
+		},
+		{
+			name: "Error when Subnet CR does not exist",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-3", Namespace: namespace},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"missing-sub"}},
+			},
+			existingObjects: []runtime.Object{},
+			mockSetup:       func(m *pkg_mock.MockSubnetServiceProvider) {},
+			wantErr:         true,
+			expectedLen:     0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(tt.existingObjects...).Build()
+			mockSvc := new(pkg_mock.MockSubnetServiceProvider)
+			tt.mockSetup(mockSvc)
+
+			result, err := GetNSXSubnetsForSubnetSet(k8sClient, tt.subnetSet, mockSvc)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedLen, len(result))
+			}
+			mockSvc.AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetSubnetFromSubnetSet(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	ns := "ns-1"
+	path := "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"
+	nsxSubnet := &model.VpcSubnet{Id: servicecommon.String("subnet-1"), Path: &path}
+
+	tests := []struct {
+		name            string
+		subnetSet       *v1alpha1.SubnetSet
+		existingObjects []runtime.Object
+		mockSetup       func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider)
+		expectedPath    string
+		wantErr         bool
+		errContains     string
+	}{
+		{
+			name: "Success - First subnet has capacity",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-1", Namespace: ns},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"subnet-1"}},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: ns}},
+			},
+			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) {
+				// We use mock.Anything here to avoid pointer address issues
+				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet, nil)
+				mp.On("AllocatePortFromSubnet", mock.Anything).Return(true, nil)
+			},
+			expectedPath: path,
+			wantErr:      false,
+		},
+		{
+			name: "Success - Second subnet works after first is full",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-2", Namespace: ns},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"full-subnet", "ok-subnet"}},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "full-subnet", Namespace: ns}},
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "ok-subnet", Namespace: ns}},
+			},
+			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) {
+				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet, nil)
+				// First call returns false (full), second call returns true
+				mp.On("AllocatePortFromSubnet", mock.Anything).Return(false, nil).Once()
+				mp.On("AllocatePortFromSubnet", mock.Anything).Return(true, nil).Once()
+			},
+			expectedPath: path,
+			wantErr:      false,
+		},
+		{
+			name: "Failure - All subnets exhausted",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-3", Namespace: ns},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"subnet-1"}},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: ns}},
+			},
+			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) {
+				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet, nil)
+				mp.On("AllocatePortFromSubnet", mock.Anything).Return(false, nil)
+			},
+			expectedPath: "",
+			wantErr:      true,
+		},
+		{
+			name: "Failure - K8s Client Get fails",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-4", Namespace: ns},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"missing-subnet"}},
+			},
+			existingObjects: []runtime.Object{},
+			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) {
+			},
+			wantErr:     true,
+			errContains: "not found",
+		},
+		{
+			name: "Failure - GetSubnetByCR fails",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-5", Namespace: ns},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"subnet-1"}},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: ns}},
+			},
+			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) {
+				ms.On("GetSubnetByCR", mock.Anything).Return(nil, errors.New("nsx-service-down"))
+			},
+			wantErr:     true,
+			errContains: "nsx-service-down",
+		},
+		{
+			name: "Failure - AllocatePortFromSubnet fails",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "subnetset-6", Namespace: ns},
+				Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"subnet-1"}},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: ns}},
+			},
+			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) {
+				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet, nil)
+				mp.On("AllocatePortFromSubnet", mock.Anything).Return(false, errors.New("capacity-check-failed"))
+			},
+			wantErr:     true,
+			errContains: "capacity-check-failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(tt.existingObjects...).Build()
+			mockSubnetSvc := new(pkg_mock.MockSubnetServiceProvider)
+			mockPortSvc := new(pkg_mock.MockSubnetPortServiceProvider)
+			tt.mockSetup(mockSubnetSvc, mockPortSvc)
+
+			// Execute
+			result, err := GetSubnetFromSubnetSet(client, tt.subnetSet, mockSubnetSvc, mockPortSvc)
+
+			// Assert
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedPath, result)
+			}
+
+			mockSubnetSvc.AssertExpectations(t)
+			mockPortSvc.AssertExpectations(t)
 		})
 	}
 }

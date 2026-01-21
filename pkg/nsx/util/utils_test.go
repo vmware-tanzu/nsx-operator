@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1542,6 +1543,45 @@ func TestFindTag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := FindTag(tt.tags, tt.tagScope)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestDiffArrays(t *testing.T) {
+	tests := []struct {
+		name        string
+		firstArray  []string
+		secondArray []string
+		expected    []string
+	}{
+		{
+			name:        "Remove elements - basic",
+			firstArray:  []string{"subnet-1", "subnet-2", "subnet-3"},
+			secondArray: []string{"subnet-2"},
+			expected:    []string{"subnet-1", "subnet-3"},
+		},
+		{
+			name:        "No overlap - returns all from first",
+			firstArray:  []string{"a", "b"},
+			secondArray: []string{"c", "d"},
+			expected:    []string{"a", "b"},
+		},
+		{
+			name:        "Complete overlap - returns empty",
+			firstArray:  []string{"a", "b"},
+			secondArray: []string{"a", "b"},
+			expected:    []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DiffArrays(tt.firstArray, tt.secondArray)
+
+			sort.Strings(result)
+			sort.Strings(tt.expected)
+
 			assert.Equal(t, tt.expected, result)
 		})
 	}
