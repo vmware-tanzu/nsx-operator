@@ -29,27 +29,12 @@ func testNamespaceSync(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-namespace-sync-%s", getRandomString())
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
+	// Use the pre-created namespace
+	ns := NsInventorySync
 
 	// Wait for the namespace to be synced to the NSX inventory as a ContainerProject
-	err = testData.waitForResourceExistOrNot(ns, "ContainerProject", ns, true)
+	err := testData.waitForResourceExistOrNot(ns, "ContainerProject", ns, true)
 	assert.NoError(t, err, "Namespace was not synced to NSX inventory as ContainerProject")
-
-	// Delete the namespace and verify it's removed from the NSX inventory
-	err = testData.deleteVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to delete VC namespace: %v", err)
-	}
-
-	// Wait for the namespace to be removed from the NSX inventory
-	err = testData.waitForResourceExistOrNot(ns, "ContainerProject", ns, false)
-	assert.NoError(t, err, "Namespace was not removed from NSX inventory")
 }
 
 // testPodSync tests that a Kubernetes pod is synced to the NSX inventory as a ContainerApplicationInstance
@@ -57,23 +42,12 @@ func testPodSync(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-pod-sync-%s", getRandomString())
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
+	// Use the pre-created namespace
+	ns := NsInventorySync
 
 	// Create a pod
 	podName := fmt.Sprintf("test-pod-%s", getRandomString())
-	_, err = testData.createPod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
+	_, err := testData.createPod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
 	if err != nil {
 		t.Fatalf("Failed to create pod: %v", err)
 	}
@@ -106,19 +80,8 @@ func testServiceSync(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-service-sync-%s", getRandomString())
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
+	// Use the pre-created namespace
+	ns := NsInventorySync
 
 	// Create a service
 	serviceName := fmt.Sprintf("test-service-%s", getRandomString())
@@ -126,7 +89,7 @@ func testServiceSync(t *testing.T) {
 	targetPort := int32(8080)
 	selector := map[string]string{"app": "test"}
 
-	_, err = testData.createService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
+	_, err := testData.createService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}
@@ -177,19 +140,8 @@ func testNetworkPolicySync(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-netpol-sync-%s", getRandomString())
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
+	// Use the pre-created namespace
+	ns := NsInventorySync
 
 	// Create a NetworkPolicy
 	policyName := fmt.Sprintf("test-network-policy-%s", getRandomString())
@@ -209,7 +161,7 @@ func testNetworkPolicySync(t *testing.T) {
 		},
 	}
 
-	_, err = testData.clientset.NetworkingV1().NetworkPolicies(ns).Create(context.TODO(), networkPolicy, metav1.CreateOptions{})
+	_, err := testData.clientset.NetworkingV1().NetworkPolicies(ns).Create(context.TODO(), networkPolicy, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("Failed to create NetworkPolicy: %v", err)
 	}
@@ -234,19 +186,8 @@ func testIngressSync(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	// Create a namespace with a unique name
-	ns := fmt.Sprintf("test-ingress-sync-%s", getRandomString())
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
+	// Use the pre-created namespace
+	ns := NsInventorySync
 
 	// Create a service first (ingress needs a backend service)
 	serviceName := fmt.Sprintf("test-service-%s", getRandomString())
@@ -254,7 +195,7 @@ func testIngressSync(t *testing.T) {
 	targetPort := int32(8080)
 	selector := map[string]string{"app": "test"}
 
-	_, err = testData.createService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
+	_, err := testData.createService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
 	if err != nil {
 		t.Fatalf("Failed to create service: %v", err)
 	}

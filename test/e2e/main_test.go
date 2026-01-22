@@ -55,6 +55,12 @@ func testMain(m *testing.M) int {
 		log.Info("Pod IPv6: ", "network", clusterInfo.podV6NetworkCIDR)
 	}
 
+	// Batch create all VC namespaces once
+	if err := InitAllNamespaces(); err != nil {
+		log.Error(err, "failed to init all e2e namespaces")
+	}
+	defer CleanupAllNamespaces()
+
 	ret := m.Run()
 	return ret
 }
