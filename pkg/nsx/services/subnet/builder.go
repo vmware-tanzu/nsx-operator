@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -65,14 +66,34 @@ func convertAccessMode(accessMode string) string {
 	return accessMode
 }
 
-func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, ipAddresses []string) (*model.VpcSubnet, error) {
+// buildSubnetTags builds the basic tags and appends tepless tags for the Subnet.
+// it also check the tags count
+func (service *SubnetService) buildSubnetTags(obj client.Object, tags []model.Tag) ([]model.Tag, error) {
 	tags = append(service.buildBasicTags(obj), tags...)
+	tepLess, err := controllerscommon.IsNamespaceInTepLessMode(service.Service.Client, obj.GetNamespace())
+	if err != nil {
+		log.Error(err, "Failed to check TEP-less mode for subnet tags", "namespace", obj.GetNamespace())
+		return nil, err
+	}
+	if tepLess {
+		tags = append(tags, model.Tag{
+			Scope: common.String(common.TagScopeEnable),
+			Tag:   common.String(common.TagValueL3InVlanBackedVPCMode),
+		})
+	}
 	// tags cannot exceed maximum size 26
 	if len(tags) > common.MaxTagsCount {
 		errorMsg := fmt.Sprintf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
 		return nil, nsxutil.ExceedTagsError{Desc: errorMsg}
 	}
+	return tags, nil
+}
 
+func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, ipAddresses []string) (*model.VpcSubnet, error) {
+	tags, err := service.buildSubnetTags(obj, tags)
+	if err != nil {
+		return nil, err
+	}
 	nsUID := getNamespaceUUID(tags)
 	objForIdGeneration := &v1.ObjectMeta{
 		Name: obj.GetName(),
