@@ -406,7 +406,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		lbIP = aviSECIDR
 	} else if lbProvider == vpc.NSXLB && len(nsxLBSPath) > 0 && len(vpcConnectivityProfilePath) > 0 {
 		// Only check SNat IP when LB capability is ready and vpcConnectivityProfile exists.
-		nsxLBSNATIP, err = r.getNSXLBSNATIP(nc, createdVpc, vpcConnectivityProfilePath, gatewayConnectionReady, serviceClusterReady)
+		nsxLBSNATIP, err = r.getNSXLBSNATIP(nc, createdVpc, vpcConnectivityProfilePath, gatewayConnectionReady, serviceClusterReady, networkStack == v1alpha1.VLANBackedVPC)
 		if err != nil {
 			log.Error(err, "Failed to read NSX LB SNAT IP", "VPC", createdVpc.Id)
 			state := &v1alpha1.VPCState{
@@ -443,7 +443,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return common.ResultNormal, nil
 }
 
-func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfiguration, createdVpc *model.Vpc, vpcConnectivityProfilePath string, gatewayConnectionReady, serviceClusterReady bool) (string, error) {
+func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfiguration, createdVpc *model.Vpc, vpcConnectivityProfilePath string, gatewayConnectionReady, serviceClusterReady bool, tepLess bool) (string, error) {
 	checkGatewayConnection := gatewayConnectionReady
 	checkServiceCluster := serviceClusterReady
 	// Precreated VPC uses different connectivity profile from system VPC
@@ -458,10 +458,10 @@ func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfigurat
 	}
 	if checkGatewayConnection {
 		// CTGW is used for NSX LB
-		return r.Service.GetNSXLBSNATIP(*createdVpc, "gateway-interface")
+		return r.Service.GetNSXLBSNATIP(*createdVpc, "gateway-interface", tepLess)
 	} else if checkServiceCluster {
 		// DTGW is used for NSX LB
-		return r.Service.GetNSXLBSNATIP(*createdVpc, "service-interface")
+		return r.Service.GetNSXLBSNATIP(*createdVpc, "service-interface", tepLess)
 	}
 	return "", nil
 }
