@@ -2,8 +2,10 @@ package subnet
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,9 +13,11 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -80,6 +84,13 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
+
 	service := &SubnetService{
 		Service: common.Service{
 			Client: k8sClient,
@@ -129,6 +140,13 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
+
 	service := &SubnetService{
 		Service: common.Service{
 			Client: k8sClient,
@@ -290,7 +308,11 @@ func TestBuildSubnetWithConnectivityState(t *testing.T) {
 			},
 		},
 	}
-
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
 	subnet, err := service.buildSubnet(subnetConnected, tags, []string{})
 	assert.Nil(t, err)
 	assert.NotNil(t, subnet.AdvancedConfig.ConnectivityState)
@@ -343,6 +365,13 @@ func TestBuildSubnetWithCustomGatewayAddresses(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
+
 	service := &SubnetService{
 		Service: common.Service{
 			Client: k8sClient,
@@ -419,6 +448,13 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
+
 	service := &SubnetService{
 		Service: common.Service{
 			Client: k8sClient,
@@ -463,6 +499,10 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 			},
 		},
 	}
+	patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
 
 	nsxSubnet2, err := service.buildSubnet(subnet2, tags, []string{})
 	assert.Nil(t, err)
@@ -557,9 +597,159 @@ func TestBuildSubnetWithExceedTagsLimit(t *testing.T) {
 			IPAddresses: []string{"10.0.0.0/28"},
 		},
 	}
-
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
 	nsxSubnet, err := service.buildSubnet(subnet, tags, []string{})
 	assert.Nil(t, nsxSubnet)
+	assert.NotNil(t, err)
+
+	// Verify that the error is of type ExceedTagsError
+	var exceedTagsErr nsxutil.ExceedTagsError
+	assert.True(t, errors.As(err, &exceedTagsErr))
+	assert.Contains(t, exceedTagsErr.Desc, "tags cannot exceed maximum size 26")
+}
+
+func TestBuildSubnetTags(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	tags := []model.Tag{
+		{
+			Scope: common.String("nsx-op/namespace"),
+			Tag:   common.String("ns-1"),
+		},
+	}
+
+	testCases := []struct {
+		name      string
+		isTepLess bool
+		expectTag bool
+		expectErr bool
+	}{
+		{
+			name:      "TEP-less mode should add ultra tag",
+			isTepLess: true,
+			expectTag: true,
+			expectErr: false,
+		},
+		{
+			name:      "Non-TEP-less mode should not add ultra tag",
+			isTepLess: false,
+			expectTag: false,
+			expectErr: false,
+		},
+		{
+			name:      "Error when IsNamespaceInTepLessMode fails",
+			isTepLess: false,
+			expectTag: false,
+			expectErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+				func(_ client.Client, _ string) (bool, error) {
+					if tc.expectErr {
+						return false, fmt.Errorf("failed to list NetworkInfo")
+					}
+					return tc.isTepLess, nil
+				})
+			defer patches.Reset()
+
+			subnet := &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-test",
+					Namespace: "ns-1",
+				},
+			}
+
+			resultTags, err := service.buildSubnetTags(subnet, tags)
+			if tc.expectErr {
+				assert.NotNil(t, err)
+				return
+			}
+			assert.Nil(t, err)
+			assert.NotNil(t, resultTags)
+
+			found := false
+			for _, tag := range resultTags {
+				if *tag.Scope == common.TagScopeEnable && *tag.Tag == common.TagValueL3InVlanBackedVPCMode {
+					found = true
+					break
+				}
+			}
+			assert.Equal(t, tc.expectTag, found)
+		})
+	}
+}
+
+func TestBuildSubnetTagsExceedMaxTags(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+	}
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
+
+	// Create more than MaxTagsCount (26) tags to trigger the error
+	tags := make([]model.Tag, common.MaxTagsCount+1)
+	for i := 0; i < common.MaxTagsCount+1; i++ {
+		tags[i] = model.Tag{
+			Scope: common.String("test-scope"),
+			Tag:   common.String("test-tag-" + string(rune('0'+i))),
+		}
+	}
+
+	subnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-exceed-tags",
+			Namespace: "ns-1",
+		},
+	}
+
+	resultTags, err := service.buildSubnetTags(subnet, tags)
+	assert.Nil(t, resultTags)
 	assert.NotNil(t, err)
 
 	// Verify that the error is of type ExceedTagsError

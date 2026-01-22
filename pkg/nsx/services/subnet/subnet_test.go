@@ -28,6 +28,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mockOrgRoot "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -96,16 +97,14 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 	// Validate the tags
 	assert.NotNil(t, tags)
-	assert.Equal(t, 5, len(tags)) // 5 tags should be generated (including TEP-less tag)
+	assert.Equal(t, 4, len(tags)) // 4 tags should be generated
 
 	// Check specific tags
 	assert.Equal(t, "nsx-op", *tags[0].Tag)
 	assert.Equal(t, "namespace-uid", *tags[1].Tag)
 	assert.Equal(t, "test-ns", *tags[2].Tag)
-	assert.Equal(t, "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE", *tags[3].Tag)
-	assert.Equal(t, "ENABLED", *tags[3].Scope)
-	assert.Equal(t, "test", *tags[4].Tag)
-	assert.Equal(t, "env", *tags[4].Scope)
+	assert.Equal(t, "test", *tags[3].Tag)
+	assert.Equal(t, "env", *tags[3].Scope)
 
 	// Define the SubnetSet object
 	subnetSet := &v1alpha1.SubnetSet{
@@ -123,7 +122,7 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 	// Validate the tags for SubnetSet
 	assert.NotNil(t, tagsSet)
-	assert.Equal(t, 4, len(tagsSet)) // 4 tags should be generated
+	assert.Equal(t, 4, len(tagsSet)) // 4 tags
 	assert.Equal(t, "nsx-op", *tagsSet[0].Tag)
 	assert.Equal(t, "namespace-uid", *tagsSet[1].Tag)
 }
@@ -349,7 +348,10 @@ func TestInitializeSubnetService(t *testing.T) {
 				patches = tc.prepareFunc(mockOrgRootClient)
 				defer patches.Reset()
 			}
-
+			patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+				func(_ client.Client, _ string) (bool, error) {
+					return false, nil
+				})
 			service, err := InitializeSubnetService(commonService)
 
 			assert.NoError(t, err)
@@ -585,7 +587,10 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 			return &model.VpcSubnet{Path: &fakeSubnetPath}, nil
 		})
 	defer patchesCreateOrUpdateSubnet.Reset()
-
+	gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
 	err := service.UpdateSubnetSet("ns-1", vpcSubnets, tags, "")
 	assert.Nil(t, err)
 }

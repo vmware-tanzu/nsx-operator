@@ -16,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -455,18 +454,6 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Ta
 		tags = append(tags,
 			model.Tag{Scope: common.String(common.TagScopeVMNamespaceUID), Tag: common.String(nsUID)},
 			model.Tag{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(obj.GetNamespace())})
-		// Check if namespace is in TEP-less mode and append tag if true
-		tepLess, err := controllerscommon.IsNamespaceInTepLessMode(service.Service.Client, obj.GetNamespace())
-		if err != nil {
-			log.Error(err, "Failed to check TEP-less mode for subnet tags", "namespace", obj.GetNamespace())
-			return nil
-		}
-		if tepLess {
-			tags = append(tags, model.Tag{
-				Scope: common.String(common.TagScopeEnable),
-				Tag:   common.String(common.TagValueL3InVlanBackedVPCMode),
-			})
-		}
 	case *v1alpha1.SubnetSet:
 		isDefaultPodSubnetSet := false
 		if value, exist := o.Labels[common.LabelDefaultSubnetSet]; exist {
@@ -528,7 +515,10 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, subnetSet); err != nil {
 			return fmt.Errorf("failed to get SubnetSet %s in Namespace %s: %w", name, ns, err)
 		}
-		newTags := append(service.buildBasicTags(subnetSet), tags...)
+		newTags, err := service.buildSubnetTags(subnetSet, tags)
+		if err != nil {
+			return err
+		}
 
 		// Avoid updating vpcSubnets[i] to ensure the Subnet store
 		// is only updated after the updating succeeds.
