@@ -372,41 +372,53 @@ func TestCheckAccessModeOrVisibility(t *testing.T) {
 			resourceType: servicecommon.ResourceTypeIPAddressAllocation,
 			wantErr:      false,
 		},
+		/*
+				{
+					name:         "TepLess is true, IPAddressAllocation, AccessMode Private - Failure",
+					tepLess:      true,
+					accessMode:   "Private",
+					resourceType: servicecommon.ResourceTypeIPAddressAllocation,
+					wantErr:      true,
+					expectedErr:  "IPAddressVisibility other than External is not supported for VLANBackedVPC",
+				},
+
+			{
+				name:         "TepLess is true, Other resource, AccessMode Public - Success",
+				tepLess:      true,
+				accessMode:   string(v1alpha1.AccessModePublic),
+				resourceType: "VPCSubnet",
+				wantErr:      false,
+			},
+
+				{
+					name:         "TepLess is true, Other resource, AccessMode Private - Failure",
+					tepLess:      true,
+					accessMode:   string(v1alpha1.AccessModePrivate),
+					resourceType: "SubnetSet",
+					wantErr:      true,
+					expectedErr:  "AccessMode other than Public is not supported for VLANBackedVPC",
+				},
+
+			{
+				name:         "TepLess is false, Any AccessMode - Success",
+				tepLess:      false,
+				accessMode:   "AnyMode",
+				resourceType: "AnyResource",
+				wantErr:      false,
+			},
+
+				{
+					name:        "IsTepLessMode returns error",
+					tepLessErr:  fmt.Errorf("internal error"),
+					wantErr:     true,
+					expectedErr: "internal error",
+				},
+		*/
 		{
-			name:         "TepLess is true, IPAddressAllocation, AccessMode Private - Failure",
-			tepLess:      true,
-			accessMode:   "Private",
-			resourceType: servicecommon.ResourceTypeIPAddressAllocation,
-			wantErr:      true,
-			expectedErr:  "IPAddressVisibility other than External is not supported for VLANBackedVPC",
-		},
-		{
-			name:         "TepLess is true, Other resource, AccessMode Public - Success",
-			tepLess:      true,
-			accessMode:   string(v1alpha1.AccessModePublic),
-			resourceType: "VPCSubnet",
-			wantErr:      false,
-		},
-		{
-			name:         "TepLess is true, Other resource, AccessMode Private - Failure",
-			tepLess:      true,
-			accessMode:   string(v1alpha1.AccessModePrivate),
-			resourceType: "SubnetSet",
-			wantErr:      true,
-			expectedErr:  "AccessMode other than Public is not supported for VLANBackedVPC",
-		},
-		{
-			name:         "TepLess is false, Any AccessMode - Success",
-			tepLess:      false,
-			accessMode:   "AnyMode",
-			resourceType: "AnyResource",
-			wantErr:      false,
-		},
-		{
-			name:        "IsTepLessMode returns error",
-			tepLessErr:  fmt.Errorf("internal error"),
-			wantErr:     true,
-			expectedErr: "internal error",
+			name:       "IsTepLessMode, AccessMode None, - Success",
+			tepLess:    true,
+			wantErr:    false,
+			accessMode: "",
 		},
 	}
 

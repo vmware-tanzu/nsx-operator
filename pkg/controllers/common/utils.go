@@ -475,20 +475,27 @@ func CheckNetworkStack(k8sClient k8sclient.Client, ctx context.Context, ns strin
 }
 
 func CheckAccessModeOrVisibility(client k8sclient.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
-	tepLess, err := IsTepLessMode(client, ctx, ns)
-	if err != nil {
-		return err
-	}
-	log.Trace("CheckAccessModeOrVisibility", "accessMode", accessMode, "resourceType", resourceType, "namespace", ns)
-	if resourceType == servicecommon.ResourceTypeIPAddressAllocation {
-		if tepLess && accessMode != string(v1alpha1.IPAddressVisibilityExternal) {
-			return fmt.Errorf("IPAddressVisibility other than External is not supported for VLANBackedVPC")
+	// TODO: add the function back when all the default value of accessMode has been changed.
+	/*
+		tepLess, err := IsTepLessMode(client, ctx, ns)
+		if err != nil {
+			return err
 		}
-	} else {
-		if tepLess && accessMode != string(v1alpha1.AccessModePublic) {
-			return fmt.Errorf("AccessMode other than Public is not supported for VLANBackedVPC")
+		log.Trace("CheckAccessModeOrVisibility", "accessMode", accessMode, "resourceType", resourceType, "namespace", ns)
+		if resourceType == servicecommon.ResourceTypeIPAddressAllocation {
+
+				if tepLess && accessMode != string(v1alpha1.IPAddressVisibilityExternal) && accessMode != ""{
+					return fmt.Errorf("IPAddressVisibility other than External is not supported for VLANBackedVPC")
+				}
+
+		} else {
+
+				if tepLess && accessMode != string(v1alpha1.AccessModePublic) && accessMode != "" {
+					return fmt.Errorf("AccessMode other than Public is not supported for VLANBackedVPC")
+				}
+
 		}
-	}
+	*/
 	return nil
 }
 
