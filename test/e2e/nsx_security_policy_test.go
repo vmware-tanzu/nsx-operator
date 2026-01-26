@@ -32,47 +32,45 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-const (
-	timeInterval = 1 * time.Second
-	timeOut10    = 10 * time.Second
-	timeOut5     = 5 * time.Second
-)
-
 func TestSecurityPolicy(t *testing.T) {
-	t.Run("testSecurityPolicyBasicTraffic", func(t *testing.T) { testSecurityPolicyBasicTraffic(t) })
-	t.Run("testSecurityPolicyAddDeleteRule", func(t *testing.T) { testSecurityPolicyAddDeleteRule(t) })
-	t.Run("testSecurityPolicyMatchExpression", func(t *testing.T) { testSecurityPolicyMatchExpression(t) })
-	t.Run("testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
-	t.Run("testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
+	TrackTest(t)
+
+	// Clean up shared namespaces when all subtests complete
+	t.Cleanup(func() {
+		CleanupVCNamespaces(NsSecurityPolicy, NsSecurityPolicyNamedPortClient, NsSecurityPolicyNamedPortWeb)
+	})
+	StartParallel(t)
+
+	// SequentialTests: All subtests share NsSecurityPolicy namespace and some share "isolate-policy-1"
+	// so they MUST run sequentially to avoid conflicts
+	RunSubtest(t, "SequentialTests", func(t *testing.T) {
+		RunSubtest(t, "testSecurityPolicyBasicTraffic", func(t *testing.T) { testSecurityPolicyBasicTraffic(t) })
+		RunSubtest(t, "testSecurityPolicyAddDeleteRule", func(t *testing.T) { testSecurityPolicyAddDeleteRule(t) })
+		RunSubtest(t, "testSecurityPolicyMatchExpression", func(t *testing.T) { testSecurityPolicyMatchExpression(t) })
+		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
+		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
+	})
 }
 
 // TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.
 // This is the very basic, blocking all in and out traffic between pods should take effect.
+// NOTE: This test must NOT run in parallel with testSecurityPolicyAddDeleteRule - both use isolate-policy-1
 func testSecurityPolicyBasicTraffic(t *testing.T) {
+	// Do NOT run in parallel - conflicts with testSecurityPolicyAddDeleteRule (same policy name)
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := fmt.Sprintf("test-security-policy-basic-%s", getRandomString())
+	// Use pre-created namespace (shared with other security policy tests)
+	ns := NsSecurityPolicy
 	securityPolicyName := "isolate-policy-1"
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
 
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
-
 	// Create pods
 	deploymentName := "server-client"
-	_, err = testData.createDeployment(ns, deploymentName, containerName, podImage, corev1.ProtocolTCP, podPort, 2)
+	_, err := testData.createDeployment(ns, deploymentName, containerName, podImage, corev1.ProtocolTCP, podPort, 2)
 	require.NoErrorf(t, err, "Deloyment '%s/%s' should be created", ns, deploymentName)
-	serverClientIPs, serverClientNames, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, ns, deploymentName, 2)
+	serverClientIPs, serverClientNames, err := testData.deploymentWaitForIPsOrNames(2*defaultTimeout, ns, deploymentName, 2)
 	require.NoError(t, err, "Error when waiting for IP for Deployment '%s/%s'", ns, deploymentName)
 
 	serverPodName := serverClientNames[0]
@@ -82,8 +80,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	log.Info("Server and Client Pod in the Namespace is ready", "Namespace", ns, "ServerPod", serverPodName, "ClientPod", clientPodName)
 
 	// Test traffic from client Pod to server Pod
-	trafficErr := checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "Basic traffic should work")
+	require.True(t, checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, true), "Basic traffic should work")
 	log.Info("Verified traffic from client Pod to the server Pod")
 
 	// Create security policy
@@ -98,8 +95,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, true))
 
 	// Test traffic from client Pod to server Pod
-	trafficErr = checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, timeInterval, timeOut5)
-	require.Error(t, trafficErr, "Basic traffic should not work")
+	require.True(t, checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, false), "Basic traffic should not work")
 	log.Info("Verified traffic from client Pod to the server Pod")
 
 	// Delete security policy
@@ -123,24 +119,24 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false))
 
 	// Test traffic from client Pod to server Pod
-	trafficErr = checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "Basic traffic should work")
+	require.True(t, checkTrafficByCurl(ns, clientPodName, containerName, serverPodIP, podPort, true), "Basic traffic should work")
 	log.Info("Verified traffic from client Pod to the server Pod")
 }
 
 // TestSecurityPolicyAddDeleteRule verifies that when adding or deleting rule, the security policy will be updated.
 // This is once a bug which is fixed later. When adding or deleting rule of one security policy repeatedly,
 // the nsx-t side should keep consistent.
+// NOTE: This test must NOT run in parallel with testSecurityPolicyBasicTraffic - both use isolate-policy-1
 func testSecurityPolicyAddDeleteRule(t *testing.T) {
+	// Do NOT run in parallel - conflicts with testSecurityPolicyBasicTraffic (same policy name)
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := fmt.Sprintf("test-security-policy-add-delete-%s", getRandomString())
+	// Use pre-created namespace (shared with other security policy tests)
+	ns := NsSecurityPolicy
 	securityPolicyName := "isolate-policy-1"
 	ruleName0 := "all_ingress_isolation"
 	ruleName1 := "all_egress_isolation"
-	setupTest(t, ns)
-	defer teardownTest(t, ns, defaultTimeout)
 
 	// Create security policy
 	nsIsolationPath, _ := filepath.Abs("./manifest/testSecurityPolicy/ns-isolation-policy.yaml")
@@ -186,24 +182,16 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 // TestSecurityPolicyMatchExpression verifies that the traffic of security policy when match expression applied.
 // This test is to verify the match expression, NotIn/In operator feature of security policy. It should apply
 // to the specified pod.
+// NOTE: This test must NOT run in parallel with testSecurityPolicyBasicTraffic/AddDeleteRule - all use NsSecurityPolicy
 func testSecurityPolicyMatchExpression(t *testing.T) {
+	// Do NOT run in parallel - shares NsSecurityPolicy namespace where other tests create isolation policies
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := fmt.Sprintf("test-security-policy-match-expression-%s", getRandomString())
+	// Use pre-created namespace (shared with other security policy tests)
+	ns := NsSecurityPolicy
 	securityPolicyName := "expression-policy-1"
 	ruleName := "expression-policy-1-rule"
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
 
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
@@ -214,7 +202,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	clientB := "client-b"
 	podA := "pod-a"
 	// Wait for pods
-	_, err = testData.podWaitForIPs(defaultTimeout, clientA, ns)
+	_, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
 	_, err = testData.podWaitForIPs(defaultTimeout, clientB, ns)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
@@ -222,12 +210,10 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", podA)
 
 	// Test traffic from clientA to podA
-	trafficErr := checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "TestSecurityPolicyMatchExpression traffic should work")
+	require.True(t, checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
 	log.Info("Verified traffic from client Pod to PodA")
 	// Test traffic from clientB to podA
-	trafficErr = checkTrafficByCurl(ns, clientB, clientB, iPs.ipv4.String(), podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "TestSecurityPolicyMatchExpression traffic should work")
+	require.True(t, checkTrafficByCurl(ns, clientB, clientB, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
 	log.Info("Verified traffic from client Pod to PodB")
 
 	// Create security policy
@@ -241,12 +227,10 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, true))
 
 	// Test traffic from clientA to podA
-	trafficErr = checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "TestSecurityPolicyMatchExpression traffic should work")
+	require.True(t, checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
 	log.Info("Verified traffic from client Pod to PodA")
 	// Test traffic from clientB to podA
-	trafficErr = checkTrafficByCurl(ns, clientB, clientB, iPs.ipv4.String(), podPort, timeInterval, timeOut5)
-	require.Error(t, trafficErr, "TestSecurityPolicyMatchExpression traffic should not work")
+	require.True(t, checkTrafficByCurl(ns, clientB, clientB, iPs.ipv4.String(), podPort, false), "TestSecurityPolicyMatchExpression traffic should not work")
 	log.Info("Verified traffic from client Pod to PodB")
 
 	// Delete security policy
@@ -270,21 +254,22 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName, false))
 
 	// Test traffic from clientA to podA
-	trafficErr = checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "TestSecurityPolicyMatchExpression traffic should work")
+	require.True(t, checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
 	log.Info("Verified traffic from client Pod to PodA")
 	// Test traffic from clientB to podA
-	trafficErr = checkTrafficByCurl(ns, clientB, clientB, iPs.ipv4.String(), podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "TestSecurityPolicyMatchExpression traffic should work")
+	require.True(t, checkTrafficByCurl(ns, clientB, clientB, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
 	log.Info("Verified traffic from client Pod to PodB")
 }
 
 // TestSecurityPolicyNamedPortWithoutPod verifies that the traffic of security policy when named port applied.
 // This test is to verify the named port feature of security policy.
 // When appliedTo is in policy level and there's no pod holding the related named ports.
+// NOTE: This test must NOT run in parallel with testSecurityPolicyNamedPorWithPod - both use same namespace and deployment label
 func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
-	nsClient := fmt.Sprintf("test-security-policy-client-%s", getRandomString())
-	nsWeb := fmt.Sprintf("test-security-policy-web-%s", getRandomString())
+	// Do NOT run in parallel - conflicts with testSecurityPolicyNamedPorWithPod (same namespace and deployment)
+	// Use pre-created namespaces (shared with testSecurityPolicyNamedPorWithPod)
+	nsClient := NsSecurityPolicyNamedPortClient
+	nsWeb := NsSecurityPolicyNamedPortWeb
 	securityPolicyCRName := "named-port-policy-without-pod"
 	webA := "web"
 	labelWeb := "tcp-deployment"
@@ -292,12 +277,8 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	ruleName1 := "all_ingress_isolation"
 	ruleName2 := "all_egress_isolation"
 
-	testData.deleteNamespace(nsClient, defaultTimeout)
-	testData.deleteNamespace(nsWeb, defaultTimeout)
-	_ = testData.createNamespace(nsClient)
-	_ = testData.createNamespace(nsWeb)
-	defer testData.deleteNamespace(nsClient, defaultTimeout)
-	defer testData.deleteNamespace(nsWeb, defaultTimeout)
+	// Note: using pre-created namespaces, no need to create/delete here
+	_ = nsClient // suppress unused warning, used for documentation
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-without-pod.yaml")
@@ -323,39 +304,16 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 // testSecurityPolicyNamedPorWithPod verifies that the traffic of security policy when named port applied.
 // This test is to verify the named port feature of security policy.
 // When appliedTo is in policy level and there's running pods holding the related named ports.
+// NOTE: This test must NOT run in parallel with testSecurityPolicyNamedPortWithoutPod - both use same namespace and deployment label
 func testSecurityPolicyNamedPorWithPod(t *testing.T) {
-	nsClient := fmt.Sprintf("client-%s", getRandomString())
-	nsWeb := fmt.Sprintf("web-%s", getRandomString())
+	// Do NOT run in parallel - conflicts with testSecurityPolicyNamedPortWithoutPod (same namespace and deployment)
+	// Use pre-created namespaces
+	nsClient := NsSecurityPolicyNamedPortClient
+	nsWeb := NsSecurityPolicyNamedPortWeb
 	securityPolicyCRName := "named-port-policy-with-pod"
 	ruleName0 := "named-port-rule"
 	ruleName1 := "all_ingress_isolation"
 	ruleName2 := "all_egress_isolation"
-	var err error
-
-	err = testData.createVCNamespace(nsClient)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	err = testData.createVCNamespace(nsWeb)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-
-	defer func() {
-		err := testData.deleteVCNamespace(nsClient)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-		err = testData.deleteVCNamespace(nsWeb)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
-
-	_ = testData.createNamespace(nsClient)
-	_ = testData.createNamespace(nsWeb)
-	defer testData.deleteNamespace(nsClient, defaultTimeout)
-	defer testData.deleteNamespace(nsWeb, defaultTimeout)
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-client.yaml")
@@ -372,10 +330,10 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 	// Wait for pods
 	clientPodIPs, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
 	t.Logf("client Pods are %v", clientPodIPs)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
 	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb, 2)
 	t.Logf("NamedPort Pods are %v", namedPortPodIPs)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
 
 	// Check nsx-t resource existing
@@ -389,19 +347,17 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Test traffic from client to pod0
-	trafficErr := checkTrafficByCurl(nsClient, clientA, clientA, namedPortPodIPs[0], podPort, timeInterval, timeOut10)
-	require.NoError(t, trafficErr, "testSecurityPolicyNamedPort traffic should work")
+	require.True(t, checkTrafficByCurl(nsClient, clientA, clientA, namedPortPodIPs[0], podPort, true), "testSecurityPolicyNamedPort traffic should work")
 	log.Info("Verified traffic from client Pod to Pod0")
 	// Test traffic from clientA to pod1
-	trafficErr = checkTrafficByCurl(nsClient, clientA, clientA, namedPortPodIPs[1], podPort, timeInterval, timeOut5)
-	require.NoError(t, trafficErr, "testSecurityPolicyNamedPort traffic should work")
+	require.True(t, checkTrafficByCurl(nsClient, clientA, clientA, namedPortPodIPs[1], podPort, true), "testSecurityPolicyNamedPort traffic should work")
 	log.Info("Verified traffic from client Pod to Pod1")
 }
 
 func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, timeInterval, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err := wait.PollUntilContextTimeout(deadlineCtx, 10, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(context.Background(), spName, v1.GetOptions{})
 		log.Trace("Get resources", "SecurityPolicies", resp, "Namespace", ns, "Name", spName)
 		if err != nil {

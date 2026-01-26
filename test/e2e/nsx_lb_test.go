@@ -16,11 +16,8 @@ import (
 )
 
 var (
-	lbNs          = fmt.Sprintf("test-lb-%s", getRandomString())
-	port          = int32(80)
-	podNs         = fmt.Sprintf("test-pod-%s", getRandomString())
-	sourcePodName = fmt.Sprintf("test-source-pod-%s", getRandomString())
-	host          = "coffee.example.com"
+	port = int32(80)
+	host = "coffee.example.com"
 )
 
 type backendSvc struct {
@@ -41,33 +38,37 @@ type ingress struct {
 	secretName     string
 }
 
-func prepareNS(t *testing.T, ns string) {
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-}
-func destroyNS(t *testing.T, ns string) {
-	err := testData.deleteVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to delete VC namespace: %v", err)
-	}
-}
-
 func TestLoadBalancer(t *testing.T) {
-	prepareNS(t, lbNs)
-	defer destroyNS(t, lbNs)
-	prepareNS(t, podNs)
-	defer destroyNS(t, podNs)
+	TrackTest(t)
 
-	createPodAndWaitingRunning(t, sourcePodName, podNs)
-	t.Run("testIngress", func(t *testing.T) {
-		testIngress(t)
-	})
-	t.Run("testUpdateServiceVIP", func(t *testing.T) {
-		testUpdateSvcIP(t)
-	})
+	// Use pre-created namespaces
+	lbNs := NsLoadBalancerLB
+	podNs := NsLoadBalancerPod
 
+	// Clean up namespaces when test completes to release resources early
+	t.Cleanup(func() { CleanupVCNamespaces(lbNs, podNs) })
+	StartParallel(t)
+
+	// Note: Don't create a shared source pod here - each subtest creates its own
+	// to avoid conflicts when running tests in parallel
+
+	// ParallelTests: These tests use independent resources (unique pods and services) and can run concurrently
+	RunSubtest(t, "ParallelTests", func(t *testing.T) {
+		RunSubtest(t, "testIngress", func(t *testing.T) {
+			StartParallel(t)
+			// Each subtest gets its own unique source pod to avoid parallel conflicts
+			sourcePodName := fmt.Sprintf("test-source-pod-ingress-%s", getRandomString())
+			createPodAndWaitingRunning(t, sourcePodName, podNs)
+			testIngress(t, lbNs, podNs, sourcePodName)
+		})
+		RunSubtest(t, "testUpdateServiceVIP", func(t *testing.T) {
+			StartParallel(t)
+			// Each subtest gets its own unique source pod to avoid parallel conflicts
+			sourcePodName := fmt.Sprintf("test-source-pod-vip-%s", getRandomString())
+			createPodAndWaitingRunning(t, sourcePodName, podNs)
+			testUpdateSvcIP(t, lbNs, podNs, sourcePodName)
+		})
+	})
 }
 
 func waitForIngressReady(t *testing.T, ingressName string, ns string) string {
@@ -195,7 +196,7 @@ func getNthIPFromCIDR(cidr string, n int) (string, error) {
 	return resultIP.String(), nil
 }
 
-func testUpdateSvcIP(t *testing.T) {
+func testUpdateSvcIP(t *testing.T, lbNs, podNs, sourcePodName string) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 	coffeeSvc := backendSvc{
@@ -211,8 +212,7 @@ func testUpdateSvcIP(t *testing.T) {
 	svc := createDedicateIPService(t, coffeeSvc, "")
 	coffeeSvcIP, err := waitForService(coffeeSvc.namespace, coffeeSvc.name, "")
 	require.NoError(t, err)
-	trafficErr := checkTrafficByCurl(podNs, sourcePodName, containerName, coffeeSvcIP, coffeeSvc.port, 5*time.Second, 30*time.Second)
-	require.NoError(t, trafficErr, "Service traffic should work")
+	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, coffeeSvcIP, coffeeSvc.port, true), "Service traffic should work")
 
 	ipAllocationName := "coffee-ip"
 	err = testData.createIpAddressAllocation(lbNs, "coffee-ip", "External", 32, "")
@@ -227,8 +227,7 @@ func testUpdateSvcIP(t *testing.T) {
 	coffeeSvcIP, err = waitForService(coffeeSvc.namespace, coffeeSvc.name, ip)
 	require.NoError(t, err)
 
-	trafficErr = checkTrafficByCurl(podNs, sourcePodName, containerName, coffeeSvcIP, coffeeSvc.port, 5*time.Second, 30*time.Second)
-	require.NoError(t, trafficErr, "Service traffic should work")
+	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, coffeeSvcIP, coffeeSvc.port, true), "Service traffic should work")
 
 	// update the svc ip
 	ip, err = getNthIPFromCIDR(ips, 2)
@@ -239,11 +238,10 @@ func testUpdateSvcIP(t *testing.T) {
 	require.NoError(t, err)
 	_, err = waitForService(coffeeSvc.namespace, coffeeSvc.name, ip)
 	require.NoError(t, err)
-	trafficErr = checkTrafficByCurl(podNs, sourcePodName, containerName, ip, coffeeSvc.port, 5*time.Second, 30*time.Second)
-	require.NoError(t, trafficErr, "Service traffic should work")
+	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, ip, coffeeSvc.port, true), "Service traffic should work")
 }
 
-func testIngress(t *testing.T) {
+func testIngress(t *testing.T, lbNs, podNs, sourcePodName string) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
@@ -276,11 +274,9 @@ func testIngress(t *testing.T) {
 	createPodAndWaitingRunning(t, teaSvc.podName, teaSvc.namespace)
 	createPodAndWaitingRunning(t, defaultSvc.podName, defaultSvc.namespace)
 
-	trafficErr := checkTrafficByCurl(podNs, sourcePodName, containerName, teaSvcIP, teaSvc.port, 5*time.Second, 30*time.Second)
-	require.NoError(t, trafficErr, "Service traffic should work")
+	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, teaSvcIP, teaSvc.port, true), "Service traffic should work")
 
-	trafficErr = checkTrafficByCurl(podNs, sourcePodName, containerName, defaultSvcIP, defaultSvc.port, 5*time.Second, 30*time.Second)
-	require.NoError(t, trafficErr, "Service traffic should work")
+	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, defaultSvcIP, defaultSvc.port, true), "Service traffic should work")
 
 	// Create Ingress
 	coffeeIngress := ingress{
@@ -316,7 +312,6 @@ func testIngress(t *testing.T) {
 	require.NoError(t, err)
 	ingressIP := waitForIngressReady(t, coffeeIngress.name, coffeeIngress.namespace)
 
-	trafficErr = checkTrafficByCurl(podNs, sourcePodName, containerName, ingressIP, defaultSvc.port, 5*time.Second, 30*time.Second, WithPath("/foo/bar/case"),
-		WithHeaders(map[string]string{"host": host}))
-	require.NoError(t, trafficErr, "Ingress traffic should work")
+	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, ingressIP, defaultSvc.port, true, WithPath("/foo/bar/case"),
+		WithHeaders(map[string]string{"host": host})), "Ingress traffic should work")
 }
