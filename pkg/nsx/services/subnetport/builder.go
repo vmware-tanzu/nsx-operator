@@ -89,17 +89,37 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		}
 	}
 
+	// Determine if IP address is specified in addressBindings
+	hasIPSpecified := len(addressBindings) > 0 && addressBindings[0].IpAddress != nil
+
 	if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
-		// Subnet with Static IPAM.
-		if hasMacSpecified {
+		// Subnet with Static IPAM (DHCPDeactivated mode with staticIPAllocation=true)
+		if hasIPSpecified && hasMacSpecified {
+			// User specified both IP and MAC: NSX allocates nothing
+			allocateAddresses = "NONE"
+		} else if hasIPSpecified && !hasMacSpecified {
+			// User specified IP only: NSX allocates MAC from MAC pool
+			allocateAddresses = "MAC_POOL"
+		} else if !hasIPSpecified && hasMacSpecified {
+			// User specified MAC only: NSX allocates IP from IP pool
 			allocateAddresses = "IP_POOL"
 		} else {
+			// User specified neither: NSX allocates both IP and MAC
 			allocateAddresses = "BOTH"
 		}
 	} else {
-		// For Subnet with DHCPServer/DHCPRelay or Subnet with no IP, we use NONE
-		// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
-		allocateAddresses = "NONE"
+		// Non-static IPAM mode: DHCP (DHCPServer/DHCPRelay) or DHCPDeactivated with staticIPAllocation=false
+		isDHCPMode := nsxSubnet.SubnetDhcpConfig != nil &&
+			(*nsxSubnet.SubnetDhcpConfig.Mode == "DHCP_SERVER" ||
+				*nsxSubnet.SubnetDhcpConfig.Mode == "DHCP_RELAY")
+
+		if isDHCPMode && !hasMacSpecified {
+			// DHCP mode without MAC specified: NSX allocates MAC from MAC pool
+			allocateAddresses = "MAC_POOL"
+		} else {
+			// DHCP mode with MAC specified, or DHCPDeactivated+staticIPAllocation=false: NSX allocates nothing
+			allocateAddresses = "NONE"
+		}
 	}
 
 	var nsxCIFID uuid.UUID
