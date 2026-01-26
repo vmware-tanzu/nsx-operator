@@ -68,17 +68,15 @@ func subnetPortIndexByPodUID(obj interface{}) ([]string, error) {
 	}
 }
 
-func subnetPortIndexBySubnetID(obj interface{}) ([]string, error) {
+func subnetPortIndexBySubnetPath(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.VpcSubnetPort:
-		vpcInfo, err := common.ParseVPCResourcePath(*o.Path)
-		if err != nil {
-			return nil, err
+		if o.ParentPath == nil {
+			return nil, errors.New("ParentPath is empty")
 		}
-		return []string{vpcInfo.ParentID}, nil
-
+		return []string{*o.ParentPath}, nil
 	default:
-		return nil, errors.New("subnetPortIndexBySubnetID doesn't support unknown type")
+		return nil, errors.New("subnetPortIndexBySubnetPath doesn't support unknown type")
 	}
 }
 
