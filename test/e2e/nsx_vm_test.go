@@ -15,25 +15,27 @@ import (
 )
 
 func TestCreateVM(t *testing.T) {
-	t.Run("testCreateVMBasic", func(t *testing.T) { testCreateVMBasic(t) })
+	TrackTest(t)
+	StartParallel(t)
+
+	// Clean up namespace when VM tests complete
+	t.Cleanup(func() { CleanupVCNamespaces(NsCreateVM) })
+
+	// ParallelTests: VM tests use independent resources and can run concurrently
+	RunSubtest(t, "ParallelTests", func(t *testing.T) {
+		RunSubtest(t, "testCreateVMBasic", func(t *testing.T) {
+			StartParallel(t)
+			testCreateVMBasic(t)
+		})
+	})
 }
 
 func testCreateVMBasic(t *testing.T) {
 	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := fmt.Sprintf("test-create-vm-basic-%s", getRandomString())
-
-	err := testData.createVCNamespace(ns)
-	if err != nil {
-		t.Fatalf("Failed to create VC namespace: %v", err)
-	}
-	defer func() {
-		err := testData.deleteVCNamespace(ns)
-		if err != nil {
-			t.Fatalf("Failed to delete VC namespace: %v", err)
-		}
-	}()
+	// Use pre-created namespace
+	ns := NsCreateVM
 
 	// Create public vm
 	storageClassName, storagePolicyID, _ := testData.vcClient.getStoragePolicyID()
@@ -63,7 +65,19 @@ func testCreateVMBasic(t *testing.T) {
 	require.NoError(t, applyYAML(publicVMPath, ns))
 	defer deleteYAML(publicVMPath, ns)
 	// creating vm takes time
+	log.Info("Waiting for VM to get IP", "vmName", "public-vm", "namespace", ns, "timeout", resourceReadyTime*2)
 	ipv4, err := testData.vmWaitFor(resourceReadyTime*2, ns, "public-vm")
+	if err != nil {
+		// Log VM status for debugging
+		statusCmd := exec.Command("kubectl", "get", "vm", "public-vm", "-n", ns, "-o", "yaml")
+		statusOutput, _ := statusCmd.CombinedOutput()
+		log.Error(err, "Failed to get VM IP", "vmName", "public-vm", "namespace", ns, "vmStatus", string(statusOutput))
+
+		// Log events for the VM
+		eventsCmd := exec.Command("kubectl", "get", "events", "-n", ns, "--field-selector", "involvedObject.name=public-vm", "--sort-by=.lastTimestamp")
+		eventsOutput, _ := eventsCmd.CombinedOutput()
+		log.Info("VM events", "events", string(eventsOutput))
+	}
 	log.Info("Get public VM IP", "ipv4", ipv4)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, ipv4)

@@ -41,6 +41,8 @@ var (
 )
 
 func TestPreCreatedVPC(t *testing.T) {
+	TrackTest(t)
+	// Do NOT run in parallel - subtests share VPC connectivity profile resources
 	// initialize vpc profile id
 	getDefaultVPCProfileID(t)
 	tests := []struct {
@@ -114,14 +116,8 @@ func TestPreCreatedVPC(t *testing.T) {
 	}
 
 	// Test: create NetworkConfig and NS using the pre-created VPC
+	// Sessions are now automatically managed - created on first use and reused globally
 	useVCAPI := testData.useWCPSetup()
-	if useVCAPI {
-		err := testData.vcClient.startSession()
-		require.NoError(t, err, "A new VC session should be created for test")
-		defer func() {
-			testData.vcClient.closeSession()
-		}()
-	}
 
 	err := testData.createVPCConnectivityProfileWithoutNat()
 	require.NoError(t, err, "Failed to create VPCConnectivityProfile without SNAT")
@@ -132,61 +128,64 @@ func TestPreCreatedVPC(t *testing.T) {
 		}
 	}()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			orgID, projectID, vpcID := setupVPC(t, tt.enableNat, tt.createLb, tt.noProfile)
-			nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
-			projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
-			defer func() {
-				path := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
-				log.Info("Deleting the created VPC from NSX", "path", path)
-				ctx := context.Background()
-				if pollErr := wait.PollUntilContextTimeout(ctx, 10*time.Second, resourceReadyTime, true, func(ctx context.Context) (done bool, err error) {
-					if err := testData.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true)); err != nil {
-						return false, nil
+	// SequentialTests: These tests share VPC connectivity profile resources and MUST run sequentially
+	RunSubtest(t, "SequentialTests", func(t *testing.T) {
+		for _, tt := range tests {
+			RunSubtest(t, tt.name, func(t *testing.T) {
+				orgID, projectID, vpcID := setupVPC(t, tt.enableNat, tt.createLb, tt.noProfile)
+				nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
+				projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
+				defer func() {
+					path := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
+					log.Info("Deleting the created VPC from NSX", "path", path)
+					ctx := context.Background()
+					if pollErr := wait.PollUntilContextTimeout(ctx, 10*time.Second, resourceReadyTime, true, func(ctx context.Context) (done bool, err error) {
+						if err := testData.nsxClient.VPCClient.Delete(orgID, projectID, vpcID, common.Bool(true)); err != nil {
+							return false, nil
+						}
+						log.Info("The pre-created VPC is successfully deleted", "path", path)
+						return true, nil
+					}); pollErr != nil {
+						log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", path)
 					}
-					log.Info("The pre-created VPC is successfully deleted", "path", path)
-					return true, nil
-				}); pollErr != nil {
-					log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", path)
+				}()
+				var profilePath string
+				if tt.noProfile {
+					profilePath = ""
+				} else if tt.enableNat {
+					profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, defaultVPCProfile)
+				} else {
+					profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, noNatVPCProfile)
 				}
-			}()
-			var profilePath string
-			if tt.noProfile {
-				profilePath = ""
-			} else if tt.enableNat {
-				profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, defaultVPCProfile)
-			} else {
-				profilePath = fmt.Sprintf(connectivityProfileFormat, orgID, projectID, noNatVPCProfile)
-			}
-			preCreatedVPCPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
-			log.Info("Created VPC on NSX", "path", preCreatedVPCPath)
+				preCreatedVPCPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
+				log.Info("Created VPC on NSX", "path", preCreatedVPCPath)
 
-			err := createVPCNamespace(nsName, projectPath, profilePath, preCreatedVPCPath, nil, useVCAPI)
-			require.NoError(t, err, "VPCNetworkConfiguration and Namespace should be created")
-			log.Info("Created test Namespace", "Namespace", nsName)
+				err := createVPCNamespace(nsName, projectPath, profilePath, preCreatedVPCPath, nil, useVCAPI)
+				require.NoError(t, err, "VPCNetworkConfiguration and Namespace should be created")
+				log.Info("Created test Namespace", "Namespace", nsName)
 
-			// Wait until the created NetworkInfo is ready.
-			getNetworkInfoWithCondition(t, nsName, nsName, tt.networkInfoCondition)
-			log.Info("New Namespace's networkInfo is ready", "Namespace", nsName)
+				// Wait until the created NetworkInfo is ready.
+				getNetworkInfoWithCondition(t, nsName, nsName, tt.networkInfoCondition)
+				log.Info("New Namespace's networkInfo is ready", "Namespace", nsName)
 
-			if tt.createLb && tt.enableNat {
-				testPodToLBService(t, nsName)
-			} else if tt.enableNat {
-				podName := "prevpc-podvm"
-				// Wait until Pod has allocated IP
-				_, err := testData.createPod(nsName, podName, containerName, podImage, corev1.ProtocolTCP, podPort)
-				require.NoErrorf(t, err, "Failed to create Pod '%s/%s'", nsName, podName)
-				_, err = testData.podWaitForIPs(resourceReadyTime, podName, nsName)
-				require.NoErrorf(t, err, "Pod '%s/%s' is not ready within time %s", nsName, podName, resourceReadyTime.String())
-				log.Info("Pod for the LoadBalancer Service in the Namespace is ready", "Namespace", nsName, "Pod", podName)
-			}
+				if tt.createLb && tt.enableNat {
+					testPodToLBService(t, nsName)
+				} else if tt.enableNat {
+					podName := "prevpc-podvm"
+					// Wait until Pod has allocated IP
+					_, err := testData.createPod(nsName, podName, containerName, podImage, corev1.ProtocolTCP, podPort)
+					require.NoErrorf(t, err, "Failed to create Pod '%s/%s'", nsName, podName)
+					_, err = testData.podWaitForIPs(resourceReadyTime, podName, nsName)
+					require.NoErrorf(t, err, "Pod '%s/%s' is not ready within time %s", nsName, podName, resourceReadyTime.String())
+					log.Info("Pod for the LoadBalancer Service in the Namespace is ready", "Namespace", nsName, "Pod", podName)
+				}
 
-			deleteVPCNamespace(nsName, useVCAPI)
-			_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
-			require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
-		})
-	}
+				deleteVPCNamespace(nsName, useVCAPI)
+				_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
+				require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
+			})
+		}
+	})
 }
 
 func testPodToLBService(t *testing.T, nsName string) {
@@ -228,8 +227,7 @@ func testPodToLBService(t *testing.T, nsName string) {
 	log.Info("Client Pod in the Namespace is ready", "Namespace", nsName, "Service", svcName, "Pod", clientPodName)
 
 	// Test traffic from client Pod to LB Service
-	trafficErr := checkTrafficByCurl(nsName, clientPodName, containerName, lbIP, lbServicePort, 5*time.Second, 2*time.Minute)
-	require.NoError(t, trafficErr, "LoadBalancer traffic should work")
+	require.True(t, checkTrafficByCurl(nsName, clientPodName, containerName, lbIP, lbServicePort, true), "LoadBalancer traffic should work")
 	log.Info("Verified traffic from client Pod to the LoadBalancer Service")
 
 	// Test NSX LB VS should be removed after K8s LB Service is deleted

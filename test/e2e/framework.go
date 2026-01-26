@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	stderror "errors"
+	"flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -48,7 +50,7 @@ var log = logger.Log
 
 const (
 	createVCNamespaceEndpoint = "/api/vcenter/namespaces/instances/v2"
-	defaultTimeout            = 600 * time.Second
+	defaultTimeout            = 60 * time.Second
 	PolicyAPI                 = "policy/api/v1"
 )
 
@@ -103,6 +105,14 @@ type TestData struct {
 }
 
 var testData *TestData
+
+func StartParallel(t *testing.T) {
+	if parallel := flag.Lookup("test.parallel"); parallel != nil {
+		if p, _ := strconv.Atoi(parallel.Value.String()); p > 1 {
+			t.Parallel()
+		}
+	}
+}
 
 func initProvider() error {
 	providerFactory := map[string]func(string) (providers.ProviderInterface, error){
@@ -353,13 +363,8 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		},
 	}
 
-	err = testData.vcClient.startSession()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		testData.vcClient.closeSession()
-	}()
+	// Session will be created automatically by ensureSession() in vcClient methods
+	// No need to explicitly start/close sessions - they are reused globally
 
 	dataJson, err := json.Marshal(vcNamespace)
 	log.Debug("Data json", "dataJson", vcNamespace)
@@ -377,9 +382,12 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		return err
 	}
 	// wait for the namespace on k8s running
-	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 		if err != nil {
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
 			log.Error(err, "Check namespace existence", "namespace", namespace)
 			return false, err
 		}
@@ -398,28 +406,38 @@ func (data *TestData) createVCNamespace(namespace string) error {
 }
 
 // deleteVCNamespace deletes the provided VC namespace and waits for deletion to actually complete.
+// It first checks if the namespace exists to avoid unnecessary API calls.
 func (data *TestData) deleteVCNamespace(namespace string) error {
-	err := testData.vcClient.startSession()
+	// Session will be created automatically by ensureSession() in vcClient methods
+	// No need to explicitly start/close sessions - they are reused globally
+
+	// First check if namespace exists in K8s
+	_, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("Namespace already deleted, skipping", "namespace", namespace)
+			return nil
+		}
+		log.Error(err, "Failed to check namespace existence", "namespace", namespace)
 		return err
 	}
-	defer func() {
-		testData.vcClient.closeSession()
-	}()
 
+	// Namespace exists, proceed with deletion
+	log.Info("Deleting VC namespace", "namespace", namespace)
 	_ = testData.vcClient.deleteNamespace(namespace)
-	// wait for the namespace on k8s terminating
-	err = wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+
+	// Wait for the namespace to be deleted from K8s
+	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
-				log.Info("Namespace not found, it has been deleted", "namespace", namespace)
+				log.Info("Namespace successfully deleted", "namespace", namespace)
 				return true, nil
 			}
-			log.Error(err, "Check namespace existence", "namespace", namespace)
+			log.Error(err, "Check namespace existence during deletion", "namespace", namespace)
 			return false, err
 		}
-		log.Info("Waiting for namespace to be deleted", "namespace", namespace, "status phase", ns.Status.Phase)
+		log.Debug("Waiting for namespace to be deleted", "namespace", namespace, "status phase", ns.Status.Phase)
 		return false, nil
 	})
 	return err
@@ -510,13 +528,16 @@ func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, 
 
 func (data *TestData) vmWaitFor(timeout time.Duration, namespace, vmName string) (string, error) {
 	var primaryIP4 string
+	pollCount := 0
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		pollCount++
 		cmd := exec.Command("kubectl", "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.network.primaryIP4}")
 		output, err := cmd.Output()
 		if err != nil {
 			var exitError *exec.ExitError
 			if stderror.As(err, &exitError) {
 				if exitError.ExitCode() == 1 {
+					log.V(1).Info("VM not found yet", "vmName", vmName, "namespace", namespace, "pollCount", pollCount)
 					return false, nil
 				}
 			}
@@ -525,11 +546,21 @@ func (data *TestData) vmWaitFor(timeout time.Duration, namespace, vmName string)
 
 		primaryIP4 = strings.TrimSpace(string(output))
 		if primaryIP4 == "" {
+			// Log VM phase periodically (every 10 polls) for debugging
+			if pollCount%10 == 0 {
+				phaseCmd := exec.Command("kubectl", "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.phase}")
+				phaseOutput, _ := phaseCmd.Output()
+				powerStateCmd := exec.Command("kubectl", "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.powerState}")
+				powerStateOutput, _ := powerStateCmd.Output()
+				log.Info("Waiting for VM IP", "vmName", vmName, "namespace", namespace, "pollCount", pollCount,
+					"phase", string(phaseOutput), "powerState", string(powerStateOutput))
+			}
 			return false, nil
 		}
 
 		return true, nil
 	})
+	log.Info("vmWaitFor completed", "vmName", vmName, "namespace", namespace, "pollCount", pollCount, "ip", primaryIP4, "error", err)
 	return primaryIP4, err
 }
 
@@ -1132,8 +1163,7 @@ func WithHeaders(headers map[string]string) CurlOption {
 	}
 }
 
-func checkTrafficByCurl(ns, podname, containername, ip string, port int32, interval, timeout time.Duration, opts ...CurlOption) error {
-	// Test traffic from client Pod to server Pod
+func checkTrafficByCurl(ns, podname, containername, ip string, port int32, shouldPass bool, opts ...CurlOption) bool {
 	// Default options
 	options := &CurlOptions{
 		Scheme:  "http",
@@ -1148,7 +1178,7 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, inter
 
 	cmd := []string{"/bin/sh", "-c"}
 	url := fmt.Sprintf("%s://%s:%d%s", options.Scheme, ip, port, options.Path)
-	curlArgs := []string{"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}"}
+	curlArgs := []string{"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "2", "--max-time", "5"}
 	if options.Scheme == "https" {
 		curlArgs = append(curlArgs, "-k") // Skip SSL verification for HTTPS
 	}
@@ -1157,20 +1187,28 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, inter
 	}
 	curlArgs = append(curlArgs, url)
 	cmd = append(cmd, strings.Join(curlArgs, " "))
-	log.Debug("Curl command", "cmd", cmd)
-	trafficErr := wait.PollUntilContextTimeout(context.TODO(), interval, timeout, true, func(ctx context.Context) (bool, error) {
+	log.Debug("Curl command", "cmd", cmd, "shouldPass", shouldPass)
+
+	// NSX Load Balancer may take time to fully configure and health check backends
+	// Use more retries with longer interval to account for LB propagation delay
+	const maxAttempts = 10
+	const retryInterval = 3 * time.Second
+
+	for i := 0; i < maxAttempts; i++ {
 		stdOut, _, err := testData.runCommandFromPod(ns, podname, containername, cmd)
-		if err != nil {
-			return false, nil
-		}
 		statusCode := strings.Trim(stdOut, `"`)
-		if statusCode != "200" {
-			log.Info("Failed to access ip", "ip", ip, "statusCode", statusCode)
-			return false, nil
+		isSuccess := err == nil && statusCode == "200"
+
+		if isSuccess == shouldPass {
+			return true
 		}
-		return true, nil
-	})
-	return trafficErr
+		// Log with more context for debugging
+		log.Info("Traffic check attempt", "attempt", i+1, "maxAttempts", maxAttempts, "ip", ip, "statusCode", statusCode, "shouldPass", shouldPass, "isSuccess", isSuccess)
+		if i < maxAttempts-1 {
+			time.Sleep(retryInterval)
+		}
+	}
+	return false
 }
 
 func testSSHConnection(host, username, password string, port int, timeout time.Duration, attempts uint, delay time.Duration) error {
