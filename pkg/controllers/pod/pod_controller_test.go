@@ -637,6 +637,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 					func(client client.Client, subnetSet *v1alpha1.SubnetSet, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
 						return subnetPath, nil
 					})
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				return patches
 			},
 			expectedSubnetPath: subnetPath,

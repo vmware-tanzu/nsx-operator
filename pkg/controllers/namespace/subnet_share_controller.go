@@ -2,6 +2,7 @@ package namespace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -211,11 +212,15 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSpecifiedSubnets(sharedS
 		}
 	}
 	// create or update subnetset
+	var errList []error
 	if err := r.updateDefaultSubnetSetWithSubnets(servicecommon.DefaultPodSubnetSet, servicecommon.DefaultPodNetwork, ns, podDefaultSubnets); err != nil {
-		return err
+		errList = append(errList, err)
 	}
 	if err := r.updateDefaultSubnetSetWithSubnets(servicecommon.DefaultVMSubnetSet, servicecommon.DefaultVMNetwork, ns, vmDefaultSubnets); err != nil {
-		return err
+		errList = append(errList, err)
+	}
+	if len(errList) > 0 {
+		return errors.Join(errList...)
 	}
 	return nil
 }
