@@ -34,6 +34,8 @@ var e2eNetworkInfoNamespaceShare0 = fmt.Sprintf("shared-vpc-ns-0-%s", getRandomS
 var e2eNetworkInfoNamespaceShare1 = fmt.Sprintf("shared-vpc-ns-1-%s", getRandomString())
 
 func TestNetworkInfo(t *testing.T) {
+	TrackTest(t)
+	StartParallel(t)
 	deleteVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
 	defer t.Cleanup(
 		func() {
@@ -46,11 +48,31 @@ func TestNetworkInfo(t *testing.T) {
 			teardownTest(t, e2eNetworkInfoNamespaceShare1, defaultTimeout)
 		})
 
-	t.Run("testCustomizedNetworkInfo", func(t *testing.T) { testCustomizedNetworkInfo(t) })
-	t.Run("testInfraNetworkInfo", func(t *testing.T) { testInfraNetworkInfo(t) })
-	t.Run("testDefaultNetworkInfo", func(t *testing.T) { testDefaultNetworkInfo(t) })
-	t.Run("testSharedNSXVPC", func(t *testing.T) { testSharedNSXVPC(t) })
-	t.Run("testUpdateVPCNetworkconfigNetworkInfo", func(t *testing.T) { testUpdateVPCNetworkconfigNetworkInfo(t) })
+	// ParallelTests: These tests use independent resources and can run concurrently
+	RunSubtest(t, "ParallelTests", func(t *testing.T) {
+		RunSubtest(t, "testInfraNetworkInfo", func(t *testing.T) {
+			StartParallel(t)
+			testInfraNetworkInfo(t)
+		})
+		RunSubtest(t, "testDefaultNetworkInfo", func(t *testing.T) {
+			StartParallel(t)
+			testDefaultNetworkInfo(t)
+		})
+	})
+
+	// SequentialTests: These tests share testCustomizedNetworkConfigName (VPCNetworkConfiguration)
+	// and MUST run sequentially to avoid race conditions
+	RunSubtest(t, "SequentialTests", func(t *testing.T) {
+		RunSubtest(t, "testCustomizedNetworkInfo", func(t *testing.T) {
+			testCustomizedNetworkInfo(t)
+		})
+		RunSubtest(t, "testSharedNSXVPC", func(t *testing.T) {
+			testSharedNSXVPC(t)
+		})
+		RunSubtest(t, "testUpdateVPCNetworkconfigNetworkInfo", func(t *testing.T) {
+			testUpdateVPCNetworkconfigNetworkInfo(t)
+		})
+	})
 }
 
 // Test Customized NetworkInfo

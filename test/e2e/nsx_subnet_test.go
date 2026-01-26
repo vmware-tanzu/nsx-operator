@@ -59,6 +59,8 @@ func verifySubnetSetCR(subnetSet string) bool {
 }
 
 func TestSubnetSet(t *testing.T) {
+	TrackTest(t)
+	StartParallel(t)
 	setupTest(t, subnetTestNamespace)
 
 	targetNs := &corev1.Namespace{
@@ -95,54 +97,59 @@ func TestSubnetSet(t *testing.T) {
 		teardownTest(t, subnetTestNamespaceTarget, subnetDeletionTimeout)
 	})
 
-	t.Run("case=DefaultSubnetSet", defaultSubnetSet)
-	t.Run("case=UserSubnetSet", UserSubnetSet)
-	t.Run("case=SharedSubnetSet", sharedSubnetSet)
-	t.Run("case=SubnetCIDR", SubnetCIDR)
-	t.Run("case=NoIPSubnet", NoIPSubnet)
-	t.Run("case=SubnetValidate", SubnetValidate)
-	t.Run("case=SubnetPortWithIPAM", SubnetPortWithIPAM)
-	t.Run("case=SubnetPortWithDHCP", SubnetPortWithDHCP)
+	// SequentialTests: These tests share subnetTestNamespace and create/modify subnets
+	// that may affect each other, so they MUST run sequentially
+	RunSubtest(t, "SequentialTests", func(t *testing.T) {
+		RunSubtest(t, "case=DefaultSubnetSet", defaultSubnetSet)
+		RunSubtest(t, "case=UserSubnetSet", UserSubnetSet)
+		RunSubtest(t, "case=SharedSubnetSet", sharedSubnetSet)
+		RunSubtest(t, "case=SubnetCIDR", SubnetCIDR)
+		RunSubtest(t, "case=NoIPSubnet", NoIPSubnet)
+		RunSubtest(t, "case=SubnetValidate", SubnetValidate)
+		RunSubtest(t, "case=SubnetPortWithIPAM", SubnetPortWithIPAM)
+		RunSubtest(t, "case=SubnetPortWithDHCP", SubnetPortWithDHCP)
+	})
 }
 
 func TestSubnetPrecreated(t *testing.T) {
-	// Create three namespaces: precreatedSubnetNs1, precreatedSubnetNs2, and precreatedSubnetNsTargetNs
-	err := testData.createVCNamespace(precreatedSubnetNs1)
-	require.NoError(t, err)
-	defer func() {
-		err := testData.deleteVCNamespace(precreatedSubnetNs1)
-		if err != nil {
-			t.Logf("Failed to delete VC namespace %s: %v", precreatedSubnetNs1, err)
-		}
-	}()
+	TrackTest(t)
 
-	err = testData.createVCNamespace(precreatedSubnetNs2)
-	require.NoError(t, err)
-	defer func() {
-		err := testData.deleteVCNamespace(precreatedSubnetNs2)
-		if err != nil {
-			t.Logf("Failed to delete VC namespace %s: %v", precreatedSubnetNs2, err)
-		}
-	}()
+	// Use pre-created namespaces instead of creating new ones
+	// Map the old variable names to pre-created namespace names
+	precreatedSubnetNs1 = NsSubnetPrecreated1
+	precreatedSubnetNs2 = NsSubnetPrecreated2
+	precreatedSubnetNsTargetNs = NsSubnetPrecreatedTarget
 
-	err = testData.createVCNamespace(precreatedSubnetNsTargetNs)
-	require.NoError(t, err)
-	defer func() {
-		err := testData.deleteVCNamespace(precreatedSubnetNsTargetNs)
-		if err != nil {
-			t.Logf("Failed to delete VC namespace %s: %v", precreatedSubnetNsTargetNs, err)
-		}
-	}()
+	// Clean up namespaces when all subnet tests complete
+	t.Cleanup(func() { CleanupVCNamespaces(NsSubnetPrecreated1, NsSubnetPrecreated2, NsSubnetPrecreatedTarget) })
 
-	t.Run("case=PrecreatedSubnetBasic", PrecreatedSharedSubnetBasic)
-	t.Run("case=PrecreatedSubnetRemovePath", PrecreatedSharedSubnetRemovePath)
-	t.Run("case=PrecreatedSharedSubnetAddPath", PrecreatedSharedSubnetAddPath)
-	t.Run("case=PrecreatedSharedSubnetDeleteFail", PrecreatedSharedSubnetDeleteFail)
-	t.Run("case=PrecreatedSharedSubnetUpdateFail", PrecreatedSharedSubnetUpdateFail)
-	t.Run("case=NormalSubnetManagedByNSXOp", NormalSubnetManagedByNSXOp)
-	t.Run("case=SubnetWithAssociatedResourceAnnotation", SubnetWithAssociatedResourceAnnotation)
-	// Comment it, since it requires a long time to run.
-	//t.Run("case=PrecreatedSharedSubnetPoll", PrecreatedSharedSubnetPoll)
+	// SequentialTests: These tests share precreated subnet namespaces and have dependencies
+	// between tests (e.g., AddPath depends on Basic), so they MUST run sequentially
+	RunSubtest(t, "SequentialTests", func(t *testing.T) {
+		RunSubtest(t, "case=PrecreatedSubnetBasic", func(t *testing.T) {
+			PrecreatedSharedSubnetBasic(t)
+		})
+		RunSubtest(t, "case=PrecreatedSubnetRemovePath", func(t *testing.T) {
+			PrecreatedSharedSubnetRemovePath(t)
+		})
+		RunSubtest(t, "case=PrecreatedSharedSubnetAddPath", func(t *testing.T) {
+			PrecreatedSharedSubnetAddPath(t)
+		})
+		RunSubtest(t, "case=PrecreatedSharedSubnetDeleteFail", func(t *testing.T) {
+			PrecreatedSharedSubnetDeleteFail(t)
+		})
+		RunSubtest(t, "case=PrecreatedSharedSubnetUpdateFail", func(t *testing.T) {
+			PrecreatedSharedSubnetUpdateFail(t)
+		})
+		RunSubtest(t, "case=NormalSubnetManagedByNSXOp", func(t *testing.T) {
+			NormalSubnetManagedByNSXOp(t)
+		})
+		RunSubtest(t, "case=SubnetWithAssociatedResourceAnnotation", func(t *testing.T) {
+			SubnetWithAssociatedResourceAnnotation(t)
+		})
+		// Comment it, since it requires a long time to run.
+		//t.Run("case=PrecreatedSharedSubnetPoll", PrecreatedSharedSubnetPoll)
+	})
 }
 
 func transSearchResponsetoSubnet(response model.SearchResponse) []model.VpcSubnet {
@@ -1092,7 +1099,9 @@ func verifyMultipleSharedSubnets(t *testing.T, namespace string, expectedCount i
 }
 
 // PrecreatedSharedSubnetBasic tests sharing a subnet with multiple namespaces
+// NOTE: This test must run sequentially with other PrecreatedSharedSubnet* tests due to shared state dependencies
 func PrecreatedSharedSubnetBasic(t *testing.T) {
+	// Do NOT run in parallel - this test creates shared subnets that other tests depend on
 	subnetName := "shared-subnet"
 	subnetPath := createSharedSubnet(t, subnetName)
 	// Update precreatedSubnetNs1 VPC networkconfig CR with shared subnet
@@ -1106,7 +1115,9 @@ func PrecreatedSharedSubnetBasic(t *testing.T) {
 }
 
 // PrecreatedSharedSubnetRemovePath tests removing a shared subnet path from one namespace
+// NOTE: This test must run after PrecreatedSharedSubnetBasic
 func PrecreatedSharedSubnetRemovePath(t *testing.T) {
+	// Do NOT run in parallel - depends on PrecreatedSharedSubnetBasic creating the shared subnet
 	// Remove the shared subnet path from precreatedSubnetNs1 vpcNetworkConfig
 	// precreatedSubnetNs1 should not have the shared subnet anymore, but precreatedSubnetNs2 should still have it
 	updateVPCNetworkConfigSubnets(t, precreatedSubnetNs1, createSharedSubnets([]string{}), false)
@@ -1151,7 +1162,9 @@ func updateSubnetConnectivityState(t *testing.T, subnetCR *v1alpha1.Subnet, conn
 }
 
 // PrecreatedSharedSubnetAddPath tests adding another shared subnet path to a namespace
+// NOTE: This test must run after PrecreatedSharedSubnetBasic
 func PrecreatedSharedSubnetAddPath(t *testing.T) {
+	// Do NOT run in parallel - depends on PrecreatedSharedSubnetBasic, and DeleteFail/UpdateFail depend on this
 	// Create a second shared subnet
 	subnetName := "shared-subnet-2"
 	subnetPath := createSharedSubnet(t, subnetName)
@@ -1237,7 +1250,9 @@ func PrecreatedSharedSubnetPoll(t *testing.T) {
 }
 
 // PrecreatedSharedSubnetDeleteFail tests that attempting to delete a shared subnet fails
+// NOTE: This test must run after PrecreatedSharedSubnetAddPath (expects 2 shared subnets)
 func PrecreatedSharedSubnetDeleteFail(t *testing.T) {
+	// Do NOT run in parallel - depends on PrecreatedSharedSubnetBasic and PrecreatedSharedSubnetAddPath
 	// Find the shared subnets in precreatedSubnetNs2
 	sharedSubnets := verifyMultipleSharedSubnets(t, precreatedSubnetNs2, 2, "shared-subnet")
 	// Find any shared subnet instance (use the second one if available)
@@ -1269,7 +1284,9 @@ func PrecreatedSharedSubnetDeleteFail(t *testing.T) {
 }
 
 // PrecreatedSharedSubnetUpdateFail tests that attempting to update vpcName or vlanConnection in a shared subnet fails
+// NOTE: This test must run after PrecreatedSharedSubnetAddPath (expects 2 shared subnets)
 func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
+	// Do NOT run in parallel - depends on PrecreatedSharedSubnetBasic and PrecreatedSharedSubnetAddPath
 	// Find the shared subnets in precreatedSubnetNs2
 	sharedSubnets := verifyMultipleSharedSubnets(t, precreatedSubnetNs2, 2, "shared-subnet")
 	// Find any shared subnet instance (use the second one if available)
@@ -1322,7 +1339,9 @@ func PrecreatedSharedSubnetUpdateFail(t *testing.T) {
 
 // NormalSubnetManagedByNSXOp tests that when a namespace user creates a normal Subnet CR in the namespace,
 // its status.shared is false, and when getting the subnet from NSX, its tags contain nsx/managed-by:nsx-op
+// NOTE: This test must NOT run in parallel with SubnetWithAssociatedResourceAnnotation - both use precreatedSubnetNs1
 func NormalSubnetManagedByNSXOp(t *testing.T) {
+	// Do NOT run in parallel - conflicts with SubnetWithAssociatedResourceAnnotation (same namespace)
 	// Create a normal subnet in the namespace
 	normalSubnet := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{
@@ -1382,7 +1401,9 @@ func NormalSubnetManagedByNSXOp(t *testing.T) {
 
 // SubnetWithAssociatedResourceAnnotation tests that creating a normal SubnetCR with
 // nsx.vmware.com/associated-resource annotation should be refused
+// NOTE: This test must NOT run in parallel with NormalSubnetManagedByNSXOp - both use precreatedSubnetNs1
 func SubnetWithAssociatedResourceAnnotation(t *testing.T) {
+	// Do NOT run in parallel - conflicts with NormalSubnetManagedByNSXOp (same namespace)
 	// Create a subnet with the associated-resource annotation
 	subnetWithAnnotation := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{

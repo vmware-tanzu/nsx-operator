@@ -25,16 +25,26 @@ const (
 )
 
 var TestNamespace = fmt.Sprintf("staticroute-%s", getRandomString())
-var ips string
 
 // TestStaticRouteBasic verifies that it could successfully realize StaticRoute.
 func TestStaticRouteBasic(t *testing.T) {
-	setupTest(t, TestNamespace)
-	defer teardownTest(t, TestNamespace, defaultTimeout)
-	ips = createIpAddressAllocation(t, TestNamespace, IpAddressAllocationName)
-	defer deleteIpAddressAllocation(t, TestNamespace, IpAddressAllocationName)
-	t.Run("case=CreateStaticRoute", CreateStaticRoute)
-	t.Run("case=DeleteStaticRoute", DeleteStaticRoute)
+	TrackTest(t)
+	StartParallel(t)
+	testNamespace := fmt.Sprintf("staticroute-%s", getRandomString())
+	setupTest(t, testNamespace)
+	defer teardownTest(t, testNamespace, defaultTimeout)
+	ips := createIpAddressAllocation(t, testNamespace, IpAddressAllocationName)
+	defer deleteIpAddressAllocation(t, testNamespace, IpAddressAllocationName)
+
+	// SequentialTests: Create and Delete must run in sequence (Delete depends on Create)
+	RunSubtest(t, "SequentialTests", func(t *testing.T) {
+		RunSubtest(t, "case=CreateStaticRoute", func(t *testing.T) {
+			CreateStaticRoute(t, testNamespace, ips)
+		})
+		RunSubtest(t, "case=DeleteStaticRoute", func(t *testing.T) {
+			DeleteStaticRoute(t, testNamespace)
+		})
+	})
 }
 
 func waitForStaticRouteCRReady(t *testing.T, ns, staticRouteName string) (res *v1alpha1.StaticRoute) {
@@ -82,7 +92,7 @@ func deleteIpAddressAllocation(t *testing.T, ns, ipAllocName string) {
 	require.NoError(t, err)
 }
 
-func CreateStaticRoute(t *testing.T) {
+func CreateStaticRoute(t *testing.T, ns string, ips string) {
 	nextHop := v1alpha1.NextHop{IPAddress: "192.168.0.1"}
 	staticRoute := &v1alpha1.StaticRoute{
 		Spec: v1alpha1.StaticRouteSpec{
@@ -90,20 +100,20 @@ func CreateStaticRoute(t *testing.T) {
 			NextHops: []v1alpha1.NextHop{nextHop},
 		}}
 	staticRoute.Name = StaticRouteName
-	_, err := testData.crdClientset.CrdV1alpha1().StaticRoutes(TestNamespace).Create(context.TODO(), staticRoute, v1.CreateOptions{})
+	_, err := testData.crdClientset.CrdV1alpha1().StaticRoutes(ns).Create(context.TODO(), staticRoute, v1.CreateOptions{})
 	if err != nil && errors.IsAlreadyExists(err) {
 		err = nil
 	}
 	require.NoError(t, err)
-	waitForStaticRouteCRReady(t, TestNamespace, staticRoute.Name)
-	err = testData.waitForResourceExistOrNot(TestNamespace, common.ResourceTypeStaticRoutes, staticRoute.Name, true)
+	waitForStaticRouteCRReady(t, ns, staticRoute.Name)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeStaticRoutes, staticRoute.Name, true)
 	require.NoError(t, err)
 }
 
-func DeleteStaticRoute(t *testing.T) {
-	err := testData.crdClientset.CrdV1alpha1().StaticRoutes(TestNamespace).Delete(context.TODO(), StaticRouteName, v1.DeleteOptions{})
+func DeleteStaticRoute(t *testing.T, ns string) {
+	err := testData.crdClientset.CrdV1alpha1().StaticRoutes(ns).Delete(context.TODO(), StaticRouteName, v1.DeleteOptions{})
 	require.NoError(t, err)
 
-	err = testData.waitForResourceExistOrNot(TestNamespace, common.ResourceTypeStaticRoutes, StaticRouteName, false)
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeStaticRoutes, StaticRouteName, false)
 	require.NoError(t, err)
 }
