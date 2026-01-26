@@ -60,8 +60,7 @@ func TestBuildSubnetPort(t *testing.T) {
 		expectedError error
 	}{
 		{
-			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - N
+			// DHCP mode (DHCPServer) - no MAC specified: NSX allocates MAC from MAC pool
 			name: "build-NSX-port-for-subnetport",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -110,7 +109,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("NONE"),
+					AllocateAddresses: common.String("MAC_POOL"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
@@ -194,8 +193,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - Y (restore);
+			// DHCP mode (restore) - MAC comes from status but not from spec, so hasMacSpecified=false
+			// In DHCP mode without MAC specified: allocateAddresses = MAC_POOL
 			name: "build-NSX-port-for-restore-subnetport-dhcp",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -253,7 +252,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("NONE"),
+					AllocateAddresses: common.String("MAC_POOL"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					TrafficTag:        common.Int64(0),
 				},
@@ -267,8 +266,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - N (restore);
+			// Static IPAM (restore) - IP+MAC from status, but MAC not in spec -> hasMacSpecified=false
+			// hasIPSpecified=true (from status), hasMacSpecified=false -> MAC_POOL
 			name: "build-NSX-port-for-restore-subnetport-ipam",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -331,7 +330,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("BOTH"),
+					AllocateAddresses: common.String("MAC_POOL"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					TrafficTag:        common.Int64(0),
 				},
@@ -345,8 +344,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - Y (restore);
+			// Static IPAM (restore) - IP+MAC from status, MAC in spec -> hasMacSpecified=true
+			// hasIPSpecified=true, hasMacSpecified=true -> NONE
 			name: "build-NSX-port-for-restore-subnetport-ipam-with-mac",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
@@ -416,8 +415,8 @@ func TestBuildSubnetPort(t *testing.T) {
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
-				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("IP_POOL"),
+			Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					TrafficTag:        common.Int64(0),
 				},
@@ -431,8 +430,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - Y
+			// Static IPAM - IP+MAC specified -> NONE
 			name: "build-NSX-port-for-subnetport-specified-mac",
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -491,7 +489,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("IP_POOL"),
+					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
@@ -506,8 +504,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - N (pod)
+			// Static IPAM - Pod without addressBindings -> BOTH
 			name: "build-NSX-port-for-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -583,8 +580,8 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - N (restore pod)
+			// Static IPAM (restore pod) - IP+MAC from status, MAC in annotation -> hasMacSpecified=true
+			// hasIPSpecified=true, hasMacSpecified=true -> NONE
 			name: "build-NSX-port-for-restore-pod",
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -653,7 +650,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("IP_POOL"),
+					AllocateAddresses: common.String("NONE"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					TrafficTag:        common.Int64(0),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
@@ -670,8 +667,7 @@ func TestBuildSubnetPort(t *testing.T) {
 			restore:       true,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - N
+			// DHCPDeactivated + staticIPAllocation=false - no addressBindings -> NONE (per Confluence spec)
 			name: "build-NSX-port-for-subnetport-no-ip",
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
