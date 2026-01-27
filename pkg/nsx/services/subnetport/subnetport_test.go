@@ -1376,3 +1376,90 @@ func TestSubnetPortService_GetMACByAttachmentID(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeSubnetPortAddressBinding(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing []model.PortAddressBindingEntry
+		desired  []model.PortAddressBindingEntry
+		expected []model.PortAddressBindingEntry
+	}{
+		{
+			name: "Desired is empty - Use existing",
+			existing: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+			desired: []model.PortAddressBindingEntry{},
+			expected: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+		},
+		{
+			name: "Merge IP from existing - Desired IP is nil",
+			existing: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+			desired: []model.PortAddressBindingEntry{
+				{MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+			expected: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+		},
+		{
+			name: "Merge MAC from existing - Desired MAC is nil",
+			existing: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+			desired: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1")},
+			},
+			expected: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+		},
+		{
+			name: "No merge - Desired already has values",
+			existing: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("192.168.1.1"), MacAddress: common.String("00:11:22:33:44:55")},
+			},
+			desired: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+			expected: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+		},
+		{
+			name:     "Existing is empty - Return desired as is",
+			existing: []model.PortAddressBindingEntry{},
+			desired: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1")},
+			},
+			expected: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1")},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mergeSubnetPortAddressBinding(tt.existing, tt.desired)
+
+			assert.Equal(t, len(tt.expected), len(result))
+			for i := range tt.expected {
+				if tt.expected[i].IpAddress != nil {
+					assert.Equal(t, *tt.expected[i].IpAddress, *result[i].IpAddress)
+				} else {
+					assert.Nil(t, result[i].IpAddress)
+				}
+
+				if tt.expected[i].MacAddress != nil {
+					assert.Equal(t, *tt.expected[i].MacAddress, *result[i].MacAddress)
+				} else {
+					assert.Nil(t, result[i].MacAddress)
+				}
+			}
+		})
+	}
+}

@@ -653,7 +653,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
 				Attachment: &model.PortAttachment{
-					AllocateAddresses: common.String("IP_POOL"),
+					AllocateAddresses: common.String("BOTH"),
 					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
 					TrafficTag:        common.Int64(0),
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),

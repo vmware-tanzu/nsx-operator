@@ -82,7 +82,6 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			mac, ok := o.GetAnnotations()[common.AnnotationPodMAC]
 			if ok && mac != "" {
 				addressBindings[0].MacAddress = &mac
-				hasMacSpecified = true
 			} else {
 				log.Error(nil, "MAC address annotation not found in Pod", "Pod", o)
 			}
