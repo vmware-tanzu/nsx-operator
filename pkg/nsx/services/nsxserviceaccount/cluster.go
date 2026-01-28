@@ -395,6 +395,7 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 // ValidateAndUpdateRealizedNSXServiceAccount checks CA is up-to-date and client cert needs rotation
 // ca is nil means no need to update CA
 // Client cert rotation requires NSXT 4.1.3
+// It also updates NSXServiceAccount.Status.NSXRestoreStatus
 func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount, ca []byte) error {
 	clusterName := s.getClusterName(obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
@@ -451,7 +452,25 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 
 	if isUpdated {
 		log.Info("Update realized NSXServiceAccount", "namespace", obj.Namespace, "name", obj.Name)
-		return s.Client.Update(ctx, secret)
+		if err := s.Client.Update(ctx, secret); err != nil {
+			return err
+		}
+	}
+
+	// update NSX Restore Status
+	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
+		nsxRestoreStatus, err := s.getNSXRestoreStatus()
+		if err != nil {
+			log.Error(err, "error getting NSX restore status", "namespace", obj.Namespace, "name", obj.Name)
+			return err
+		}
+		if nsxRestoreStatus != nil && nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS &&
+			!reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+
+			log.Info("A new NSX restore is detected", "namespace", obj.Namespace, "name", obj.Name)
+			obj.Status.NSXRestoreStatus = nsxRestoreStatus
+			return s.Client.Status().Update(ctx, obj)
+		}
 	}
 	return nil
 }
@@ -604,6 +623,24 @@ func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool 
 		}
 	}
 	return status.Phase == v1alpha1.NSXServiceAccountPhaseRealized
+}
+
+func (s *NSXServiceAccountService) getNSXRestoreStatus() (*v1alpha1.NSXRestoreStatus, error) {
+	clusterRestoreStatus, err := s.NSXClient.StatusClient.Get(nil)
+	if err != nil {
+		return nil, err
+	}
+	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{}
+	if clusterRestoreStatus.Id != nil {
+		nsxRestoreStatus.Id = *clusterRestoreStatus.Id
+	}
+	if clusterRestoreStatus.Status != nil && clusterRestoreStatus.Status.Value != nil {
+		nsxRestoreStatus.Status = *clusterRestoreStatus.Status.Value
+	}
+	if clusterRestoreStatus.RestoreEndTime != nil {
+		nsxRestoreStatus.RestoreEndTime = *clusterRestoreStatus.RestoreEndTime
+	}
+	return &nsxRestoreStatus, nil
 }
 
 func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
