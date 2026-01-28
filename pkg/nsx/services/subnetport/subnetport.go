@@ -176,7 +176,11 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	}
 	nsxSubnetPortState, err := service.CheckSubnetPortState(obj, *nsxSubnet.Path)
 	if err != nil {
-		log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		if nsxutil.IsRealizeStateError(err) {
+			log.Error(err, "check and update NSX subnet port state failed, would retry with delay", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		} else {
+			log.Error(err, "check and update NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		}
 		return nil, false, err
 	}
 	createdNSXSubnetPort, err := service.NSXClient.PortClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *nsxSubnetPort.Id)
