@@ -161,6 +161,15 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 		return err
 	}
 
+	// get nsx cluster restore status
+	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{}
+	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
+		nsxRestoreStatus, err = s.getNSXRestoreStatus()
+		if err != nil {
+			return err
+		}
+	}
+
 	// update NSXServiceAccountStatus
 	obj.Status.Phase = v1alpha1.NSXServiceAccountPhaseRealized
 	obj.Status.Reason = "Success"
@@ -174,6 +183,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	}}
 	obj.Status.VPCPath = vpcPath
 	obj.Status.ProxyEndpoints = proxyEndpoints
+	obj.Status.NSXRestoreStatus = nsxRestoreStatus
 	return s.Client.Status().Update(ctx, obj)
 }
 
@@ -606,13 +616,42 @@ func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool 
 	return status.Phase == v1alpha1.NSXServiceAccountPhaseRealized
 }
 
-func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+func (s *NSXServiceAccountService) getNSXRestoreStatus() (v1alpha1.NSXRestoreStatus, error) {
+	clusterRestoreStatus, err := s.NSXClient.StatusClient.Get(nil)
+	if err != nil {
+		return v1alpha1.NSXRestoreStatus{}, err
+	}
+	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{
+		Id:             *clusterRestoreStatus.Id,
+		Status:         *clusterRestoreStatus.Status.Value,
+		RestoreEndTime: *clusterRestoreStatus.RestoreEndTime,
+	}
+	return nsxRestoreStatus, nil
+}
+
+func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccountStatusIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+	updated := false
+	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
+		nsxRestoreStatus, err := s.getNSXRestoreStatus()
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+			obj.Status.NSXRestoreStatus = nsxRestoreStatus
+			updated = true
+		}
+	}
+
 	proxyEndpoints, err := s.getProxyEndpoints(ctx)
 	if err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(proxyEndpoints, obj.Status.ProxyEndpoints) {
 		obj.Status.ProxyEndpoints = proxyEndpoints
+		updated = true
+	}
+
+	if updated {
 		return s.Client.Status().Update(ctx, obj)
 	}
 	return nil
