@@ -2477,9 +2477,8 @@ func TestUpdateRealizedNSXServiceAccountStatusIfNeeded(t *testing.T) {
 				patches.ApplyMethodSeq(s.NSXClient.StatusClient, "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{
 						mpmodel.ClusterRestoreStatus{
-							Id:             &fakeId,
-							Status:         &restoreStatusRunning,
-							RestoreEndTime: &fakeRestoreEndTime,
+							Id:     &fakeId,
+							Status: &restoreStatusRunning,
 						},
 						nil,
 					},

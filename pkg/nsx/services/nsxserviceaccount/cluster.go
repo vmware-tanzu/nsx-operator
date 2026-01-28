@@ -617,14 +617,19 @@ func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool 
 }
 
 func (s *NSXServiceAccountService) getNSXRestoreStatus() (v1alpha1.NSXRestoreStatus, error) {
+	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{}
 	clusterRestoreStatus, err := s.NSXClient.StatusClient.Get(nil)
 	if err != nil {
-		return v1alpha1.NSXRestoreStatus{}, err
+		return nsxRestoreStatus, err
 	}
-	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{
-		Id:             *clusterRestoreStatus.Id,
-		Status:         *clusterRestoreStatus.Status.Value,
-		RestoreEndTime: *clusterRestoreStatus.RestoreEndTime,
+	if clusterRestoreStatus.Id != nil {
+		nsxRestoreStatus.Id = *clusterRestoreStatus.Id
+	}
+	if clusterRestoreStatus.Status != nil && clusterRestoreStatus.Status.Value != nil {
+		nsxRestoreStatus.Status = *clusterRestoreStatus.Status.Value
+	}
+	if clusterRestoreStatus.RestoreEndTime != nil {
+		nsxRestoreStatus.RestoreEndTime = *clusterRestoreStatus.RestoreEndTime
 	}
 	return nsxRestoreStatus, nil
 }
