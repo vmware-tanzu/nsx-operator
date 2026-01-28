@@ -636,7 +636,7 @@ func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccountStatusIfNeeded
 		if err != nil {
 			return err
 		}
-		if !reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+		if nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS && !reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
 			obj.Status.NSXRestoreStatus = nsxRestoreStatus
 			updated = true
 		}

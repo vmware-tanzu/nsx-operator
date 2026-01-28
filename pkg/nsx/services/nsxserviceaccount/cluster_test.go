@@ -40,8 +40,12 @@ var (
 	fakeId                    = "fakeBackupId"
 	fakeRestoreEndTime        = int64(123456789)
 	restoreStatusValueSuccess = mpmodel.GlobalRestoreStatus_VALUE_SUCCESS
+	restoreStatusValueRunning = mpmodel.GlobalRestoreStatus_VALUE_RUNNING
 	restoreStatusSuccess      = mpmodel.GlobalRestoreStatus{
 		Value: &restoreStatusValueSuccess,
+	}
+	restoreStatusRunning = mpmodel.GlobalRestoreStatus{
+		Value: &restoreStatusValueRunning,
 	}
 )
 
@@ -2398,6 +2402,116 @@ func TestUpdateRealizedNSXServiceAccountStatusIfNeeded(t *testing.T) {
 					Id:             fakeId,
 					Status:         mpmodel.GlobalRestoreStatus_VALUE_SUCCESS,
 					RestoreEndTime: fakeRestoreEndTime,
+				},
+			},
+		},
+		{
+			name: "do not update nsx service account with nsx restore status non success",
+			nsxServiceAccount: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nsxsa1",
+					Namespace: "ns1",
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase: v1alpha1.NSXServiceAccountPhaseRealized,
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{
+						Addresses: []v1alpha1.NSXProxyEndpointAddress{
+							{
+								IP: "1.2.3.4",
+							},
+						},
+						Ports: []v1alpha1.NSXProxyEndpointPort{
+							{
+								Name:     "rest-api",
+								Port:     10081,
+								Protocol: "TCP",
+							},
+							{
+								Name:     "nsx-rpc-fwd-proxy",
+								Protocol: "TCP",
+								Port:     10082,
+							},
+						},
+					},
+					NSXRestoreStatus: v1alpha1.NSXRestoreStatus{
+						Id:             "fakeBackupOldId",
+						Status:         mpmodel.GlobalRestoreStatus_VALUE_SUCCESS,
+						RestoreEndTime: 12345678,
+					},
+				},
+			},
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, c context.Context) *gomonkey.Patches {
+				svc := &v1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "with-label",
+						Namespace: "any",
+						Labels:    map[string]string{"mgmt-proxy.antrea-nsx.vmware.com": "", "dummy": "dummy"},
+					},
+					Spec: v1.ServiceSpec{
+						Ports: []v1.ServicePort{
+							{
+								Name:     "rest-api",
+								Protocol: "TCP",
+								Port:     10081,
+							},
+							{
+								Name:     "nsx-rpc-fwd-proxy",
+								Protocol: "TCP",
+								Port:     10082,
+							},
+						},
+						Type: v1.ServiceTypeLoadBalancer,
+					},
+					Status: v1.ServiceStatus{
+						LoadBalancer: v1.LoadBalancerStatus{
+							Ingress: []v1.LoadBalancerIngress{{IP: "1.2.3.4"}},
+						},
+					},
+				}
+				assert.NoError(t, s.Client.Create(c, svc))
+
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.StatusClient, "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						mpmodel.ClusterRestoreStatus{
+							Id:             &fakeId,
+							Status:         &restoreStatusRunning,
+							RestoreEndTime: &fakeRestoreEndTime,
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectedNSXServiceAccountStatus: v1alpha1.NSXServiceAccountStatus{
+				Phase: v1alpha1.NSXServiceAccountPhaseRealized,
+				ProxyEndpoints: v1alpha1.NSXProxyEndpoint{
+					Addresses: []v1alpha1.NSXProxyEndpointAddress{
+						{
+							IP: "1.2.3.4",
+						},
+					},
+					Ports: []v1alpha1.NSXProxyEndpointPort{
+						{
+							Name:     "rest-api",
+							Port:     10081,
+							Protocol: "TCP",
+						},
+						{
+							Name:     "nsx-rpc-fwd-proxy",
+							Protocol: "TCP",
+							Port:     10082,
+						},
+					},
+				},
+				NSXRestoreStatus: v1alpha1.NSXRestoreStatus{
+					Id:             "fakeBackupOldId",
+					Status:         mpmodel.GlobalRestoreStatus_VALUE_SUCCESS,
+					RestoreEndTime: 12345678,
 				},
 			},
 		},
