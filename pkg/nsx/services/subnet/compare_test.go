@@ -165,6 +165,47 @@ func TestSubnetToComparable(t *testing.T) {
 			},
 			expectChanged: true,
 		},
+		{
+			name: "SubnetDhcpConfig not changed",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_SERVER"),
+					DhcpServerAdditionalConfig: &model.DhcpServerAdditionalConfig{
+						ReservedIpRanges: []string{"10.0.0.1-10.0.0.5"},
+					},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					DnsServerPreference: common.String("PROFILE_DNS_SERVERS_PREFERRED_OVER_DNS_FORWARDER"),
+					Mode:                common.String("DHCP_SERVER"),
+					DhcpServerAdditionalConfig: &model.DhcpServerAdditionalConfig{
+						ReservedIpRanges: []string{"10.0.0.1-10.0.0.5"},
+						Options:          &model.DhcpV4Options{},
+					},
+				},
+			},
+			expectChanged: false,
+		},
+		{
+			name: "SubnetDhcpConfig changed",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					DnsServerPreference: common.String("PROFILE_DNS_SERVERS_PREFERRED_OVER_DNS_FORWARDER"),
+					Mode:                common.String("DHCP_SERVER"),
+				},
+			},
+			expectChanged: true,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
