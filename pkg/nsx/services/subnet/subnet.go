@@ -121,7 +121,7 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 			}
 		}
 		if changed {
-			_, err = service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
+			_, err = service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo, true)
 			if err != nil {
 				errList = append(errList, err)
 			}
@@ -198,7 +198,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			return existingSubnet, nil
 		}
 	}
-	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo)
+	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo, false)
 }
 
 func (service *SubnetService) checkSubnetRealizeState(nsxSubnet *model.VpcSubnet) error {
@@ -219,7 +219,7 @@ func (service *SubnetService) checkSubnetRealizeState(nsxSubnet *model.VpcSubnet
 	return nil
 }
 
-func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
 	err := service.NSXClient.SubnetsClient.Patch(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSubnet.Id, *nsxSubnet)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
@@ -240,11 +240,15 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		log.Error(err, "Failed to add nsxSubnet to store", "ID", *nsxSubnet.Id)
 		return nil, err
 	}
-	if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
-		if err = service.UpdateSubnetSetStatus(subnetSet); err != nil {
-			return nil, err
+	// No need to update the SubnetSet status in restore mode
+	if !restoreMode {
+		if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
+			if err = service.UpdateSubnetSetStatus(subnetSet); err != nil {
+				return nil, err
+			}
 		}
 	}
+
 	log.Info("Successfully created or updated nsxSubnet", "nsxSubnet", nsxSubnet)
 	return nsxSubnet, nil
 }
@@ -541,7 +545,7 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 			err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *vpcSubnets[i].Path, err)
 			return err
 		}
-		if _, err := service.createOrUpdateSubnet(subnetSet, &updatedSubnet, &vpcInfo); err != nil {
+		if _, err := service.createOrUpdateSubnet(subnetSet, &updatedSubnet, &vpcInfo, false); err != nil {
 			return fmt.Errorf("failed to update Subnet %s in SubnetSet %s: %w", *vpcSubnet.Id, subnetSet.Name, err)
 		}
 		log.Info("Successfully updated SubnetSet", "subnetSet", subnetSet, "Subnet", *vpcSubnet.Id)

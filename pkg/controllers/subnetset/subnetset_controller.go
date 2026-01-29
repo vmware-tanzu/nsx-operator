@@ -240,6 +240,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				return ResultNormal, err
 			}
 			r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
+			return ResultNormal, nil
 		}
 		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
