@@ -225,7 +225,7 @@ func (r *SubnetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet) error {
 		return nil
 	}
 	for _, nsxSubnet := range nsxSubnets {
-		portNumbers := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Id))
+		portNumbers := len(r.SubnetPortService.GetPortsOfSubnet(*nsxSubnet.Path))
 		if portNumbers > 0 {
 			err := fmt.Errorf("cannot delete Subnet %s, still attached by %d port(s)", *nsxSubnet.Id, portNumbers)
 			log.Error(err, "Delete Subnet from NSX failed")

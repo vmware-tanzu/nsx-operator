@@ -43,10 +43,10 @@ type SubnetServiceProvider interface {
 }
 
 type SubnetPortServiceProvider interface {
-	GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort)
+	GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort)
 	AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error)
 	ReleasePortInSubnet(path string)
-	IsEmptySubnet(id string, path string) bool
+	IsEmptySubnet(path string) bool
 	DeletePortCount(path string)
 	GetSubnetPathForSubnetPortFromStore(crUid types.UID) string
 }

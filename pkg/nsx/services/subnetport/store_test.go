@@ -95,11 +95,12 @@ func Test_subnetPortIndexNamespace(t *testing.T) {
 	}
 }
 
-func Test_subnetPortIndexBySubnetID(t *testing.T) {
+func Test_subnetPortIndexBySubnetPath(t *testing.T) {
 	type args struct {
 		obj interface{}
 	}
 	path := "/orgs/org/projects/project/vpcs/vpc/subnets/subnet-1/ports/subnetport-1"
+	subnetPath := "/orgs/org/projects/project/vpcs/vpc/subnets/subnet-1"
 	tests := []struct {
 		name           string
 		expectedResult string
@@ -108,20 +109,21 @@ func Test_subnetPortIndexBySubnetID(t *testing.T) {
 	}{
 		{
 			name:           "Success",
-			expectedResult: "subnet-1",
+			expectedResult: subnetPath,
 			args: args{obj: &model.VpcSubnetPort{
-				Path: &path,
+				Path:       &path,
+				ParentPath: &subnetPath,
 			}},
 		},
 		{
 			name:        "Failure",
-			expectedErr: "subnetPortIndexBySubnetID doesn't support unknown type",
+			expectedErr: "subnetPortIndexBySubnetPath doesn't support unknown type",
 			args:        args{obj: &path},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := subnetPortIndexBySubnetID(tt.args.obj)
+			result, err := subnetPortIndexBySubnetPath(tt.args.obj)
 			if tt.expectedErr != "" {
 				assert.EqualError(t, err, tt.expectedErr)
 			} else {

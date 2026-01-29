@@ -86,7 +86,8 @@ func setupStore() *SubnetPortStore {
 					servicecommon.TagScopePodUID:          subnetPortIndexByPodUID,
 					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
-					servicecommon.IndexKeySubnetID:        subnetPortIndexBySubnetID,
+					// Use Subnet Path instead of Subnet ID as shared Subnet ID on different VPC can be the same
+					servicecommon.IndexKeySubnetPath: subnetPortIndexBySubnetPath,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
@@ -314,8 +315,8 @@ func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(crUid type
 	return *existingSubnetPort.ParentPath
 }
 
-func (service *SubnetPortService) GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort) {
-	subnetPortList := service.SubnetPortStore.GetByIndex(servicecommon.IndexKeySubnetID, nsxSubnetID)
+func (service *SubnetPortService) GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort) {
+	subnetPortList := service.SubnetPortStore.GetByIndex(servicecommon.IndexKeySubnetPath, subnetPath)
 	return subnetPortList
 }
 
@@ -446,7 +447,7 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	}
 	// Number of SubnetPorts on the Subnet includes the SubnetPorts under creation
 	// and the SubnetPorts already created
-	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Id))
+	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
 	if info.dirtyCount+existingPortCount < info.totalIP {
 		info.dirtyCount += 1
 		log.Trace("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
@@ -487,8 +488,8 @@ func (service *SubnetPortService) ReleasePortInSubnet(path string) {
 }
 
 // IsEmptySubnet check if there is any SubnetPort created or being creating on the Subnet.
-func (service *SubnetPortService) IsEmptySubnet(id string, path string) bool {
-	portCount := len(service.GetPortsOfSubnet(id))
+func (service *SubnetPortService) IsEmptySubnet(path string) bool {
+	portCount := len(service.GetPortsOfSubnet(path))
 	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
 	if ok {
 		info := obj.(*CountInfo)

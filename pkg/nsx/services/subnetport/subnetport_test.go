@@ -38,7 +38,6 @@ var (
 	subnetPortPath2      = "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1/ports/subnetport-name_00000000-0000-0000-0000-000000000002"
 	subnetPortEntityType = "RealizedLogicalPort"
 	stateRealized        = "REALIZED"
-	subnetId             = "subnet1"
 	subnetPath           = "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1"
 	namespace            = "ns1"
 )
@@ -205,7 +204,6 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				cache.Indexers{
 					common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
 					common.TagScopePodUID:          subnetPortIndexByPodUID,
-					common.IndexKeySubnetID:        subnetPortIndexBySubnetID,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
@@ -457,7 +455,6 @@ func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
 						cache.Indexers{
 							common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
 							common.TagScopePodUID:          subnetPortIndexByPodUID,
-							common.IndexKeySubnetID:        subnetPortIndexBySubnetID,
 						}),
 					BindingType: model.VpcSubnetPortBindingType(),
 				}},
@@ -538,7 +535,6 @@ func TestSubnetPortService_GetSubnetPathForSubnetPortFromStore(t *testing.T) {
 						cache.Indexers{
 							common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
 							common.TagScopePodUID:          subnetPortIndexByPodUID,
-							common.IndexKeySubnetID:        subnetPortIndexBySubnetID,
 						}),
 					BindingType: model.VpcSubnetPortBindingType(),
 				}},
@@ -566,13 +562,13 @@ func TestSubnetPortService_GetPortsOfSubnet(t *testing.T) {
 			Indexer: cache.NewIndexer(
 				keyFunc,
 				cache.Indexers{
-					common.IndexKeySubnetID: subnetPortIndexBySubnetID,
+					common.IndexKeySubnetPath: subnetPortIndexBySubnetPath,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
 	}
 	service.SubnetPortStore.Add(&port)
-	ports := service.GetPortsOfSubnet(subnetId)
+	ports := service.GetPortsOfSubnet(subnetPath)
 	assert.Equal(t, port, *ports[0])
 }
 
@@ -600,7 +596,7 @@ func TestSubnetPortService_Cleanup(t *testing.T) {
 			Indexer: cache.NewIndexer(
 				keyFunc,
 				cache.Indexers{
-					common.IndexKeySubnetID: subnetPortIndexBySubnetID,
+					common.IndexKeySubnetPath: subnetPortIndexBySubnetPath,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
@@ -766,8 +762,9 @@ func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 
 	// VM subnet port with subnetport-1 name
 	vmSubnetPort1 := &model.VpcSubnetPort{
-		Id:   &subnetPortId1,
-		Path: &subnetPortPath1,
+		Id:         &subnetPortId1,
+		Path:       &subnetPortPath1,
+		ParentPath: &subnetPath,
 		Tags: []model.Tag{
 			{
 				Scope: common.String(common.TagScopeVMNamespace),
@@ -782,8 +779,9 @@ func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 
 	// VM subnet port with subnetport-2 name
 	vmSubnetPort2 := &model.VpcSubnetPort{
-		Id:   &subnetPortId2,
-		Path: &subnetPortPath2,
+		Id:         &subnetPortId2,
+		Path:       &subnetPortPath2,
+		ParentPath: &subnetPath,
 		Tags: []model.Tag{
 			{
 				Scope: common.String(common.TagScopeVMNamespace),
@@ -800,8 +798,9 @@ func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 	podSubnetPortId := "subnetport-name_3"
 	podSubnetPortPath := "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1/ports/subnetport-name_3"
 	podSubnetPort := &model.VpcSubnetPort{
-		Id:   &podSubnetPortId,
-		Path: &podSubnetPortPath,
+		Id:         &podSubnetPortId,
+		Path:       &podSubnetPortPath,
+		ParentPath: &subnetPath,
 		Tags: []model.Tag{
 			{
 				Scope: common.String(common.TagScopeNamespace),
@@ -853,8 +852,9 @@ func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 	subnetPortService := createSubnetPortService(t)
 	subnetPort1 := &model.VpcSubnetPort{
-		Id:   &subnetPortId1,
-		Path: &subnetPortPath1,
+		Id:         &subnetPortId1,
+		Path:       &subnetPortPath1,
+		ParentPath: &subnetPath,
 		Tags: []model.Tag{
 			{
 				Scope: common.String("nsx-op/namespace"),
@@ -867,8 +867,9 @@ func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 		},
 	}
 	subnetPort2 := &model.VpcSubnetPort{
-		Id:   &subnetPortId2,
-		Path: &subnetPortPath2,
+		Id:         &subnetPortId2,
+		Path:       &subnetPortPath2,
+		ParentPath: &subnetPath,
 		Tags: []model.Tag{
 			{
 				Scope: common.String("nsx-op/namespace"),
@@ -904,10 +905,10 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 
 	assert.True(t, ok)
 	require.NoError(t, err)
-	empty := subnetPortService.IsEmptySubnet(subnetId, subnetPath)
+	empty := subnetPortService.IsEmptySubnet(subnetPath)
 	assert.False(t, empty)
 	subnetPortService.ReleasePortInSubnet(subnetPath)
-	empty = subnetPortService.IsEmptySubnet(subnetId, subnetPath)
+	empty = subnetPortService.IsEmptySubnet(subnetPath)
 	assert.True(t, empty)
 	// Update Subnet as exhausted and check port cannot be allocated
 	subnetPortService.updateExhaustedSubnet(subnetPath)
@@ -1146,7 +1147,7 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 					common.TagScopePodUID:          subnetPortIndexByPodUID,
 					common.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					common.TagScopeNamespace:       subnetPortIndexPodNamespace,
-					common.IndexKeySubnetID:        subnetPortIndexBySubnetID,
+					common.IndexKeySubnetPath:      subnetPortIndexBySubnetPath,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
