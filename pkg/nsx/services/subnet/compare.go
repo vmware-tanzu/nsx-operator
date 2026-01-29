@@ -30,9 +30,24 @@ func (subnet *Subnet) Value() data.DataValue {
 			ConnectivityState:   subnet.AdvancedConfig.ConnectivityState,
 		}
 	}
+	var subnetDhcpConfig *model.SubnetDhcpConfig
+	// Only compare Mode and DhcpServerAdditionalConfig from SubnetDhcpConfig
+	if subnet.SubnetDhcpConfig != nil {
+		var dhcpServerAdditionalConfig *model.DhcpServerAdditionalConfig
+		// Only compare ReservedIpRanges from DhcpServerAdditionalConfig
+		if subnet.SubnetDhcpConfig.DhcpServerAdditionalConfig != nil {
+			dhcpServerAdditionalConfig = &model.DhcpServerAdditionalConfig{
+				ReservedIpRanges: subnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges,
+			}
+		}
+		subnetDhcpConfig = &model.SubnetDhcpConfig{
+			Mode:                       subnet.SubnetDhcpConfig.Mode,
+			DhcpServerAdditionalConfig: dhcpServerAdditionalConfig,
+		}
+	}
 	s := &Subnet{
 		Tags:             subnet.Tags,
-		SubnetDhcpConfig: subnet.SubnetDhcpConfig,
+		SubnetDhcpConfig: subnetDhcpConfig,
 		AdvancedConfig:   advancedConfig,
 	}
 	dataValue, _ := (*model.VpcSubnet)(s).GetDataValue__()
