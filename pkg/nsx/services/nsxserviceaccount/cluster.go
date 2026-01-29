@@ -606,13 +606,49 @@ func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool 
 	return status.Phase == v1alpha1.NSXServiceAccountPhaseRealized
 }
 
-func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+func (s *NSXServiceAccountService) getNSXRestoreStatus() (*v1alpha1.NSXRestoreStatus, error) {
+	clusterRestoreStatus, err := s.NSXClient.StatusClient.Get(nil)
+	if err != nil {
+		return nil, err
+	}
+	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{}
+	if clusterRestoreStatus.Id != nil {
+		nsxRestoreStatus.Id = *clusterRestoreStatus.Id
+	}
+	if clusterRestoreStatus.Status != nil && clusterRestoreStatus.Status.Value != nil {
+		nsxRestoreStatus.Status = *clusterRestoreStatus.Status.Value
+	}
+	if clusterRestoreStatus.RestoreEndTime != nil {
+		nsxRestoreStatus.RestoreEndTime = *clusterRestoreStatus.RestoreEndTime
+	}
+	return &nsxRestoreStatus, nil
+}
+
+func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccountStatusIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+	updated := false
+	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
+		nsxRestoreStatus, err := s.getNSXRestoreStatus()
+		if err != nil {
+			return err
+		}
+		if nsxRestoreStatus != nil && nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS &&
+			!reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+
+			obj.Status.NSXRestoreStatus = nsxRestoreStatus
+			updated = true
+		}
+	}
+
 	proxyEndpoints, err := s.getProxyEndpoints(ctx)
 	if err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(proxyEndpoints, obj.Status.ProxyEndpoints) {
 		obj.Status.ProxyEndpoints = proxyEndpoints
+		updated = true
+	}
+
+	if updated {
 		return s.Client.Status().Update(ctx, obj)
 	}
 	return nil
