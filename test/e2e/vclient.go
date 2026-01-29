@@ -201,7 +201,9 @@ func (c *vcClient) getStoragePolicyID() (string, string, error) {
 
 func (c *vcClient) getClusterVirtualMachineImage() (string, error) {
 	// Better to use tkg.5, otherwise the image may not get ip
-	kubectlCmd := "kubectl get clustervirtualmachineimage -A | grep -E 'tkg.5|photon-5' | tail -n 1 | awk '{print $1}'"
+	//kubectlCmd := "kubectl get clustervirtualmachineimage -A | grep -E 'tkg.5|photon-5' | tail -n 1 | awk '{print $1}'"
+	// latest 9.1 wcp has no clustervitualmachineimages
+	kubectlCmd := "kubectl get virtualmachineimage -A | grep -E 'photon' | tail -n 1 | awk '{print $2}'"
 	cmd := exec.Command("bash", "-c", kubectlCmd)
 	var stdout, stderr bytes.Buffer
 	command := exec.Command("bash", "-c", kubectlCmd)

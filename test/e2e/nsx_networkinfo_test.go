@@ -109,9 +109,6 @@ func testCustomizedNetworkInfo(t *testing.T) {
 	}
 	_, err = testData.clientset.CoreV1().Namespaces().Create(context.TODO(), namespace, v1.CreateOptions{})
 	require.NoError(t, err)
-	defer func() {
-		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), ns, v1.DeleteOptions{})
-	}()
 
 	// For networkinfo CR, its CR name is the same as namespace
 	assureNetworkInfo(t, ns, ns)
@@ -119,6 +116,15 @@ func testCustomizedNetworkInfo(t *testing.T) {
 
 	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
 	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
+
+	// Delete namespace and wait for VPC to be cleaned up from VPCNetworkConfiguration status
+	// This is important because the next test (testSharedNSXVPC) uses the same VPCNetworkConfiguration
+	require.NoError(t, testData.deleteNamespace(ns, defaultTimeout))
+	assureNetworkInfoDeleted(t, ns)
+	assureNamespaceDeleted(t, ns)
+	// Wait for VPC to be deleted from NSX and VPCNetworkConfiguration status to be cleared
+	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, false))
+	assureVPCNetworkConfigurationStatusEmpty(t, testCustomizedNetworkConfigName)
 }
 
 // Test Infra NetworkInfo
@@ -413,6 +419,24 @@ func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName string) (vpcPath
 	})
 	require.NoError(t, err)
 	return
+}
+
+func assureVPCNetworkConfigurationStatusEmpty(t *testing.T, ncName string) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
+		if err != nil {
+			log.Trace("Check VPCNetworkConfiguration status", "error", err)
+			return false, fmt.Errorf("error when getting VPCNetworkConfiguration %s: %v", ncName, err)
+		}
+		if len(resp.Status.VPCs) == 0 {
+			return true, nil
+		}
+		log.Trace("Waiting for VPCNetworkConfiguration status to be empty", "ncName", ncName, "currentVPCs", resp.Status.VPCs)
+		return false, nil
+	})
+	require.NoError(t, err)
 }
 
 func deleteVPCNetworkConfiguration(t *testing.T, ncName string) {
