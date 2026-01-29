@@ -519,6 +519,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
 					return false, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				return patches
 			},
 			existingSubnetCR: createNewSubnet(),
@@ -532,6 +535,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 16}}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
@@ -597,6 +603,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 16}}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
@@ -683,6 +692,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				return patches
 			},
 			existingSubnetCR: createNewSubnet(),
@@ -748,10 +760,51 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
 					return false, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				return patches
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectErrStr:     "Reserved IP ranges cannot be overlapped",
+			expectRes:        ResultNormal,
+		},
+		{
+			name: "Create or Update Subnet with VPCNetworkConfiguration is nil",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyFunc(common2.GetDefaultAccessMode, func(service common.VPCServiceProvider, ns string) (v1alpha1.AccessMode, *v1alpha1.VPCNetworkConfiguration, error) {
+					return v1alpha1.AccessMode(""), nil, nil
+				})
+				return patches
+			},
+			existingSubnetCR: createNewSubnet(),
+			expectErrStr:     "vpcNeworkConfig is nil",
+			expectRes:        ResultNormal,
+		},
+		{
+			name: "Create or Update Subnet with get access mode error",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyFunc(common2.GetDefaultAccessMode, func(service common.VPCServiceProvider, ns string) (v1alpha1.AccessMode, *v1alpha1.VPCNetworkConfiguration, error) {
+					return v1alpha1.AccessMode(""), nil, fmt.Errorf("vpc not found")
+				})
+				return patches
+			},
+			existingSubnetCR: createNewSubnet(),
+			expectErrStr:     "vpc not found",
 			expectRes:        ResultNormal,
 		},
 	}
@@ -1419,6 +1472,81 @@ func TestHandleSharedSubnet(t *testing.T) {
 
 			// Clean up
 			patches.Reset()
+		})
+	}
+}
+
+func TestSetDefaultIPv4SubnetSizeValue(t *testing.T) {
+	testCases := []struct {
+		name         string
+		vpcConfig    *v1alpha1.VPCNetworkConfiguration
+		patches      func(r *SubnetReconciler) *gomonkey.Patches
+		expectErr    bool
+		expectedSize int
+	}{
+		{
+			name:         "Provided VPCNetworkConfig",
+			vpcConfig:    &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 24}},
+			expectErr:    false,
+			expectedSize: 24,
+		},
+		{
+			name:      "Fetch VPCNetworkConfig success",
+			vpcConfig: nil,
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 26}}
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+			},
+			expectErr:    false,
+			expectedSize: 26,
+		},
+		{
+			name:      "Fetch VPCNetworkConfig error",
+			vpcConfig: nil,
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, errors.New("get error")
+				})
+			},
+			expectErr:    true,
+			expectedSize: 0,
+		},
+		{
+			name:      "Fetch VPCNetworkConfig nil",
+			vpcConfig: nil,
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, nil
+				})
+			},
+			expectErr:    true,
+			expectedSize: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.TODO()
+			subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "test-subnet", Namespace: "test-ns"}}
+			r := createFakeSubnetReconciler([]client.Object{subnetCR})
+			var patches *gomonkey.Patches
+			if tc.patches != nil {
+				patches = tc.patches(r)
+				defer patches.Reset()
+			}
+			err := r.setDefaultIPv4SubnetSizeValue(ctx, subnetCR, tc.vpcConfig)
+			if tc.expectErr {
+				assert.Error(t, err)
+				if tc.expectErr {
+					assert.Error(t, err)
+					assert.Equal(t, tc.expectedSize, subnetCR.Spec.IPv4SubnetSize)
+				} else {
+					assert.NoError(t, err)
+					assert.Equal(t, tc.expectedSize, subnetCR.Spec.IPv4SubnetSize)
+				}
+			}
 		})
 	}
 }

@@ -183,20 +183,29 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	r.StatusUpdater.IncreaseUpdateTotal()
 
 	specChanged := false
+	var vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration
+	var err error
 	if subnetsetCR.Spec.AccessMode == "" {
-		subnetsetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
-		specChanged = true
-	}
-	if subnetsetCR.Spec.IPv4SubnetSize == 0 {
-		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetsetCR.Namespace)
+		subnetsetCR.Spec.AccessMode, vpcNetworkConfig, err = common.GetDefaultAccessMode(r.VPCService, subnetsetCR.Namespace)
 		if err != nil {
-			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetsetCR.Namespace)
 			return ResultNormal, err
 		}
 		if vpcNetworkConfig == nil {
-			err := fmt.Errorf("failed to find VPCNetworkConfig for Namespace %s", subnetsetCR.Namespace)
-			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "", setSubnetSetReadyStatusFalse)
-			return ResultNormal, err
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to find VPCNetworkConfig", setSubnetSetReadyStatusFalse)
+			return ResultNormal, fmt.Errorf("vpcNeworkConfig is nil")
+		}
+		specChanged = true
+	}
+	if subnetsetCR.Spec.IPv4SubnetSize == 0 {
+		if vpcNetworkConfig == nil {
+			vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetsetCR.Namespace)
+			if err != nil {
+				return ResultNormal, err
+			}
+			if vpcNetworkConfig == nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to find VPCNetworkConfig", setSubnetSetReadyStatusFalse)
+				return ResultNormal, err
+			}
 		}
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
@@ -204,7 +213,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	isSystemNs, err := util.IsVPCSystemNamespace(r.Client, subnetsetCR.Namespace, nil)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
-		return ResultRequeue, err
+		return ResultNormal, err
 	}
 	metadataChanged := updateLabels(subnetsetCR, isSystemNs)
 	if specChanged || metadataChanged {
