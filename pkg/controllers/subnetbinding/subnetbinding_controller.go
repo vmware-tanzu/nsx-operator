@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -465,20 +466,33 @@ func updateBindingMapStatusWithReadyCondition(c client.Client, ctx context.Conte
 
 func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, condition v1alpha1.Condition) {
 	condition.LastTransitionTime = metav1.Now()
-	newConditions := []v1alpha1.Condition{condition}
-	for _, cond := range bindingMap.Status.Conditions {
-		if cond.Type == condition.Type {
-			if cond.Status == condition.Status && cond.Reason == condition.Reason && cond.Message == condition.Message {
-				return
-			}
-			continue
+	key := types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name}
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch the latest version of the object
+		latestBindingMap := &v1alpha1.SubnetConnectionBindingMap{}
+		if err := c.Get(ctx, key, latestBindingMap); err != nil {
+			return err
 		}
-		newConditions = append(newConditions, cond)
-	}
-	bindingMap.Status.Conditions = newConditions
-	err := c.Status().Update(ctx, bindingMap)
+
+		// Check if the update is needed
+		newConditions := []v1alpha1.Condition{condition}
+		for _, cond := range latestBindingMap.Status.Conditions {
+			if cond.Type == condition.Type {
+				if cond.Status == condition.Status && cond.Reason == condition.Reason && cond.Message == condition.Message {
+					return nil
+				}
+				continue
+			}
+			newConditions = append(newConditions, cond)
+		}
+		latestBindingMap.Status.Conditions = newConditions
+		return c.Status().Update(ctx, latestBindingMap)
+	})
+
 	if err != nil {
 		log.Error(err, "Failed to update SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
+		return
 	}
 	log.Debug("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
 }
