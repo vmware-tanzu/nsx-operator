@@ -73,7 +73,7 @@ type NSXServiceAccountStatus struct {
 	ClusterID        string             `json:"clusterID,omitempty"`
 	ClusterName      string             `json:"clusterName,omitempty"`
 	Secrets          []NSXSecret        `json:"secrets,omitempty"`
-	NSXRestoreStatus NSXRestoreStatus   `json:"nsxRestoreStatus,omitempty"`
+	NSXRestoreStatus *NSXRestoreStatus  `json:"nsxRestoreStatus,omitempty"`
 }
 
 // +genclient

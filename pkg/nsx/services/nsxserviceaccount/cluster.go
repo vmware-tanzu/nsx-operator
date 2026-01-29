@@ -161,15 +161,6 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 		return err
 	}
 
-	// get nsx cluster restore status
-	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{}
-	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
-		nsxRestoreStatus, err = s.getNSXRestoreStatus()
-		if err != nil {
-			return err
-		}
-	}
-
 	// update NSXServiceAccountStatus
 	obj.Status.Phase = v1alpha1.NSXServiceAccountPhaseRealized
 	obj.Status.Reason = "Success"
@@ -183,7 +174,6 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	}}
 	obj.Status.VPCPath = vpcPath
 	obj.Status.ProxyEndpoints = proxyEndpoints
-	obj.Status.NSXRestoreStatus = nsxRestoreStatus
 	return s.Client.Status().Update(ctx, obj)
 }
 
@@ -616,12 +606,12 @@ func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool 
 	return status.Phase == v1alpha1.NSXServiceAccountPhaseRealized
 }
 
-func (s *NSXServiceAccountService) getNSXRestoreStatus() (v1alpha1.NSXRestoreStatus, error) {
-	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{}
+func (s *NSXServiceAccountService) getNSXRestoreStatus() (*v1alpha1.NSXRestoreStatus, error) {
 	clusterRestoreStatus, err := s.NSXClient.StatusClient.Get(nil)
 	if err != nil {
-		return nsxRestoreStatus, err
+		return nil, err
 	}
+	nsxRestoreStatus := v1alpha1.NSXRestoreStatus{}
 	if clusterRestoreStatus.Id != nil {
 		nsxRestoreStatus.Id = *clusterRestoreStatus.Id
 	}
@@ -631,7 +621,7 @@ func (s *NSXServiceAccountService) getNSXRestoreStatus() (v1alpha1.NSXRestoreSta
 	if clusterRestoreStatus.RestoreEndTime != nil {
 		nsxRestoreStatus.RestoreEndTime = *clusterRestoreStatus.RestoreEndTime
 	}
-	return nsxRestoreStatus, nil
+	return &nsxRestoreStatus, nil
 }
 
 func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccountStatusIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
@@ -641,7 +631,9 @@ func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccountStatusIfNeeded
 		if err != nil {
 			return err
 		}
-		if nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS && !reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+		if nsxRestoreStatus != nil && nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS &&
+			!reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+
 			obj.Status.NSXRestoreStatus = nsxRestoreStatus
 			updated = true
 		}
