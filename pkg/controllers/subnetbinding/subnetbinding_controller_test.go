@@ -854,6 +854,168 @@ func TestUpdateBindingMapStatusWithConditions(t *testing.T) {
 	}
 }
 
+func TestUpdateBindingMapConditionWithRetry(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+
+	name := "binding1"
+	namespace := "default"
+
+	for _, tc := range []struct {
+		name       string
+		existingBM *v1alpha1.SubnetConnectionBindingMap
+		condition  v1alpha1.Condition
+		expStatus  corev1.ConditionStatus
+		expReason  string
+		expMessage string
+	}{
+		{
+			name: "Successful update on first attempt",
+			existingBM: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:          "child",
+					TargetSubnetSetName: "parent",
+					VLANTrafficTag:      101,
+				},
+			},
+			condition: v1alpha1.Condition{
+				Type:    v1alpha1.Ready,
+				Status:  corev1.ConditionTrue,
+				Reason:  "SubnetConnectionBindingMapReady",
+				Message: "NSX resource has been successfully created/updated",
+			},
+			expStatus:  corev1.ConditionTrue,
+			expReason:  "SubnetConnectionBindingMapReady",
+			expMessage: "NSX resource has been successfully created/updated",
+		},
+		{
+			name: "No update when condition already matches",
+			existingBM: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:          "child",
+					TargetSubnetSetName: "parent",
+					VLANTrafficTag:      101,
+				},
+				Status: v1alpha1.SubnetConnectionBindingMapStatus{
+					Conditions: []v1alpha1.Condition{
+						{
+							Type:    v1alpha1.Ready,
+							Status:  corev1.ConditionTrue,
+							Reason:  "SubnetConnectionBindingMapReady",
+							Message: "Already ready",
+						},
+					},
+				},
+			},
+			condition: v1alpha1.Condition{
+				Type:    v1alpha1.Ready,
+				Status:  corev1.ConditionTrue,
+				Reason:  "SubnetConnectionBindingMapReady",
+				Message: "Already ready",
+			},
+			expStatus:  corev1.ConditionTrue,
+			expReason:  "SubnetConnectionBindingMapReady",
+			expMessage: "Already ready",
+		},
+		{
+			name: "Update existing condition with different status",
+			existingBM: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: namespace,
+				},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:          "child",
+					TargetSubnetSetName: "parent",
+					VLANTrafficTag:      101,
+				},
+				Status: v1alpha1.SubnetConnectionBindingMapStatus{
+					Conditions: []v1alpha1.Condition{
+						{
+							Type:    v1alpha1.Ready,
+							Status:  corev1.ConditionFalse,
+							Reason:  "DependencyNotReady",
+							Message: "old error",
+						},
+					},
+				},
+			},
+			condition: v1alpha1.Condition{
+				Type:    v1alpha1.Ready,
+				Status:  corev1.ConditionTrue,
+				Reason:  "SubnetConnectionBindingMapReady",
+				Message: "NSX resource ready",
+			},
+			expStatus:  corev1.ConditionTrue,
+			expReason:  "SubnetConnectionBindingMapReady",
+			expMessage: "NSX resource ready",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(tc.existingBM).WithStatusSubresource(tc.existingBM).Build()
+
+			updateBindingMapCondition(fakeClient, ctx, tc.existingBM, tc.condition)
+
+			updatedBM := &v1alpha1.SubnetConnectionBindingMap{}
+			err := fakeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, updatedBM)
+			require.NoError(t, err)
+			require.Equal(t, 1, len(updatedBM.Status.Conditions))
+			cond := updatedBM.Status.Conditions[0]
+			assert.Equal(t, tc.expStatus, cond.Status)
+			assert.Equal(t, tc.expReason, cond.Reason)
+			assert.Equal(t, tc.expMessage, cond.Message)
+			assert.Equal(t, v1alpha1.Ready, cond.Type)
+		})
+	}
+}
+
+func TestUpdateBindingMapConditionGetNotFound(t *testing.T) {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+
+	name := "binding-not-exist"
+	namespace := "default"
+
+	// Create a bindingMap that doesn't exist in the fake client
+	bindingMap := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	condition := v1alpha1.Condition{
+		Type:    v1alpha1.Ready,
+		Status:  corev1.ConditionTrue,
+		Reason:  "SubnetConnectionBindingMapReady",
+		Message: "Ready",
+	}
+
+	ctx := context.Background()
+	// Create fake client without the bindingMap object
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).Build()
+
+	// This should not panic, just log the error
+	updateBindingMapCondition(fakeClient, ctx, bindingMap, condition)
+
+	// Verify the object still doesn't exist
+	updatedBM := &v1alpha1.SubnetConnectionBindingMap{}
+	err := fakeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, updatedBM)
+	assert.True(t, apierrors.IsNotFound(err))
+}
+
 func TestListBindingMapIDsFromCRs(t *testing.T) {
 	bm1 := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: metav1.ObjectMeta{
