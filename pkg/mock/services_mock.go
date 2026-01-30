@@ -128,7 +128,7 @@ type MockSubnetPortServiceProvider struct {
 	mock.Mock
 }
 
-func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(nsxSubnetID string) (ports []*model.VpcSubnetPort) {
+func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort) {
 	return
 }
 
@@ -140,7 +140,7 @@ func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string) {
 	return
 }
 
-func (m *MockSubnetPortServiceProvider) IsEmptySubnet(id string, path string) bool {
+func (m *MockSubnetPortServiceProvider) IsEmptySubnet(path string) bool {
 	return true
 }
 

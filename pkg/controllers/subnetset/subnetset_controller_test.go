@@ -1100,8 +1100,8 @@ func TestDeleteSubnets(t *testing.T) {
 				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(_ types.UID, subnetSetLock *sync.Mutex) {
 					testLock.Unlock()
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
-					if id == "net1" {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, path string) bool {
+					if path == "subnet1-path" {
 						return false
 					}
 					return true
@@ -1129,7 +1129,7 @@ func TestDeleteSubnets(t *testing.T) {
 				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
 					testLock.Unlock()
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, path string) bool {
 					return true
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
@@ -1155,7 +1155,7 @@ func TestDeleteSubnets(t *testing.T) {
 				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
 					testLock.Unlock()
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, path string) bool {
 					return true
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
@@ -1178,7 +1178,7 @@ func TestDeleteSubnets(t *testing.T) {
 				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
 					testLock.Unlock()
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, path string) bool {
 					return true
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
@@ -1210,7 +1210,7 @@ func TestDeleteSubnets(t *testing.T) {
 				patches.ApplyFunc(ctlcommon.UnlockSubnetSet, func(uuid types.UID, subnetSetLock *sync.Mutex) {
 					testLock.Unlock()
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, id string, path string) bool {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, path string) bool {
 					return true
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {

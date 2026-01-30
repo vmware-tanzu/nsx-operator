@@ -431,7 +431,7 @@ func (r *SubnetSetReconciler) deleteSubnets(nsxSubnets []*model.VpcSubnet, delet
 	var deleteErrs []error
 	for _, nsxSubnet := range nsxSubnets {
 
-		if !r.SubnetPortService.IsEmptySubnet(*nsxSubnet.Id, *nsxSubnet.Path) {
+		if !r.SubnetPortService.IsEmptySubnet(*nsxSubnet.Path) {
 			hasStalePort = true
 			log.Info("Skipped deleting NSX Subnet due to stale ports", "nsxSubnet", *nsxSubnet.Id)
 			continue
