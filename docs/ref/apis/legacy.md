@@ -134,6 +134,24 @@ _Appears in:_
 | `TCP` |  |
 
 
+#### NSXRestoreStatus
+
+
+
+
+
+
+
+_Appears in:_
+- [NSXServiceAccountStatus](#nsxserviceaccountstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ |  |  |  |
+| `status` _string_ |  |  |  |
+| `restoreEndTime` _integer_ |  |  |  |
+
+
 #### NSXSecret
 
 
@@ -227,6 +245,7 @@ _Appears in:_
 | `clusterID` _string_ |  |  |  |
 | `clusterName` _string_ |  |  |  |
 | `secrets` _[NSXSecret](#nsxsecret) array_ |  |  |  |
+| `nsxRestoreStatus` _[NSXRestoreStatus](#nsxrestorestatus)_ |  |  |  |
 
 
 #### RuleAction
