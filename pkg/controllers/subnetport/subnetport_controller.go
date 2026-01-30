@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +39,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -167,6 +169,9 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		nsxSubnetPortState, enableDHCP, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			if nsxutil.IsRealizeStateError(err) {
+				return common.ResultRequeueAfter60sec, nil
+			}
 			return common.ResultRequeue, err
 		}
 		if nsxSubnetPortState != nil {
@@ -400,6 +405,9 @@ func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
+				RateLimiter: &ratelimiter.LoggingRateLimiter{
+					TypedRateLimiter: workqueue.DefaultTypedControllerRateLimiter[reconcile.Request](),
+				},
 			}).
 		Watches(&vmv1alpha1.VirtualMachine{},
 			handler.EnqueueRequestsFromMapFunc(r.vmMapFunc),
@@ -559,7 +567,7 @@ func (r *SubnetPortReconciler) StartController(mgr ctrl.Manager, hookServer webh
 				},
 			})
 	}
-	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.SubnetPortGCInterval, r.CollectGarbage)
 	return nil
 }
 
