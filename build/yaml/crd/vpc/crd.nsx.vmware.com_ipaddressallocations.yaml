@@ -65,7 +65,6 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipAddressBlockVisibility:
-                default: Private
                 description: IPAddressBlockVisibility specifies the visibility of
                   the IPBlocks to allocate IP addresses. Can be External, Private
                   or PrivateTGW.

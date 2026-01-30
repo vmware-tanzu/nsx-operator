@@ -160,6 +160,10 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		uid interface{}) error {
 		return errors.New("delete failed")
 	})
+	patch.ApplyPrivateMethod(reflect.TypeOf(r), "setIPAddressBlockVisibilityDefaultValue", func(_ *IPAddressAllocationReconciler,
+		obj *v1alpha1.IPAddressAllocation) error {
+		return nil
+	})
 
 	k8sClient.EXPECT().Status().Times(2).Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
@@ -177,6 +181,10 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
 		return false, errors.New("create failed")
 	})
+	patch.ApplyPrivateMethod(reflect.TypeOf(r), "setIPAddressBlockVisibilityDefaultValue", func(_ *IPAddressAllocationReconciler,
+		obj *v1alpha1.IPAddressAllocation) error {
+		return nil
+	})
 	res, ret := r.Reconcile(ctx, req)
 	assert.Equal(t, res, resultRequeue)
 	assert.NotEqual(t, ret, nil)
@@ -193,7 +201,11 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
 		return true, nil
 	})
-	k8sClient.EXPECT().Status().Times(0).Return(fakewriter)
+	patch.ApplyPrivateMethod(reflect.TypeOf(r), "setIPAddressBlockVisibilityDefaultValue", func(_ *IPAddressAllocationReconciler,
+		obj *v1alpha1.IPAddressAllocation) error {
+		return nil
+	})
+	k8sClient.EXPECT().Status().Times(3).Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
