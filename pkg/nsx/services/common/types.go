@@ -120,7 +120,7 @@ const (
 	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
 
-	IndexKeySubnetID            = "IndexKeySubnetID"
+	IndexKeySubnetPath          = "IndexKeySubnetPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	IndexKeyAttachmentID        = "IndexKeyAttachmentID"
 	GCValidationInterval uint16 = 720
