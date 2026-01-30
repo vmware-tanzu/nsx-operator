@@ -178,7 +178,8 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					return ResultRequeue, err
 				}
 			}
-			if err := r.Service.UpdateRealizedNSXServiceAccountStatusIfNeeded(ctx, obj); err != nil {
+			// update ProxyEndpoints if it has changed.
+			if err := r.Service.UpdateProxyEndpointsIfNeeded(ctx, obj); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 				return ResultRequeue, err
 			}

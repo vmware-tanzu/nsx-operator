@@ -239,7 +239,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.0.1"}
 					return nsxVersion, nil
 				})
-				patches.ApplyMethodSeq(r.Service, "UpdateRealizedNSXServiceAccountStatusIfNeeded", []gomonkey.OutputCell{{
+				patches.ApplyMethodSeq(r.Service, "UpdateProxyEndpointsIfNeeded", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})

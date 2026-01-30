@@ -395,6 +395,7 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 // ValidateAndUpdateRealizedNSXServiceAccount checks CA is up-to-date and client cert needs rotation
 // ca is nil means no need to update CA
 // Client cert rotation requires NSXT 4.1.3
+// It also updates NSXServiceAccount.Status.NSXRestoreStatus
 func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount, ca []byte) error {
 	clusterName := s.getClusterName(obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
@@ -451,7 +452,23 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 
 	if isUpdated {
 		log.Info("Update realized NSXServiceAccount", "namespace", obj.Namespace, "name", obj.Name)
-		return s.Client.Update(ctx, secret)
+		if err := s.Client.Update(ctx, secret); err != nil {
+			return err
+		}
+	}
+
+	// update NSX Restore Status
+	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
+		nsxRestoreStatus, err := s.getNSXRestoreStatus()
+		if err != nil {
+			return err
+		}
+		if nsxRestoreStatus != nil && nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS &&
+			!reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+
+			obj.Status.NSXRestoreStatus = nsxRestoreStatus
+			return s.Client.Status().Update(ctx, obj)
+		}
 	}
 	return nil
 }
@@ -624,31 +641,13 @@ func (s *NSXServiceAccountService) getNSXRestoreStatus() (*v1alpha1.NSXRestoreSt
 	return &nsxRestoreStatus, nil
 }
 
-func (s *NSXServiceAccountService) UpdateRealizedNSXServiceAccountStatusIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
-	updated := false
-	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
-		nsxRestoreStatus, err := s.getNSXRestoreStatus()
-		if err != nil {
-			return err
-		}
-		if nsxRestoreStatus != nil && nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS &&
-			!reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
-
-			obj.Status.NSXRestoreStatus = nsxRestoreStatus
-			updated = true
-		}
-	}
-
+func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	proxyEndpoints, err := s.getProxyEndpoints(ctx)
 	if err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(proxyEndpoints, obj.Status.ProxyEndpoints) {
 		obj.Status.ProxyEndpoints = proxyEndpoints
-		updated = true
-	}
-
-	if updated {
 		return s.Client.Status().Update(ctx, obj)
 	}
 	return nil
