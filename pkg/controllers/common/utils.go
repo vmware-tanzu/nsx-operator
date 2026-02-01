@@ -475,28 +475,56 @@ func CheckNetworkStack(k8sClient k8sclient.Client, ctx context.Context, ns strin
 }
 
 func CheckAccessModeOrVisibility(client k8sclient.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
-	// TODO: add the function back when all the default value of accessMode has been changed.
-	/*
-		tepLess, err := IsTepLessMode(client, ctx, ns)
-		if err != nil {
-			return err
+	tepLess, err := IsTepLessMode(client, ctx, ns)
+	if err != nil {
+		return err
+	}
+	log.Trace("CheckAccessModeOrVisibility", "accessMode", accessMode, "resourceType", resourceType, "namespace", ns)
+	if resourceType == servicecommon.ResourceTypeIPAddressAllocation {
+		if tepLess && (accessMode == string(v1alpha1.IPAddressVisibilityPrivate) || accessMode == string(v1alpha1.IPAddressVisibilityPrivateTGW)) {
+			return fmt.Errorf("IPAddressVisibility other than External is not supported for VLANBackedVPC")
 		}
-		log.Trace("CheckAccessModeOrVisibility", "accessMode", accessMode, "resourceType", resourceType, "namespace", ns)
-		if resourceType == servicecommon.ResourceTypeIPAddressAllocation {
-
-				if tepLess && accessMode != string(v1alpha1.IPAddressVisibilityExternal) && accessMode != ""{
-					return fmt.Errorf("IPAddressVisibility other than External is not supported for VLANBackedVPC")
-				}
-
-		} else {
-
-				if tepLess && accessMode != string(v1alpha1.AccessModePublic) && accessMode != "" {
-					return fmt.Errorf("AccessMode other than Public is not supported for VLANBackedVPC")
-				}
-
+	} else {
+		if tepLess && (accessMode == string(v1alpha1.AccessModePrivate) || accessMode == string(v1alpha1.AccessModeProject)) {
+			return fmt.Errorf("AccessMode other than Public/L2Only is not supported for VLANBackedVPC")
 		}
-	*/
+
+	}
 	return nil
+}
+
+func GetVpcNetworkConfig(service servicecommon.VPCServiceProvider, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+	vpcNetworkConfig, err := service.GetVPCNetworkConfigByNamespace(ns)
+	if err != nil {
+		log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", ns)
+		return nil, err
+	}
+	if vpcNetworkConfig == nil {
+		err := fmt.Errorf("VPCNetworkConfig not found")
+		log.Error(err, "VPCNetworkConfig is nil", "Namespace", ns)
+		return nil, nil
+	}
+	return vpcNetworkConfig, nil
+}
+
+func GetDefaultAccessMode(service servicecommon.VPCServiceProvider, ns string) (v1alpha1.AccessMode, *v1alpha1.VPCNetworkConfiguration, error) {
+	vpcNetworkConfig, err := GetVpcNetworkConfig(service, ns)
+	if err != nil {
+		return v1alpha1.AccessMode(""), nil, err
+	}
+	if vpcNetworkConfig == nil {
+		return v1alpha1.AccessMode(""), nil, nil
+	}
+	networkStack, err := service.GetNetworkStackFromNC(vpcNetworkConfig)
+	if err != nil {
+		log.Error(err, "Failed to get NetworkStack", "Namespace", ns)
+		return v1alpha1.AccessMode(""), nil, err
+	}
+	if networkStack == v1alpha1.FullStackVPC {
+		return v1alpha1.AccessMode(v1alpha1.AccessModePrivate), vpcNetworkConfig, nil
+	} else {
+		return v1alpha1.AccessMode(v1alpha1.AccessModePublic), vpcNetworkConfig, nil
+	}
 }
 
 // ErrFailedToListNetworkInfo indicates the controller failed to list NetworkInfo resources

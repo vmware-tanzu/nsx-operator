@@ -139,8 +139,17 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Spec mutation check and update if necessary
 	specChanged := false
+	var vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration
+	var err error
 	if subnetCR.Spec.AccessMode == "" {
-		subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
+		subnetCR.Spec.AccessMode, vpcNetworkConfig, err = common.GetDefaultAccessMode(r.VPCService, subnetCR.Namespace)
+		if err != nil {
+			return ResultNormal, err
+		}
+		if vpcNetworkConfig == nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
+			return ResultNormal, fmt.Errorf("vpcNeworkConfig is nil")
+		}
 		specChanged = true
 	}
 
@@ -156,17 +165,10 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if subnetCR.Spec.IPv4SubnetSize == 0 && len(subnetCR.Spec.IPAddresses) == 0 {
-		vpcNetworkConfig, err := r.VPCService.GetVPCNetworkConfigByNamespace(subnetCR.Namespace)
+		err = r.setDefaultIPv4SubnetSizeValue(ctx, subnetCR, vpcNetworkConfig)
 		if err != nil {
-			log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetCR.Namespace)
-			return ResultRequeue, nil
+			return ResultNormal, err
 		}
-		if vpcNetworkConfig == nil {
-			err := fmt.Errorf("VPCNetworkConfig not found for Subnet CR")
-			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
-			return ResultRequeue, nil
-		}
-		subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
 	}
 
@@ -213,6 +215,23 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ctrl.Result{}, nil
+}
+
+func (r *SubnetReconciler) setDefaultIPv4SubnetSizeValue(ctx context.Context, subnetCR *v1alpha1.Subnet, vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration) error {
+	var err error
+	if vpcNetworkConfig == nil {
+		vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetCR.Namespace)
+		if err != nil {
+			return err
+		}
+		if vpcNetworkConfig == nil {
+			err := fmt.Errorf("failed to find VPCNetworkConfig for Namespace %s", subnetCR.Namespace)
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
+			return err
+		}
+	}
+	subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
+	return nil
 }
 
 func (r *SubnetReconciler) deleteSubnetByID(subnetID string) error {

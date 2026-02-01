@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -18,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -26,7 +28,9 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	pkg_mock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -372,48 +376,50 @@ func TestCheckAccessModeOrVisibility(t *testing.T) {
 			resourceType: servicecommon.ResourceTypeIPAddressAllocation,
 			wantErr:      false,
 		},
-		/*
-				{
-					name:         "TepLess is true, IPAddressAllocation, AccessMode Private - Failure",
-					tepLess:      true,
-					accessMode:   "Private",
-					resourceType: servicecommon.ResourceTypeIPAddressAllocation,
-					wantErr:      true,
-					expectedErr:  "IPAddressVisibility other than External is not supported for VLANBackedVPC",
-				},
+		{
+			name:         "TepLess is true, IPAddressAllocation, AccessMode Private - Failure",
+			tepLess:      true,
+			accessMode:   "Private",
+			resourceType: servicecommon.ResourceTypeIPAddressAllocation,
+			wantErr:      true,
+			expectedErr:  "IPAddressVisibility other than External is not supported for VLANBackedVPC",
+		},
 
-			{
-				name:         "TepLess is true, Other resource, AccessMode Public - Success",
-				tepLess:      true,
-				accessMode:   string(v1alpha1.AccessModePublic),
-				resourceType: "VPCSubnet",
-				wantErr:      false,
-			},
-
-				{
-					name:         "TepLess is true, Other resource, AccessMode Private - Failure",
-					tepLess:      true,
-					accessMode:   string(v1alpha1.AccessModePrivate),
-					resourceType: "SubnetSet",
-					wantErr:      true,
-					expectedErr:  "AccessMode other than Public is not supported for VLANBackedVPC",
-				},
-
-			{
-				name:         "TepLess is false, Any AccessMode - Success",
-				tepLess:      false,
-				accessMode:   "AnyMode",
-				resourceType: "AnyResource",
-				wantErr:      false,
-			},
-
-				{
-					name:        "IsTepLessMode returns error",
-					tepLessErr:  fmt.Errorf("internal error"),
-					wantErr:     true,
-					expectedErr: "internal error",
-				},
-		*/
+		{
+			name:         "TepLess is true, Other resource, AccessMode Public - Success",
+			tepLess:      true,
+			accessMode:   string(v1alpha1.AccessModePublic),
+			resourceType: "VPCSubnet",
+			wantErr:      false,
+		},
+		{
+			name:         "TepLess is true, Other resource, AccessMode L2only - Success",
+			tepLess:      true,
+			accessMode:   string(v1alpha1.AccessModeL2Only),
+			resourceType: "VPCSubnet",
+			wantErr:      false,
+		},
+		{
+			name:         "TepLess is true, Other resource, AccessMode Private - Failure",
+			tepLess:      true,
+			accessMode:   string(v1alpha1.AccessModePrivate),
+			resourceType: "SubnetSet",
+			wantErr:      true,
+			expectedErr:  "AccessMode other than Public/L2Only is not supported for VLANBackedVPC",
+		},
+		{
+			name:         "TepLess is false, Any AccessMode - Success",
+			tepLess:      false,
+			accessMode:   "AnyMode",
+			resourceType: "AnyResource",
+			wantErr:      false,
+		},
+		{
+			name:        "IsTepLessMode returns error",
+			tepLessErr:  fmt.Errorf("internal error"),
+			wantErr:     true,
+			expectedErr: "internal error",
+		},
 		{
 			name:       "IsTepLessMode, AccessMode None, - Success",
 			tepLess:    true,
@@ -885,6 +891,162 @@ func TestIsNamespaceVLANBacked(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, got)
+			}
+		})
+	}
+}
+
+func TestGetVpcNetworkConfig(t *testing.T) {
+	testCases := []struct {
+		name      string
+		patches   func(r *vpc.VPCService) *gomonkey.Patches
+		expectErr bool
+	}{
+		{
+			name: "Success",
+			patches: func(r *vpc.VPCService) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
+				return gomonkey.ApplyMethod(reflect.TypeOf(r), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+			},
+			expectErr: false,
+		},
+		{
+			name: "GetVPCNetworkConfigByNamespace error",
+			patches: func(r *vpc.VPCService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, errors.New("get error")
+				})
+			},
+			expectErr: true,
+		},
+		{
+			name: "VPCNetworkConfig nil",
+			patches: func(r *vpc.VPCService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, nil
+				})
+			},
+			expectErr: false,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			subnetsetCR := &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnetset",
+					Namespace: "test-namespace",
+				},
+			}
+			service := createVPCService([]client.Object{subnetsetCR})
+			if testCase.patches != nil {
+				patches := testCase.patches(service)
+				defer patches.Reset()
+			}
+			_, err := GetVpcNetworkConfig(service, subnetsetCR.Namespace)
+			if testCase.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func createVPCService(objects []client.Object) *vpc.VPCService {
+	newScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
+	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objects...).Build()
+	service := &vpc.VPCService{
+		Service: servicecommon.Service{
+			Client:    fakeClient,
+			NSXClient: &nsx.Client{},
+		},
+	}
+	return service
+}
+func TestGetDefaultAccessMode(t *testing.T) {
+	testCases := []struct {
+		name               string
+		patches            func(r *vpc.VPCService) *gomonkey.Patches
+		expectErr          bool
+		expectedAccessMode v1alpha1.AccessMode
+	}{
+		{
+			name: "Success with FullStackVPC",
+			patches: func(r *vpc.VPCService) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 16}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				return patches
+			},
+			expectErr:          false,
+			expectedAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+		},
+		{
+			name: "Success with other stack",
+			patches: func(r *vpc.VPCService) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 16}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.NetworkStackType("Other"), nil
+				})
+				return patches
+			},
+			expectErr:          false,
+			expectedAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+		},
+		{
+			name: "GetVPCNetworkConfigByNamespace error",
+			patches: func(r *vpc.VPCService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, errors.New("get error")
+				})
+			},
+			expectErr: true,
+		},
+		{
+			name: "GetNetworkStackFromNC error",
+			patches: func(r *vpc.VPCService) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 16}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return "", errors.New("stack error")
+				})
+				return patches
+			},
+			expectErr: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			subnetsetCR := &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnetset",
+					Namespace: "test-namespace",
+				},
+			}
+			service := createVPCService([]client.Object{subnetsetCR})
+			if testCase.patches != nil {
+				patches := testCase.patches(service)
+				defer patches.Reset()
+			}
+			accessMode, _, err := GetDefaultAccessMode(service, subnetsetCR.Namespace)
+			if testCase.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, testCase.expectedAccessMode, accessMode)
 			}
 		})
 	}
