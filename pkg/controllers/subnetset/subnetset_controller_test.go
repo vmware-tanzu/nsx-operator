@@ -144,7 +144,7 @@ func TestReconcile(t *testing.T) {
 			Name:      subnetsetName,
 			Namespace: ns,
 		},
-		Spec: v1alpha1.SubnetSetSpec{},
+		Spec: v1alpha1.SubnetSetSpec{AccessMode: ""},
 	}
 
 	testCases := []struct {
@@ -161,6 +161,10 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
+				//vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return nil, fmt.Errorf("failed to locate default NetworkConfig")
+				})
 				return patches
 			},
 			expectErrStr: "failed to locate default NetworkConfig",
@@ -173,7 +177,6 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
 				})
-
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "fake-path"
@@ -181,6 +184,9 @@ func TestReconcile(t *testing.T) {
 					return []*model.VpcSubnet{
 						&vpcSubnet,
 					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
@@ -197,6 +203,9 @@ func TestReconcile(t *testing.T) {
 				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
@@ -227,6 +236,9 @@ func TestReconcile(t *testing.T) {
 				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []*v1alpha1.SubnetConnectionBindingMap {
 					return []*v1alpha1.SubnetConnectionBindingMap{}
@@ -262,6 +274,9 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
@@ -287,6 +302,9 @@ func TestReconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
 					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
 				})
 				return patches
 			},
@@ -333,6 +351,13 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
 				return patches
 			},
 		},
@@ -362,7 +387,6 @@ func TestReconcile(t *testing.T) {
 		})
 	}
 }
-
 func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 	testCases := []struct {
 		name            string
