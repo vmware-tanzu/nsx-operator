@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
@@ -396,7 +397,9 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 // ca is nil means no need to update CA
 // Client cert rotation requires NSXT 4.1.3
 // It also updates NSXServiceAccount.Status.NSXRestoreStatus
-func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount, ca []byte) error {
+func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount, ca []byte,
+	nsxRestoreStatus *v1alpha1.NSXRestoreStatus) error {
+
 	clusterName := s.getClusterName(obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
 	secretName := obj.Name + SecretSuffix
@@ -458,18 +461,21 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 	}
 
 	// update NSX Restore Status
-	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
-		nsxRestoreStatus, err := s.getNSXRestoreStatus()
-		if err != nil {
-			log.Error(err, "error getting NSX restore status", "namespace", obj.Namespace, "name", obj.Name)
-			return err
-		}
-		if nsxRestoreStatus != nil && nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS &&
-			!reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
+	if nsxRestoreStatus != nil && nsxRestoreStatus.Status == mpmodel.GlobalRestoreStatus_VALUE_SUCCESS &&
+		!reflect.DeepEqual(nsxRestoreStatus, obj.Status.NSXRestoreStatus) {
 
-			log.Info("A new NSX restore is detected", "namespace", obj.Namespace, "name", obj.Name)
-			obj.Status.NSXRestoreStatus = nsxRestoreStatus
+		log.Info("Updating NSX restore status to NSXServiceAccount", "namespace", obj.Namespace, "name", obj.Name, "nsxRestoreStatus", nsxRestoreStatus)
+		oldNSXRestoreStatus := obj.Status.NSXRestoreStatus
+		obj.Status.NSXRestoreStatus = nsxRestoreStatus
+		err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+			return err != nil
+		}, func() error {
 			return s.Client.Status().Update(ctx, obj)
+		})
+		if err != nil {
+			obj.Status.NSXRestoreStatus = oldNSXRestoreStatus
+			log.Error(err, "failed to update NSXServiceAccount with nsxRestoreStatus", "namespace", obj.Namespace, "name", obj.Name, "nsxRestoreStatus", nsxRestoreStatus)
+			return err
 		}
 	}
 	return nil
@@ -625,7 +631,7 @@ func IsNSXServiceAccountRealized(status *v1alpha1.NSXServiceAccountStatus) bool 
 	return status.Phase == v1alpha1.NSXServiceAccountPhaseRealized
 }
 
-func (s *NSXServiceAccountService) getNSXRestoreStatus() (*v1alpha1.NSXRestoreStatus, error) {
+func (s *NSXServiceAccountService) GetNSXRestoreStatus() (*v1alpha1.NSXRestoreStatus, error) {
 	clusterRestoreStatus, err := s.NSXClient.StatusClient.Get(nil)
 	if err != nil {
 		return nil, err
