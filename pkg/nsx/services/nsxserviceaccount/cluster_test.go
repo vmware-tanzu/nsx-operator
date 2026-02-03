@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/cluster/restore"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
@@ -168,6 +169,7 @@ func newFakeCommonService() common.Service {
 			WithCertificateClient:      &fakeWithCertificateClient{},
 			NSXChecker:                 nsx.NSXHealthChecker{},
 			NSXVerChecker:              nsx.NSXVersionChecker{},
+			StatusClient:               restore.NewStatusClient(nil),
 		},
 		NSXConfig: &config.NSXOperatorConfig{
 			CoeConfig: &config.CoeConfig{
@@ -616,7 +618,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 				}})
 				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
-					Times:  1,
+					Times:  2,
 				}})
 				return patches
 			},
@@ -1329,9 +1331,17 @@ func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T)
 }
 
 func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *testing.T) {
+	fakeId := "fakeBackupId"
+	fakeId2 := "fakeBackupId2"
+	fakeRestoreEndTime := int64(12345678)
+	fakeRestoreEndTime2 := int64(123456789)
+	restoreStatusValueSuccess := mpmodel.GlobalRestoreStatus_VALUE_SUCCESS
+	restoreStatusValueRunning := mpmodel.GlobalRestoreStatus_VALUE_RUNNING
+
 	type args struct {
-		obj *v1alpha1.NSXServiceAccount
-		ca  []byte
+		obj              *v1alpha1.NSXServiceAccount
+		ca               []byte
+		nsxRestoreStatus *v1alpha1.NSXRestoreStatus
 	}
 	subject := util.DefaultSubject
 	subject.CommonName = "nsx1"
@@ -1342,12 +1352,13 @@ func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *
 	uidScope := common.TagScopeNSXServiceAccountCRUID
 	uidTag := "00000000-0000-0000-0000-000000000001"
 	tests := []struct {
-		name        string
-		prepareFunc func(*testing.T, *NSXServiceAccountService, context.Context, *v1alpha1.NSXServiceAccount) *gomonkey.Patches
-		args        args
-		wantNewCA   bool
-		wantNewCert bool
-		wantErr     bool
+		name                     string
+		prepareFunc              func(*testing.T, *NSXServiceAccountService, context.Context, *v1alpha1.NSXServiceAccount) *gomonkey.Patches
+		args                     args
+		wantNewCA                bool
+		wantNewCert              bool
+		wantErr                  bool
+		expectedNSXRestoreStatus *v1alpha1.NSXRestoreStatus
 	}{
 		{
 			name: "Skip",
@@ -1578,6 +1589,153 @@ func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *
 			wantNewCert: true,
 			wantErr:     false,
 		},
+		{
+			name: "AddNSXRestoreStatus",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{false},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: v1alpha1.NSXServiceAccountSpec{
+						VPCName: "vpc1",
+					},
+					Status: v1alpha1.NSXServiceAccountStatus{
+						Phase:       v1alpha1.NSXServiceAccountPhaseRealized,
+						VPCPath:     "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+						ClusterID:   "clusterId1",
+						ClusterName: "k8scl-one_test-ns1-name1",
+						Secrets: []v1alpha1.NSXSecret{{
+							Name:      "name1" + SecretSuffix,
+							Namespace: "ns1",
+						}},
+					},
+				},
+				ca: nil,
+				nsxRestoreStatus: &v1alpha1.NSXRestoreStatus{
+					Id:             fakeId,
+					Status:         restoreStatusValueSuccess,
+					RestoreEndTime: fakeRestoreEndTime,
+				},
+			},
+			expectedNSXRestoreStatus: &v1alpha1.NSXRestoreStatus{
+				Id:             fakeId,
+				Status:         restoreStatusValueSuccess,
+				RestoreEndTime: fakeRestoreEndTime,
+			},
+			wantNewCA:   false,
+			wantNewCert: false,
+			wantErr:     false,
+		},
+		{
+			name: "UpdateNSXRestoreStatus",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{false},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: v1alpha1.NSXServiceAccountSpec{
+						VPCName: "vpc1",
+					},
+					Status: v1alpha1.NSXServiceAccountStatus{
+						Phase:       v1alpha1.NSXServiceAccountPhaseRealized,
+						VPCPath:     "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+						ClusterID:   "clusterId1",
+						ClusterName: "k8scl-one_test-ns1-name1",
+						Secrets: []v1alpha1.NSXSecret{{
+							Name:      "name1" + SecretSuffix,
+							Namespace: "ns1",
+						}},
+						NSXRestoreStatus: &v1alpha1.NSXRestoreStatus{
+							Id:             fakeId,
+							Status:         restoreStatusValueSuccess,
+							RestoreEndTime: fakeRestoreEndTime,
+						},
+					},
+				},
+				ca: nil,
+				nsxRestoreStatus: &v1alpha1.NSXRestoreStatus{
+					Id:             fakeId2,
+					Status:         restoreStatusValueSuccess,
+					RestoreEndTime: fakeRestoreEndTime2,
+				},
+			},
+			expectedNSXRestoreStatus: &v1alpha1.NSXRestoreStatus{
+				Id:             fakeId2,
+				Status:         restoreStatusValueSuccess,
+				RestoreEndTime: fakeRestoreEndTime2,
+			},
+			wantNewCA:   false,
+			wantNewCert: false,
+			wantErr:     false,
+		},
+		{
+			name: "DoNotUpdateNSXRestoreStatus",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{false},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: v1alpha1.NSXServiceAccountSpec{
+						VPCName: "vpc1",
+					},
+					Status: v1alpha1.NSXServiceAccountStatus{
+						Phase:       v1alpha1.NSXServiceAccountPhaseRealized,
+						VPCPath:     "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+						ClusterID:   "clusterId1",
+						ClusterName: "k8scl-one_test-ns1-name1",
+						Secrets: []v1alpha1.NSXSecret{{
+							Name:      "name1" + SecretSuffix,
+							Namespace: "ns1",
+						}},
+						NSXRestoreStatus: &v1alpha1.NSXRestoreStatus{
+							Id:             fakeId,
+							Status:         restoreStatusValueSuccess,
+							RestoreEndTime: fakeRestoreEndTime,
+						},
+					},
+				},
+				ca: nil,
+				nsxRestoreStatus: &v1alpha1.NSXRestoreStatus{
+					Id:     fakeId2,
+					Status: restoreStatusValueRunning,
+				},
+			},
+			expectedNSXRestoreStatus: &v1alpha1.NSXRestoreStatus{
+				Id:             fakeId,
+				Status:         restoreStatusValueSuccess,
+				RestoreEndTime: fakeRestoreEndTime,
+			},
+			wantNewCA:   false,
+			wantNewCert: false,
+			wantErr:     false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1585,12 +1743,13 @@ func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *
 			commonService := newFakeCommonService()
 			s := &NSXServiceAccountService{Service: commonService}
 			s.SetUpStore()
+			assert.NoError(t, s.Client.Create(ctx, tt.args.obj))
 			patches := tt.prepareFunc(t, s, ctx, tt.args.obj)
 			if patches != nil {
 				defer patches.Reset()
 			}
 
-			if err := s.ValidateAndUpdateRealizedNSXServiceAccount(ctx, tt.args.obj, tt.args.ca); (err != nil) != tt.wantErr {
+			if err := s.ValidateAndUpdateRealizedNSXServiceAccount(ctx, tt.args.obj, tt.args.ca, tt.args.nsxRestoreStatus); (err != nil) != tt.wantErr {
 				t.Errorf("ValidateAndUpdateRealizedNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantNewCA {
@@ -1614,6 +1773,99 @@ func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *
 				assert.True(t, time.Now().AddDate(0, 0, util.DefaultValidDaysWithRotation-util.DefaultRotateDays).Before(certObj.NotAfter))
 				assert.True(t, time.Now().After(certObj.NotBefore))
 			}
+
+			nsxsa := &v1alpha1.NSXServiceAccount{}
+			assert.NoError(t, s.Client.Get(ctx, types.NamespacedName{
+				Namespace: tt.args.obj.Namespace,
+				Name:      tt.args.obj.Name,
+			}, nsxsa))
+			assert.Equal(t, nsxsa.Status.NSXRestoreStatus, tt.expectedNSXRestoreStatus)
+		})
+	}
+}
+
+func TestNSXServiceAccountService_GetNSXRestoreStatus(t *testing.T) {
+	fakeId := "fakeBackupId"
+	fakeRestoreEndTime := int64(12345678)
+	restoreStatusValueSuccess := mpmodel.GlobalRestoreStatus_VALUE_SUCCESS
+	restoreStatusValueRunning := mpmodel.GlobalRestoreStatus_VALUE_RUNNING
+	restoreStatusSuccess := mpmodel.GlobalRestoreStatus{
+		Value: &restoreStatusValueSuccess,
+	}
+	restoreStatusRunning := mpmodel.GlobalRestoreStatus{
+		Value: &restoreStatusValueRunning,
+	}
+	tests := []struct {
+		name                     string
+		prepareFunc              func(*testing.T, *NSXServiceAccountService) *gomonkey.Patches
+		expectedNsxRestoreStatus *v1alpha1.NSXRestoreStatus
+		expectedErr              error
+	}{
+		{
+			name: "get nsxRestoreStatus success",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.StatusClient, "Get", []gomonkey.OutputCell{{
+					Times: 1,
+					Values: gomonkey.Params{
+						mpmodel.ClusterRestoreStatus{
+							Id:             &fakeId,
+							Status:         &restoreStatusSuccess,
+							RestoreEndTime: &fakeRestoreEndTime,
+						},
+						nil,
+					},
+				}})
+				return patches
+			},
+			expectedNsxRestoreStatus: &v1alpha1.NSXRestoreStatus{
+				Id:             fakeId,
+				Status:         restoreStatusValueSuccess,
+				RestoreEndTime: fakeRestoreEndTime,
+			},
+		},
+		{
+			name: "get nsxRestoreStatus running",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.StatusClient, "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						mpmodel.ClusterRestoreStatus{
+							Id:     &fakeId,
+							Status: &restoreStatusRunning,
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectedNsxRestoreStatus: &v1alpha1.NSXRestoreStatus{
+				Id:     fakeId,
+				Status: restoreStatusValueRunning,
+			},
+		},
+		{
+			name: "get nsxRestoreStatus error",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.StatusClient, "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						mpmodel.ClusterRestoreStatus{},
+						errors.New("fake error getting nsx restore status"),
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			expectedErr: errors.New("fake error getting nsx restore status"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			commonService := newFakeCommonService()
+			s := &NSXServiceAccountService{Service: commonService}
+			tt.prepareFunc(t, s)
+			actualNsxRestoreStatus, err := s.GetNSXRestoreStatus()
+			assert.Equal(t, tt.expectedErr, err)
+			assert.Equal(t, tt.expectedNsxRestoreStatus, actualNsxRestoreStatus)
 		})
 	}
 }
