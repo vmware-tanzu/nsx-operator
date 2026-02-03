@@ -334,19 +334,30 @@ func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommo
 func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, nsxServiceAccountList *nsxvmwarecomv1alpha1.NSXServiceAccountList) (uint16, []byte) {
 	// Validate ca at first time
 	// Validate client cert every GCValidationInterval
+	setCountToZero := false
 	if count == 0 {
+		var nsxRestoreStatus *nsxvmwarecomv1alpha1.NSXRestoreStatus
+		var err error
+		if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
+			nsxRestoreStatus, err = r.Service.GetNSXRestoreStatus()
+			if err != nil {
+				log.Error(err, "error getting NSX restore status")
+				setCountToZero = true
+			}
+		}
 		for _, account := range nsxServiceAccountList.Items {
 			nsxServiceAccount := account
 			if nsxserviceaccount.IsNSXServiceAccountRealized(&nsxServiceAccount.Status) {
-				if err := r.Service.ValidateAndUpdateRealizedNSXServiceAccount(context.TODO(), &nsxServiceAccount, ca); err != nil {
+				if err := r.Service.ValidateAndUpdateRealizedNSXServiceAccount(context.TODO(), &nsxServiceAccount, ca, nsxRestoreStatus); err != nil {
 					log.Error(err, "Failed to update realized NSXServiceAccount", "namespace", nsxServiceAccount.Namespace, "name", nsxServiceAccount.Name)
+					setCountToZero = true
 				}
 			}
 		}
 		ca = nil
 	}
 	count++
-	if count == servicecommon.GCValidationInterval {
+	if count == servicecommon.GCValidationInterval || setCountToZero {
 		count = 0
 	}
 	return count, ca

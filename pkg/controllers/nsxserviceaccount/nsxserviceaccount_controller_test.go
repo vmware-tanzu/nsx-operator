@@ -987,6 +987,10 @@ func TestNSXServiceAccountReconciler_validateRealized(t *testing.T) {
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})
+				patches.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{false},
+					Times:  1,
+				}})
 				return patches
 			},
 			args: args{
@@ -1002,7 +1006,43 @@ func TestNSXServiceAccountReconciler_validateRealized(t *testing.T) {
 					}},
 				},
 			},
-			want:  1,
+			want:  0,
+			want1: nil,
+		},
+		{
+			name: "error getting nsxRestoreStatus",
+			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(r.Service, "ValidateAndUpdateRealizedNSXServiceAccount", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(r.Service, "GetNSXRestoreStatus", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						nil,
+						fmt.Errorf("fake getNSXRestoreStatus error"),
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			args: args{
+				count: 0,
+				ca:    []byte("fakeCA"),
+				nsxServiceAccountList: &nsxvmwarecomv1alpha1.NSXServiceAccountList{
+					Items: []nsxvmwarecomv1alpha1.NSXServiceAccount{{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "name1"},
+						Status:     nsxvmwarecomv1alpha1.NSXServiceAccountStatus{Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized},
+					}, {
+						ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "name2"},
+						Status:     nsxvmwarecomv1alpha1.NSXServiceAccountStatus{},
+					}},
+				},
+			},
+			want:  0,
 			want1: nil,
 		},
 	}
