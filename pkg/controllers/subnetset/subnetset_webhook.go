@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -155,12 +156,12 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		}
 		// Only check for user defined SubnetSet as Subnets for default network
 		// is allowed to be removed from SubnetSet when there is port on it
-		if subnetSet.Spec.SubnetNames != nil && oldSubnetSet.Spec.SubnetNames != nil && req.UserInfo.Username != NSXOperatorSA {
+		if subnetSet.Spec.SubnetNames != nil && oldSubnetSet.Spec.SubnetNames != nil {
 			// Lock the SubnetSet to avoid new SubnetPort created on the removed Subnet
 			subnetSetLock := controllercommon.WLockSubnetSet(subnetSet.UID)
 			defer controllercommon.WUnlockSubnetSet(subnetSet.UID, subnetSetLock)
 			removedSubnetNames := nsxutil.DiffArrays(*oldSubnetSet.Spec.SubnetNames, *subnetSet.Spec.SubnetNames)
-			valid, err = v.validateRemovedSubnets(ctx, subnetSet.Namespace, subnetSet.Name, removedSubnetNames)
+			valid, err = v.validateRemovedSubnets(ctx, subnetSet, removedSubnetNames)
 			if err != nil {
 				return admission.Errored(http.StatusBadRequest, err)
 			}
@@ -172,14 +173,12 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be deleted by nsx-operator")
 		}
-		if req.UserInfo.Username != NSXOperatorSA {
-			hasSubnetPort, err := v.checkSubnetPort(ctx, subnetSet.Namespace, subnetSet.Name)
-			if err != nil {
-				return admission.Errored(http.StatusBadRequest, err)
-			}
-			if hasSubnetPort {
-				return admission.Denied(fmt.Sprintf("SubnetSet %s/%s with stale SubnetPorts cannot be deleted", subnetSet.Namespace, subnetSet.Name))
-			}
+		hasSubnetPort, err := v.checkSubnetPort(ctx, subnetSet.Namespace, subnetSet)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if hasSubnetPort {
+			return admission.Denied(fmt.Sprintf("SubnetSet %s/%s with stale SubnetPorts cannot be deleted", subnetSet.Namespace, subnetSet.Name))
 		}
 	}
 	if req.Operation != admissionv1.Delete {
@@ -198,47 +197,121 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 	return admission.Allowed("")
 }
 
-func (v *SubnetSetValidator) checkSubnetPort(ctx context.Context, ns string, subnetSetName string) (bool, error) {
+func getSubentSetKind(subnetSet *v1alpha1.SubnetSet) string {
+	var defaultSubnetSetFor string
+	if value, ok := subnetSet.Labels[common.LabelDefaultNetwork]; ok {
+		defaultSubnetSetFor = value
+	} else if value, ok := subnetSet.Labels[common.LabelDefaultSubnetSet]; ok {
+		switch value {
+		case common.LabelDefaultPodSubnetSet:
+			defaultSubnetSetFor = common.DefaultPodNetwork
+		case common.LabelDefaultVMSubnetSet:
+			defaultSubnetSetFor = common.DefaultVMNetwork
+		}
+	}
+	return defaultSubnetSetFor
+}
+
+func (v *SubnetSetValidator) checkSubnetPort(ctx context.Context, ns string, subnetSet *v1alpha1.SubnetSet) (bool, error) {
 	crdSubnetPorts := &v1alpha1.SubnetPortList{}
 	err := v.Client.List(ctx, crdSubnetPorts, client.InNamespace(ns))
 	if err != nil {
 		return false, fmt.Errorf("failed to list SubnetPort: %v", err)
 	}
 	for _, crdSubnetPort := range crdSubnetPorts.Items {
-		if crdSubnetPort.Spec.SubnetSet == subnetSetName {
+		if crdSubnetPort.Spec.SubnetSet == subnetSet.Name {
 			return true, nil
+		}
+	}
+	if isDefaultSubnetSet(subnetSet) {
+		defaultSubnetSetFor := getSubentSetKind(subnetSet)
+		switch defaultSubnetSetFor {
+		case common.DefaultPodNetwork:
+			crdPods := &v1.PodList{}
+			err := v.Client.List(ctx, crdPods, client.InNamespace(ns))
+			if err != nil {
+				return false, fmt.Errorf("failed to list Pod: %v", err)
+			}
+			if len(crdPods.Items) > 0 {
+				return true, nil
+			}
+		case common.DefaultVMNetwork:
+			for _, crdSubnetPort := range crdSubnetPorts.Items {
+				if crdSubnetPort.Spec.SubnetSet == "" && crdSubnetPort.Spec.Subnet == "" {
+					return true, nil
+				}
+			}
+		default:
+			// Should not reach here
+			log.Error(nil, "Unrecognized default SubnetSet label", "value", defaultSubnetSetFor)
 		}
 	}
 	return false, nil
 }
 
-// Verify that all the SubnetPorts on the SubnetSet does not use the removed Subnets
-func (v *SubnetSetValidator) validateRemovedSubnets(ctx context.Context, ns string, subnetSetName string, subnetNames []string) (bool, error) {
-	log.Debug("Verify if Subnets can be removed from SubnetSet", "Namespace", ns, "subnetSetName", subnetSetName, "subnetNames", subnetNames)
-	usedSubnetPaths := sets.New[string]()
+func (v *SubnetSetValidator) getSubnetPortsID(ctx context.Context, subnetSet *v1alpha1.SubnetSet) ([]types.UID, error) {
 	crdSubnetPorts := &v1alpha1.SubnetPortList{}
-	err := v.Client.List(ctx, crdSubnetPorts, client.InNamespace(ns))
+	crdSubnetPortsIDs := make([]types.UID, 0)
+	err := v.Client.List(ctx, crdSubnetPorts, client.InNamespace(subnetSet.Namespace))
 	if err != nil {
-		return false, fmt.Errorf("failed to list SubnetPort: %v", err)
+		return crdSubnetPortsIDs, fmt.Errorf("failed to list SubnetPort: %v", err)
 	}
 	for _, crdSubnetPort := range crdSubnetPorts.Items {
-		if crdSubnetPort.Spec.SubnetSet == subnetSetName {
-			subnetPath := v.subnetPortService.GetSubnetPathForSubnetPortFromStore(crdSubnetPort.GetUID())
-			if subnetPath != "" {
-				usedSubnetPaths.Insert(subnetPath)
-			}
+		if crdSubnetPort.Spec.SubnetSet == subnetSet.Name {
+			crdSubnetPortsIDs = append(crdSubnetPortsIDs, crdSubnetPort.UID)
 		}
 	}
+	if isDefaultSubnetSet(subnetSet) {
+		defaultSubnetSetFor := getSubentSetKind(subnetSet)
+		switch defaultSubnetSetFor {
+		// Check Pods for pod-default SubnetSet
+		case common.DefaultPodNetwork:
+			crdPods := &v1.PodList{}
+			err := v.Client.List(ctx, crdPods, client.InNamespace(subnetSet.Namespace))
+			if err != nil {
+				return crdSubnetPortsIDs, fmt.Errorf("failed to list Pod: %v", err)
+			}
+			for _, crdPod := range crdPods.Items {
+				crdSubnetPortsIDs = append(crdSubnetPortsIDs, crdPod.UID)
+			}
+		// Check SubnetPort without Subnet/SubnetSet for vm-default SubnetSet
+		case common.DefaultVMNetwork:
+			for _, crdSubnetPort := range crdSubnetPorts.Items {
+				if crdSubnetPort.Spec.SubnetSet == "" && crdSubnetPort.Spec.Subnet == "" {
+					crdSubnetPortsIDs = append(crdSubnetPortsIDs, crdSubnetPort.UID)
+				}
+			}
+		default:
+			// Should not reach here
+			log.Error(nil, "Unrecognized default SubnetSet label", "value", defaultSubnetSetFor)
+		}
+	}
+	return crdSubnetPortsIDs, nil
+}
 
+// Verify that all the SubnetPorts on the SubnetSet does not use the removed Subnets
+func (v *SubnetSetValidator) validateRemovedSubnets(ctx context.Context, subnetSet *v1alpha1.SubnetSet, subnetNames []string) (bool, error) {
+	log.Debug("Verify if Subnets can be removed from SubnetSet", "Namespace", subnetSet.Namespace, "subnetSetName", subnetSet.Name, "subnetNames", subnetNames)
+	usedSubnetPaths := sets.New[string]()
+	ids, err := v.getSubnetPortsID(ctx, subnetSet)
+	if err != nil {
+		return false, fmt.Errorf("failed to get SubnetPort IDs: %v", err)
+	}
+	for _, id := range ids {
+		subnetPath := v.subnetPortService.GetSubnetPathForSubnetPortFromStore(id)
+		if subnetPath != "" {
+			usedSubnetPaths.Insert(subnetPath)
+		}
+	}
 	for _, subnetName := range subnetNames {
 		crdSubnet := &v1alpha1.Subnet{}
-		err := v.Client.Get(ctx, types.NamespacedName{Name: subnetName, Namespace: ns}, crdSubnet)
+		err := v.Client.Get(ctx, types.NamespacedName{Name: subnetName, Namespace: subnetSet.Namespace}, crdSubnet)
 		if err != nil {
-			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
+			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", subnetSet.Namespace, subnetName, err)
 		}
 		nsxSubnet, err := v.subnetService.GetSubnetByCR(crdSubnet)
 		if err != nil {
-			return false, fmt.Errorf("failed to get NSX Subnet %s/%s: %v", ns, subnetName, err)
+			return false, fmt.Errorf("failed to get NSX Subnet %s/%s: %v", subnetSet.Namespace, subnetName, err)
 		}
 		if usedSubnetPaths.Has(*nsxSubnet.Path) {
 			return false, nil

@@ -143,6 +143,10 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.Su
 		// Use Read lock to allow SubnetPorts created parallelly on the pre-created SubnetSet
 		// and block the SubnetPort creation when the SubnetSet is updated
 		subnetSetLock := RLockSubnetSet(subnetSet.UID)
+		// Retrieve the SubnetSet again to avoid it being updated before acquiring the lock
+		if err := client.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name}, subnetSet); err != nil {
+			return "", &subnetSet.UID, subnetSetLock, err
+		}
 		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, subnetService, subnetPortService)
 		return nsxSubnet, &subnetSet.UID, subnetSetLock, err
 	}
