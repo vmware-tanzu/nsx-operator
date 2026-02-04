@@ -840,7 +840,7 @@ func (service *SubnetService) RemoveSharedSubnetFromResourceMap(associatedResour
 
 func (service *SubnetService) GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
 	gateway, prefix, errFromSubnet := service.GetGatewayPrefixFromNSXSubnet(nsxSubnet)
-	if errFromSubnet == nil {
+	if errFromSubnet == nil && len(gateway) >= 0 {
 		return gateway, prefix, nil
 	}
 	// For the VLAN Extension Subnet, there's no gateway in NSX Subnet GET API. We need to get it from NSX Subnet Status.
@@ -859,13 +859,13 @@ func (service *SubnetService) GetGatewayPrefixFromNSXSubnet(nsxSubnet *model.Vpc
 		return "", -1, err
 	}
 	if nsxSubnet.AdvancedConfig == nil {
-		err := fmt.Errorf("empty NSX Subnet AdvancedConfig")
-		return "", -1, err
+		log.Warn("Nil AdvancedConfig in NSX Subnet", "nsxSubnet.Id", *nsxSubnet.Id)
+		return "", -1, nil
 	}
 	gatewayAddresses := nsxSubnet.AdvancedConfig.GatewayAddresses
 	if len(gatewayAddresses) == 0 {
-		err := fmt.Errorf("empty NSX Subnet gateway address")
-		return "", -1, err
+		log.Warn("Empty gateway addresses in NSX Subnet AdvancedConfig", "nsxSubnet.Id", *nsxSubnet.Id)
+		return "", -1, nil
 	}
 	gateway, err := util.RemoveIPPrefix(gatewayAddresses[0])
 	if err != nil {
@@ -885,13 +885,13 @@ func (service *SubnetService) GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *mod
 		return "", -1, err
 	}
 	if len(statusList) == 0 {
-		err := fmt.Errorf("empty NSX Subnet status")
-		return "", -1, err
+		log.Warn("Empty status list in NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id)
+		return "", -1, nil
 	}
 	gatewayAddress := statusList[0].GatewayAddress
 	if gatewayAddress == nil || len(*gatewayAddress) == 0 {
-		err := fmt.Errorf("empty NSX Subnet status gateway address")
-		return "", -1, err
+		log.Warn("Nil or empty gateway address in NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id)
+		return "", -1, nil
 	}
 	gateway, err := util.RemoveIPPrefix(*gatewayAddress)
 	if err != nil {

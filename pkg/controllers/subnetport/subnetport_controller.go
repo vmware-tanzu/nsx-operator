@@ -921,10 +921,13 @@ func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alph
 		return err
 	}
 	// For now, we have an assumption that one subnetport only have one IP address
-	if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress) > 0 {
+	if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress) > 0 && prefix > 0 {
 		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
 	}
-	subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
+	// The gateway can be empty for L2_Only Subnet which has the vlan_connection without gateway
+	if len(gateway) > 0 {
+		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
+	}
 	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
 	return nil
 }
