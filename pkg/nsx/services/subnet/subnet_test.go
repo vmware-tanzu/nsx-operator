@@ -2367,9 +2367,11 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnet(t *testing.T) {
 	invalidGatewayAddress1 := "10.0.0.256"
 	invalidGatewayAddress2 := "10.0.0.1/a"
 	tests := []struct {
-		name      string
-		nsxSubnet model.VpcSubnet
-		wantErr   bool
+		name            string
+		nsxSubnet       model.VpcSubnet
+		wantErr         bool
+		expectedGateway string
+		expectedPrefix  int
 	}{
 		{
 			name: "Success",
@@ -2379,14 +2381,18 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnet(t *testing.T) {
 					GatewayAddresses: []string{gatewayAddress},
 				},
 			},
-			wantErr: false,
+			wantErr:         false,
+			expectedGateway: "10.0.0.1",
+			expectedPrefix:  26,
 		},
 		{
 			name: "EmptySubnetGatewayAddress",
 			nsxSubnet: model.VpcSubnet{
 				Id: &subnetId,
 			},
-			wantErr: true,
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  -1,
 		},
 		{
 			name: "NoGatewayAddress",
@@ -2396,7 +2402,9 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnet(t *testing.T) {
 					GatewayAddresses: []string{},
 				},
 			},
-			wantErr: true,
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  -1,
 		},
 		{
 			name: "InvalidIP",
@@ -2434,8 +2442,8 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnet(t *testing.T) {
 				t.Errorf("GetGatewayPrefixFromNSXSubnet() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err == nil {
-				assert.Equal(t, "10.0.0.1", gateway)
-				assert.Equal(t, 26, prefix)
+				assert.Equal(t, tt.expectedGateway, gateway)
+				assert.Equal(t, tt.expectedPrefix, prefix)
 			}
 		})
 	}
@@ -2447,10 +2455,12 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnetStatus(t *testing.T) {
 	invalidGatewayAddress1 := "10.0.0.256"
 	invalidGatewayAddress2 := "10.0.0.1/a"
 	tests := []struct {
-		name        string
-		nsxSubnet   model.VpcSubnet
-		prepareFunc func() *gomonkey.Patches
-		wantErr     bool
+		name            string
+		nsxSubnet       model.VpcSubnet
+		prepareFunc     func() *gomonkey.Patches
+		wantErr         bool
+		expectedGateway string
+		expectedPrefix  int
 	}{
 		{
 			name: "Success",
@@ -2470,7 +2480,9 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnetStatus(t *testing.T) {
 				})
 				return patches
 			},
-			wantErr: false,
+			wantErr:         false,
+			expectedGateway: "10.0.0.1",
+			expectedPrefix:  26,
 		},
 		{
 			name: "EmptySubnetGatewayAddress",
@@ -2487,7 +2499,9 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnetStatus(t *testing.T) {
 				})
 				return patches
 			},
-			wantErr: true,
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  -1,
 		},
 		{
 			name: "FailToGetSubnetStatus",
@@ -2513,7 +2527,9 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnetStatus(t *testing.T) {
 				})
 				return patches
 			},
-			wantErr: true,
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  -1,
 		},
 		{
 			name: "InvalidIP",
@@ -2565,13 +2581,13 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnetStatus(t *testing.T) {
 				patches = tt.prepareFunc()
 				defer patches.Reset()
 			}
-			gateway, prefix, err := service.GetGatewayPrefixFromNSXSubnet(&tt.nsxSubnet)
+			gateway, prefix, err := service.GetGatewayPrefixFromNSXSubnetStatus(&tt.nsxSubnet)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetGatewayPrefixFromNSXSubnet() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetGatewayPrefixFromNSXSubnetStatus() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err == nil {
-				assert.Equal(t, "10.0.0.1", gateway)
-				assert.Equal(t, 26, prefix)
+				assert.Equal(t, tt.expectedGateway, gateway)
+				assert.Equal(t, tt.expectedPrefix, prefix)
 			}
 		})
 	}
