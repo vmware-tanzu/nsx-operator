@@ -139,6 +139,10 @@ func IsNamespaceInTepLessMode(client k8sclient.Client, namespace string) (bool, 
 }
 
 func AllocateSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
+	if subnetSet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
+		// From NSX Operator 9.1.1, DHCPRelay SubnetSet is no longer supported.
+		return "", nil, nil, fmt.Errorf("Creating SubnetPort on DHCPRelay SubnetSet is not supported")
+	}
 	if subnetSet.Spec.SubnetNames != nil {
 		// Use Read lock to allow SubnetPorts created parallelly on the pre-created SubnetSet
 		// and block the SubnetPort creation when the SubnetSet is updated
