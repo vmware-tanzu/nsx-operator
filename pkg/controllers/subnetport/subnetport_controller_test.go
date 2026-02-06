@@ -452,6 +452,20 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return "subnet-path", nil
 		})
 		defer patchesGetSubnetByIP.Reset()
+		patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					AdvancedConfig: &model.SubnetAdvancedConfig{
+						StaticIpAllocation: &model.StaticIpAllocation{
+							Enabled: servicecommon.Bool(true),
+						},
+					},
+				}
+				return nsxSubnet, nil
+			})
+		defer patchesGetSubnetByPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 				return portState, false, nil
@@ -546,6 +560,20 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			})
 		defer patchesGetSubnetByIP.Reset()
+		patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					AdvancedConfig: &model.SubnetAdvancedConfig{
+						StaticIpAllocation: &model.StaticIpAllocation{
+							Enabled: servicecommon.Bool(false),
+						},
+					},
+				}
+				return nsxSubnet, nil
+			})
+		defer patchesGetSubnetByPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 				return dhcpPortState, true, nil
@@ -608,6 +636,20 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesGetSubnetByIP.Reset()
 
+		patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					AdvancedConfig: &model.SubnetAdvancedConfig{
+						StaticIpAllocation: &model.StaticIpAllocation{
+							Enabled: servicecommon.Bool(true),
+						},
+					},
+				}
+				return nsxSubnet, nil
+			})
+		defer patchesGetSubnetByPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 				return portState, false, nil

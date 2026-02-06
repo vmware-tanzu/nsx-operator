@@ -192,17 +192,17 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				},
 				DHCPDeactivatedOnSubnet: !enableDHCP,
 			}
-			if !enableDHCP || len(subnetPort.Spec.AddressBindings) > 0 {
+			if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
 					subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
-					// The MAC address is updated here when the SubnetPort's DHCP is disabled or spec.AddressBindings is specific. For the other cases, the MAC address will be updated in the VIF polling.
+					// The MAC address is updated here when the SubnetPort's StaticIPAllocation is enabled or spec.AddressBindings is specific. For the other cases, the MAC address will be updated in the VIF polling.
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
 				} else if !util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && len(subnetPort.Spec.AddressBindings) > 0 {
 					// If StaticIPAllocation is disabled, propagate the MAC from spec.addressBinding to status
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
 				}
-			} else if r.restoreMode && enableDHCP {
-				// For SubnetPort under DHCP Subnet, we should keep the MACAddress in the status for restore
+			} else if r.restoreMode && !util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+				// For SubnetPort under DHCP Subnet or no ip Subnet, we should keep the MACAddress in the status for restore
 				if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
 				}

@@ -28,9 +28,8 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	networkInfo := obj.(*v1alpha1.NetworkInfo)
 	var createdVPC *v1alpha1.VPCState
 	if args[0] == nil {
-		// if createdVPC is empty, remove the VPC from networkInfo
-		networkInfo.VPCs = []v1alpha1.VPCState{}
-		client.Update(ctx, networkInfo)
+		// Not clear the existing VPC in NetworkInfo as
+		// currently one Namespace only maps to one VPC
 		return
 	} else {
 		createdVPC = args[0].(*v1alpha1.VPCState)
