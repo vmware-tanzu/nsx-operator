@@ -89,11 +89,18 @@ func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
 func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 	expectedSubnetPath := "subnet-path-1"
 	subnetSize := int64(32)
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnetset-1",
+			Namespace: "ns-1",
+		},
+	}
 	tests := []struct {
 		name           string
 		prepareFunc    func(*testing.T, servicecommon.VPCServiceProvider, servicecommon.SubnetServiceProvider, servicecommon.SubnetPortServiceProvider)
 		expectedErr    string
 		expectedResult string
+		subnetSet      *v1alpha1.SubnetSet
 	}{
 		{
 			name: "AvailableSubnet",
@@ -111,6 +118,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything).Return(true, nil)
 			},
 			expectedResult: expectedSubnetPath,
+			subnetSet:      subnetSet,
 		},
 		{
 			name: "ListVPCFailure",
@@ -121,6 +129,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				vsp.(*pkg_mock.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{})
 			},
 			expectedErr: "no VPC found",
+			subnetSet:   subnetSet,
 		},
 		{
 			name: "CreateSubnet",
@@ -133,6 +142,24 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything).Return(true, nil)
 			},
 			expectedResult: expectedSubnetPath,
+			subnetSet:      subnetSet,
+		},
+		{
+			name: "DHCPRelay SubnetSet",
+			prepareFunc: func(t *testing.T, vsp servicecommon.VPCServiceProvider, ssp servicecommon.SubnetServiceProvider, spsp servicecommon.SubnetPortServiceProvider) {
+			},
+			expectedErr: "Creating SubnetPort on DHCPRelay SubnetSet is not supported",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay),
+					},
+				},
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -141,12 +168,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 			ssp := &pkg_mock.MockSubnetServiceProvider{}
 			spsp := &pkg_mock.MockSubnetPortServiceProvider{}
 			tt.prepareFunc(t, vps, ssp, spsp)
-			subnetPath, _, _, err := AllocateSubnetFromSubnetSet(fake.NewClientBuilder().Build(), &v1alpha1.SubnetSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetset-1",
-					Namespace: "ns-1",
-				},
-			}, vps, ssp, spsp)
+			subnetPath, _, _, err := AllocateSubnetFromSubnetSet(fake.NewClientBuilder().Build(), tt.subnetSet, vps, ssp, spsp)
 			if tt.expectedErr != "" {
 				assert.Contains(t, err.Error(), tt.expectedErr)
 			} else {
