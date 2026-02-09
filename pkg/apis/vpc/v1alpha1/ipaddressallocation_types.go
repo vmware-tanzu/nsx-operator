@@ -45,7 +45,6 @@ type IPAddressAllocationList struct {
 type IPAddressAllocationSpec struct {
 	// IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
 	// +kubebuilder:validation:Enum=External;Private;PrivateTGW
-	// +kubebuilder:default=Private
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddressBlockVisibility IPAddressVisibility `json:"ipAddressBlockVisibility,omitempty"`

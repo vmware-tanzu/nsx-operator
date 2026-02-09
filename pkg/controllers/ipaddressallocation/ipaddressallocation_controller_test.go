@@ -18,7 +18,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -160,6 +162,10 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		uid interface{}) error {
 		return errors.New("delete failed")
 	})
+	patch.ApplyPrivateMethod(reflect.TypeOf(r), "setIPAddressBlockVisibilityDefaultValue", func(_ *IPAddressAllocationReconciler,
+		obj *v1alpha1.IPAddressAllocation) error {
+		return nil
+	})
 
 	k8sClient.EXPECT().Status().Times(2).Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
@@ -177,6 +183,10 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
 		return false, errors.New("create failed")
 	})
+	patch.ApplyPrivateMethod(reflect.TypeOf(r), "setIPAddressBlockVisibilityDefaultValue", func(_ *IPAddressAllocationReconciler,
+		obj *v1alpha1.IPAddressAllocation) error {
+		return nil
+	})
 	res, ret := r.Reconcile(ctx, req)
 	assert.Equal(t, res, resultRequeue)
 	assert.NotEqual(t, ret, nil)
@@ -193,10 +203,127 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
 		return true, nil
 	})
-	k8sClient.EXPECT().Status().Times(0).Return(fakewriter)
+	patch.ApplyPrivateMethod(reflect.TypeOf(r), "setIPAddressBlockVisibilityDefaultValue", func(_ *IPAddressAllocationReconciler,
+		obj *v1alpha1.IPAddressAllocation) error {
+		return nil
+	})
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
+
+	//  DeletionTimestamp.IsZero = true, setIPAddressBlockVisibilityDefaultValue fail
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		v1sp := obj.(*v1alpha1.IPAddressAllocation)
+		v1sp.ObjectMeta.DeletionTimestamp = nil
+		return nil
+	})
+
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService,
+		obj *v1alpha1.IPAddressAllocation) (bool, error) {
+		return true, nil
+	})
+	patch.ApplyPrivateMethod(reflect.TypeOf(r), "setIPAddressBlockVisibilityDefaultValue", func(_ *IPAddressAllocationReconciler,
+		obj *v1alpha1.IPAddressAllocation) error {
+		return errors.New("set default value failed")
+	})
+	_, ret = r.Reconcile(ctx, req)
+	assert.Equal(t, ret, errors.New("set default value failed"))
+	patch.Reset()
+}
+
+func Test_setIPAddressBlockVisibilityDefaultValue(t *testing.T) {
+	// prepare scheme with CRD added
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+
+	t.Run("empty visibility + Public -> External", func(t *testing.T) {
+		ipalloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: metav1.ObjectMeta{Name: "ipa-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.IPAddressAllocationSpec{},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ipalloc).Build()
+		r := &IPAddressAllocationReconciler{Client: fakeClient, VPCService: &vpc.VPCService{}}
+		r.StatusUpdater = ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"}}, fakeRecorder{}, MetricResType, "IPAddressAllocation", "IPAddressAllocation")
+
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+			return &v1alpha1.VPCNetworkConfiguration{}, nil
+		})
+		defer patches.Reset()
+		patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+			return v1alpha1.VLANBackedVPC, nil
+		})
+
+		err := r.setIPAddressBlockVisibilityDefaultValue(context.Background(), ipalloc)
+		assert.NoError(t, err)
+
+		updated := &v1alpha1.IPAddressAllocation{}
+		err = fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "ns-1", Name: "ipa-1"}, updated)
+		assert.NoError(t, err)
+		assert.Equal(t, v1alpha1.IPAddressVisibilityExternal, updated.Spec.IPAddressBlockVisibility)
+	})
+
+	t.Run("empty visibility + Private -> Private", func(t *testing.T) {
+		ipalloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: metav1.ObjectMeta{Name: "ipa-2", Namespace: "ns-1"},
+			Spec:       v1alpha1.IPAddressAllocationSpec{},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ipalloc).Build()
+		r := &IPAddressAllocationReconciler{Client: fakeClient, VPCService: &vpc.VPCService{}}
+		r.StatusUpdater = ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"}}, fakeRecorder{}, MetricResType, "IPAddressAllocation", "IPAddressAllocation")
+
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+			return &v1alpha1.VPCNetworkConfiguration{}, nil
+		})
+		defer patches.Reset()
+		patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+			return v1alpha1.FullStackVPC, nil
+		})
+
+		err := r.setIPAddressBlockVisibilityDefaultValue(context.Background(), ipalloc)
+		assert.NoError(t, err)
+
+		updated := &v1alpha1.IPAddressAllocation{}
+		err = fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "ns-1", Name: "ipa-2"}, updated)
+		assert.NoError(t, err)
+		assert.Equal(t, v1alpha1.IPAddressVisibilityPrivate, updated.Spec.IPAddressBlockVisibility)
+	})
+
+	t.Run("visibility already set -> no change", func(t *testing.T) {
+		ipalloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: metav1.ObjectMeta{Name: "ipa-3", Namespace: "ns-1"},
+			Spec:       v1alpha1.IPAddressAllocationSpec{IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ipalloc).Build()
+		r := &IPAddressAllocationReconciler{Client: fakeClient, VPCService: &vpc.VPCService{}}
+		r.StatusUpdater = ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"}}, fakeRecorder{}, MetricResType, "IPAddressAllocation", "IPAddressAllocation")
+
+		err := r.setIPAddressBlockVisibilityDefaultValue(context.Background(), ipalloc)
+		assert.NoError(t, err)
+
+		updated := &v1alpha1.IPAddressAllocation{}
+		err = fakeClient.Get(context.Background(), types.NamespacedName{Namespace: "ns-1", Name: "ipa-3"}, updated)
+		assert.NoError(t, err)
+		assert.Equal(t, v1alpha1.IPAddressVisibilityPrivate, updated.Spec.IPAddressBlockVisibility)
+	})
+
+	t.Run("GetVPCNetworkConfig error -> return error", func(t *testing.T) {
+		ipalloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: metav1.ObjectMeta{Name: "ipa-4", Namespace: "ns-1"},
+			Spec:       v1alpha1.IPAddressAllocationSpec{},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ipalloc).Build()
+		r := &IPAddressAllocationReconciler{Client: fakeClient, VPCService: &vpc.VPCService{}}
+		r.StatusUpdater = ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"}}, fakeRecorder{}, MetricResType, "IPAddressAllocation", "IPAddressAllocation")
+
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+			return nil, errors.New("no vpc config")
+		})
+		defer patches.Reset()
+
+		err := r.setIPAddressBlockVisibilityDefaultValue(context.Background(), ipalloc)
+		assert.Error(t, err)
+	})
 }
 
 func TestIPAddressAllocationReconciler_RestoreReconcile(t *testing.T) {
