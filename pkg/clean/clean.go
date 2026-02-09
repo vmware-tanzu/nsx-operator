@@ -46,10 +46,10 @@ var Backoff = wait.Backoff{
 // GetNSXClientFailed  			indicate that could not retrieve nsx client to perform cleanup operation
 // InitCleanupServiceFailed 	indicate that error happened when trying to initialize cleanup service
 // CleanupResourceFailed    	indicate that the cleanup operation failed at some services, the detailed will in the service logs
-func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, debug bool, logLevel int) error {
+func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, debug bool, logLevel int, logColor bool) error {
 	// Clean needs to support many instances which each have its own logger
 	if log == nil {
-		logg := logger.ZapCustomLogger(debug, logLevel).Logger
+		logg := logger.ZapCustomLogger(debug, logLevel, logColor).Logger
 		log = &logg
 	}
 
