@@ -536,6 +536,20 @@ func CreateConnectionError(host string) *ConnectionError {
 	return nsxErr
 }
 
+// NsxProxyForbiddenError indicates nsx-proxy returned 403 with HTML body.
+// This typically happens when manager is recovering and nsx-proxy rejects the request.
+// This error should trigger endpoint failover.
+type NsxProxyForbiddenError struct {
+	managerErrorImpl
+}
+
+func CreateNsxProxyForbiddenError(host string, bodyPreview string) *NsxProxyForbiddenError {
+	m := fmt.Sprintf("NSX proxy on %s returned 403 Forbidden with HTML response: %s", host, bodyPreview)
+	nsxErr := &NsxProxyForbiddenError{}
+	nsxErr.msg = m
+	return nsxErr
+}
+
 // PageMaxError For client usage
 type PageMaxError struct {
 	Desc string

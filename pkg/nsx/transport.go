@@ -115,9 +115,16 @@ func (t *Transport) base() http.RoundTripper {
 }
 
 func (t *Transport) selectEndpoint() (*Endpoint, error) {
+	// Prefer VIP (endpoints[0]). Only fallback to individual managers when VIP is DOWN.
+	if len(t.endpoints) > 0 && t.endpoints[0].Status() != DOWN {
+		return t.endpoints[0], nil
+	}
+
+	// VIP is DOWN, fallback to the least-busy UP manager endpoint.
 	small := 100
 	index := -1
-	for i, ep := range t.endpoints {
+	for i := 1; i < len(t.endpoints); i++ {
+		ep := t.endpoints[i]
 		if ep.Status() == DOWN {
 			continue
 		}
@@ -136,5 +143,6 @@ func (t *Transport) selectEndpoint() (*Endpoint, error) {
 		id := strings.Join(eps, ",")
 		return nil, util.CreateServiceClusterUnavailable(id)
 	}
+	log.Info("VIP endpoint is DOWN, falling back to manager endpoint", "vip", t.endpoints[0].Host(), "fallback", t.endpoints[index].Host())
 	return t.endpoints[index], nil
 }

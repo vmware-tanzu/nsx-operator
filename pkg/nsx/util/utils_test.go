@@ -121,6 +121,10 @@ func TestShouldGroundPoint(t *testing.T) {
 
 	err1 := CreateConnectionError("127.0.0.1")
 	assert.True(t, ShouldGroundPoint(err1), "It's a ground point error")
+
+	// NsxProxyForbiddenError should also be a ground point error
+	err2 := CreateNsxProxyForbiddenError("127.0.0.1", "<html>Forbidden</html>")
+	assert.True(t, ShouldGroundPoint(err2), "NsxProxyForbiddenError should trigger endpoint failover")
 }
 
 func TestShouldRetry(t *testing.T) {
@@ -170,6 +174,76 @@ func TestUtil_InitErrorFromResponse(t *testing.T) {
 	assert.Equal(t, result, false)
 	result = ShouldRetry(err)
 	assert.Equal(t, result, true)
+}
+
+// TestInitErrorFromResponse_403NonJSON tests the 403 non-JSON response handling.
+// This is the fix for Bug 3638737: NSX VPC cleanup fails during supervisor disable
+// when nsx-proxy returns 403 HTML instead of JSON.
+func TestInitErrorFromResponse_403NonJSON(t *testing.T) {
+	// Test case 1: 403 with HTML body
+	htmlBody := `<!DOCTYPE html><html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1></body></html>`
+	err := InitErrorFromResponse("10.0.0.1", 403, []byte(htmlBody))
+	assert.NotNil(t, err, "403 HTML should return an error")
+	_, ok := err.(*NsxProxyForbiddenError)
+	assert.True(t, ok, "403 HTML should return NsxProxyForbiddenError")
+	assert.True(t, ShouldGroundPoint(err), "NsxProxyForbiddenError should trigger ground point")
+	assert.False(t, ShouldRetry(err), "NsxProxyForbiddenError should not be in retriables")
+
+	// Test case 2: 403 with plain text body (non-JSON)
+	plainBody := `Forbidden - Access Denied`
+	err2 := InitErrorFromResponse("10.0.0.2", 403, []byte(plainBody))
+	assert.NotNil(t, err2, "403 plain text should return an error")
+	_, ok2 := err2.(*NsxProxyForbiddenError)
+	assert.True(t, ok2, "403 non-JSON should return NsxProxyForbiddenError")
+
+	// Test case 3: 403 with JSON body should still work as before
+	jsonBody := `{"httpStatus": "FORBIDDEN", "error_code": 98, "error_message": "Bad XSRF token"}`
+	err3 := InitErrorFromResponse("10.0.0.3", 403, []byte(jsonBody))
+	assert.NotNil(t, err3, "403 JSON should return an error")
+	_, ok3 := err3.(*BadXSRFToken)
+	assert.True(t, ok3, "403 JSON with error_code 98 should return BadXSRFToken")
+
+	// Test case 4: 403 with empty body should also trigger failover
+	err4 := InitErrorFromResponse("10.0.0.4", 403, []byte(""))
+	assert.NotNil(t, err4, "403 with empty body should return an error")
+	_, ok4 := err4.(*NsxProxyForbiddenError)
+	assert.True(t, ok4, "403 with empty body should return NsxProxyForbiddenError")
+	assert.True(t, ShouldGroundPoint(err4), "403 empty body should trigger ground point")
+
+	// Test case 5: Non-403 non-JSON should not return NsxProxyForbiddenError
+	err5 := InitErrorFromResponse("10.0.0.5", 500, []byte(htmlBody))
+	assert.NotNil(t, err5, "500 HTML should return an error")
+	_, ok5 := err5.(*NsxProxyForbiddenError)
+	assert.False(t, ok5, "500 HTML should not return NsxProxyForbiddenError")
+
+	// Test case 6: 403 JSON with error_code 403 (generic proxy rejection) should trigger failover
+	// during manager recovery. This should NOT map to InvalidCredentials (regenerate cert),
+	// but to NsxProxyForbiddenError (failover to another endpoint).
+	jsonBody403 := `{"httpStatus": "FORBIDDEN", "error_code": 403, "module_name": "common-services", "error_message": "The credentials were incorrect or the account specified has been locked."}`
+	err6 := InitErrorFromResponse("10.0.0.6", 403, []byte(jsonBody403))
+	assert.NotNil(t, err6, "403 JSON with error_code 403 should return an error")
+	_, ok6 := err6.(*NsxProxyForbiddenError)
+	assert.True(t, ok6, "403 JSON with error_code 403 should return NsxProxyForbiddenError, not InvalidCredentials")
+	assert.True(t, ShouldGroundPoint(err6), "403 JSON with error_code 403 should trigger ground point")
+	assert.False(t, ShouldRegenerate(err6), "403 JSON with error_code 403 should NOT trigger regenerate")
+}
+
+// TestTruncateBodyForLogging tests the body truncation function.
+func TestTruncateBodyForLogging(t *testing.T) {
+	// Short body - no truncation
+	shortBody := []byte("short")
+	result := truncateBodyForLogging(shortBody, 10)
+	assert.Equal(t, "short", result)
+
+	// Exact length - no truncation
+	exactBody := []byte("1234567890")
+	result = truncateBodyForLogging(exactBody, 10)
+	assert.Equal(t, "1234567890", result)
+
+	// Long body - should truncate
+	longBody := []byte("12345678901234567890")
+	result = truncateBodyForLogging(longBody, 10)
+	assert.Equal(t, "1234567890...", result)
 }
 
 func TestUtil_setDetail(t *testing.T) {

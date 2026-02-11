@@ -91,7 +91,8 @@ type relatedErrors struct {
 }
 
 var (
-	groundTriggers     = []string{"ConnectionError", "Timeout"}
+	// groundTriggers are errors that mark the current endpoint as DOWN and trigger failover to another endpoint.
+	groundTriggers     = []string{"ConnectionError", "Timeout", "NsxProxyForbiddenError"}
 	retriables         = []string{"APITransactionAborted", "CannotConnectToServer", "ServerBusy"}
 	regenerateTriggers = []string{"InvalidCredentials", "ClientCertificateNotTrusted", "BadXSRFToken"}
 	categoryTable      = map[string][]string{"groundTriggers": groundTriggers, "retriables": retriables, "regenerateTriggers": regenerateTriggers}
@@ -135,6 +136,16 @@ func ShouldRegenerate(err error) bool {
 // InitErrorFromResponse returns error based on http.Response
 func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 	detail, err := extractHTTPDetailFromBody(host, statusCode, body)
+	// 403 without a recognized NSX error code: nsx-proxy may reject requests during manager recovery.
+	// This covers: non-JSON body (err != nil), empty body / no error_code (ErrorCode == 0),
+	// and JSON with error_code mirroring HTTP status (ErrorCode == 403, a generic proxy rejection).
+	// Specific NSX error codes (e.g. 98=BadXSRFToken, 505=InvalidLicense) are handled by errorTable.
+	if statusCode == http.StatusForbidden && (err != nil || detail.ErrorCode == 0 || detail.ErrorCode == http.StatusForbidden) {
+		bodyPreview := truncateBodyForLogging(body, 200)
+		log.Info("Detected 403 from NSX proxy without valid error code, marking endpoint for failover",
+			"host", host, "bodyPreview", bodyPreview)
+		return CreateNsxProxyForbiddenError(host, bodyPreview)
+	}
 	if err != nil {
 		return CreateGeneralManagerError(host, "decode body", err.Error())
 	}
@@ -142,6 +153,14 @@ func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 		return nil
 	}
 	return httpErrortoNSXError(&detail)
+}
+
+// truncateBodyForLogging returns the first n bytes of body for logging purposes.
+func truncateBodyForLogging(body []byte, n int) string {
+	if len(body) <= n {
+		return string(body)
+	}
+	return string(body[:n]) + "..."
 }
 
 func dumpResponseBody(body []byte, statusCode int) {
@@ -209,8 +228,8 @@ var (
 		"403": // http.StatusForbidden
 		{
 			"98":  &BadXSRFToken{},
-			"403": &InvalidCredentials{},
 			"505": &InvalidLicense{},
+			// Note: error_code 403 is handled in InitErrorFromResponse as NsxProxyForbiddenError (failover)
 		},
 	}
 

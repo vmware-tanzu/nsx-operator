@@ -55,6 +55,7 @@ func TestCreateFunc(t *testing.T) {
 		"CreateResourceInUse":                       CreateResourceInUse,
 		"CreateTimeout":                             CreateTimeout,
 		"CreateConnectionError":                     CreateConnectionError,
+		"CreateNsxProxyForbiddenError":              CreateNsxProxyForbiddenError,
 	}
 	for name := range funcMap {
 		val := reflect.ValueOf(funcMap[name])
