@@ -90,7 +90,7 @@ func TestSelectEndpoint(t *testing.T) {
 	assert.Nil(err, fmt.Sprintf("Select endpoint failed due to %v", err))
 	assert.Equal(ep.Host(), eps[0].Host(), "Select endpoint error, ep is %s, error is %s", ep.Host(), err)
 
-	// select ep has least connection number
+	// VIP (eps[0]) is preferred when UP, regardless of connection count
 	eps[1].status = UP
 	eps[2].status = UP
 
@@ -99,14 +99,22 @@ func TestSelectEndpoint(t *testing.T) {
 	eps[2].connnumber = 2
 	ep, err = tr.selectEndpoint()
 	assert.Nil(err, fmt.Sprintf("Select endpoint failed due to %v", err))
-	assert.Equal(ep.Host(), eps[1].Host(), "Select endpoint error, ep is %s, error is %s", ep.Host(), err)
+	assert.Equal(ep.Host(), eps[0].Host(), "VIP should be selected even with higher conn count")
 
 	eps[0].connnumber = 0
 	eps[1].connnumber = 4
 	eps[2].connnumber = 0
 	ep, err = tr.selectEndpoint()
 	assert.Nil(err, fmt.Sprintf("Select endpoint failed due to %v", err))
-	assert.Equal(ep.Host(), eps[0].Host(), "Select endpoint error, ep is %s, error is %s", ep.Host(), err)
+	assert.Equal(ep.Host(), eps[0].Host(), "VIP should be selected when UP")
+
+	// VIP DOWN, fallback to least-busy manager
+	eps[0].status = DOWN
+	eps[1].connnumber = 5
+	eps[2].connnumber = 1
+	ep, err = tr.selectEndpoint()
+	assert.Nil(err, fmt.Sprintf("Select endpoint failed due to %v", err))
+	assert.Equal(ep.Host(), eps[2].Host(), "Should fallback to least-busy manager when VIP is DOWN")
 }
 
 func TestTransport_RoundTrip(t *testing.T) {
