@@ -5,6 +5,7 @@ package util
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
@@ -23,6 +24,7 @@ type NsxError interface {
 }
 
 type nsxErrorImpl struct {
+	sync.Mutex
 	ErrorDetail
 	msg string
 }
@@ -32,6 +34,8 @@ type GeneralNsxError struct {
 }
 
 func (impl *nsxErrorImpl) setDetail(detail *ErrorDetail) {
+	impl.Lock()
+	defer impl.Unlock()
 	impl.ErrorDetail = *detail
 	if len(detail.RelatedErrorCodes) > 0 {
 		impl.ErrorDetail.RelatedErrorCodes = []int{}

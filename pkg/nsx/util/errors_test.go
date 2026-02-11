@@ -2,6 +2,7 @@ package util
 
 import (
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,4 +67,30 @@ func TestCreateFunc(t *testing.T) {
 		values := val.Call(in)
 		assert.NotEqual(t, values[0], nil)
 	}
+}
+
+func TestSetDetail(t *testing.T) {
+	impl := &nsxErrorImpl{}
+	detail := &ErrorDetail{
+		RelatedErrorCodes:  []int{101},
+		RelatedStatusCodes: []string{"INITIAL_STATUS"},
+	}
+
+	impl.setDetail(detail)
+
+	if len(impl.ErrorDetail.RelatedErrorCodes) != 1 || impl.ErrorDetail.RelatedErrorCodes[0] != 101 {
+		t.Errorf("Expected RelatedErrorCode [101], got %v", impl.ErrorDetail.RelatedErrorCodes)
+	}
+	if len(impl.ErrorDetail.RelatedStatusCodes) != 1 || impl.ErrorDetail.RelatedStatusCodes[0] != "INITIAL_STATUS" {
+		t.Errorf("Expected RelatedStatusCodes ['INITIAL_STATUS'], got %v", impl.ErrorDetail.RelatedStatusCodes)
+	}
+
+	// race condition test
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		impl.setDetail(detail)
+		wg.Done()
+	}()
+	impl.setDetail(detail)
 }
