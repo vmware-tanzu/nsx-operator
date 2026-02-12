@@ -55,10 +55,11 @@ const (
 	VTEPLessMode
 	RestoreVIF
 	StaticIPReservation
+	StatefulSetPod
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION", "STATEFULSET_POD"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -131,6 +132,7 @@ var (
 	nsx412Version = [3]int64{4, 1, 2}
 	nsx413Version = [3]int64{4, 1, 3}
 	nsx910Version = [3]int64{9, 1, 0}
+	nsx912Version = [3]int64{9, 1, 2}
 	nsx920Version = [3]int64{9, 2, 0}
 )
 
@@ -304,6 +306,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		NsxApiClient:                      nsxApiClient,
 		VifsClient:                        vifsClient,
 	}
+	nsxClient.Cluster.SetOnNodeVersionChanged(func(oldVer, newVer string) {
+		nsxClient.resetNSXVersionFeatureCache()
+		log.Info("NSX node version changed; cleared cached feature support gates", "oldVersion", oldVer, "newVersion", newVer)
+	})
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
 	if !nsxClient.NSXCheckVersion(SecurityPolicy) {
@@ -364,6 +370,12 @@ func CreateNsxtApiClient(config *config.NSXOperatorConfig, client *http.Client) 
 	return nsxClient, nil
 }
 
+func (client *Client) resetNSXVersionFeatureCache() {
+	for i := range client.NSXVerChecker.featureSupported {
+		client.NSXVerChecker.featureSupported[i] = false
+	}
+}
+
 func (client *Client) NSXCheckVersion(feature int) bool {
 	// TODO: Remove this once NSX implementation for SubnetPort VIF restore is merged
 	if feature == RestoreVIF {
@@ -385,8 +397,7 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 	}
 
 	if !nsxVersion.featureSupported(feature) {
-		err = errors.New("NSX version check failed")
-		log.Error(err, FeaturesName[feature]+"feature is not supported", "current version", nsxVersion.NodeVersion)
+		log.Warn(FeaturesName[feature]+" feature is not supported", "current NSX version", nsxVersion.NodeVersion)
 		return false
 	}
 	client.NSXVerChecker.featureSupported[feature] = true

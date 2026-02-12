@@ -36,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/service"
+	statefulsetcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/statefulset"
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	subnetbindingcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetbinding"
@@ -244,6 +245,15 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
 			subnetipreservationcontroller.NewReconciler(mgr, subnetIPReservationService, subnetService),
 		)
+		// StatefulSet controller is always registered so that after NSX upgrades (e.g. to 9.2.0+)
+		// replica/GC logic can run without restarting the operator. Reconcile and CollectGarbage
+		// no-op until NSX version supports STS pods and vpc_wcp_enhance=true in config; delete cleanup still runs.
+		reconcilerList = append(reconcilerList, statefulsetcontroller.NewStatefulSetReconciler(mgr, subnetPortService))
+		if nsx.StatefulSetPodSubnetPortFeatureEnabled(commonService.NSXClient, commonService.NSXConfig) {
+			log.Info("NSX version and config allow StatefulSet Pod feature; StatefulSet controller will run replica/GC work")
+		} else {
+			log.Info("StatefulSet Pod feature gated (NSX version and/or vpc_wcp_enhance!=true); StatefulSet controller registered but replica/GC no-op until enabled")
+		}
 		if cf.EnableInventory {
 			reconcilerList = append(reconcilerList, inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf))
 		}

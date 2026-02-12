@@ -340,6 +340,10 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
 						return &model.VpcSubnetPort{Id: servicecommon.String("port1")}, nil
 					})
+				patchesDeleteSubnetPort.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion",
+					func(_ *nsx.Client, _ int) bool {
+						return false
+					})
 				return patchesDeleteSubnetPort
 			},
 			expectedResult: common.ResultNormal,
@@ -362,6 +366,10 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				patchesDeleteSubnetPort.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
 					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
 						return &model.VpcSubnetPort{Id: servicecommon.String("port1")}, nil
+					})
+				patchesDeleteSubnetPort.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion",
+					func(_ *nsx.Client, _ int) bool {
+						return false
 					})
 				return patchesDeleteSubnetPort
 			},
@@ -749,6 +757,11 @@ func TestPodReconciler_deleteSubnetPortByPodName(t *testing.T) {
 			return nil
 		})
 	defer patchesDeleteSubnetPort.Reset()
+	patchesNSXCheckVersion := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool {
+			return false
+		})
+	defer patchesNSXCheckVersion.Reset()
 	err := r.deleteSubnetPortByPodName(context.TODO(), ns, podName2)
 	assert.Nil(t, err)
 }
@@ -872,4 +885,126 @@ func (m *MockManager) Add(runnable manager.Runnable) error {
 
 func (m *MockManager) Start(context.Context) error {
 	return nil
+}
+
+func TestIsStatefulSetSubnetPort(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []model.Tag
+		want bool
+	}{
+		{
+			name: "StatefulSet subnet port",
+			tags: []model.Tag{
+				{Scope: servicecommon.String(servicecommon.TagScopeStatefulSetUID), Tag: servicecommon.String("sts-uid-123")},
+			},
+			want: true,
+		},
+		{
+			name: "Non-StatefulSet subnet port",
+			tags: []model.Tag{
+				{Scope: servicecommon.String("nsx-op/created_for"), Tag: servicecommon.String("pod")},
+			},
+			want: false,
+		},
+		{
+			name: "No tags",
+			tags: []model.Tag{},
+			want: false,
+		},
+		{
+			name: "Nil tags",
+			tags: nil,
+			want: false,
+		},
+	}
+
+	reconciler := &PodReconciler{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nsxSubnetPort := &model.VpcSubnetPort{
+				Tags: tt.tags,
+			}
+			got := reconciler.isStatefulSetSubnetPort(nsxSubnetPort)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetStsUID(t *testing.T) {
+	tests := []struct {
+		name string
+		tags []model.Tag
+		want string
+	}{
+		{
+			name: "StatefulSet UID tag",
+			tags: []model.Tag{
+				{Scope: servicecommon.String("nsx-op/sts_uid"), Tag: servicecommon.String("sts-uid-123")},
+			},
+			want: "sts-uid-123",
+		},
+		{
+			name: "No sts_uid tag",
+			tags: []model.Tag{
+				{Scope: servicecommon.String("nsx-op/pod_uid"), Tag: servicecommon.String("pod-uid-123")},
+			},
+			want: "",
+		},
+		{
+			name: "Empty tags",
+			tags: []model.Tag{},
+			want: "",
+		},
+		{
+			name: "Nil tags",
+			tags: nil,
+			want: "",
+		},
+	}
+
+	reconciler := &PodReconciler{}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nsxSubnetPort := &model.VpcSubnetPort{
+				Tags: tt.tags,
+			}
+			got := reconciler.getStsUID(nsxSubnetPort)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestStatefulSetTagScopes(t *testing.T) {
+	assert.Equal(t, "nsx-op/created_for", servicecommon.TagScopeCreatedFor)
+	assert.Equal(t, "nsx-op/sts_name", servicecommon.TagScopeStatefulSetName)
+	assert.Equal(t, "nsx-op/sts_uid", servicecommon.TagScopeStatefulSetUID)
+
+	reconciler := &PodReconciler{}
+
+	stsPort := &model.VpcSubnetPort{
+		Id:          servicecommon.String("sts-port-1"),
+		DisplayName: servicecommon.String("web-0"),
+		Tags: []model.Tag{
+			{Scope: servicecommon.String("nsx-op/sts_name"), Tag: servicecommon.String("web")},
+			{Scope: servicecommon.String("nsx-op/sts_uid"), Tag: servicecommon.String("sts-uid-abc123")},
+			{Scope: servicecommon.String("nsx-op/pod_name"), Tag: servicecommon.String("web-0")},
+			{Scope: servicecommon.String("nsx-op/pod_uid"), Tag: servicecommon.String("pod-uid-xyz789")},
+		},
+	}
+
+	assert.True(t, reconciler.isStatefulSetSubnetPort(stsPort), "Should detect STS port")
+	assert.Equal(t, "sts-uid-abc123", reconciler.getStsUID(stsPort), "Should get correct STS UID")
+
+	regularPort := &model.VpcSubnetPort{
+		Id:          servicecommon.String("regular-port-1"),
+		DisplayName: servicecommon.String("nginx-abc123"),
+		Tags: []model.Tag{
+			{Scope: servicecommon.String("nsx-op/created_for"), Tag: servicecommon.String("pod")},
+			{Scope: servicecommon.String("nsx-op/pod_name"), Tag: servicecommon.String("nginx-abc123")},
+		},
+	}
+	assert.False(t, reconciler.isStatefulSetSubnetPort(regularPort), "Should not detect regular pod as STS")
 }

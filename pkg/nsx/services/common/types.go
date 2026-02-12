@@ -105,11 +105,15 @@ const (
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
 	TagScopePodName                    string = "nsx-op/pod_name"
 	TagScopePodUID                     string = "nsx-op/pod_uid"
-	ValueMajorVersion                  string = "1"
-	ValueMinorVersion                  string = "0"
-	ValuePatchVersion                  string = "0"
-	ConnectorUnderline                 string = "_"
-	ConnectorHyphen                    string = "-"
+	TagScopeStatefulSetName            string = "nsx-op/sts_name"
+	TagScopeStatefulSetUID             string = "nsx-op/sts_uid"
+	// TagScopePodIndex is the NSX tag scope for Pod label apps.kubernetes.io/pod-index when synced onto the port (not set in BuildBasicTags).
+	TagScopePodIndex   string = "apps.kubernetes.io/pod-index"
+	ValueMajorVersion  string = "1"
+	ValueMinorVersion  string = "0"
+	ValuePatchVersion  string = "0"
+	ConnectorUnderline string = "_"
+	ConnectorHyphen    string = "-"
 
 	GCInterval           = 10 * 60 * time.Second
 	SubnetGCInterval     = 60 * time.Second
@@ -125,6 +129,8 @@ const (
 	IndexKeySubnetPath          = "IndexKeySubnetPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	IndexKeyAttachmentID        = "IndexKeyAttachmentID"
+	IndexKeyAllStsPorts         = "IndexKeyAllStsPorts"
+	StsPortBucket               = "allStsPorts"
 	GCValidationInterval uint16 = 720
 
 	RuleIngress            = "ingress"

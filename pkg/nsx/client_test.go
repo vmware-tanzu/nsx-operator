@@ -140,6 +140,17 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 }
 
+func TestClient_resetNSXVersionFeatureCache(t *testing.T) {
+	client := &Client{}
+	for i := range client.NSXVerChecker.featureSupported {
+		client.NSXVerChecker.featureSupported[i] = true
+	}
+	client.resetNSXVersionFeatureCache()
+	for i := range client.NSXVerChecker.featureSupported {
+		assert.False(t, client.NSXVerChecker.featureSupported[i], "featureSupported[%d] should be false after reset", i)
+	}
+}
+
 func IsInstanceOf(objectPtr, typePtr interface{}) bool {
 	return reflect.TypeOf(objectPtr) == reflect.TypeOf(typePtr)
 }
