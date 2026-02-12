@@ -33,6 +33,7 @@ const (
 
 var (
 	LogLevel               int
+	LogColor               bool
 	ProbeAddr, MetricsAddr string
 	WebhookServerPort      int
 	configFilePath         = ""
@@ -165,6 +166,7 @@ func AddFlags() {
 	flag.StringVar(&ProbeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
 	flag.StringVar(&MetricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
 	flag.IntVar(&LogLevel, "log-level", 0, "Use zap-core log system.")
+	flag.BoolVar(&LogColor, "log-color", false, "Enable ANSI color in log output.")
 	flag.IntVar(&WebhookServerPort, "webhook-server-port", defaultWebhookPort, "Port number to expose the controller webhook server")
 	flag.Parse()
 }
