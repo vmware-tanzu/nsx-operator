@@ -176,53 +176,54 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 	return ec, nil
 }
 
-type errmap map[string]NsxError
+type errFactory func() NsxError
+type errmap map[string]errFactory
 
 var (
 	errorTable = map[string]errmap{
 		"404": // http.StatusNotFound
 		{
-			"202":     &BackendResourceNotFound{},
-			"500090":  &StaleRevision{},
-			"default": &ResourceNotFound{},
+			"202":     func() NsxError { return &BackendResourceNotFound{} },
+			"500090":  func() NsxError { return &StaleRevision{} },
+			"default": func() NsxError { return &ResourceNotFound{} },
 		},
 		"400": // http.StatusBadRequest
 		{
-			"60508":  &NsxIndexingInProgress{},
-			"60514":  &NsxSearchTimeout{},
-			"60515":  &NsxSearchOutOfSync{},
-			"8327":   &NsxOverlapVlan{},
-			"500045": &NsxPendingDelete{},
-			"500030": &ResourceInUse{},
-			"500087": &StaleRevision{},
-			"500105": &NsxOverlapAddresses{},
-			"500232": &StaleRevision{},
-			"503040": &NsxSegmentWithVM{},
-			"100148": &StaleRevision{},
+			"60508":  func() NsxError { return &NsxIndexingInProgress{} },
+			"60514":  func() NsxError { return &NsxSearchTimeout{} },
+			"60515":  func() NsxError { return &NsxSearchOutOfSync{} },
+			"8327":   func() NsxError { return &NsxOverlapVlan{} },
+			"500045": func() NsxError { return &NsxPendingDelete{} },
+			"500030": func() NsxError { return &ResourceInUse{} },
+			"500087": func() NsxError { return &StaleRevision{} },
+			"500105": func() NsxError { return &NsxOverlapAddresses{} },
+			"500232": func() NsxError { return &StaleRevision{} },
+			"503040": func() NsxError { return &NsxSegmentWithVM{} },
+			"100148": func() NsxError { return &StaleRevision{} },
 		},
 		"500": // http.StatusInternalServerError
 		{
-			"98":  &CannotConnectToServer{},
-			"99":  &ClientCertificateNotTrusted{},
-			"607": &APITransactionAborted{},
+			"98":  func() NsxError { return &CannotConnectToServer{} },
+			"99":  func() NsxError { return &ClientCertificateNotTrusted{} },
+			"607": func() NsxError { return &APITransactionAborted{} },
 		},
 		"403": // http.StatusForbidden
 		{
-			"98":  &BadXSRFToken{},
-			"403": &InvalidCredentials{},
-			"505": &InvalidLicense{},
+			"98":  func() NsxError { return &BadXSRFToken{} },
+			"403": func() NsxError { return &InvalidCredentials{} },
+			"505": func() NsxError { return &InvalidLicense{} },
 		},
 	}
 
-	errorTable1 = map[string]NsxError{
+	errorTable1 = map[string]errFactory{
 		"409":// http.StatusConflict
-		&StaleRevision{},
+		func() NsxError { return &StaleRevision{} },
 		"412":// http.StatusPreconditionFailed
-		&StaleRevision{},
+		func() NsxError { return &StaleRevision{} },
 		"429":// http.statusTooManyRequests
-		&TooManyRequests{},
+		func() NsxError { return &TooManyRequests{} },
 		"503":// http.StatusServiceUnavailable
-		&ServiceUnavailable{},
+		func() NsxError { return &ServiceUnavailable{} },
 	}
 )
 
@@ -233,31 +234,33 @@ func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 
 	if e, ok := errorTable[strconv.Itoa(statusCode)]; ok {
 		if errorCode > 0 {
-			if e1, ok := e[strconv.Itoa(errorCode)]; ok {
-				e1.setDetail(detail)
-				return e1
+			if factory, ok := e[strconv.Itoa(errorCode)]; ok {
+				err := factory()
+				err.setDetail(detail)
+				return err
 			}
 		}
 		if len(relatedErrorCode) > 0 {
 			for _, i := range relatedErrorCode {
-				if e1, ok := e[strconv.Itoa(i)]; ok {
-					e1.setDetail(detail)
-					return e1
+				if factory, ok := e[strconv.Itoa(i)]; ok {
+					err := factory()
+					err.setDetail(detail)
+					return err
 				}
 			}
 		}
-		if e1, ok := e["default"]; ok {
-			e1.setDetail(detail)
-			return e1
+		if factory, ok := e["default"]; ok {
+			err := factory()
+			err.setDetail(detail)
+			return err
 		}
 	}
-	if e, ok := errorTable1[strconv.Itoa(statusCode)]; ok {
-		e.setDetail(detail)
-		return e
+	if factory, ok := errorTable1[strconv.Itoa(statusCode)]; ok {
+		err := factory()
+		err.setDetail(detail)
+		return err
 	}
-	err := &GeneralManagerError{}
-	err.setDetail(detail)
-	return err
+	return CreateGeneralManagerError("", "", detail.Error())
 }
 
 func HandleHTTPResponse(response *http.Response, result interface{}, debug bool) (error, []byte) {
