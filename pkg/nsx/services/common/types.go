@@ -93,6 +93,7 @@ const (
 	TagValueShareNotCreated            string = "notShared"
 	TagValueDLB                        string = "DLB"
 	TagValueSLB                        string = "SLB"
+	TagValueSts                        string = "STS"
 	TagValueL3InVlanBackedVPCMode      string = "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
@@ -104,6 +105,8 @@ const (
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
 	TagScopePodName                    string = "nsx-op/pod_name"
 	TagScopePodUID                     string = "nsx-op/pod_uid"
+	TagScopeStatefulSetName            string = "nsx-op/sts_name"
+	TagScopeStatefulSetUID             string = "nsx-op/sts_uid"
 	ValueMajorVersion                  string = "1"
 	ValueMinorVersion                  string = "0"
 	ValuePatchVersion                  string = "0"
@@ -124,6 +127,8 @@ const (
 	IndexKeySubnetPath          = "IndexKeySubnetPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	IndexKeyAttachmentID        = "IndexKeyAttachmentID"
+	IndexKeyAllStsPorts         = "IndexKeyAllStsPorts"
+	StsPortBucket               = "allStsPorts"
 	GCValidationInterval uint16 = 720
 
 	RuleIngress            = "ingress"

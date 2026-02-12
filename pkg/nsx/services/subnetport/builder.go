@@ -20,6 +20,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -37,6 +38,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	if _, ok := obj.(*corev1.Pod); ok {
 		appId = string(objMeta.UID)
 	}
+	_, stsUID := getStatefulSetInfo(obj)
 	var externalAddressBinding *model.ExternalAddressBinding
 	var err error
 	var addressBindings []model.PortAddressBindingEntry
@@ -127,7 +129,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	namespaceUid := namespace.UID
 
-	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid)
+	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID)
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 
 	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
@@ -163,6 +165,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(k), Tag: common.String((*labelTags)[k])})
 		}
 	}
+
 	nsxSubnetPort := &model.VpcSubnetPort{
 		DisplayName: String(nsxSubnetPortName),
 		Id:          String(nsxSubnetPortID),
@@ -187,11 +190,41 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	return nsxSubnetPort, nil
 }
 
-func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID) (string, string) {
+// getStatefulSetInfo returns the StatefulSet name and UID if the pod is owned by a StatefulSet
+func getStatefulSetInfo(obj interface{}) (string, string) {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return "", ""
+	}
+	for _, ownerRef := range pod.OwnerReferences {
+		if ownerRef.Kind == "StatefulSet" {
+			return ownerRef.Name, string(ownerRef.UID)
+		}
+	}
+	return "", ""
+}
+
+func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string) (string, string) {
 	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(obj.GetUID())
 	if err == nil && existingSubnetPort != nil {
 		return *existingSubnetPort.Id, *existingSubnetPort.DisplayName
 	}
+
+	// For StatefulSet pods: check if a SubnetPort with the same StatefulSet UID and pod name exists
+	// Note: STS UID is globally unique, so we only need to check pod name
+	if stsUID != "" {
+		existingPorts := service.SubnetPortStore.GetByIndex(common.TagScopeStatefulSetUID, stsUID)
+		for _, port := range existingPorts {
+			log.Debug("BuildSubnetPortIdAndName", "port", port.Id, "path", port.Path)
+			portName := nsxutil.FindTag(port.Tags, common.TagScopePodName)
+			if portName == obj.Name {
+				log.Info("Reusing existing SubnetPort for StatefulSet pod",
+					"podName", obj.Name, "stsUID", stsUID)
+				return *port.Id, *port.DisplayName
+			}
+		}
+	}
+
 	// Note: we will use the Pod or Subnet CR's name and the Namespace UID to generate the NSX VpcSubnetPort's id.
 	objWithNamespaceUID := &metav1.ObjectMeta{
 		Name: obj.Name,

@@ -87,7 +87,10 @@ func setupStore() *SubnetPortStore {
 					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
 					// Use Subnet Path instead of Subnet ID as shared Subnet ID on different VPC can be the same
-					servicecommon.IndexKeySubnetPath: subnetPortIndexBySubnetPath,
+					servicecommon.IndexKeySubnetPath:      subnetPortIndexBySubnetPath,
+					servicecommon.TagScopeStatefulSetUID:  subnetPortIndexByStatefulSetUID,
+					servicecommon.TagScopeStatefulSetName: subnetPortIndexByStatefulSetName,
+					servicecommon.IndexKeyAllStsPorts:     subnetPortIndexBySts,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
@@ -404,6 +407,30 @@ func (service *SubnetPortService) ResetSubnetTotalIP(path string) {
 	info.lock.Lock()
 	defer info.lock.Unlock()
 	info.totalIP = 0
+}
+
+func (service *SubnetPortService) ListSubnetPortByStsName(ns string, stsName string) []*model.VpcSubnetPort {
+	var result []*model.VpcSubnetPort
+	subnetports := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeStatefulSetName, stsName)
+	for _, subnetport := range subnetports {
+		tagname := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeNamespace)
+		if tagname == ns {
+			result = append(result, subnetport)
+		}
+	}
+	return result
+}
+
+func (service *SubnetPortService) ListSubnetPortByStsUid(ns string, stsUid string) []*model.VpcSubnetPort {
+	var result []*model.VpcSubnetPort
+	subnetports := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeStatefulSetUID, stsUid)
+	for _, subnetport := range subnetports {
+		tagname := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeNamespace)
+		if tagname == ns {
+			result = append(result, subnetport)
+		}
+	}
+	return result
 }
 
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.

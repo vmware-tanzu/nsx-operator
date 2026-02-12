@@ -1357,3 +1357,162 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 		})
 	}
 }
+
+func TestGetStatefulSetInfo(t *testing.T) {
+	tests := []struct {
+		name         string
+		obj          interface{}
+		expectedName string
+		expectedUID  string
+	}{
+		{
+			name: "StatefulSet pod with owner reference",
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "StatefulSet",
+							Name:       "web",
+							UID:        "sts-uid-123",
+						},
+					},
+				},
+			},
+			expectedName: "web",
+			expectedUID:  "sts-uid-123",
+		},
+		{
+			name: "Deployment pod with owner reference",
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "ReplicaSet",
+							Name:       "nginx-7d4c7b8b5",
+						},
+					},
+				},
+			},
+			expectedName: "",
+			expectedUID:  "",
+		},
+		{
+			name: "Standalone pod without owner",
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{},
+				},
+			},
+			expectedName: "",
+			expectedUID:  "",
+		},
+		{
+			name:         "SubnetPort CR (not a pod)",
+			obj:          &v1alpha1.SubnetPort{},
+			expectedName: "",
+			expectedUID:  "",
+		},
+		{
+			name:         "Nil object",
+			obj:          nil,
+			expectedName: "",
+			expectedUID:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stsName, stsUID := getStatefulSetInfo(tt.obj)
+			assert.Equal(t, tt.expectedName, stsName)
+			assert.Equal(t, tt.expectedUID, stsUID)
+		})
+	}
+}
+
+func TestBuildSubnetPortIdAndName(t *testing.T) {
+	tests := []struct {
+		name         string
+		stsUID       string
+		prepareFunc  func(*SubnetPortService) *gomonkey.Patches
+		expectedID   string
+		expectedName string
+	}{
+		{
+			name:   "existing port by UID",
+			stsUID: "",
+			prepareFunc: func(s *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(
+					(*SubnetPortStore).GetVpcSubnetPortByUID,
+					func(s *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						portID := "existing-port-id"
+						portName := "existing-port-name"
+						return &model.VpcSubnetPort{
+							Id:          &portID,
+							DisplayName: &portName,
+						}, nil
+					})
+				return patches
+			},
+			expectedID:   "existing-port-id",
+			expectedName: "existing-port-name",
+		},
+		{
+			name:   "reuse STS port by STS UID and pod name",
+			stsUID: "sts-uid-123",
+			prepareFunc: func(s *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(
+					(*SubnetPortStore).GetVpcSubnetPortByUID,
+					func(s *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return nil, nil
+					})
+				patches.ApplyFunc(
+					(*SubnetPortStore).GetByIndex,
+					func(s *SubnetPortStore, indexKey string, indexValue string) []*model.VpcSubnetPort {
+						if indexKey == common.TagScopeStatefulSetUID && indexValue == "sts-uid-123" {
+							podNameScope := "nsx-op/pod_name"
+							stsPortID := "sts-port-id"
+							stsPortName := "test-pod"
+							return []*model.VpcSubnetPort{
+								{
+									Id:          &stsPortID,
+									DisplayName: &stsPortName,
+									Tags: []model.Tag{
+										{Scope: &podNameScope, Tag: common.String("test-pod")},
+									},
+								},
+							}
+						}
+						return []*model.VpcSubnetPort{}
+					})
+				return patches
+			},
+			expectedID:   "sts-port-id",
+			expectedName: "test-pod",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetPortService{
+				SubnetPortStore: &SubnetPortStore{},
+			}
+
+			patches := tt.prepareFunc(service)
+			if patches != nil {
+				defer patches.Reset()
+			}
+
+			objMeta := &metav1.ObjectMeta{
+				Name: "test-pod",
+				UID:  "pod-uid-123",
+			}
+			namespaceUID := types.UID("ns-uid-456")
+
+			id, name := service.BuildSubnetPortIdAndName(objMeta, namespaceUID, tt.stsUID)
+			assert.Equal(t, tt.expectedID, id)
+			assert.Equal(t, tt.expectedName, name)
+		})
+	}
+}

@@ -383,6 +383,15 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopePodName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopePodUID), Tag: String(string(i.UID))})
+		// Add StatefulSet tags if pod is owned by a StatefulSet
+		for _, ownerRef := range i.OwnerReferences {
+			if ownerRef.Kind == "StatefulSet" {
+				tags = append(tags, model.Tag{Scope: String(common.TagScopeStatefulSetName), Tag: String(ownerRef.Name)})
+				tags = append(tags, model.Tag{Scope: String(common.TagScopeStatefulSetUID), Tag: String(string(ownerRef.UID))})
+				tags = append(tags, model.Tag{Scope: String(common.TagScopeCreatedFor), Tag: String(common.TagValueSts)})
+				break
+			}
+		}
 	case *v1alpha1.NetworkInfo:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 	case *v1alpha1.IPAddressAllocation:

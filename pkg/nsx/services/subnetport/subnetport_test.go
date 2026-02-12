@@ -916,6 +916,176 @@ func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 	assert.Equal(t, subnetPort2, subnetPorts[0])
 }
 
+func TestSubnetPortService_ListSubnetPortByStsName(t *testing.T) {
+	subnetPortService := createSubnetPortService(t)
+	subnetPort1 := &model.VpcSubnetPort{
+		Id:         &subnetPortId1,
+		Path:       &subnetPortPath1,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetName),
+				Tag:   common.String("sts-1"),
+			},
+		},
+	}
+	subnetPort2 := &model.VpcSubnetPort{
+		Id:         &subnetPortId2,
+		Path:       &subnetPortPath2,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetName),
+				Tag:   common.String("sts-1"),
+			},
+		},
+	}
+	subnetPortDifferentNS := &model.VpcSubnetPort{
+		Id:         common.String("port-3"),
+		Path:       common.String("/subnet-path-3"),
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-2"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetName),
+				Tag:   common.String("sts-1"),
+			},
+		},
+	}
+	subnetPortService.SubnetPortStore.Add(subnetPort1)
+	subnetPortService.SubnetPortStore.Add(subnetPort2)
+	subnetPortService.SubnetPortStore.Add(subnetPortDifferentNS)
+
+	tests := []struct {
+		name          string
+		ns            string
+		stsName       string
+		expectedCount int
+	}{
+		{
+			name:          "found in ns-1",
+			ns:            "ns-1",
+			stsName:       "sts-1",
+			expectedCount: 2,
+		},
+		{
+			name:          "not found different namespace",
+			ns:            "ns-2",
+			stsName:       "sts-1",
+			expectedCount: 1,
+		},
+		{
+			name:          "not found",
+			ns:            "ns-1",
+			stsName:       "non-existent",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subnetPorts := subnetPortService.ListSubnetPortByStsName(tt.ns, tt.stsName)
+			assert.Equal(t, tt.expectedCount, len(subnetPorts))
+		})
+	}
+}
+
+func TestSubnetPortService_ListSubnetPortByStsUid(t *testing.T) {
+	subnetPortService := createSubnetPortService(t)
+	subnetPort1 := &model.VpcSubnetPort{
+		Id:         &subnetPortId1,
+		Path:       &subnetPortPath1,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetUID),
+				Tag:   common.String("sts-uid-123"),
+			},
+		},
+	}
+	subnetPort2 := &model.VpcSubnetPort{
+		Id:         &subnetPortId2,
+		Path:       &subnetPortPath2,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetUID),
+				Tag:   common.String("sts-uid-123"),
+			},
+		},
+	}
+	subnetPortDifferentNS := &model.VpcSubnetPort{
+		Id:         common.String("port-3"),
+		Path:       common.String("/subnet-path-3"),
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-2"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetUID),
+				Tag:   common.String("sts-uid-123"),
+			},
+		},
+	}
+	subnetPortService.SubnetPortStore.Add(subnetPort1)
+	subnetPortService.SubnetPortStore.Add(subnetPort2)
+	subnetPortService.SubnetPortStore.Add(subnetPortDifferentNS)
+
+	tests := []struct {
+		name          string
+		ns            string
+		stsUid        string
+		expectedCount int
+	}{
+		{
+			name:          "found in ns-1",
+			ns:            "ns-1",
+			stsUid:        "sts-uid-123",
+			expectedCount: 2,
+		},
+		{
+			name:          "not found different namespace",
+			ns:            "ns-2",
+			stsUid:        "sts-uid-123",
+			expectedCount: 1,
+		},
+		{
+			name:          "not found",
+			ns:            "ns-1",
+			stsUid:        "non-existent",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subnetPorts := subnetPortService.ListSubnetPortByStsUid(tt.ns, tt.stsUid)
+			assert.Equal(t, tt.expectedCount, len(subnetPorts))
+		})
+	}
+}
+
 func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPath := "subnet-path-1"
 	subnetId := "subnet-id-1"
@@ -1180,6 +1350,8 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 					common.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					common.TagScopeNamespace:       subnetPortIndexPodNamespace,
 					common.IndexKeySubnetPath:      subnetPortIndexBySubnetPath,
+					common.TagScopeStatefulSetUID:  subnetPortIndexByStatefulSetUID,
+					common.TagScopeStatefulSetName: subnetPortIndexByStatefulSetName,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},

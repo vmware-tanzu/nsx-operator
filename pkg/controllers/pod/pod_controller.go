@@ -33,6 +33,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -150,6 +151,11 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return common.ResultRequeue, err
 		}
 		if subnetPort != nil {
+			if r.isStatefulSetSubnetPort(subnetPort) {
+				log.Info("Ignoring subnet port deletion for StatefulSet pod",
+					"pod", subnetPort.DisplayName, "statefulset-uid", r.getStsUID(subnetPort))
+				return common.ResultNormal, nil
+			}
 			if err := r.SubnetPortService.DeleteSubnetPort(subnetPort); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, pod, err)
 				return common.ResultRequeue, err
@@ -411,12 +417,28 @@ func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByPodName(ns, name)
 
 	for _, nsxSubnetPort := range nsxSubnetPorts {
+		// Check if this subnet port was created for StatefulSet
+		if r.isStatefulSetSubnetPort(nsxSubnetPort) {
+			log.Info("Ignoring subnet port deletion for StatefulSet pod",
+				"pod", name, "statefulset-uid", r.getStsUID(nsxSubnetPort))
+			continue // Skip deletion
+		}
+
+		// Normal pod: delete the subnet port
 		if err := r.SubnetPortService.DeleteSubnetPort(nsxSubnetPort); err != nil {
 			return err
 		}
 	}
 	log.Info("Successfully deleted nsxSubnetPort for Pod", "Namespace", ns, "Name", name)
 	return nil
+}
+
+func (r *PodReconciler) isStatefulSetSubnetPort(nsxSubnetPort *model.VpcSubnetPort) bool {
+	return r.getStsUID(nsxSubnetPort) != ""
+}
+
+func (r *PodReconciler) getStsUID(nsxSubnetPort *model.VpcSubnetPort) string {
+	return nsxutil.FindTag(nsxSubnetPort.Tags, servicecommon.TagScopeStatefulSetUID)
 }
 
 // PredicateFuncsPod filters out events where pod.Spec.HostNetwork is true
