@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/openlyinc/pointy"
@@ -36,6 +37,22 @@ func TestHttpErrortoNSXError(t *testing.T) {
 		{409, 202, []int{}, []string{}, ""},
 		{500, 0, []int{99}, []string{}, ""},
 		{505, 0, []int{}, []string{}, ""},
+		{404, 500090, []int{}, []string{}, ""},
+		{500, 607, []int{}, []string{}, ""},
+		{403, 403, []int{}, []string{}, ""},
+		{403, 505, []int{}, []string{}, ""},
+		// Error code 400 tests
+		{400, 60508, []int{}, []string{}, ""},
+		{400, 60514, []int{}, []string{}, ""},
+		{400, 60515, []int{}, []string{}, ""},
+		{400, 8327, []int{}, []string{}, ""},
+		{400, 500045, []int{}, []string{}, ""},
+		{400, 500030, []int{}, []string{}, ""},
+		{400, 500087, []int{}, []string{}, ""},
+		{400, 500105, []int{}, []string{}, ""},
+		{400, 500232, []int{}, []string{}, ""},
+		{400, 503040, []int{}, []string{}, ""},
+		{400, 100148, []int{}, []string{}, ""},
 	}
 
 	err := httpErrortoNSXError(&testdatas[0])
@@ -57,6 +74,67 @@ func TestHttpErrortoNSXError(t *testing.T) {
 	err = httpErrortoNSXError(&testdatas[4])
 	e4, ok := err.(ManagerError)
 	assert.True(ok, fmt.Sprintf("Transform error : %v", e4))
+
+	err = httpErrortoNSXError(&testdatas[5])
+	e5, ok := err.(*StaleRevision)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e5))
+
+	err = httpErrortoNSXError(&testdatas[6])
+	e6, ok := err.(*APITransactionAborted)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e6))
+
+	err = httpErrortoNSXError(&testdatas[7])
+	e7, ok := err.(*InvalidCredentials)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e7))
+
+	err = httpErrortoNSXError(&testdatas[8])
+	e8, ok := err.(*InvalidLicense)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e8))
+
+	// Error code 400 tests
+	err = httpErrortoNSXError(&testdatas[9])
+	e9, ok := err.(*NsxIndexingInProgress)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e9))
+
+	err = httpErrortoNSXError(&testdatas[10])
+	e10, ok := err.(*NsxSearchTimeout)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e10))
+
+	err = httpErrortoNSXError(&testdatas[11])
+	e11, ok := err.(*NsxSearchOutOfSync)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e11))
+
+	err = httpErrortoNSXError(&testdatas[12])
+	e12, ok := err.(*NsxOverlapVlan)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e12))
+
+	err = httpErrortoNSXError(&testdatas[13])
+	e13, ok := err.(*NsxPendingDelete)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e13))
+
+	err = httpErrortoNSXError(&testdatas[14])
+	e14, ok := err.(*ResourceInUse)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e14))
+
+	err = httpErrortoNSXError(&testdatas[15])
+	e15, ok := err.(*StaleRevision)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e15))
+
+	err = httpErrortoNSXError(&testdatas[16])
+	e16, ok := err.(*NsxOverlapAddresses)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e16))
+
+	err = httpErrortoNSXError(&testdatas[17])
+	e17, ok := err.(*StaleRevision)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e17))
+
+	err = httpErrortoNSXError(&testdatas[18])
+	e18, ok := err.(*NsxSegmentWithVM)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e18))
+
+	err = httpErrortoNSXError(&testdatas[19])
+	e19, ok := err.(*StaleRevision)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e19))
 }
 
 func TestInitErrorFromResponse(t *testing.T) {
@@ -1585,4 +1663,34 @@ func TestDiffArrays(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestHttpErrorToNSXError_DataRace(t *testing.T) {
+	// This test verifies that httpErrortoNSXError is thread-safe
+	// by concurrently creating errors from the same error code.
+	// Before the fix (using shared singleton instances), this would
+	// trigger a data race between setDetail() writes and Error() reads.
+	var wg sync.WaitGroup
+	numGoroutines := 100
+	iterations := 10
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				detail := &ErrorDetail{
+					StatusCode: 400,
+					ErrorCode:  500030,
+					Details:    fmt.Sprintf("test-%d-%d", id, j),
+				}
+				err := httpErrortoNSXError(detail)
+				if err != nil {
+					_ = err.Error()
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }
