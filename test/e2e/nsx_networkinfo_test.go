@@ -29,9 +29,9 @@ const (
 	customizedPrivateCIDR3 = "172.39.0.0/16"
 )
 
-var e2eNetworkInfoNamespace = fmt.Sprintf("customized-ns-%s", getRandomString())
-var e2eNetworkInfoNamespaceShare0 = fmt.Sprintf("shared-vpc-ns-0-%s", getRandomString())
-var e2eNetworkInfoNamespaceShare1 = fmt.Sprintf("shared-vpc-ns-1-%s", getRandomString())
+var e2eNetworkInfoNamespace = generateUniqueID("customized-ns")
+var e2eNetworkInfoNamespaceShare0 = generateUniqueID("shared-vpc-ns-0")
+var e2eNetworkInfoNamespaceShare1 = generateUniqueID("shared-vpc-ns-1")
 
 func TestNetworkInfo(t *testing.T) {
 	TrackTest(t)
@@ -98,7 +98,7 @@ func testCustomizedNetworkInfo(t *testing.T) {
 	}
 	require.NoError(t, err)
 
-	ns := fmt.Sprintf("customized-ns-%s", getRandomString())
+	ns := generateUniqueID("customized-ns")
 	namespace := &v12.Namespace{
 		ObjectMeta: v1.ObjectMeta{
 			Name: ns,
@@ -147,7 +147,7 @@ func testInfraNetworkInfo(t *testing.T) {
 // Test Default NetworkInfo
 func testDefaultNetworkInfo(t *testing.T) {
 	// If no annotation on namespace, then NetworkInfo will use default network config to create vpc under each ns
-	ns := fmt.Sprintf("networkinfo-default-%s", getRandomString())
+	ns := generateUniqueID("networkinfo-default")
 	setupTest(t, ns)
 	defer teardownTest(t, ns, defaultTimeout)
 
@@ -228,7 +228,7 @@ func testSharedNSXVPC(t *testing.T) {
 
 // update vpcnetworkconfig, and check vpc is updated
 func testUpdateVPCNetworkconfigNetworkInfo(t *testing.T) {
-	ns := fmt.Sprintf("update-ns-%s", getRandomString())
+	ns := generateUniqueID("update-ns")
 
 	// Create the namespace with the required annotation using the clientset
 	namespace := &v12.Namespace{
