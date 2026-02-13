@@ -213,6 +213,12 @@ var (
 			"403": func() NsxError { return &InvalidCredentials{} },
 			"505": func() NsxError { return &InvalidLicense{} },
 		},
+		"401": // http.StatusUnauthorized
+		{
+			"98":  &BadXSRFToken{},
+			"403": &InvalidCredentials{},
+			"505": &InvalidLicense{},
+		},
 	}
 
 	errorTable1 = map[string]errFactory{
