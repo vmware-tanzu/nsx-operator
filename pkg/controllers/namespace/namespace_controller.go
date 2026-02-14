@@ -47,6 +47,7 @@ type NamespaceReconciler struct {
 	NSXConfig           *config.NSXOperatorConfig
 	VPCService          types.VPCServiceProvider
 	SubnetService       *subnet.SubnetService
+	SubnetPortService   types.SubnetPortServiceProvider
 	Recorder            record.EventRecorder
 	SubnetStatusUpdater common.StatusUpdater
 }
@@ -357,15 +358,16 @@ func (r *NamespaceReconciler) StartController(mgr ctrl.Manager, _ webhook.Server
 }
 
 func NewNamespaceReconciler(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcService types.VPCServiceProvider,
-	subnetService *subnet.SubnetService) *NamespaceReconciler {
+	subnetService *subnet.SubnetService, subnetportService types.SubnetPortServiceProvider) *NamespaceReconciler {
 	nsReconciler := &NamespaceReconciler{
-		Client:        mgr.GetClient(),
-		APIReader:     mgr.GetAPIReader(),
-		Scheme:        mgr.GetScheme(),
-		NSXConfig:     cf,
-		VPCService:    vpcService,
-		SubnetService: subnetService,
-		Recorder:      mgr.GetEventRecorderFor("namespace-controller"),
+		Client:            mgr.GetClient(),
+		APIReader:         mgr.GetAPIReader(),
+		Scheme:            mgr.GetScheme(),
+		NSXConfig:         cf,
+		VPCService:        vpcService,
+		SubnetService:     subnetService,
+		SubnetPortService: subnetportService,
+		Recorder:          mgr.GetEventRecorderFor("namespace-controller"),
 	}
 	nsReconciler.SubnetStatusUpdater = common.NewStatusUpdater(nsReconciler.Client, nsReconciler.SubnetService.NSXConfig, nsReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
 	return nsReconciler

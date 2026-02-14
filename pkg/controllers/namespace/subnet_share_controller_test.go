@@ -29,6 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
@@ -73,13 +74,22 @@ func createTestNamespaceReconciler(objs []client.Object) *NamespaceReconciler {
 		},
 	}
 
+	subnetPortService := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{
+			Client:    fakeClient,
+			NSXClient: &nsx.Client{},
+			NSXConfig: nsxConfig,
+		},
+	}
+
 	nsReconciler := &NamespaceReconciler{
-		Client:        fakeClient,
-		APIReader:     fakeClient,
-		Scheme:        newScheme,
-		VPCService:    vpcService,
-		SubnetService: subnetService,
-		NSXConfig:     nsxConfig,
+		Client:            fakeClient,
+		APIReader:         fakeClient,
+		Scheme:            newScheme,
+		VPCService:        vpcService,
+		SubnetService:     subnetService,
+		SubnetPortService: subnetPortService,
+		NSXConfig:         nsxConfig,
 	}
 	nsReconciler.SubnetStatusUpdater = common.NewStatusUpdater(nsReconciler.Client, nsReconciler.SubnetService.NSXConfig, nil, "Subnet", "Subnet", "Subnet")
 	return nsReconciler
@@ -673,6 +683,7 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 
 func TestDeleteUnusedSharedSubnets(t *testing.T) {
 	// Test cases
+	var subnetportService *subnetport.SubnetPortService
 	tests := []struct {
 		name                    string
 		existingSubnets         []client.Object
@@ -715,6 +726,7 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet, _ string) (bool, error) {
 						return false, nil
 					})
+				patches.ApplyMethod(reflect.TypeOf(subnetportService), "DeletePortCount", func(_ servicecommon.SubnetPortServiceProvider, subnetPath string) {})
 				return patches
 			},
 		},
@@ -775,6 +787,7 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 						// Only subnet-1 has references
 						return subnet.Name == "subnet-1", nil
 					})
+				patches.ApplyMethod(reflect.TypeOf(subnetportService), "DeletePortCount", func(_ servicecommon.SubnetPortServiceProvider, subnetPath string) {})
 				return patches
 			},
 		},

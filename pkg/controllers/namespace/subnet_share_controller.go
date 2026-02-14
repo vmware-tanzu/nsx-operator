@@ -334,7 +334,12 @@ func (r *NamespaceReconciler) deleteUnusedSharedSubnets(ctx context.Context, ns 
 
 				// Clear the cache to prevent stale data when the subnet is recreated on NSX
 				r.SubnetService.RemoveSubnetFromCache(associatedResource, "shared subnet CR deleted")
-
+				subnetPath, err := servicecommon.GetSubnetPathFromAssociatedResource(associatedResource)
+				if err != nil {
+					log.Error(err, "Invalid associatedResource", "associatedResource", associatedResource)
+				} else {
+					r.SubnetPortService.DeletePortCount(subnetPath)
+				}
 				log.Info("Deleted Subnet CR for shared Subnet",
 					"Namespace", ns, "Name", subnet.Name, "AssociatedResource", associatedResource)
 				r.SubnetStatusUpdater.DeleteSuccess(client.ObjectKey{Namespace: ns, Name: subnet.Name}, subnet)
