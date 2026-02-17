@@ -2595,40 +2595,49 @@ func TestSubnetService_GetGatewayPrefixFromNSXSubnetStatus(t *testing.T) {
 
 func TestSubnetService_GetGatewayPrefixOfSubnet(t *testing.T) {
 	subnetId := "subnet-id-1"
-	gatewayAddress := "10.0.0.1/26"
 	nsxSubnet := &model.VpcSubnet{
 		Id: &subnetId,
 	}
 	tests := []struct {
-		name        string
-		prepareFunc func() *gomonkey.Patches
-		wantErr     bool
+		name            string
+		nsxSubnet       *model.VpcSubnet
+		prepareFunc     func() *gomonkey.Patches
+		wantErr         bool
+		expectedGateway string
+		expectedPrefix  int
 	}{
 		{
-			name: "SuccessWithGetGatewayPrefixFromNSXSubnet",
+			name:      "SuccessWithGetGatewayPrefixFromNSXSubnet",
+			nsxSubnet: nsxSubnet,
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetService{}), "GetGatewayPrefixFromNSXSubnet", func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
-					return gatewayAddress, 26, nil
+					return "10.0.0.1", 26, nil
 				})
 				return patches
 			},
-			wantErr: false,
+			wantErr:         false,
+			expectedGateway: "10.0.0.1",
+			expectedPrefix:  26,
 		},
 		{
-			name: "SuccessWithGetGatewayPrefixFromNSXSubnetStatus",
+			name:      "SuccessWithGetGatewayPrefixFromNSXSubnetStatus",
+			nsxSubnet: nsxSubnet,
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetService{}), "GetGatewayPrefixFromNSXSubnet", func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
 					return "", 0, fmt.Errorf("API error from subnet")
 				})
 				patches.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
-					return gatewayAddress, 26, nil
+					return "10.0.0.1", 26, nil
 				})
 				return patches
 			},
-			wantErr: false,
+			wantErr:         false,
+			expectedGateway: "10.0.0.1",
+			expectedPrefix:  26,
 		},
 		{
-			name: "FailBothMethods",
+			name:      "FailBothMethods",
+			nsxSubnet: nsxSubnet,
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetService{}), "GetGatewayPrefixFromNSXSubnet", func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
 					return "", 0, fmt.Errorf("API error from subnet")
@@ -2639,6 +2648,68 @@ func TestSubnetService_GetGatewayPrefixOfSubnet(t *testing.T) {
 				return patches
 			},
 			wantErr: true,
+		},
+		{
+			name:      "SubnetReturnsNoErrorButPrefixNegative_FallsThrough",
+			nsxSubnet: nsxSubnet,
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetService{}), "GetGatewayPrefixFromNSXSubnet", func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", -1, nil
+				})
+				patches.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "10.0.0.1", 16, nil
+				})
+				return patches
+			},
+			wantErr:         false,
+			expectedGateway: "10.0.0.1",
+			expectedPrefix:  16,
+		},
+		{
+			name:      "SubnetReturnsNoErrorButPrefixZero_FallsThrough",
+			nsxSubnet: nsxSubnet,
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetService{}), "GetGatewayPrefixFromNSXSubnet", func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", 0, nil
+				})
+				patches.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", 24, nil
+				})
+				return patches
+			},
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  24,
+		},
+		{
+			name:      "SubnetReturnsNoErrorButPrefixNegative_StatusAlsoFails",
+			nsxSubnet: nsxSubnet,
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetService{}), "GetGatewayPrefixFromNSXSubnet", func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", -1, nil
+				})
+				patches.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", -1, fmt.Errorf("no status")
+				})
+				return patches
+			},
+			wantErr: true,
+		},
+		{
+			name:      "StatusReturnsEmptyGatewayWithValidPrefix",
+			nsxSubnet: nsxSubnet,
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetService{}), "GetGatewayPrefixFromNSXSubnet", func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", -1, nil
+				})
+				patches.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", 16, nil
+				})
+				return patches
+			},
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  16,
 		},
 	}
 	for _, tt := range tests {
@@ -2654,15 +2725,118 @@ func TestSubnetService_GetGatewayPrefixOfSubnet(t *testing.T) {
 			var patches *gomonkey.Patches
 			if tt.prepareFunc != nil {
 				patches = tt.prepareFunc()
-				defer patches.Reset()
 			}
-			gateway, prefix, err := service.GetGatewayPrefixOfSubnet(nsxSubnet)
+			gateway, prefix, err := service.GetGatewayPrefixOfSubnet(tt.nsxSubnet)
+			if patches != nil {
+				patches.Reset()
+			}
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetGatewayPrefixOfSubnet() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if err == nil {
-				assert.Equal(t, gatewayAddress, gateway)
-				assert.Equal(t, 26, prefix)
+				assert.Equal(t, tt.expectedGateway, gateway)
+				assert.Equal(t, tt.expectedPrefix, prefix)
+			}
+		})
+	}
+}
+
+func TestSubnetService_GetGatewayPrefixOfSubnet_Integration(t *testing.T) {
+	subnetId := "integration-subnet-id"
+	tests := []struct {
+		name            string
+		nsxSubnet       *model.VpcSubnet
+		prepareFunc     func() *gomonkey.Patches
+		wantErr         bool
+		expectedGateway string
+		expectedPrefix  int
+	}{
+		{
+			name: "L3 subnet with gateway in AdvancedConfig returns gateway and prefix directly",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &subnetId,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{"40.101.0.1/16"},
+				},
+				IpAddresses: []string{"40.101.0.0/16"},
+			},
+			wantErr:         false,
+			expectedGateway: "40.101.0.1",
+			expectedPrefix:  16,
+		},
+		{
+			name: "L2 subnet with empty gateway falls through to status",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &subnetId,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{},
+				},
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", 16, nil
+				})
+				return patches
+			},
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  16,
+		},
+		{
+			name: "L2 subnet with nil AdvancedConfig falls through to status",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &subnetId,
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", 28, nil
+				})
+				return patches
+			},
+			wantErr:         false,
+			expectedGateway: "",
+			expectedPrefix:  28,
+		},
+		{
+			name: "Both methods fail returns error",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &subnetId,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					GatewayAddresses: []string{},
+				},
+			},
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*SubnetService).GetGatewayPrefixFromNSXSubnetStatus, func(s *SubnetService, nsxSubnet *model.VpcSubnet) (string, int, error) {
+					return "", -1, fmt.Errorf("no status")
+				})
+				return patches
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetService{
+				Service: common.Service{
+					NSXClient: &nsx.Client{
+						SubnetStatusClient: &fakeSubnetStatusClient{},
+					},
+				},
+			}
+			var patches *gomonkey.Patches
+			if tt.prepareFunc != nil {
+				patches = tt.prepareFunc()
+			}
+			gateway, prefix, err := service.GetGatewayPrefixOfSubnet(tt.nsxSubnet)
+			if patches != nil {
+				patches.Reset()
+			}
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetGatewayPrefixOfSubnet() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil {
+				assert.Equal(t, tt.expectedGateway, gateway)
+				assert.Equal(t, tt.expectedPrefix, prefix)
 			}
 		})
 	}
