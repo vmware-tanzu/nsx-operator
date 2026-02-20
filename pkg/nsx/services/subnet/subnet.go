@@ -840,7 +840,7 @@ func (service *SubnetService) RemoveSharedSubnetFromResourceMap(associatedResour
 
 func (service *SubnetService) GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
 	gateway, prefix, errFromSubnet := service.GetGatewayPrefixFromNSXSubnet(nsxSubnet)
-	if errFromSubnet == nil && len(gateway) >= 0 {
+	if errFromSubnet == nil && prefix > 0 {
 		return gateway, prefix, nil
 	}
 	// For the VLAN Extension Subnet, there's no gateway in NSX Subnet GET API. We need to get it from NSX Subnet Status.
