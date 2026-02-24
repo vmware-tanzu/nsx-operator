@@ -57,6 +57,12 @@ spec:
                   Defaults to 32.
                 maximum: 65536
                 type: integer
+              dnsZones:
+                description: DNSZones specifies the list of permitted DNS zones, identified
+                  by their NSX paths.
+                items:
+                  type: string
+                type: array
               nsxProject:
                 description: NSX Project the Namespace is associated with.
                 type: string

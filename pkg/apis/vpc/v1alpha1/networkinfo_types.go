@@ -25,6 +25,8 @@ type NetworkInfo struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	VPCs []VPCState `json:"vpcs"`
+	// AllowedDNSDomains specifies the permitted DNS domain names in the namespace.
+	AllowedDNSDomains []string `json:"allowedDNSDomains,omitempty"`
 }
 
 // +kubebuilder:object:root=true

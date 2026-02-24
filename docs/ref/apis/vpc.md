@@ -141,6 +141,7 @@ _Appears in:_
 | `AutoSnatEnabled` |  |
 | `ExternalIPBlocksConfigured` |  |
 | `DeletionFailed` |  |
+| `UpdateFailed` |  |
 
 
 #### ConnectivityState
@@ -327,6 +328,7 @@ NetworkInfo is used to report the network information for a namespace.
 | `kind` _string_ | `NetworkInfo` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `vpcs` _[VPCState](#vpcstate) array_ |  |  |  |
+| `allowedDNSDomains` _string array_ | AllowedDNSDomains specifies the permitted DNS domain names in the namespace. |  |  |
 
 
 #### NetworkInterfaceConfig
@@ -1119,6 +1121,7 @@ _Appears in:_
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
 | `defaultSubnetSize` _integer_ | Default size of Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
+| `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
 
 
 #### VPCNetworkConfigurationStatus
