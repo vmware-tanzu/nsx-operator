@@ -115,6 +115,10 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	if err != nil {
 		return nil, err
 	}
+	subnetPortService, err := subnetport.InitializeSubnetPort(commonService, vpcService, ipAddressAllocationService)
+	if err != nil {
+		return nil, err
+	}
 
 	// initialize all the CR services
 	// Use Fluent Interface to escape error check hell
@@ -141,9 +145,9 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 		}
 	}
 
-	wrapInitializeSubnetPort := func(service common.Service) cleanupFunc {
+	wrapInitializeSubnetPort := func(_ common.Service) cleanupFunc {
 		return func() (interface{}, error) {
-			return subnetport.InitializeSubnetPort(service, vpcService, ipAddressAllocationService)
+			return subnetPortService, nil
 		}
 	}
 	wrapInitializeIPAddressAllocation := func(service common.Service) cleanupFunc {
@@ -158,7 +162,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	}
 	wrapInitializeSubnetIPReservation := func(service common.Service) cleanupFunc {
 		return func() (interface{}, error) {
-			return subnetipreservation.InitializeService(service)
+			return subnetipreservation.InitializeService(service, subnetPortService)
 		}
 	}
 

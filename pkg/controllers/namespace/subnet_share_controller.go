@@ -337,6 +337,7 @@ func (r *NamespaceReconciler) deleteUnusedSharedSubnets(ctx context.Context, ns 
 				subnetPath, err := servicecommon.GetSubnetPathFromAssociatedResource(associatedResource)
 				if err != nil {
 					log.Error(err, "Invalid associatedResource", "associatedResource", associatedResource)
+					return err
 				} else {
 					r.SubnetPortService.DeletePortCount(subnetPath)
 				}

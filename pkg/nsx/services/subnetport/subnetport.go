@@ -394,6 +394,18 @@ func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string
 	return result
 }
 
+func (service *SubnetPortService) ResetSubnetTotalIP(path string) {
+	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
+	if !ok {
+		log.Info("No SubnetPort count info for the Subnet, no need to reset totalIP", "nsxSubnetPath", path)
+		return
+	}
+	info := obj.(*CountInfo)
+	info.lock.Lock()
+	defer info.lock.Unlock()
+	info.totalIP = 0
+}
+
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.
 // If the Subnet has capacity for the new SubnetPorts, it will increase
 // the number of SubnetPort under creation and return true.
@@ -434,21 +446,23 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 		if len(dhcpServerStats.IpPoolStats) > 0 && dhcpServerStats.IpPoolStats[0].PoolSize != nil {
 			info.totalIP = int(*dhcpServerStats.IpPoolStats[0].PoolSize)
 		}
-	} else if dhcpMode == "DHCP_DEACTIVATED" && staticIpAllocationEnabled {
-		// For DHCP Deactivated mode Subnet with staticIpAllocation enabled,
-		// get total IPs from IP pool static-ipv4-default
-		// SubnetIPReservation will change the totalip for Subnet
-		staticIPPool, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv4-default")
-		if err != nil {
-			log.Error(err, "Failed to get Subnet static IP Pool static-ipv4-default", "Subnet", *subnet.Path)
-			return false, err
-		}
-		if staticIPPool.PoolUsage.TotalIps != nil {
-			info.totalIP = int(*staticIPPool.PoolUsage.TotalIps)
-		}
 	}
 
-	if !ok {
+	if !ok || info.totalIP == 0 {
+		// For DHCP Deactivated mode Subnet, get total IPs from IP pool static-ipv4-default
+		if dhcpMode == "DHCP_DEACTIVATED" {
+			// only get Subnet total IPs from static IP Pool if staticIpAllocation enabled
+			if staticIpAllocationEnabled {
+				staticIPPool, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv4-default")
+				if err != nil {
+					log.Error(err, "Failed to get Subnet static IP Pool static-ipv4-default", "Subnet", *subnet.Path)
+					return false, err
+				}
+				if staticIPPool.PoolUsage.TotalIps != nil {
+					info.totalIP = int(*staticIPPool.PoolUsage.TotalIps)
+				}
+			}
+		}
 		// For DHCP Relay mode Subnet, assume 4 reserved IPs
 		if dhcpMode == "DHCP_RELAY" {
 			var totalIP int

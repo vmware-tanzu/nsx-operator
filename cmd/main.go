@@ -206,7 +206,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 				os.Exit(1)
 			}
 		}
-		subnetIPReservationService, err := subnetipreservationservice.InitializeService(commonService)
+		subnetIPReservationService, err := subnetipreservationservice.InitializeService(commonService, subnetPortService)
 		if err != nil {
 			log.Error(err, "Failed to initialize SubnetIPReservation commonService", "controller", "SubnetIPReservation")
 			os.Exit(1)

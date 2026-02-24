@@ -1,6 +1,7 @@
 package subnetipreservation
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -24,11 +25,12 @@ var (
 type IPReservationService struct {
 	common.Service
 	IPReservationStore *IPReservationStore
+	SubnetPortService  common.SubnetPortServiceProvider
 	builder            *common.PolicyTreeBuilder[*model.DynamicIpAddressReservation]
 }
 
 // InitializeService initializes SubnetIPReservationService service.
-func InitializeService(service common.Service) (*IPReservationService, error) {
+func InitializeService(service common.Service, subnetPortService common.SubnetPortServiceProvider) (*IPReservationService, error) {
 	builder, _ := common.PolicyPathVpcSubnetDynamicIPReservation.NewPolicyTreeBuilder()
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error, 1)
@@ -37,6 +39,7 @@ func InitializeService(service common.Service) (*IPReservationService, error) {
 		Service:            service,
 		IPReservationStore: SetupStore(),
 		builder:            builder,
+		SubnetPortService:  subnetPortService,
 	}
 
 	wg.Add(1)
@@ -78,6 +81,9 @@ func (s *IPReservationService) GetOrCreateSubnetIPReservation(ipReservation *v1a
 		log.Error(err, "failed to get NSX Subnet IPReservation", "SubnetIPReservation", nsxIPReservation.Path)
 		return nil, err
 	}
+	// Subnet totalIP will change when ipreservation is created.
+	// Need to get the totalIP from NSX again for SubnetPort creation.
+	s.SubnetPortService.ResetSubnetTotalIP(subnetPath)
 	err = s.IPReservationStore.Apply(&nsxIPReservationCreated)
 	if err != nil {
 		return nil, err
@@ -115,6 +121,10 @@ func (s *IPReservationService) DeleteIPReservation(nsxIPReservation *model.Dynam
 		log.Error(err, "Failed to delete Subnet IPReservation", "SubnetIPReservation", *nsxIPReservation.Path)
 		return err
 	}
+	// Subnet totalIP will change when ipreservation is deleted.
+	// Need to get the totalIP from NSX again for SubnetPort creation.
+	subnetPath := fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", ipReservationInfo.OrgID, ipReservationInfo.ProjectID, ipReservationInfo.VPCID, ipReservationInfo.ParentID)
+	s.SubnetPortService.ResetSubnetTotalIP(subnetPath)
 	if err = s.IPReservationStore.Delete(*nsxIPReservation.Id); err != nil {
 		return err
 	}
