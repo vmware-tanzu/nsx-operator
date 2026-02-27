@@ -18,10 +18,6 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: The name of the SubnetConnectionBindingMap resource
-      jsonPath: .metadata.name
-      name: name
-      type: string
     - description: The Subnet which the SubnetConnectionBindingMap is associated
       jsonPath: .spec.subnetName
       name: subnet
