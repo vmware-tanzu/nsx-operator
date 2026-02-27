@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
@@ -15,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -28,6 +30,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -321,6 +324,31 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 0)},
 					Times:  1,
 				}})
+				return patches
+			},
+			wantErr:   true,
+			nsxSubnet: nsxSubnet1,
+		},
+		{
+			name: "NoRealizeFailure",
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					namespaceCR := &corev1.Namespace{}
+					namespaceCR.UID = "ns1"
+					return nil
+				})
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.RealizedEntitiesClient), "List", func(_ *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+					return model.GenericPolicyRealizedResourceListResult{}, fmt.Errorf("failed to check realized state")
+				})
+				// Mock NSXTRealizeRetry with shorter backoff: 2 retries, 50ms interval
+				patches.ApplyGlobalVar(&util.NSXTRealizeRetry, wait.Backoff{
+					Steps:    2,
+					Duration: 50 * time.Millisecond,
+					Factor:   1.0,
+					Jitter:   0.0,
+				})
 				return patches
 			},
 			wantErr:   true,

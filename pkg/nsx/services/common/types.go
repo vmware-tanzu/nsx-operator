@@ -105,10 +105,11 @@ const (
 	ConnectorUnderline                 string = "_"
 	ConnectorHyphen                    string = "-"
 
-	GCInterval       = 10 * 60 * time.Second
-	SubnetGCInterval = 60 * time.Second
-	DefaultSNATID    = "DEFAULT"
-	AVISubnetLBID    = "_services"
+	GCInterval           = 10 * 60 * time.Second
+	SubnetGCInterval     = 60 * time.Second
+	SubnetPortGCInterval = 60 * time.Second
+	DefaultSNATID        = "DEFAULT"
+	AVISubnetLBID        = "_services"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
