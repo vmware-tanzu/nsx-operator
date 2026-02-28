@@ -929,8 +929,9 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 		},
 	}
 	subnetPortService := createSubnetPortService(t)
+	// Reset Subnet totalIP without SubnetPort does not influence the port count info
+	subnetPortService.ResetSubnetTotalIP(subnetPath)
 	ok, err := subnetPortService.AllocatePortFromSubnet(subnet1)
-
 	assert.True(t, ok)
 	require.NoError(t, err)
 	empty := subnetPortService.IsEmptySubnet(subnetPath)
@@ -938,8 +939,11 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPortService.ReleasePortInSubnet(subnetPath)
 	empty = subnetPortService.IsEmptySubnet(subnetPath)
 	assert.True(t, empty)
+
 	// Update Subnet as exhausted and check port cannot be allocated
 	subnetPortService.updateExhaustedSubnet(subnetPath)
+	// Reset Subnet totalIP does not change other port count info
+	subnetPortService.ResetSubnetTotalIP(subnetPath)
 	ok, err = subnetPortService.AllocatePortFromSubnet(subnet1)
 	assert.False(t, ok)
 	assert.Nil(t, err)

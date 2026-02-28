@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 var ticker = time.NewTicker(10 * time.Minute)
@@ -81,6 +82,12 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 		if _, ok := r.SubnetService.SharedSubnetResourceMap[associatedResource]; !ok {
 			log.Debug("Remove Subnet from cache", "AssociatedResource", associatedResource)
 			r.SubnetService.RemoveSubnetFromCache(associatedResource, "no valid subnets")
+			subnetPath, err := servicecommon.GetSubnetPathFromAssociatedResource(associatedResource)
+			if err != nil {
+				log.Error(err, "Invalid associatedResource", "associatedResource", associatedResource)
+			} else {
+				r.SubnetPortService.DeletePortCount(subnetPath)
+			}
 		}
 	}
 }
@@ -197,6 +204,12 @@ func (r *SubnetReconciler) handleNSXSubnetError(ctx context.Context, err error, 
 	errorType string) {
 	log.Error(err, fmt.Sprintf("Failed to get %s", errorType), "AssociatedResource", associatedResource)
 	r.SubnetService.RemoveSubnetFromCache(associatedResource, "NSXSubnetError")
+	subnetPath, err := servicecommon.GetSubnetPathFromAssociatedResource(associatedResource)
+	if err != nil {
+		log.Error(err, "Invalid associatedResource", "associatedResource", associatedResource)
+	} else {
+		r.SubnetPortService.DeletePortCount(subnetPath)
+	}
 	// Set subnet ready status to false for all valid subnets
 	for namespacedName := range validSubnets {
 		r.updateSharedSubnetWithError(ctx, namespacedName, err, errorType)

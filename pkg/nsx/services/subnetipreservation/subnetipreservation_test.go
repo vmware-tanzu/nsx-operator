@@ -12,8 +12,10 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	pkgmock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 )
 
 type fakeQueryClient struct{}
@@ -55,12 +57,13 @@ func TestInitializeService(t *testing.T) {
 			},
 		},
 	}
+	subnetPortService := &subnetport.SubnetPortService{}
 	patches := gomonkey.ApplyMethodSeq(commonService.NSXClient.QueryClient, "List", []gomonkey.OutputCell{{
 		Values: gomonkey.Params{model.SearchResponse{}, nil},
 		Times:  1,
 	}})
 	defer patches.Reset()
-	ipReservationService, err := InitializeService(commonService)
+	ipReservationService, err := InitializeService(commonService, subnetPortService)
 	require.Nil(t, err)
 	if !reflect.DeepEqual(ipReservationService.Service, commonService) {
 		t.Errorf("InitializeService() got = %v, want %v", ipReservationService.Service, commonService)
@@ -71,7 +74,7 @@ func TestInitializeService(t *testing.T) {
 		Times:  1,
 	}})
 	defer patches.Reset()
-	_, err = InitializeService(commonService)
+	_, err = InitializeService(commonService, subnetPortService)
 	require.Contains(t, err.Error(), "mocked error")
 }
 
@@ -222,6 +225,7 @@ func TestGetOrCreateSubnetIPReservation(t *testing.T) {
 }
 
 func createFakeService() *IPReservationService {
+	mockPortSvc := new(pkgmock.MockSubnetPortServiceProvider)
 	return &IPReservationService{
 		Service: common.Service{
 			NSXClient: &nsx.Client{
@@ -240,5 +244,6 @@ func createFakeService() *IPReservationService {
 			},
 		},
 		IPReservationStore: SetupStore(),
+		SubnetPortService:  mockPortSvc,
 	}
 }

@@ -35,6 +35,7 @@ import (
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	servicetypes "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -294,6 +295,11 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 			Client: fakeClient,
 		},
 	}
+	subnetportService := &subnetport.SubnetPortService{
+		Service: servicetypes.Service{
+			Client: fakeClient,
+		},
+	}
 	mockMgr := &MockManager{scheme: runtime.NewScheme(), client: fakeClient, apiReader: fakeAPIReader}
 	patches := gomonkey.ApplyFunc((*NamespaceReconciler).setupWithManager, func(r *NamespaceReconciler, mgr manager.Manager) error {
 		return nil
@@ -302,7 +308,7 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 		return
 	})
 	defer patches.Reset()
-	r := NewNamespaceReconciler(mockMgr, nil, vpcService, subnetService)
+	r := NewNamespaceReconciler(mockMgr, nil, vpcService, subnetService, subnetportService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
 }

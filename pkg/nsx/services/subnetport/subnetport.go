@@ -394,6 +394,18 @@ func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string
 	return result
 }
 
+func (service *SubnetPortService) ResetSubnetTotalIP(path string) {
+	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
+	if !ok {
+		log.Info("No SubnetPort count info for the Subnet, no need to reset totalIP", "nsxSubnetPath", path)
+		return
+	}
+	info := obj.(*CountInfo)
+	info.lock.Lock()
+	defer info.lock.Unlock()
+	info.totalIP = 0
+}
+
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.
 // If the Subnet has capacity for the new SubnetPorts, it will increase
 // the number of SubnetPort under creation and return true.
@@ -436,7 +448,7 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 		}
 	}
 
-	if !ok {
+	if !ok || info.totalIP == 0 {
 		// For DHCP Deactivated mode Subnet, get total IPs from IP pool static-ipv4-default
 		if dhcpMode == "DHCP_DEACTIVATED" {
 			// only get Subnet total IPs from static IP Pool if staticIpAllocation enabled
@@ -524,6 +536,7 @@ func (service *SubnetPortService) IsEmptySubnet(path string) bool {
 }
 
 func (service *SubnetPortService) DeletePortCount(path string) {
+	log.Debug("Subnet is deleted from SubnetPort count record", "path", path)
 	service.SubnetPortStore.PortCountInfo.Delete(path)
 }
 

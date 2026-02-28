@@ -164,6 +164,10 @@ func (m *MockSubnetPortServiceProvider) GetSubnetPathForSubnetPortFromStore(crUi
 	return args.String(0)
 }
 
+func (m *MockSubnetPortServiceProvider) ResetSubnetTotalIP(path string) {
+	return
+}
+
 type MockIPAddressAllocationProvider struct {
 	mock.Mock
 }

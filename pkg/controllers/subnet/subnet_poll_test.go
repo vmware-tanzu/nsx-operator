@@ -18,6 +18,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 )
 
 func TestHasSubnetSpecChanged(t *testing.T) {
@@ -689,12 +690,22 @@ func TestPollAllSharedSubnets(t *testing.T) {
 		sharedSubnetsMap        map[string][]types.NamespacedName
 		expectedUniqueResources int // Number of unique associated resources
 		expectedEnqueueCalls    int // Number of times enqueueSubnetForReconciliation should be called
+		initialCache            map[string]struct {
+			Subnet     *model.VpcSubnet
+			StatusList []model.VpcSubnetStatus
+		}
 	}{
 		{
 			name:                    "Empty shared subnets map",
 			sharedSubnetsMap:        map[string][]types.NamespacedName{},
 			expectedUniqueResources: 0,
 			expectedEnqueueCalls:    0,
+			initialCache: map[string]struct {
+				Subnet     *model.VpcSubnet
+				StatusList []model.VpcSubnetStatus
+			}{
+				"project1:vpc1:subnet1": {Subnet: &model.VpcSubnet{}},
+			},
 		},
 		{
 			name: "One shared subnet",
@@ -749,6 +760,7 @@ func TestPollAllSharedSubnets(t *testing.T) {
 			}
 
 			r := createFakeSubnetReconciler(subnetCRs)
+			r.SubnetService.NSXSubnetCache = tt.initialCache
 
 			// Set up the SharedSubnetResourceMap
 			for associatedResource, namespacedNames := range tt.sharedSubnetsMap {
@@ -801,6 +813,9 @@ func TestPollAllSharedSubnets(t *testing.T) {
 				func(_ *SubnetReconciler, ctx context.Context, namespacedName types.NamespacedName) {
 					enqueueSubnetCalls[namespacedName] = true
 				})
+
+			var subnetportService *subnetport.SubnetPortService
+			patches.ApplyMethod(reflect.TypeOf(subnetportService), "DeletePortCount", func(_ common.SubnetPortServiceProvider, subnetPath string) {})
 
 			// Call the actual function being tested
 			r.pollAllSharedSubnets()
