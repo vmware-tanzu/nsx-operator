@@ -864,7 +864,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		var canAllocate bool
-		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet)
+		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR))
 		if err != nil {
 			return
 		}

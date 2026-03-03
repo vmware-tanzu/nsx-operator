@@ -133,7 +133,7 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 				continue
 			}
 		}
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR))
 		if err != nil {
 			log.Error(err, "Failed to check capacity of NSX Subnet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace, "NSXSubnet", nsxSubnet.Id)
 			errList = append(errList, err)
@@ -194,7 +194,7 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 	defer WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	for _, nsxSubnet := range subnetList {
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -217,7 +217,7 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 	if err != nil {
 		return "", nil, nil, err
 	}
-	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
+	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false)
 	if err != nil {
 		return "", nil, nil, err
 	}
