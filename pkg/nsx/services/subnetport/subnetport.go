@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -115,8 +116,11 @@ func (service *SubnetPortService) portAlreadyRealized(obj interface{}, nsxSubnet
 	case *v1.Pod:
 		annotations := o.GetAnnotations()
 		if annotations != nil {
-			if _, exist := annotations[servicecommon.AnnotationPodMAC]; exist {
-				return true
+			// If annotation attachment ID is changed in restore mode, we need to update the annotation with the latest subnetport state
+			if value, exist := annotations[servicecommon.AnnotationAttachment]; exist {
+				if value == *nsxSubnetPort.Attachment.Id {
+					return true
+				}
 			}
 		}
 	}
@@ -125,11 +129,16 @@ func (service *SubnetPortService) portAlreadyRealized(obj interface{}, nsxSubnet
 
 func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 	var uid string
+	var attachmentID string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
 		uid = string(o.UID)
+		attachmentID = o.Status.Attachment.ID
 	case *v1.Pod:
 		uid = string(o.UID)
+		if value, exist := o.Annotations[servicecommon.AnnotationAttachment]; exist {
+			attachmentID = value
+		}
 	}
 	log.Info("Creating or updating subnetport", "nsxSubnetPort.Id", uid, "nsxSubnetPath", *nsxSubnet.Path)
 	enableDHCP := util.NSXSubnetDHCPEnabled(nsxSubnet)
@@ -147,6 +156,10 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		}
 		nsxSubnetPort.AddressBindings = mergeSubnetPortAddressBinding(existingSubnetPort.AddressBindings, nsxSubnetPort.AddressBindings)
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
+	}
+	// In restore mode, restore attachment id in k8s CR when NSX >= 9.2
+	if restoreMode && service.NSXClient.NSXCheckVersion(nsx.RestoreVIF) && attachmentID != "" {
+		nsxSubnetPort.Attachment.Id = &attachmentID
 	}
 	subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
 	if err != nil {

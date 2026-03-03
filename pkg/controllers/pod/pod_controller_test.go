@@ -3,6 +3,7 @@ package pod
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -259,6 +261,9 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 									},
 								},
 							},
+							Attachment: &model.SegmentPortAttachmentState{
+								Id: servicecommon.String("attachment-id"),
+							},
 						}, false, nil
 					})
 
@@ -308,9 +313,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 							},
 						}, false, nil
 					})
-				patches.ApplyFunc(common.UpdateReconfigureNicAnnotation, func(client client.Client, ctx context.Context, obj client.Object, value string) error {
-					assert.Equal(t, "true", value)
-					return nil
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
 				})
 				return patches
 			},

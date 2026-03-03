@@ -41,6 +41,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
@@ -219,7 +220,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			subnetPort.Status.Conditions = nil
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService)
-		if r.restoreMode {
+		if r.restoreMode && !r.SubnetPortService.NSXClient.NSXCheckVersion(nsx.RestoreVIF) {
 			// UpdateSuccess may fail due to k8s connection or update conflicts.
 			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
 			// Otherwise VM operator will fail to get the new attachment ID.

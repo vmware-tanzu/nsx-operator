@@ -53,10 +53,11 @@ const (
 	SubnetIPReservation
 	SubnetMinimalSize8
 	VTEPLessMode
+	RestoreVIF
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -128,6 +129,7 @@ var (
 	nsx412Version = [3]int64{4, 1, 2}
 	nsx413Version = [3]int64{4, 1, 3}
 	nsx910Version = [3]int64{9, 1, 0}
+	nsx920Version = [3]int64{9, 2, 0}
 )
 
 type NSXHealthChecker struct {
@@ -359,6 +361,10 @@ func CreateNsxtApiClient(config *config.NSXOperatorConfig, client *http.Client) 
 }
 
 func (client *Client) NSXCheckVersion(feature int) bool {
+	// TODO: Remove this once NSX implementation for SubnetPort VIF restore is merged
+	if feature == RestoreVIF {
+		return false
+	}
 	if client.NSXVerChecker.featureSupported[feature] {
 		return true
 	}

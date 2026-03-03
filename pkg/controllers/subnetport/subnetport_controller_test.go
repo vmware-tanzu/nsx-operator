@@ -551,6 +551,10 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			})
 		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+		patchesNSXCheckVersion := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return false
+		})
+		defer patchesNSXCheckVersion.Reset()
 
 		k8sClient.EXPECT().Status().Return(fakewriter)
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
@@ -661,6 +665,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesGetAddressBindingBySubnetPort.Reset()
 
+		patchesNSXCheckVersion := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return false
+		})
+		defer patchesNSXCheckVersion.Reset()
+
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 				v1sp := obj.(*v1alpha1.SubnetPort)
@@ -742,6 +751,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			})
 		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+
+		patchesNSXCheckVersion := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return false
+		})
+		defer patchesNSXCheckVersion.Reset()
 
 		k8sClient.EXPECT().Status().Return(fakewriter)
 		_, ret := r.Reconcile(ctx, req)
