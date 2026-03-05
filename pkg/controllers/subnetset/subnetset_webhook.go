@@ -101,6 +101,7 @@ func switchSubnetSetType(old *v1alpha1.SubnetSet, new *v1alpha1.SubnetSet) (bool
 
 // Handle handles admission requests.
 func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
+
 	subnetSet := &v1alpha1.SubnetSet{}
 	var err error
 	if req.Operation == admissionv1.Delete {
@@ -123,13 +124,14 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
-		valid, err = v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames)
+		deny, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
+			if deny {
+				return admission.Denied(err.Error())
+			}
 			return admission.Errored(http.StatusBadRequest, err)
 		}
-		if !valid {
-			return admission.Denied(fmt.Sprintf("Subnets under SubnetSet %s/%s should belong to the same VPC", subnetSet.Namespace, subnetSet.Name))
-		}
+
 	case admissionv1.Update:
 		oldSubnetSet := &v1alpha1.SubnetSet{}
 		if err := v.decoder.DecodeRaw(req.OldObject, oldSubnetSet); err != nil {
@@ -143,13 +145,14 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			log.Debug("Default SubnetSet label change detected", "oldLabels", oldSubnetSet.ObjectMeta.Labels, "newLabels", subnetSet.ObjectMeta.Labels, "username", req.UserInfo.Username)
 			return admission.Denied(fmt.Sprintf("SubnetSet label %s can only be updated by NSX Operator", common.LabelDefaultNetwork))
 		}
-		valid, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames)
+		deny, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
+			if deny {
+				return admission.Denied(err.Error())
+			}
 			return admission.Errored(http.StatusBadRequest, err)
 		}
-		if !valid {
-			return admission.Denied(fmt.Sprintf("Subnets under SubnetSet %s/%s should belong to the same VPC", subnetSet.Namespace, subnetSet.Name))
-		}
+
 		result, msg := switchSubnetSetType(oldSubnetSet, subnetSet)
 		if result {
 			return admission.Denied(msg)
@@ -161,7 +164,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			subnetSetLock := controllercommon.WLockSubnetSet(subnetSet.UID)
 			defer controllercommon.WUnlockSubnetSet(subnetSet.UID, subnetSetLock)
 			removedSubnetNames := nsxutil.DiffArrays(*oldSubnetSet.Spec.SubnetNames, *subnetSet.Spec.SubnetNames)
-			valid, err = v.validateRemovedSubnets(ctx, subnetSet, removedSubnetNames)
+			valid, err := v.validateRemovedSubnets(ctx, subnetSet, removedSubnetNames)
 			if err != nil {
 				return admission.Errored(http.StatusBadRequest, err)
 			}
@@ -194,6 +197,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Denied(err.Error())
 		}
 	}
+
 	return admission.Allowed("")
 }
 
@@ -313,10 +317,15 @@ func (v *SubnetSetValidator) getVPCPath(ns string) (string, error) {
 	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s", vpcInfoList[0].OrgID, vpcInfoList[0].ProjectID, vpcInfoList[0].VPCID), nil
 }
 
-// Check all Subnet CRs are created and associated NSX Subnet belongs to the same VPC.
-func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string, subnetNames *[]string) (bool, error) {
+// Check all Subnet CRs referred by the SubnetSet to make sure they not breake any rules.
+// If error is nil, mean no rule is broken
+// If any rule is broken, return true with error message.
+// If there is error when getting resources, return false with error.
+
+func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string, subnetNames *[]string, subnetSet string) (bool, error) {
 	var namespaceVpc string
 	var existingVPC string
+	firstAccessMode := ""
 	if subnetNames == nil {
 		return true, nil
 	}
@@ -327,7 +336,12 @@ func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string,
 			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
 		}
 		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
-			return false, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
+			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
+		}
+		if firstAccessMode == "" {
+			firstAccessMode = string(crdSubnet.Spec.AccessMode)
+		} else if firstAccessMode != string(crdSubnet.Spec.AccessMode) {
+			return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same AccessMode, found different AccessModes: [%s, %s]", ns, subnetSet, firstAccessMode, crdSubnet.Spec.AccessMode)
 		}
 		var subnetVPC string
 		associatedResource, exists := crdSubnet.Annotations[common.AnnotationAssociatedResource]
@@ -351,7 +365,7 @@ func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string,
 		}
 		if existingVPC != subnetVPC {
 			log.Warn("Subnets under SubnetSet is from different VPCs", "vpc1", existingVPC, "vpc2", subnetVPC)
-			return false, nil
+			return true, fmt.Errorf("Subnets under SubnetSet %s/%s are from different VPCs", ns, subnetSet)
 		}
 	}
 	return true, nil

@@ -172,6 +172,26 @@ func TestSubnetSetValidator(t *testing.T) {
 			},
 		},
 	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-public",
+			Namespace:   "ns-accessmode",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-accessmode:subnet-public"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-private",
+			Namespace:   "ns-accessmode",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-accessmode:subnet-private"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+		},
+	})
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "default", VPCID: "ns-1"}}
@@ -275,6 +295,38 @@ func TestSubnetSetValidator(t *testing.T) {
 			},
 			user:      "fake-user",
 			isAllowed: false,
+		},
+		{
+			name: "Create SubnetSet with different AccessModes",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-accessmode",
+					Namespace: "ns-accessmode",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-public", "subnet-private"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
+			msg:       "Subnets in SubnetSet ns-accessmode/subnetset-accessmode must have the same AccessMode, found different AccessModes: [Public, Private]",
+		},
+		{
+			name: "Create SubnetSet with same AccessMode",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-accessmode",
+					Namespace: "ns-accessmode",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-public"},
+				},
+			},
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
 			name: "Update SubnetSet with Subnets belong to 2 VPCs",
