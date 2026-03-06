@@ -498,3 +498,18 @@ func ValidateSubnetSize(client *nsx.Client, subnetSize int) (bool, string) {
 	}
 	return true, ""
 }
+
+func GetSubnetSetKind(subnetSet *v1alpha1.SubnetSet) string {
+	var defaultSubnetSetFor string
+	if value, ok := subnetSet.Labels[common.LabelDefaultNetwork]; ok {
+		defaultSubnetSetFor = value
+	} else if value, ok := subnetSet.Labels[common.LabelDefaultSubnetSet]; ok {
+		switch value {
+		case common.LabelDefaultPodSubnetSet:
+			defaultSubnetSetFor = common.DefaultPodNetwork
+		case common.LabelDefaultVMSubnetSet:
+			defaultSubnetSetFor = common.DefaultVMNetwork
+		}
+	}
+	return defaultSubnetSetFor
+}

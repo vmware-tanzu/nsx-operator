@@ -139,7 +139,11 @@ type MockSubnetPortServiceProvider struct {
 }
 
 func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort) {
-	return
+	args := m.Called(subnetPath)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).([]*model.VpcSubnetPort)
 }
 
 func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error) {

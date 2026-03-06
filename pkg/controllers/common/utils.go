@@ -13,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -79,8 +80,36 @@ func GetNSXSubnetsForSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.Subn
 	return subnets, nil
 }
 
-func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
+func getSubnetFromVPCNetworkConfiguration(vpcService servicecommon.VPCServiceProvider, ns string, defaultSubnetSetFor string) (sets.Set[string], error) {
+	subnetPaths := sets.New[string]()
+	vpcNetworkConfig, err := GetVpcNetworkConfig(vpcService, ns)
+	if err != nil {
+		return subnetPaths, err
+	}
+	for _, subnet := range vpcNetworkConfig.Spec.Subnets {
+		if defaultSubnetSetFor == servicecommon.DefaultPodNetwork && subnet.PodDefault {
+			subnetPaths.Insert(subnet.Path)
+		} else if defaultSubnetSetFor == servicecommon.DefaultVMNetwork && subnet.VMDefault {
+			subnetPaths.Insert(subnet.Path)
+		}
+	}
+	return subnetPaths, nil
+}
+
+// Get a Subnet with available IPs from the pre-created SubnetSet
+func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
 	var errList []error
+	defaultSubnetSetFor := util.GetSubnetSetKind(subnetSet)
+	subnetPathsFromConfig := sets.New[string]()
+	var err error
+	// Get default Subnets from VPCNetworkConfiguration CR
+	if len(defaultSubnetSetFor) > 0 {
+		subnetPathsFromConfig, err = getSubnetFromVPCNetworkConfiguration(vpcService, subnetSet.Namespace, defaultSubnetSetFor)
+		if err != nil {
+			log.Error(err, "Failed to get Subnet for default Network in VPCNetworkConfiguration")
+			return "", err
+		}
+	}
 	for _, subnetName := range *subnetSet.Spec.SubnetNames {
 		subnetCR := &v1alpha1.Subnet{}
 		if err := client.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetName}, subnetCR); err != nil {
@@ -93,6 +122,16 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 			log.Error(err, "Failed to get NSX Subnet for SubnetSet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace)
 			errList = append(errList, err)
 			continue
+		}
+		// For default network, race between wcpsvc and NSX Operator on removing Subnet from default SubnetSet
+		// may result in difference between Subnets in VPCNetworkConfiguration and default SubnetSet
+		// We should not allow new SubnetPort to be created on the Subnet already removed from VPCNetworkConfiguration
+		// but still exist in SubnetSet CR due to stale SubnetPorts
+		if len(defaultSubnetSetFor) > 0 {
+			if !subnetPathsFromConfig.Has(*nsxSubnet.Path) {
+				log.Info("Shared Subnet for default network is removed from VPCNetworkConfiguration, skipped", "Subnet", *nsxSubnet.Path)
+				continue
+			}
 		}
 		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet)
 		if err != nil {
@@ -138,12 +177,16 @@ func IsNamespaceInTepLessMode(client k8sclient.Client, namespace string) (bool, 
 	return networkInfo.VPCs[0].NetworkStack == v1alpha1.VLANBackedVPC, nil
 }
 
-func AllocateSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
+func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
 	if subnetSet.Spec.SubnetNames != nil {
 		// Use Read lock to allow SubnetPorts created parallelly on the pre-created SubnetSet
 		// and block the SubnetPort creation when the SubnetSet is updated
 		subnetSetLock := RLockSubnetSet(subnetSet.UID)
-		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, subnetService, subnetPortService)
+		// Retrieve the SubnetSet again to avoid it being updated before acquiring the lock
+		if err := apiReader.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name}, subnetSet); err != nil {
+			return "", &subnetSet.UID, subnetSetLock, err
+		}
+		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService)
 		return nsxSubnet, &subnetSet.UID, subnetSetLock, err
 	}
 	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created

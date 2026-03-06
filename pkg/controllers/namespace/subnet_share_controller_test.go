@@ -11,6 +11,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1566,6 +1567,8 @@ func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
 		subnetNames  []string
 		expectedErr  string
 		preparedFunc func()
+		expectClear  bool
+		expectSet    bool
 	}{
 		{
 			name:        "Create default SubnetSet",
@@ -1577,8 +1580,55 @@ func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
 			},
 		},
 		{
+			name:        "Delete default SubnetSet failure",
+			subnetNames: []string{},
+			expectSet:   true,
+			preparedFunc: func() {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					subnetSetList := list.(*v1alpha1.SubnetSetList)
+					subnetSetList.Items = append(subnetSetList.Items, v1alpha1.SubnetSet{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod-default",
+							Namespace: "ns-1",
+							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+						},
+						Spec: v1alpha1.SubnetSetSpec{
+							SubnetNames: &[]string{"subnet-1", "subnet-2"},
+						},
+					})
+					return nil
+				}).Times(5)
+				k8sClient.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("delete error")).Times(5)
+			},
+			expectedErr: "delete error",
+		},
+		{
+			name:        "Update default SubnetSet failure triggers setCondition",
+			subnetNames: []string{"subnet-new"},
+			expectSet:   true,
+			preparedFunc: func() {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+					subnetSetList := list.(*v1alpha1.SubnetSetList)
+					subnetSetList.Items = append(subnetSetList.Items, v1alpha1.SubnetSet{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod-default",
+							Namespace: "ns-1",
+							Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+						},
+						Spec: v1alpha1.SubnetSetSpec{
+							SubnetNames: &[]string{"subnet-1", "subnet-2"},
+						},
+					})
+					return nil
+				}).Times(5)
+				k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(fmt.Errorf("update error")).Times(5)
+			},
+			expectedErr: "update error",
+		},
+		{
 			name:        "Update default SubnetSet",
 			subnetNames: []string{"subnet-2", "subnet-3"},
+			expectClear: true,
 			preparedFunc: func() {
 				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 					subnetSetList := list.(*v1alpha1.SubnetSetList)
@@ -1668,6 +1718,14 @@ func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var clearCalled, setCalled bool
+			patches := gomonkey.ApplyFunc(clearSubnetSetFailureCondition, func(_ context.Context, _ client.Client, _ *v1alpha1.SubnetSet) {
+				clearCalled = true
+			})
+			patches.ApplyFunc(setSubnetSetCondition, func(_ context.Context, _ client.Client, _ *v1alpha1.SubnetSet, _ *v1alpha1.Condition) {
+				setCalled = true
+			})
+			defer patches.Reset()
 			r := createTestNamespaceReconciler(nil)
 			r.Client = k8sClient
 			tt.preparedFunc()
@@ -1678,7 +1736,122 @@ func TestUpdateDefaultSubnetSetWithSubnets(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+			if tt.expectClear {
+				assert.True(t, clearCalled, "Expected clearSubnetSetFailureCondition to be called")
+			}
+			if tt.expectSet {
+				assert.True(t, setCalled, "Expected setSubnetSetCondition to be called")
+			}
 		})
 	}
 
+}
+
+type fakeStatusWriter struct {
+	t           *testing.T
+	validateObj bool
+	expectObj   client.Object
+}
+
+func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	return nil
+}
+func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if writer.validateObj {
+		assert.Equal(writer.t, writer.expectObj, obj)
+	}
+	return nil
+}
+func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return nil
+}
+
+func TestSetSubnetSetCondition_Comprehensive(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	ctx := context.TODO()
+
+	newCond := &v1alpha1.Condition{
+		Type:    v1alpha1.UpdateFailure,
+		Status:  v1.ConditionTrue,
+		Reason:  "NewReason",
+		Message: "new message",
+	}
+
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-ss", Namespace: "default"},
+		Status: v1alpha1.SubnetSetStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:    v1alpha1.UpdateFailure,
+					Status:  v1.ConditionTrue,
+					Reason:  "OldReason",
+					Message: "old message",
+				},
+				{
+					Type:   "OtherCondition",
+					Status: v1.ConditionTrue,
+				},
+			},
+		},
+	}
+
+	fakewriter := fakeStatusWriter{
+		t:           t,
+		validateObj: true,
+		expectObj:   subnetSet,
+	}
+	k8sClient.EXPECT().Status().Return(fakewriter)
+	setSubnetSetCondition(ctx, k8sClient, subnetSet, newCond)
+	assert.Len(t, subnetSet.Status.Conditions, 2)
+	var updatedFound bool
+	for _, c := range subnetSet.Status.Conditions {
+		if c.Type == v1alpha1.UpdateFailure {
+			assert.Equal(t, "NewReason", c.Reason)
+			updatedFound = true
+		}
+	}
+	assert.True(t, updatedFound)
+}
+
+func TestClearSubnetSetFailureCondition(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	ctx := context.TODO()
+
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-ss", Namespace: "default"},
+	}
+
+	k8sClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Namespace: "default", Name: "test-ss"}, gomock.Any()).
+		DoAndReturn(func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
+			ss := obj.(*v1alpha1.SubnetSet)
+			ss.Status.Conditions = []v1alpha1.Condition{
+				{Type: v1alpha1.UpdateFailure, Status: v1.ConditionTrue},
+				{Type: "OtherCondition", Status: v1.ConditionTrue},
+			}
+			return nil
+		})
+
+	fakewriter := fakeStatusWriter{
+		t:           t,
+		validateObj: true,
+		expectObj: &v1alpha1.SubnetSet{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-ss", Namespace: "default"},
+			Status: v1alpha1.SubnetSetStatus{
+				Conditions: []v1alpha1.Condition{
+					{Type: "OtherCondition", Status: v1.ConditionTrue},
+				},
+			},
+		},
+	}
+
+	k8sClient.EXPECT().Status().Return(fakewriter)
+	clearSubnetSetFailureCondition(ctx, k8sClient, subnetSet)
+	assert.Len(t, subnetSet.Status.Conditions, 1)
+	assert.Equal(t, v1alpha1.ConditionType("OtherCondition"), subnetSet.Status.Conditions[0].Type)
 }

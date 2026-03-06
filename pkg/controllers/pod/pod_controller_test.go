@@ -527,6 +527,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 	subnetPath := "subnet-path-1"
 	r := &PodReconciler{
 		Client:            k8sClient,
+		APIReader:         k8sClient,
 		SubnetPortService: &subnetport.SubnetPortService{},
 		SubnetService:     &subnet.SubnetService{},
 	}
@@ -583,7 +584,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 						}, nil
 					})
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
 						return "", nil, nil, errors.New("failed to create subnet")
 					})
 				return patches
@@ -607,7 +608,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 						}, nil
 					})
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
 						return subnetPath, nil, nil, nil
 					})
 				return patches
@@ -634,9 +635,10 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 						}, nil
 					})
 				patches.ApplyFunc(common.GetSubnetFromSubnetSet,
-					func(client client.Client, subnetSet *v1alpha1.SubnetSet, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
+					func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
 						return subnetPath, nil
 					})
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				return patches
 			},
 			expectedSubnetPath: subnetPath,
@@ -846,6 +848,10 @@ type MockManager struct {
 }
 
 func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetAPIReader() client.Reader {
 	return m.client
 }
 

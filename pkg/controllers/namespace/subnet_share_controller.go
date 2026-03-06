@@ -2,8 +2,10 @@ package namespace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -145,7 +147,16 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 				// Delete the default SubnetSet if it is created with pre-created Subnets
 				if subnetSetCR.Spec.SubnetNames != nil {
 					log.Debug("Delete default SubnetSet", "Name", name, "Namespace", ns)
-					return r.Client.Delete(ctx, subnetSetCR)
+					err := r.Client.Delete(ctx, subnetSetCR)
+					if err != nil {
+						setSubnetSetCondition(ctx, r.Client, subnetSetCR, &v1alpha1.Condition{
+							Type:    v1alpha1.UpdateFailure,
+							Status:  v1.ConditionTrue,
+							Reason:  "SubnetNamesUpdateFailure",
+							Message: err.Error(),
+						})
+					}
+					return err
 				}
 				// Do nothing if the default SubnetSet is created with auto-created Subnets
 				log.Debug("Default SubnetSet with auto-created Subnets exists", "Name", name, "Namespace", ns)
@@ -159,7 +170,22 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 			if !nsxutil.CompareArraysWithoutOrder(*subnetSetCR.Spec.SubnetNames, subnetNames) {
 				subnetSetCR.Spec.SubnetNames = &subnetNames
 				log.Debug("Update default SubnetSet with shared Subnets", "Name", name, "Namespace", ns, "subnetNames", subnetNames)
-				return r.Client.Update(ctx, subnetSetCR)
+				err := r.Client.Update(ctx, subnetSetCR)
+				if err != nil {
+					setSubnetSetCondition(ctx, r.Client, subnetSetCR, &v1alpha1.Condition{
+						Type:    v1alpha1.UpdateFailure,
+						Status:  v1.ConditionTrue,
+						Reason:  "SubnetNamesUpdateFailure",
+						Message: err.Error(),
+					})
+					return err
+				} else {
+					// If update succeeds, check if it is needed to clear the previous update failure condition
+					clearSubnetSetFailureCondition(ctx, r.Client, subnetSetCR)
+				}
+			} else {
+				// If no update is needed any more, check if it is needed to clear the previous update failure condition
+				clearSubnetSetFailureCondition(ctx, r.Client, subnetSetCR)
 			}
 			return nil
 		}
@@ -189,6 +215,69 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSubnets(name string, sub
 	return nil
 }
 
+func clearSubnetSetFailureCondition(ctx context.Context, kubeClient client.Client, subnetSet *v1alpha1.SubnetSet) {
+	retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := kubeClient.Get(ctx, types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name}, subnetSet); err != nil {
+			return err
+		}
+		updatedConditions := make([]v1alpha1.Condition, 0)
+		updated := false
+		for i := range subnetSet.Status.Conditions {
+			cond := subnetSet.Status.Conditions[i]
+			if cond.Type == v1alpha1.UpdateFailure {
+				updated = true
+			} else {
+				updatedConditions = append(updatedConditions, cond)
+			}
+		}
+		if updated {
+			subnetSet.Status.Conditions = updatedConditions
+			if err := kubeClient.Status().Update(ctx, subnetSet); err != nil {
+				log.Error(err, "Failed to clear SubnetSet failure condition", "Namespace", subnetSet.Namespace, "SubnetSet", subnetSet.Name)
+				return err
+			}
+			log.Info("Cleared SubnetSet failure condition", "Namespace", subnetSet.Namespace, "SubnetSet", subnetSet.Name)
+		}
+		return nil
+	})
+}
+
+func setSubnetSetCondition(ctx context.Context, kubeClient client.Client, subnetSet *v1alpha1.SubnetSet, condition *v1alpha1.Condition) {
+	updatedConditions := make([]v1alpha1.Condition, 0)
+	existingConditions := subnetSet.Status.Conditions
+	var extCondition *v1alpha1.Condition
+	for i := range existingConditions {
+		cond := subnetSet.Status.Conditions[i]
+		if cond.Type == condition.Type {
+			extCondition = &cond
+		} else {
+			updatedConditions = append(updatedConditions, cond)
+		}
+	}
+	// Return if the failure (reason/message) is already added on SubnetSet condition.
+	if extCondition != nil && subnetSetConditionEquals(*extCondition, *condition) {
+		return
+	}
+	updatedConditions = append(updatedConditions, v1alpha1.Condition{
+		Type:               condition.Type,
+		Status:             condition.Status,
+		Reason:             condition.Reason,
+		Message:            condition.Message,
+		LastTransitionTime: metav1.Now(),
+	})
+	subnetSet.Status.Conditions = updatedConditions
+	if err := kubeClient.Status().Update(ctx, subnetSet, &client.SubResourceUpdateOptions{}); err != nil {
+		log.Error(err, "Failed to update SubnetSet status", "Namespace", subnetSet.Namespace, "SubnetSet", subnetSet.Name)
+		return
+	}
+	log.Info("Updated SubnetSet condition", "Namespace", subnetSet.Namespace, "SubnetSet", subnetSet.Name, "status", condition.Status, "reason", condition.Reason, "message", condition.Message)
+}
+
+func subnetSetConditionEquals(old, new v1alpha1.Condition) bool {
+	return old.Type == new.Type && old.Status == new.Status &&
+		old.Reason == new.Reason && old.Message == new.Message
+}
+
 func (r *NamespaceReconciler) updateDefaultSubnetSetWithSpecifiedSubnets(sharedSubnets []v1alpha1.SharedSubnet, existingSharedSubnets map[string]*v1alpha1.Subnet, ns string) error {
 	var podDefaultSubnets, vmDefaultSubnets []string
 	for _, sharedSubnet := range sharedSubnets {
@@ -211,11 +300,15 @@ func (r *NamespaceReconciler) updateDefaultSubnetSetWithSpecifiedSubnets(sharedS
 		}
 	}
 	// create or update subnetset
+	var errList []error
 	if err := r.updateDefaultSubnetSetWithSubnets(servicecommon.DefaultPodSubnetSet, servicecommon.DefaultPodNetwork, ns, podDefaultSubnets); err != nil {
-		return err
+		errList = append(errList, err)
 	}
 	if err := r.updateDefaultSubnetSetWithSubnets(servicecommon.DefaultVMSubnetSet, servicecommon.DefaultVMNetwork, ns, vmDefaultSubnets); err != nil {
-		return err
+		errList = append(errList, err)
+	}
+	if len(errList) > 0 {
+		return errors.Join(errList...)
 	}
 	return nil
 }

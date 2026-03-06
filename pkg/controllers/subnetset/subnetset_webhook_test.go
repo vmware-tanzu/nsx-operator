@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -178,7 +179,7 @@ func TestSubnetSetValidator(t *testing.T) {
 	defer patches.Reset()
 
 	patches.ApplyPrivateMethod(reflect.TypeOf(validator), "validateRemovedSubnets",
-		func(_ *SubnetSetValidator, _ context.Context, _ string, _ string, subnetNames []string) (bool, error) {
+		func(_ *SubnetSetValidator, _ context.Context, _ *v1alpha1.SubnetSet, subnetNames []string) (bool, error) {
 			if len(subnetNames) > 0 && subnetNames[0] == "subnet-2" {
 				return false, nil
 			}
@@ -355,14 +356,6 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:            "fake-user",
 			isAllowed:       false,
 			msg:             "SubnetSet ns-1/subnetset-1 with stale SubnetPorts cannot be deleted",
-			accessModeCheck: true,
-		},
-		{
-			name:            "Delete SubnetSet with stale SubnetPort by nsx-operator",
-			op:              admissionv1.Delete,
-			oldSubnetSet:    subnetSetWithStalePorts,
-			user:            NSXOperatorSA,
-			isAllowed:       true,
 			accessModeCheck: true,
 		},
 		{
@@ -627,6 +620,12 @@ func TestValidateRemovedSubnets(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 
+	subnetset := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-subnetset",
+			Namespace: "ns-1",
+		},
+	}
 	ns := "ns-1"
 	subnetsetName := "test-subnetset"
 	subnetName := "subnet-1"
@@ -722,7 +721,7 @@ func TestValidateRemovedSubnets(t *testing.T) {
 				subnetService:     mockSubnetSvc,
 				subnetPortService: mockPortSvc,
 			}
-			got, err := validator.validateRemovedSubnets(context.TODO(), ns, subnetsetName, tt.subnetNames)
+			got, err := validator.validateRemovedSubnets(context.TODO(), subnetset, tt.subnetNames)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -731,6 +730,94 @@ func TestValidateRemovedSubnets(t *testing.T) {
 			}
 			mockSubnetSvc.AssertExpectations(t)
 			mockPortSvc.AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetSubnetPortsID(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	type testCase struct {
+		name            string
+		subnetSet       *v1alpha1.SubnetSet
+		existingObjects []runtime.Object
+		expectedUIDs    []types.UID
+	}
+
+	tests := []testCase{
+		{
+			name: "Pod Default SubnetSet",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-default",
+					Namespace: "default",
+					Labels: map[string]string{
+						common.LabelDefaultNetwork: common.DefaultPodNetwork,
+					},
+				},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.SubnetPort{
+					ObjectMeta: metav1.ObjectMeta{Name: "p1", UID: "uid-port", Namespace: "default"},
+					Spec:       v1alpha1.SubnetPortSpec{SubnetSet: "pod-default"},
+				},
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: "pod-1", UID: "uid-pod", Namespace: "default"},
+				},
+			},
+			expectedUIDs: []types.UID{"uid-port", "uid-pod"},
+		},
+		{
+			name: "VM Default SubnetSet",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vm-default",
+					Namespace: "default",
+					Labels: map[string]string{
+						common.LabelDefaultSubnetSet: common.LabelDefaultVMSubnetSet,
+					},
+				},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.SubnetPort{
+					ObjectMeta: metav1.ObjectMeta{Name: "orphan", UID: "uid-orphan", Namespace: "default"},
+					Spec:       v1alpha1.SubnetPortSpec{SubnetSet: "", Subnet: ""},
+				},
+			},
+			expectedUIDs: []types.UID{"uid-orphan"},
+		},
+		{
+			name: "Normal SubnetSet",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "set-a", Namespace: "ns-1"},
+			},
+			existingObjects: []runtime.Object{
+				&v1alpha1.SubnetPort{
+					ObjectMeta: metav1.ObjectMeta{Name: "p1", UID: "uid-ns1", Namespace: "ns-1"},
+					Spec:       v1alpha1.SubnetPortSpec{SubnetSet: "set-a"},
+				},
+				&v1alpha1.SubnetPort{
+					ObjectMeta: metav1.ObjectMeta{Name: "p2", UID: "uid-ns2", Namespace: "ns-2"},
+					Spec:       v1alpha1.SubnetPortSpec{SubnetSet: "set-a"},
+				},
+			},
+			expectedUIDs: []types.UID{"uid-ns1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(tc.existingObjects...).
+				Build()
+
+			v := &SubnetSetValidator{Client: client}
+			results, err := v.getSubnetPortsID(context.Background(), tc.subnetSet)
+			assert.NoError(t, err)
+			assert.ElementsMatch(t, tc.expectedUIDs, results)
 		})
 	}
 }

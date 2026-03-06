@@ -44,8 +44,8 @@ var (
 // PodReconciler reconciles a Pod object
 type PodReconciler struct {
 	client.Client
-	Scheme *apimachineryruntime.Scheme
-
+	Scheme            *apimachineryruntime.Scheme
+	APIReader         client.Reader
 	SubnetPortService *subnetport.SubnetPortService
 	SubnetService     servicecommon.SubnetServiceProvider
 	VPCService        servicecommon.VPCServiceProvider
@@ -298,6 +298,7 @@ func (r *PodReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) erro
 func NewPodReconciler(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPortService, subnetService servicecommon.SubnetServiceProvider, vpcService servicecommon.VPCServiceProvider, nodeService servicecommon.NodeServiceReader) *PodReconciler {
 	podPortReconciler := &PodReconciler{
 		Client:            mgr.GetClient(),
+		APIReader:         mgr.GetAPIReader(),
 		Scheme:            mgr.GetScheme(),
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
@@ -394,7 +395,7 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 			return true, subnetPath, subnetSetUID, subnetSetLock, nil
 		}
 	}
-	subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
+	subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
 	if err != nil {
 		return false, subnetPath, subnetSetUID, subnetSetLock, err
 	}
