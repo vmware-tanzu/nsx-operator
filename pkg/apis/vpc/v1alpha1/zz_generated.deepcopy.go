@@ -635,6 +635,20 @@ func (in *SecurityPolicyRule) DeepCopyInto(out *SecurityPolicyRule) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.From != nil {
+		in, out := &in.From, &out.From
+		*out = make([]SecurityPolicyPeer, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.To != nil {
+		in, out := &in.To, &out.To
+		*out = make([]SecurityPolicyPeer, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.Ports != nil {
 		in, out := &in.Ports, &out.Ports
 		*out = make([]SecurityPolicyPort, len(*in))
