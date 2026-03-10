@@ -266,7 +266,7 @@ func (service *SecurityPolicyService) populateRulesForAllowSection(spAllow *v1al
 		rule := &v1alpha1.SecurityPolicyRule{
 			Action:    &actionAllow,
 			Direction: &directionIn,
-			Sources:   []v1alpha1.SecurityPolicyPeer{},
+			From:      []v1alpha1.SecurityPolicyPeer{},
 		}
 		for _, p := range ingress.From {
 			npPeer := p
@@ -274,7 +274,7 @@ func (service *SecurityPolicyService) populateRulesForAllowSection(spAllow *v1al
 			if err != nil {
 				return err
 			}
-			rule.Sources = append(rule.Sources, *spPeer)
+			rule.From = append(rule.From, *spPeer)
 		}
 		for _, p := range ingress.Ports {
 			npPort := p
@@ -289,9 +289,9 @@ func (service *SecurityPolicyService) populateRulesForAllowSection(spAllow *v1al
 
 	for _, egress := range networkPolicy.Spec.Egress {
 		rule := &v1alpha1.SecurityPolicyRule{
-			Action:       &actionAllow,
-			Direction:    &directionOut,
-			Destinations: []v1alpha1.SecurityPolicyPeer{},
+			Action:    &actionAllow,
+			Direction: &directionOut,
+			To:        []v1alpha1.SecurityPolicyPeer{},
 		}
 		for _, p := range egress.To {
 			npPeer := p
@@ -299,7 +299,7 @@ func (service *SecurityPolicyService) populateRulesForAllowSection(spAllow *v1al
 			if err != nil {
 				return err
 			}
-			rule.Destinations = append(rule.Destinations, *spPeer)
+			rule.To = append(rule.To, *spPeer)
 		}
 		for _, p := range egress.Ports {
 			npPort := p
@@ -490,6 +490,9 @@ func (service *SecurityPolicyService) getFinalVPCShareResources(obj *v1alpha1.Se
 func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alpha1.SecurityPolicy, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool) (*model.SecurityPolicy, []model.Group, []model.Share, []model.Group, bool, error) {
 	securityPolicyStore, ruleStore, groupStore := service.getSecurityPolicyResourceStores()
 
+	// Normalize rule peers so that deprecated Sources/Destinations are migrated into From/To
+	normalizeSecurityPolicyRules(obj)
+
 	nsxSecurityPolicy, nsxGroups, nsxGroupShares, err := service.buildSecurityPolicy(obj, createdFor, vpcInfo, isDefaultProject)
 	if err != nil {
 		log.Error(err, "Failed to build SecurityPolicy from CR", "securityPolicyUID", obj.UID)
@@ -527,6 +530,31 @@ func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alph
 		return finalSecurityPolicy, finalGroups, finalShares, finalShareGroups, isChanged, nil
 	} else {
 		return finalSecurityPolicy, finalGroups, nil, nil, isChanged, nil
+	}
+}
+
+// normalizeRulePeers migrates deprecated Sources/Destinations into From/To and then clears
+// the deprecated fields so that rule hashing and downstream logic only use From/To.
+// For upgrade: if only Sources/Destinations are set, they are copied to From/To.
+// For greenfield: only From/To are expected.
+// If both are set, From/To take priority.
+//
+//nolint:staticcheck // SA1019: must touch deprecated Sources/Destinations for upgrade compatibility.
+func normalizeRulePeers(rule *v1alpha1.SecurityPolicyRule) {
+	if len(rule.From) == 0 && len(rule.Sources) > 0 { //nolint:staticcheck
+		rule.From = rule.Sources //nolint:staticcheck
+	}
+	rule.Sources = nil                                   //nolint:staticcheck
+	if len(rule.To) == 0 && len(rule.Destinations) > 0 { //nolint:staticcheck
+		rule.To = rule.Destinations //nolint:staticcheck
+	}
+	rule.Destinations = nil //nolint:staticcheck
+}
+
+// normalizeSecurityPolicyRules applies normalizeRulePeers to all rules in the policy.
+func normalizeSecurityPolicyRules(obj *v1alpha1.SecurityPolicy) {
+	for i := range obj.Spec.Rules {
+		normalizeRulePeers(&obj.Spec.Rules[i])
 	}
 }
 

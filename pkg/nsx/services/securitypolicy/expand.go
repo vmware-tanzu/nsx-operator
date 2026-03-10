@@ -316,8 +316,12 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 			}
 		}
 	} else if ruleDirection == "OUT" {
-		if len(rule.Destinations) > 0 {
-			for _, target := range rule.Destinations {
+		outPeers := rule.To
+		if len(outPeers) == 0 {
+			outPeers = rule.Destinations //nolint:staticcheck
+		}
+		if len(outPeers) > 0 {
+			for _, target := range outPeers {
 				var namespaceSelectors []client.ListOptions // ResolveNamespace may return multiple namespaces
 				var labelSelector client.ListOptions
 				var namespaceSelector client.ListOptions
