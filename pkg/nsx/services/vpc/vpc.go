@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
-	"unsafe"
 
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -54,8 +52,9 @@ var (
 
 type VPCService struct {
 	common.Service
-	VpcStore *VPCStore
-	LbsStore *LBSStore
+	VpcStore            *VPCStore
+	LbsStore            *LBSStore
+	defaultProjectCache sync.Map // cache for IsDefaultNSXProject results, key: "orgID/projectID", value: bool
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -1168,27 +1167,29 @@ func IsPreCreatedVPC(nc *v1alpha1.VPCNetworkConfiguration) bool {
 	return nc.Spec.VPC != ""
 }
 
-func getProjectDefault(p *model.Project) *bool {
-	v := reflect.ValueOf(p).Elem()
-	f := v.FieldByName("_Default")
-	if !f.IsValid() {
-		return nil
+// IsDefaultNSXProject checks if the given project is a NSX default project.
+// It queries the NSX Policy API directly and reads the "default" field from the
+// JSON response, bypassing the Go SDK struct deserialization which cannot populate
+// the unexported model.Project._Default field (CanSet=false for unexported fields).
+// Results are cached since a project's default status does not change at runtime.
+func (s *VPCService) IsDefaultNSXProject(orgID, projectID string) (bool, error) {
+	cacheKey := orgID + "/" + projectID
+	if val, ok := s.defaultProjectCache.Load(cacheKey); ok {
+		return val.(bool), nil
 	}
 
-	ptr := unsafe.Pointer(f.UnsafeAddr())
-	return *(**bool)(ptr) // read *bool safely
-}
-
-// IsDefaultNSXProject checks if the given project is a default project
-func (s *VPCService) IsDefaultNSXProject(orgID, projectID string) (bool, error) {
-	proj, err := s.NSXClient.ProjectClient.Get(orgID, projectID, nil)
+	url := fmt.Sprintf("policy/api/v1/orgs/%s/projects/%s", orgID, projectID)
+	resp, err := s.NSXClient.Cluster.HttpGet(url)
 	if err != nil {
-		log.Error(err, "Failed to get project", "ProjectID", projectID)
+		log.Error(err, "Failed to get project from NSX", "OrgID", orgID, "ProjectID", projectID)
 		return false, err
 	}
-	defaultVal := getProjectDefault(&proj)
-	if defaultVal != nil && *defaultVal {
-		return true, nil
+	isDefault := false
+	if defaultVal, ok := resp["default"]; ok {
+		if boolVal, ok := defaultVal.(bool); ok {
+			isDefault = boolVal
+		}
 	}
-	return false, nil
+	s.defaultProjectCache.Store(cacheKey, isDefault)
+	return isDefault, nil
 }
