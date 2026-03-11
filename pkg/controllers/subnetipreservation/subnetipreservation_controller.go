@@ -43,10 +43,62 @@ type Reconciler struct {
 	IPReservationService *subnetipreservation.IPReservationService
 	SubnetService        servicecommon.SubnetServiceProvider
 	StatusUpdater        common.StatusUpdater
+	restoreMode          bool
 }
 
 func (r *Reconciler) RestoreReconcile() error {
+	// Only resotre IPReservation if Subnet StaticIPReservation is supported
+	if !r.IPReservationService.NSXClient.NSXCheckVersion(nsx.StaticIPReservation) {
+		return nil
+	}
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get SubnetIPReservation restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	r.restoreMode = true
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if result.Requeue || err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore SubnetIPReservation %s, error: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return fmt.Errorf("errors found in SubnetIPReservation restore: %v", errorList)
+	}
 	return nil
+}
+
+func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
+	restoreList := []types.NamespacedName{}
+	subnetIPReservationList := &v1alpha1.SubnetIPReservationList{}
+	if err := r.Client.List(context.TODO(), subnetIPReservationList); err != nil {
+		return restoreList, err
+	}
+	for _, ipReservation := range subnetIPReservationList.Items {
+		// Skip the SubnetIPReservation which is not created
+		if len(ipReservation.Status.IPs) == 0 {
+			continue
+		}
+		var reservedIPs []string
+		// Search for both dynamic and static ipreservation store for the NSX IPReservation
+		dynamicIPReservations := r.IPReservationService.DynamicIPReservationStore.GetByIndex(servicecommon.TagScopeSubnetIPReservationCRUID, string(ipReservation.UID))
+		if len(dynamicIPReservations) > 0 {
+			reservedIPs = dynamicIPReservations[0].Ips
+		} else {
+			staticIPReservations := r.IPReservationService.StaticIPReservationStore.GetByIndex(servicecommon.TagScopeSubnetIPReservationCRUID, string(ipReservation.UID))
+			if len(staticIPReservations) > 0 {
+				reservedIPs = staticIPReservations[0].ReservedIps
+			}
+		}
+		// Skip the SubnetIPReservation if the existing reserved ip is the same as CR status
+		if reflect.DeepEqual(reservedIPs, ipReservation.Status.IPs) {
+			continue
+		}
+		restoreList = append(restoreList, types.NamespacedName{Namespace: ipReservation.Namespace, Name: ipReservation.Name})
+	}
+	return restoreList, nil
 }
 
 func NewReconciler(mgr ctrl.Manager, ipReservationService *subnetipreservation.IPReservationService, subnetService servicecommon.SubnetServiceProvider) *Reconciler {
@@ -195,14 +247,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	// Create or update SubnetIPReservation
-	nsxIPReservation, err := r.IPReservationService.GetOrCreateSubnetIPReservation(ipReservationCR, *nsxSubnet.Path)
+	ips, err := r.IPReservationService.CreateOrUpdateSubnetIPReservation(ipReservationCR, *nsxSubnet.Path, r.restoreMode)
 	if err != nil {
 		log.Error(err, "Failed to get or create NSX SubnetIPReservations")
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, "Failed to get or create NSX SubnetIPReservations", setReadyStatusFalse)
 		return common.ResultRequeue, nil
 	}
 
-	ipReservationCR.Status.IPs = nsxIPReservation.Ips
+	ipReservationCR.Status.IPs = ips
 	// Update SubnetIPReservation with ready condition
 	r.StatusUpdater.UpdateSuccess(ctx, ipReservationCR, setReadyStatusTrue)
 	return common.ResultNormal, nil

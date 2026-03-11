@@ -141,6 +141,7 @@ _Appears in:_
 | `AutoSnatEnabled` |  |
 | `ExternalIPBlocksConfigured` |  |
 | `DeletionFailed` |  |
+| `UpdateFailed` |  |
 
 
 #### ConnectivityState
@@ -850,7 +851,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from.<br />The Subnet needs to have static IP allocation activated. |  | Required: \{\} <br /> |
-| `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br />Required: \{\} <br /> |
+| `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br /> |
+| `reservedIPs` _string array_ | ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,<br />IP Address range and CIDRs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"] |  | MinItems: 1 <br /> |
 
 
 #### SubnetIPReservationStatus
@@ -867,7 +869,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `conditions` _[Condition](#condition) array_ | Conditions described if the SubnetIPReservation is configured on NSX or not.<br />Condition type "" |  |  |
-| `ips` _string array_ | List of reserved IPs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
+| `ips` _string array_ | List of reserved IPs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"] |  |  |
 
 
 #### SubnetInfo

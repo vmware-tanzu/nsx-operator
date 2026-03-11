@@ -10,10 +10,30 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-func (s *IPReservationService) buildIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) *model.DynamicIpAddressReservation {
+func (s *IPReservationService) buildDynamicIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) *model.DynamicIpAddressReservation {
 	tags := util.BuildBasicTags(getCluster(s), ipReservation, "")
 	nsxIPReservation := &model.DynamicIpAddressReservation{
 		NumberOfIps: common.Int64(int64(ipReservation.Spec.NumberOfIPs)),
+		Tags:        tags,
+		Id:          common.String(s.buildIPReservationID(ipReservation, subnetPath)),
+		DisplayName: common.String(ipReservation.Name),
+	}
+	return nsxIPReservation
+}
+
+func (s *IPReservationService) buildStaticIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) *model.StaticIpAddressReservation {
+	tags := util.BuildBasicTags(getCluster(s), ipReservation, "")
+	var reservedIPs []string
+	// If ReservedIPs is not set, it implies this is a restore call for SubnetIPReservation with numberOfIPs
+	// Use IPs in CR status to build the NSX Static IPReservation
+	if len(ipReservation.Spec.ReservedIPs) == 0 {
+		reservedIPs = ipReservation.Status.IPs
+		log.Debug("Build Static IPReservation for restored SubnetIPReservation with IPs", "IPs", ipReservation.Status.IPs)
+	} else {
+		reservedIPs = ipReservation.Spec.ReservedIPs
+	}
+	nsxIPReservation := &model.StaticIpAddressReservation{
+		ReservedIps: reservedIPs,
 		Tags:        tags,
 		Id:          common.String(s.buildIPReservationID(ipReservation, subnetPath)),
 		DisplayName: common.String(ipReservation.Name),
@@ -35,6 +55,6 @@ func (s *IPReservationService) buildIPReservationID(ipReservation *v1alpha1.Subn
 		UID:  types.UID(subnetPath),
 	}
 	return common.BuildUniqueIDWithRandomUUID(idCR, util.GenerateIDByObject, func(id string) bool {
-		return s.IPReservationStore.GetByKey(id) != nil
+		return s.DynamicIPReservationStore.GetByKey(id) != nil || s.StaticIPReservationStore.GetByKey(id) != nil
 	})
 }
