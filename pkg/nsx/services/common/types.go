@@ -189,6 +189,7 @@ var (
 	ResourceTypeChildVpcSubnet                   = "ChildVpcSubnet"
 	ResourceTypeChildVpcSubnetPort               = "ChildVpcSubnetPort"
 	ResourceTypeChildDynamicIpAddressReservation = "ChildDynamicIpAddressReservation"
+	ResourceTypeChildStaticIpAddressReservation  = "ChildStaticIpAddressReservation"
 	ResourceTypeChildResourceReference           = "ChildResourceReference"
 	ResourceTypeTlsCertificate                   = "TlsCertificate"
 	ResourceTypeLBHttpProfile                    = "LBHttpProfile"
@@ -202,6 +203,7 @@ var (
 	ResourceTypeLBPool                           = "LBPool"
 	ResourceTypeSubnetConnectionBindingMap       = "SubnetConnectionBindingMap"
 	ResourceTypeDynamicIpAddressReservation      = "DynamicIpAddressReservation"
+	ResourceTypeStaticIpAddressReservation       = "StaticIpAddressReservation"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"

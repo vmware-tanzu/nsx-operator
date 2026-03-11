@@ -8,19 +8,27 @@ import (
 )
 
 // SubnetIPReservationSpec defines the desired state of SubnetIPReservation
+// +kubebuilder:validation:XValidation:rule="!has(self.numberOfIPs) || !has(self.reservedIPs)",message="Only one of numberOfIPs or reservedIPs can be specified"
+// +kubebuilder:validation:XValidation:rule="has(self.numberOfIPs) || has(self.reservedIPs)",message="One of numberOfIPs or reservedIPs must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.reservedIPs) || has(self.reservedIPs)",message="reservedIPs cannot be unset once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.numberOfIPs) || has(self.numberOfIPs)",message="numberOfIPs cannot be unset once set"
 type SubnetIPReservationSpec struct {
 	// Subnet specifies the Subnet to reserve IPs from.
 	// The Subnet needs to have static IP allocation activated.
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Subnet is immutable"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="subnet is immutable"
 	Subnet string `json:"subnet"`
 
 	// NumberOfIPs defines number of IPs requested to be reserved.
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="NumberOfIPs is immutable"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="numberOfIPs is immutable"
 	// +kubebuilder:validation:Maximum:=100
 	// +kubebuilder:validation:Minimum:=1
-	NumberOfIPs int `json:"numberOfIPs"`
+	NumberOfIPs int `json:"numberOfIPs,omitempty"`
+
+	// ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,
+	// IP Address range and CIDRs.
+	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"]
+	ReservedIPs []string `json:"reservedIPs,omitempty"`
 }
 
 // SubnetIPReservationStatus defines the observed state of SubnetIPReservation
@@ -29,7 +37,7 @@ type SubnetIPReservationStatus struct {
 	// Condition type ""
 	Conditions []Condition `json:"conditions,omitempty"`
 	// List of reserved IPs.
-	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"]
+	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"]
 	IPs []string `json:"ips,omitempty"`
 }
 

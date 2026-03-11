@@ -58,6 +58,8 @@ func getNSXResourcePath[T any](obj T) *string {
 		return v.Path
 	case *model.DynamicIpAddressReservation:
 		return v.Path
+	case *model.StaticIpAddressReservation:
+		return v.Path
 	default:
 		log.Error(nil, "Get NSX resource path", "unknown NSX resource type", v)
 		return nil
@@ -99,6 +101,8 @@ func getNSXResourceId[T any](obj T) *string {
 	case *model.Domain:
 		return v.Id
 	case *model.DynamicIpAddressReservation:
+		return v.Id
+	case *model.StaticIpAddressReservation:
 		return v.Id
 	default:
 		log.Error(nil, "Get NSX resource ID", "unknown NSX resource type", v)
@@ -142,6 +146,8 @@ func getNSXResourceName[T any](obj T) *string {
 		return v.DisplayName
 	case *model.DynamicIpAddressReservation:
 		return v.DisplayName
+	case *model.StaticIpAddressReservation:
+		return v.DisplayName
 	default:
 		log.Error(nil, "Get NSX resource name", "unknown NSX resource type", v)
 		return nil
@@ -182,6 +188,8 @@ func leafWrapper[T any](obj T) (*data.StructValue, error) {
 		return WrapDomain(v)
 	case *model.DynamicIpAddressReservation:
 		return WrapDynamicIpAddressReservation(v)
+	case *model.StaticIpAddressReservation:
+		return WrapStaticIpAddressReservation(v)
 	default:
 		log.Error(nil, "Leaf wrapper", "unknown NSX resource type", v)
 		return nil, fmt.Errorf("unsupported NSX resource type %v", v)
@@ -270,6 +278,7 @@ var (
 	PolicyResourceSecurityPolicy                                                                       = PolicyResourceType{ModelKey: ResourceTypeSecurityPolicy, PathKey: "security-policies"}
 	PolicyResourceTlsCertificate                                                                       = PolicyResourceType{ModelKey: ResourceTypeTlsCertificate, PathKey: "certificates"}
 	PolicyResourceVpcDynamicIPReservation                                                              = PolicyResourceType{ModelKey: ResourceTypeDynamicIpAddressReservation, PathKey: "dynamic-ip-reservations"}
+	PolicyResourceVpcStaticIPReservation                                                               = PolicyResourceType{ModelKey: ResourceTypeStaticIpAddressReservation, PathKey: "static-ip-reservations"}
 	PolicyPathVpcSubnet                         PolicyResourcePath[*model.VpcSubnet]                   = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet}
 	PolicyPathVpcSubnetConnectionBindingMap     PolicyResourcePath[*model.SubnetConnectionBindingMap]  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetConnectionBindingMap}
 	PolicyPathVpcSubnetPort                     PolicyResourcePath[*model.VpcSubnetPort]               = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcSubnetPort}
@@ -292,6 +301,7 @@ var (
 	PolicyPathInfraLBService                    PolicyResourcePath[*model.LBService]                   = []PolicyResourceType{PolicyResourceInfra, PolicyResourceInfraLBService}
 	PolicyPathInfraDomain                       PolicyResourcePath[*model.Domain]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain}
 	PolicyPathVpcSubnetDynamicIPReservation     PolicyResourcePath[*model.DynamicIpAddressReservation] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcDynamicIPReservation}
+	PolicyPathVpcSubnetStaticIPReservation      PolicyResourcePath[*model.StaticIpAddressReservation]  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcStaticIPReservation}
 )
 
 type hNodeKey struct {
