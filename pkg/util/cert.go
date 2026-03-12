@@ -10,7 +10,9 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path"
@@ -19,6 +21,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 
@@ -29,6 +33,8 @@ var (
 	validatingWebhookConfiguration = "nsx-operator-validating-webhook-configuration"
 	namespace                      = "vmware-system-nsx"
 	certName                       = "nsx-operator-webhook-cert"
+	easCertName                    = "nsx-eas-cert"
+	easAPIServiceName              = "v1alpha1.eas.nsx.vmware.com"
 )
 
 // writeSecureFile writes data in the file at the given path with secure permissions
@@ -208,6 +214,188 @@ func GenerateWebhookCerts() error {
 		return err
 	}
 	return nil
+}
+
+func GenerateEasCerts() error {
+	var caPEM, serverCertPEM, serverKeyPEM *bytes.Buffer
+	// CA config
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return err
+	}
+	ca := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"broadcom.com"},
+			CommonName:   "eas-ca",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(1, 0, 0),
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	// CA private key
+	caKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		log.Error(err, "Failed to generate CA private key")
+		return err
+	}
+
+	// Self-signed CA certificate
+	caBytes, err := x509.CreateCertificate(rand.Reader, ca, ca, &caKey.PublicKey, caKey)
+	if err != nil {
+		log.Error(err, "Failed to generate CA certificate")
+		return err
+	}
+
+	// PEM encode CA cert
+	caPEM = new(bytes.Buffer)
+	pem.Encode(caPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: caBytes,
+	})
+
+	dnsNames := []string{"nsx-eas", "nsx-eas.vmware-system-nsx", "nsx-eas.vmware-system-nsx.svc"}
+	commonName := "nsx-eas.vmware-system-nsx.svc"
+
+	serialNumber, err = rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return err
+	}
+	// server cert config
+	cert := &x509.Certificate{
+		DNSNames:     dnsNames,
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName:   commonName,
+			Organization: []string{"broadcom.com"},
+		},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().AddDate(1, 0, 0),
+		SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+
+	// server private key
+	serverKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		log.Error(err, "Failed to generate server key")
+		return err
+	}
+
+	// sign the server cert
+	serverCertBytes, err := x509.CreateCertificate(rand.Reader, cert, ca, &serverKey.PublicKey, caKey)
+	if err != nil {
+		log.Error(err, "Failed to sign server certificate")
+		return err
+	}
+
+	// PEM encode the server cert and key
+	serverCertPEM = new(bytes.Buffer)
+	pem.Encode(serverCertPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: serverCertBytes,
+	})
+
+	serverKeyPEM = new(bytes.Buffer)
+	pem.Encode(serverKeyPEM, &pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(serverKey),
+	})
+
+	cfg, err := GetConfig()
+	if err != nil {
+		log.Error(err, "Failed to get rest config")
+		return err
+	}
+	kubeClient := kubernetes.NewForConfigOrDie(cfg)
+	certSecret := &corev1.Secret{
+		TypeMeta: v1.TypeMeta{},
+		ObjectMeta: v1.ObjectMeta{
+			Namespace: namespace,
+			Name:      easCertName,
+		},
+		Data: map[string][]byte{
+			"tls.key": serverKeyPEM.Bytes(),
+			"tls.crt": serverCertPEM.Bytes(),
+		},
+	}
+	if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
+		return err != nil
+	}, func() error {
+		if _, err := kubeClient.CoreV1().Secrets(namespace).Create(context.TODO(), certSecret, v1.CreateOptions{}); err != nil {
+			if errors.IsAlreadyExists(err) {
+				existingSecret, err := kubeClient.CoreV1().Secrets(namespace).Get(context.TODO(), easCertName, v1.GetOptions{})
+				if err != nil {
+					return err
+				}
+				existingSecret.Data = certSecret.Data
+				_, err = kubeClient.CoreV1().Secrets(namespace).Update(context.TODO(), existingSecret, v1.UpdateOptions{})
+				if err != nil {
+					log.Error(err, "Failed to update secret", "name", easCertName)
+					return err
+				}
+				log.Info("Secret updated successfully", "name", easCertName)
+			} else {
+				log.Error(err, "Failed to create secret", "name", easCertName)
+				return err
+			}
+		}
+		dynamicClient, err := dynamic.NewForConfig(cfg)
+		if err != nil {
+			log.Error(err, "Failed to create dynamic client")
+			return err
+		}
+		if err = updateAPIServiceConfig(dynamicClient, caPEM); err != nil {
+			log.Error(err, "Failed to update APIService configuration", "name", easAPIServiceName)
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err = os.MkdirAll(config.EasCertDir, 0750); err != nil {
+		log.Error(err, "Failed to create directory", "Dir", config.EasCertDir)
+		return err
+	}
+	if err = writeSecureFile(path.Join(config.EasCertDir, "tls.crt"), certSecret.Data["tls.crt"], 0644); err != nil {
+		log.Error(err, "Failed to write tls cert", "Path", path.Join(config.EasCertDir, "tls.crt"))
+		return err
+	}
+	if err = writeSecureFile(path.Join(config.EasCertDir, "tls.key"), certSecret.Data["tls.key"], 0600); err != nil {
+		log.Error(err, "Failed to write tls key", "Path", path.Join(config.EasCertDir, "tls.key"))
+		return err
+	}
+	return nil
+}
+
+func updateAPIServiceConfig(dynamicClient dynamic.Interface, caCert *bytes.Buffer) error {
+	gvr := schema.GroupVersionResource{
+		Group:    "apiregistration.k8s.io",
+		Version:  "v1",
+		Resource: "apiservices",
+	}
+
+	apiService, err := dynamicClient.Resource(gvr).Get(context.TODO(), easAPIServiceName, v1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	spec, ok := apiService.Object["spec"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("failed to get spec from APIService %s", easAPIServiceName)
+	}
+
+	// Set caBundle and remove insecureSkipTLSVerify
+	spec["caBundle"] = base64.StdEncoding.EncodeToString(caCert.Bytes())
+	delete(spec, "insecureSkipTLSVerify")
+
+	_, err = dynamicClient.Resource(gvr).Update(context.TODO(), apiService, v1.UpdateOptions{})
+	return err
 }
 
 func updateWebhookConfig(kubeClient *kubernetes.Clientset, caCert *bytes.Buffer) error {

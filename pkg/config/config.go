@@ -29,6 +29,7 @@ const (
 	LicenseIntervalForDFW = 1800
 	defaultWebhookPort    = 9981
 	WebhookCertDir        = "/etc/nsx-operator/webhook-certs"
+	EasCertDir            = "/etc/nsx-operator/eas-certs"
 )
 
 var (
