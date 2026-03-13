@@ -91,12 +91,13 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 	subnetSize := int64(32)
 	scheme := runtime.NewScheme()
 	v1alpha1.AddToScheme(scheme)
-	k8sclient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha1.SubnetSet{
+	subnetSet := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "subnetset-1",
 			Namespace: "ns-1",
 		},
-	}).Build()
+	}
+	k8sclient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(subnetSet).Build()
 	patches := gomonkey.ApplyFunc(GetSubnetFromSubnetSet, func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
 		return expectedSubnetPath, nil
 	})
@@ -124,12 +125,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything).Return(true, nil)
 			},
 			expectedResult: expectedSubnetPath,
-			subnetSet: &v1alpha1.SubnetSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetset-1",
-					Namespace: "ns-1",
-				},
-			},
+			subnetSet:      subnetSet,
 		},
 		{
 			name: "ListVPCFailure",
@@ -140,12 +136,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				vsp.(*pkg_mock.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{})
 			},
 			expectedErr: "no VPC found",
-			subnetSet: &v1alpha1.SubnetSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetset-1",
-					Namespace: "ns-1",
-				},
-			},
+			subnetSet:   subnetSet,
 		},
 		{
 			name: "CreateSubnet",
@@ -178,6 +169,24 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				},
 				Spec: v1alpha1.SubnetSetSpec{
 					SubnetNames: &[]string{"subnet-1"},
+				},
+			},
+		},
+		{
+			name: "DHCPRelay SubnetSet",
+			prepareFunc: func(t *testing.T, vsp servicecommon.VPCServiceProvider, ssp servicecommon.SubnetServiceProvider, spsp servicecommon.SubnetPortServiceProvider) {
+			},
+			expectedErr: "Creating SubnetPort on DHCPRelay SubnetSet is not supported",
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-1"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay),
+					},
 				},
 			},
 		},
