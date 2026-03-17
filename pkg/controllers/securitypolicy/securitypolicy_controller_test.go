@@ -615,6 +615,7 @@ func TestReconcileSecurityPolicy(t *testing.T) {
 }
 
 func TestSecurityPolicyReconciler_listSecurityPolciyCRIDsForVPC(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	mockCtl := gomock.NewController(t)
 	defer mockCtl.Finish()
 	k8sClient := mock_client.NewMockClient(mockCtl)

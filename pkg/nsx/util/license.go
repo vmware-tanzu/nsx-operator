@@ -17,10 +17,11 @@ const (
 )
 
 var (
-	licenseMutex      sync.Mutex
-	licenseMap        = map[string]bool{}
-	FeaturesToCheck   = []string{}
-	FeatureLicenseMap = map[string][]string{
+	licenseMutex         sync.Mutex
+	licenseMap           = map[string]bool{}
+	hasVPCNamespacesFunc func() bool // set from cmd/main after mixed-mode init to avoid import cycle
+	FeaturesToCheck      = []string{}
+	FeatureLicenseMap    = map[string][]string{
 		FeatureContainer: {
 			LicenseContainerNetwork,
 			LicenseContainer,
@@ -29,7 +30,6 @@ var (
 		FeatureVPCSecurity: {LicenseVPCSecurity},
 		FeatureVPC:         {LicenseVPCNetworking},
 	}
-	enableVpcNetwork bool
 )
 
 func init() {
@@ -47,16 +47,28 @@ type NsxLicense struct {
 	ResultCount int `json:"result_count"`
 }
 
-func GetDFWLicense() bool {
-	if enableVpcNetwork {
-		return IsLicensed(LicenseVPCSecurity)
-	} else {
-		return IsLicensed(LicenseDFW)
+// SetHasVPCNamespacesFunc sets the callback used by GetDFWLicense/UpdateDFWLicense.
+// Must be called from cmd/main after mixed-mode init to avoid config->util import cycle.
+func SetHasVPCNamespacesFunc(f func() bool) {
+	hasVPCNamespacesFunc = f
+}
+
+func hasVPCNamespaces() bool {
+	if hasVPCNamespacesFunc != nil {
+		return hasVPCNamespacesFunc()
 	}
+	return false
+}
+
+func GetDFWLicense() bool {
+	if hasVPCNamespaces() {
+		return IsLicensed(LicenseVPCSecurity)
+	}
+	return IsLicensed(LicenseDFW)
 }
 
 func UpdateDFWLicense(isLicensed bool) {
-	if enableVpcNetwork {
+	if hasVPCNamespaces() {
 		UpdateLicense(LicenseVPCSecurity, isLicensed)
 	} else {
 		UpdateLicense(LicenseDFW, isLicensed)
@@ -69,8 +81,9 @@ func IsLicensed(feature string) bool {
 	return licenseMap[feature]
 }
 
+// SetEnableVpcNetwork is deprecated; mixed-mode state is now managed by
+// config.InitMixedMode. Kept for backward compatibility.
 func SetEnableVpcNetwork(vpcNetwork bool) {
-	enableVpcNetwork = vpcNetwork
 }
 
 func UpdateLicense(feature string, isLicensed bool) {
