@@ -36,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 type fakeRecorder struct {
@@ -630,7 +631,8 @@ func TestNSXServiceAccountReconciler_StartController(t *testing.T) {
 		return
 	})
 	defer patches.Reset()
-	reconciler := NewNSXServiceAccountReconciler(mockMgr, service)
+	vpcService := &vpc.VPCService{}
+	reconciler := NewNSXServiceAccountReconciler(mockMgr, service, vpcService)
 	err := reconciler.StartController(mockMgr, nil)
 	assert.Nil(t, err)
 }

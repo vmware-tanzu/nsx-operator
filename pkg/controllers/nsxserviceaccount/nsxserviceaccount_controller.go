@@ -314,14 +314,14 @@ func (r *NSXServiceAccountReconciler) StartController(mgr ctrl.Manager, _ webhoo
 	return nil
 }
 
-func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommon.Service) *NSXServiceAccountReconciler {
+func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) *NSXServiceAccountReconciler {
 	log.Info("Initializing NSXServiceAccountController")
 	nsxServiceAccountReconcile := &NSXServiceAccountReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("nsxserviceaccount-controller"),
 	}
-	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
+	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService, vpcService)
 	if err != nil {
 		log.Error(err, "Failed to initialize service", "controller", "NSXServiceAccount")
 		os.Exit(1)
