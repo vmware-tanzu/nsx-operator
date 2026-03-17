@@ -15,6 +15,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -113,7 +115,7 @@ func init() {
 
 func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	// Generate webhook certificates and start refreshing webhook certificates periodically
-	if cf.CoeConfig.EnableVPCNetwork {
+	if config.HasVPCNamespaces() {
 		if err := pkgutil.GenerateWebhookCerts(); err != nil {
 			log.Error(err, "Failed to generate webhook certificates")
 			os.Exit(1)
@@ -123,7 +125,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	// Initialize and start the system health reporter
-	if cf.CoeConfig.EnableVPCNetwork && cf.EnableInventory && cf.CoeConfig.EnableSha {
+	if config.HasVPCNamespaces() && cf.EnableInventory && cf.CoeConfig.EnableSha {
 		health.Start(nsxClient, cf, mgr.GetClient())
 	}
 
@@ -136,7 +138,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	checkLicense(nsxClient, cf.LicenseValidationInterval)
 
-	if cf.K8sConfig.EnableRestore && cf.CoeConfig.EnableVPCNetwork {
+	if cf.K8sConfig.EnableRestore && config.HasVPCNamespaces() {
 		var err error
 		restoreMode, err = pkgutil.CompareNSXRestore(mgr.GetClient(), nsxClient)
 		if err != nil {
@@ -153,7 +155,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	var hookServer webhook.Server
 	var subnetSetReconcile *subnetset.SubnetSetReconciler
 
-	if cf.CoeConfig.EnableVPCNetwork {
+	if config.HasVPCNamespaces() {
 		// Check NSX version for VPC networking mode
 		if !commonService.NSXClient.NSXCheckVersion(nsx.VPC) {
 			log.Error(nil, "VPC mode cannot be enabled if NSX version is lower than 4.1.1")
@@ -328,6 +330,20 @@ func main() {
 		log.Error(nil, "Failed to get nsx client")
 		os.Exit(1)
 	}
+
+	// Initialize mixed-mode state (has_t1_namespaces / has_vpc_namespaces)
+	clientset, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Error(err, "Failed to create kubernetes clientset")
+		os.Exit(1)
+	}
+	dynClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Error(err, "Failed to create dynamic kubernetes client")
+		os.Exit(1)
+	}
+	config.InitMixedMode(context.Background(), clientset, dynClient, cf.CoeConfig.EnableVPCNetwork)
+	util.SetHasVPCNamespacesFunc(config.HasVPCNamespaces)
 
 	if cf.HAEnabled() {
 		go electMaster(mgr, nsxClient)
