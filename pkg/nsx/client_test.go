@@ -340,9 +340,6 @@ func TestValidateLicense(t *testing.T) {
 			})
 			defer patchDfw.Reset()
 
-			patchSetVpc := gomonkey.ApplyFunc(util.SetEnableVpcNetwork, func(enable bool) {})
-			defer patchSetVpc.Reset()
-
 			client := &Client{
 				NsxConfig: &cf,
 				NSXChecker: NSXHealthChecker{
