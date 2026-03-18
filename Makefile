@@ -46,6 +46,7 @@ changecrd: manifests generate generate-api-docs
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1" output:crd:artifacts:config=build/yaml/crd/eas/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
