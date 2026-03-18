@@ -248,15 +248,259 @@ func Test_calculateOffsetIP(t *testing.T) {
 		name string
 		args args
 		want net.IP
-	}{{"1", args{ip, offset1}, want1}}
+	}{
+		{"IPv4 offset +1", args{ip, offset1}, want1},
+		{"IPv6 offset +1", args{net.ParseIP("2001:db8::1"), 1}, net.ParseIP("2001:db8::2")},
+		{"IPv6 offset -1", args{net.ParseIP("2001:db8::ff"), -1}, net.ParseIP("2001:db8::fe")},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := calculateOffsetIP(tt.args.ip, tt.args.offset)
 			if err != nil {
 				t.Errorf("%s failed: %s", tt.name, err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("%s failed: calculateOffsetIP got %v, want %v", tt.name, got, tt.want)
+			want := normalizeIP(tt.want)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s failed: calculateOffsetIP got %v, want %v", tt.name, got, want)
+			}
+		})
+	}
+}
+
+func Test_rangesAbstractRange_IPv6(t *testing.T) {
+	empty := [][]net.IP{}
+	type args struct {
+		ranges [][]net.IP
+		except []net.IP
+	}
+	tests := []struct {
+		name string
+		args args
+		want [][]net.IP
+	}{
+		{
+			name: "IPv6: except range is completely included in the range",
+			args: args{
+				ranges: [][]net.IP{
+					{
+						net.ParseIP("2001:db8::1"),
+						net.ParseIP("2001:db8::ffff"),
+					},
+				},
+				except: []net.IP{
+					net.ParseIP("2001:db8::100"),
+					net.ParseIP("2001:db8::1ff"),
+				},
+			},
+			want: [][]net.IP{
+				{
+					net.ParseIP("2001:db8::1"),
+					net.ParseIP("2001:db8::ff"),
+				},
+				{
+					net.ParseIP("2001:db8::200"),
+					net.ParseIP("2001:db8::ffff"),
+				},
+			},
+		},
+		{
+			name: "IPv6: except is exactly the same as the range",
+			args: args{
+				ranges: [][]net.IP{
+					{
+						net.ParseIP("2001:db8::1"),
+						net.ParseIP("2001:db8::10"),
+					},
+				},
+				except: []net.IP{
+					net.ParseIP("2001:db8::1"),
+					net.ParseIP("2001:db8::10"),
+				},
+			},
+			want: empty,
+		},
+		{
+			name: "IPv6: except is completely outside the range",
+			args: args{
+				ranges: [][]net.IP{
+					{
+						net.ParseIP("2001:db8:1::1"),
+						net.ParseIP("2001:db8:1::ffff"),
+					},
+				},
+				except: []net.IP{
+					net.ParseIP("2001:db8:2::1"),
+					net.ParseIP("2001:db8:2::ff"),
+				},
+			},
+			want: [][]net.IP{
+				{
+					net.ParseIP("2001:db8:1::1"),
+					net.ParseIP("2001:db8:1::ffff"),
+				},
+			},
+		},
+		{
+			name: "IPv6: except is a single IP inside the range",
+			args: args{
+				ranges: [][]net.IP{
+					{
+						net.ParseIP("fd00::1"),
+						net.ParseIP("fd00::a"),
+					},
+				},
+				except: []net.IP{
+					net.ParseIP("fd00::5"),
+					net.ParseIP("fd00::5"),
+				},
+			},
+			want: [][]net.IP{
+				{
+					net.ParseIP("fd00::1"),
+					net.ParseIP("fd00::4"),
+				},
+				{
+					net.ParseIP("fd00::6"),
+					net.ParseIP("fd00::a"),
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rangesAbstractRange(tt.args.ranges, tt.args.except)
+			normalizeRanges := func(ranges [][]net.IP) [][]net.IP {
+				for i := range ranges {
+					for j := range ranges[i] {
+						ranges[i][j] = normalizeIP(ranges[i][j])
+					}
+				}
+				return ranges
+			}
+			if !reflect.DeepEqual(got, normalizeRanges(tt.want)) {
+				t.Errorf("%s failed: rangesAbstractRange got %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCIDRRangesWithExcept_IPv6(t *testing.T) {
+	type args struct {
+		cidr    string
+		excepts []string
+	}
+	tests := []struct {
+		name string
+		args args
+		want []string
+	}{
+		{
+			name: "IPv6 single except",
+			args: args{
+				cidr:    "2001:db8::/32",
+				excepts: []string{"2001:db8:1::/48"},
+			},
+			want: []string{"2001:db8::-2001:db8:0:ffff:ffff:ffff:ffff:ffff", "2001:db8:2::-2001:db8:ffff:ffff:ffff:ffff:ffff:ffff"},
+		},
+		{
+			name: "IPv6 multiple excepts",
+			args: args{
+				cidr:    "fd00::/112",
+				excepts: []string{"fd00::a/128", "fd00::14/128"},
+			},
+			want: []string{"fd00::-fd00::9", "fd00::b-fd00::13", "fd00::15-fd00::ffff"},
+		},
+	}
+	for _, tt := range tests {
+		got, err := GetCIDRRangesWithExcept(tt.args.cidr, tt.args.excepts)
+		if err != nil {
+			t.Errorf("%s failed: %s", tt.name, err)
+		}
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s failed: GetCIDRRangesWithExcept got %s, want %s", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestIsIPv6CIDR(t *testing.T) {
+	tests := []struct {
+		cidr string
+		want bool
+	}{
+		{"192.168.0.0/24", false},
+		{"10.0.0.0/8", false},
+		{"2001:db8::/32", true},
+		{"fd00::/64", true},
+		{"::1/128", true},
+		{"invalid", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.cidr, func(t *testing.T) {
+			if got := IsIPv6CIDR(tt.cidr); got != tt.want {
+				t.Errorf("IsIPv6CIDR(%q) = %v, want %v", tt.cidr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsIPv6(t *testing.T) {
+	tests := []struct {
+		addr string
+		want bool
+	}{
+		{"192.168.0.1", false},
+		{"10.0.0.1", false},
+		{"2001:db8::1", true},
+		{"::1", true},
+		{"fe80::1", true},
+		{"invalid", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.addr, func(t *testing.T) {
+			if got := IsIPv6(tt.addr); got != tt.want {
+				t.Errorf("IsIPv6(%q) = %v, want %v", tt.addr, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCalculateIPFromCIDRs_IPv6(t *testing.T) {
+	tests := []struct {
+		name    string
+		cidrs   []string
+		want    int
+		wantErr bool
+	}{
+		{
+			name:  "IPv6 /128",
+			cidrs: []string{"2001:db8::1/128"},
+			want:  1,
+		},
+		{
+			name:  "IPv6 /126",
+			cidrs: []string{"2001:db8::/126"},
+			want:  4,
+		},
+		{
+			name:  "IPv4 /24",
+			cidrs: []string{"192.168.1.0/24"},
+			want:  256,
+		},
+		{
+			name:  "mixed IPv4 and IPv6",
+			cidrs: []string{"192.168.1.0/24", "2001:db8::/126"},
+			want:  260,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CalculateIPFromCIDRs(tt.cidrs)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CalculateIPFromCIDRs() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("CalculateIPFromCIDRs() = %v, want %v", got, tt.want)
 			}
 		})
 	}
