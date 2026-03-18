@@ -17,9 +17,13 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
+<<<<<<< HEAD
         description: |-
           SubnetIPPools is the Schema for the subnet IP pools API.
           The SubnetIPPools name is the same as subnet CR name which is used as input parameter for query.
+=======
+        description: SubnetIPPools is the Schema for the subnet IP pools API.
+>>>>>>> 4a28f7aa (Add API definition for EAS support)
         properties:
           apiVersion:
             description: |-
@@ -28,12 +32,15 @@ spec:
               may reject unrecognized values.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
+<<<<<<< HEAD
           checkOverlapWithExistingPools:
             description: Check if ip pool overlap with other IP pools
             type: boolean
           ipAddressType:
             description: IP address type
             type: string
+=======
+>>>>>>> 4a28f7aa (Add API definition for EAS support)
           kind:
             description: |-
               Kind is a string value representing the REST resource this object represents.
@@ -44,6 +51,41 @@ spec:
             type: string
           metadata:
             type: object
+<<<<<<< HEAD
+=======
+          poolSubnets:
+            description: IP pool subnets (CIDR ranges).
+            items:
+              description: SubnetIPPoolSubnet represents a subnet within an IP pool.
+              properties:
+                allocationRanges:
+                  description: IP ranges in the subnet.
+                  items:
+                    description: A set of IPv4 or IPv6 addresses defined by a start
+                      and end address.
+                    properties:
+                      end:
+                        description: 'The end IP Address of the IP Range. format:
+                          IP.'
+                        type: string
+                      start:
+                        description: 'The start IP Address of the IP Range. format:
+                          IP.'
+                        type: string
+                    required:
+                    - end
+                    - start
+                    type: object
+                  type: array
+                cidr:
+                  description: CIDR of the subnet.
+                  type: string
+                gatewayIP:
+                  description: Gateway IP.
+                  type: string
+              type: object
+            type: array
+>>>>>>> 4a28f7aa (Add API definition for EAS support)
           poolUsage:
             description: IP pool usage statistics.
             properties:

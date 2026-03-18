@@ -18,11 +18,25 @@
 	   RequestedIPAllocations int64 `json:"requestedIPAllocations,omitempty"`
    }
    
+<<<<<<< HEAD
+=======
+   // SubnetIPPoolSubnet represents a subnet within an IP pool.
+   type SubnetIPPoolSubnet struct {
+	   // CIDR of the subnet.
+	   CIDR string `json:"cidr,omitempty"`
+	   // Gateway IP.
+	   GatewayIP string `json:"gatewayIP,omitempty"`
+	   // IP ranges in the subnet.
+	   AllocationRanges []IPPoolRange `json:"allocationRanges,omitempty"`
+   }
+   
+>>>>>>> 4a28f7aa (Add API definition for EAS support)
    // +genclient
    //+kubebuilder:object:root=true
    //+kubebuilder:storageversion
    
    // SubnetIPPools is the Schema for the subnet IP pools API.
+<<<<<<< HEAD
    // The SubnetIPPools name is the same as subnet CR name which is used as input parameter for query.
    type SubnetIPPools struct {
 	   metav1.TypeMeta   `json:",inline"`
@@ -33,6 +47,16 @@
 	   IPAddressType string `json:"ipAddressType,omitempty"`
 	   // IP pool usage statistics.
 	   PoolUsage *PoolUsage `json:"poolUsage,omitempty"`
+=======
+   type SubnetIPPools struct {
+	   metav1.TypeMeta   `json:",inline"`
+	   metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	   // IP pool usage statistics.
+	   PoolUsage *PoolUsage `json:"poolUsage,omitempty"`
+	   // IP pool subnets (CIDR ranges).
+	   PoolSubnets []SubnetIPPoolSubnet `json:"poolSubnets,omitempty"`
+>>>>>>> 4a28f7aa (Add API definition for EAS support)
    }
    
    //+kubebuilder:object:root=true
