@@ -3951,3 +3951,86 @@ func Test_applyVPCGroupShareStore(t *testing.T) {
 		})
 	}
 }
+
+func Test_convertNetworkPolicyPeerToSecurityPolicyPeer_IPv6(t *testing.T) {
+	fakeService := fakeSecurityPolicyService()
+
+	tests := []struct {
+		name     string
+		npPeer   *networkingv1.NetworkPolicyPeer
+		expected *v1alpha1.SecurityPolicyPeer
+		wantErr  bool
+	}{
+		{
+			name: "IPv6 IPBlock without except",
+			npPeer: &networkingv1.NetworkPolicyPeer{
+				IPBlock: &networkingv1.IPBlock{
+					CIDR: "2001:db8::/32",
+				},
+			},
+			expected: &v1alpha1.SecurityPolicyPeer{
+				IPBlocks: []v1alpha1.IPBlock{
+					{CIDR: "2001:db8::/32"},
+				},
+			},
+		},
+		{
+			name: "IPv6 IPBlock with except",
+			npPeer: &networkingv1.NetworkPolicyPeer{
+				IPBlock: &networkingv1.IPBlock{
+					CIDR:   "fd00::/112",
+					Except: []string{"fd00::a/128"},
+				},
+			},
+			expected: &v1alpha1.SecurityPolicyPeer{
+				IPBlocks: []v1alpha1.IPBlock{
+					{CIDR: "fd00::-fd00::9"},
+					{CIDR: "fd00::b-fd00::ffff"},
+				},
+			},
+		},
+		{
+			name: "IPv6 IPBlock with multiple excepts",
+			npPeer: &networkingv1.NetworkPolicyPeer{
+				IPBlock: &networkingv1.IPBlock{
+					CIDR:   "fd00::/112",
+					Except: []string{"fd00::a/128", "fd00::14/128"},
+				},
+			},
+			expected: &v1alpha1.SecurityPolicyPeer{
+				IPBlocks: []v1alpha1.IPBlock{
+					{CIDR: "fd00::-fd00::9"},
+					{CIDR: "fd00::b-fd00::13"},
+					{CIDR: "fd00::15-fd00::ffff"},
+				},
+			},
+		},
+		{
+			name: "IPv4 IPBlock with except still works",
+			npPeer: &networkingv1.NetworkPolicyPeer{
+				IPBlock: &networkingv1.IPBlock{
+					CIDR:   "172.17.0.0/16",
+					Except: []string{"172.17.1.0/24"},
+				},
+			},
+			expected: &v1alpha1.SecurityPolicyPeer{
+				IPBlocks: []v1alpha1.IPBlock{
+					{CIDR: "172.17.0.0-172.17.0.255"},
+					{CIDR: "172.17.2.0-172.17.255.255"},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fakeService.convertNetworkPolicyPeerToSecurityPolicyPeer(tt.npPeer)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
