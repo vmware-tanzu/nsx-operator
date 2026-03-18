@@ -90,9 +90,10 @@ type SecurityPolicyPeer struct {
 }
 
 // IPBlock describes a particular CIDR that is allowed or denied to/from the workloads matched by an AppliedTo.
+// Both IPv4 and IPv6 CIDRs are supported.
 type IPBlock struct {
 	// CIDR is a string representing the IP Block.
-	// A valid example is "192.168.1.1/24".
+	// Valid examples are "192.168.1.0/24" and "2001:db8::/32".
 	CIDR string `json:"cidr"`
 }
 
