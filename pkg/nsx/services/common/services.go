@@ -44,7 +44,7 @@ type SubnetServiceProvider interface {
 
 type SubnetPortServiceProvider interface {
 	GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort)
-	AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error)
+	AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool) (bool, error)
 	ReleasePortInSubnet(path string)
 	IsEmptySubnet(path string) bool
 	DeletePortCount(path string)

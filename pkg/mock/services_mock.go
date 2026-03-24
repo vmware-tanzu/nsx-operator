@@ -146,8 +146,8 @@ func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(subnetPath string) (por
 	return args.Get(0).([]*model.VpcSubnetPort)
 }
 
-func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error) {
-	args := m.Called(subnet)
+func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool) (bool, error) {
+	args := m.Called(subnet, sharedSubnet)
 	return args.Bool(0), args.Error(1)
 }
 
