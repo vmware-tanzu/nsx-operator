@@ -931,7 +931,7 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPortService := createSubnetPortService(t)
 	// Reset Subnet totalIP without SubnetPort does not influence the port count info
 	subnetPortService.ResetSubnetTotalIP(subnetPath)
-	ok, err := subnetPortService.AllocatePortFromSubnet(subnet1)
+	ok, err := subnetPortService.AllocatePortFromSubnet(subnet1, false)
 	assert.True(t, ok)
 	require.NoError(t, err)
 	empty := subnetPortService.IsEmptySubnet(subnetPath)
@@ -944,7 +944,7 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPortService.updateExhaustedSubnet(subnetPath)
 	// Reset Subnet totalIP does not change other port count info
 	subnetPortService.ResetSubnetTotalIP(subnetPath)
-	ok, err = subnetPortService.AllocatePortFromSubnet(subnet1)
+	ok, err = subnetPortService.AllocatePortFromSubnet(subnet1, false)
 	assert.False(t, ok)
 	assert.Nil(t, err)
 }
@@ -1006,6 +1006,7 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 	tests := []struct {
 		name          string
 		subnet        *model.VpcSubnet
+		sharedSubnet  bool
 		prepareFunc   func(service *SubnetPortService) *gomonkey.Patches
 		expectedValue bool
 		expectedErr   string
@@ -1090,6 +1091,20 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: true,
 		},
 		{
+			name:   "Allocate SubnetPort from static shared Subnet failed",
+			subnet: staticSubnet,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(c *fakeIPPoolClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10), RequestedIpAllocations: common.Int64(10)},
+					}, nil
+				})
+				return patches
+			},
+			expectedValue: false,
+			sharedSubnet:  true,
+		},
+		{
 			name:   "Allocate SubnetPort from dhcp server Subnet",
 			subnet: dhcpServerSubnet,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
@@ -1119,7 +1134,7 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			canAllocate, err := subnetPortService.AllocatePortFromSubnet(tt.subnet)
+			canAllocate, err := subnetPortService.AllocatePortFromSubnet(tt.subnet, tt.sharedSubnet)
 			assert.Equal(t, tt.expectedValue, canAllocate)
 			if tt.expectedErr != "" {
 				assert.Contains(t, err.Error(), tt.expectedErr)
@@ -1127,7 +1142,7 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 				assert.Nil(t, err)
 			}
 			if tt.expectedValue {
-				canAllocate, err = subnetPortService.AllocatePortFromSubnet(tt.subnet)
+				canAllocate, err = subnetPortService.AllocatePortFromSubnet(tt.subnet, tt.sharedSubnet)
 				assert.Equal(t, tt.expectedValue, canAllocate)
 				if tt.expectedErr != "" {
 					assert.Contains(t, err.Error(), tt.expectedErr)

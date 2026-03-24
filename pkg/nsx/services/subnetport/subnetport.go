@@ -409,7 +409,7 @@ func (service *SubnetPortService) ResetSubnetTotalIP(path string) {
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.
 // If the Subnet has capacity for the new SubnetPorts, it will increase
 // the number of SubnetPort under creation and return true.
-func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet) (bool, error) {
+func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool) (bool, error) {
 	dhcpMode := "DHCP_DEACTIVATED"
 	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
 	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
@@ -435,6 +435,7 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	info.lock.Lock()
 	defer info.lock.Unlock()
 
+	var allocatedIPNumber int
 	// For DHCP Server mode Subnet, get total IPs from DHCP IP Pool from NSX each time
 	// since user might update reservedIPRanges for the subnet and it impacts the DHCP Pool size
 	if dhcpMode == "DHCP_SERVER" {
@@ -446,45 +447,62 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 		if len(dhcpServerStats.IpPoolStats) > 0 && dhcpServerStats.IpPoolStats[0].PoolSize != nil {
 			info.totalIP = int(*dhcpServerStats.IpPoolStats[0].PoolSize)
 		}
+		if sharedSubnet && len(dhcpServerStats.IpPoolStats) > 0 && dhcpServerStats.IpPoolStats[0].AllocatedNumber != nil {
+			allocatedIPNumber = int(*dhcpServerStats.IpPoolStats[0].AllocatedNumber)
+		}
 	}
-
-	if !ok || info.totalIP == 0 {
+	// When SubnetIPReservation is created/deleted, we will reset the info.totalIP and
+	// expect the totalIP is updated from NSX ip pool API
+	// For shared Subnet, user can create IPReservation and SubnetPort from NSX side.
+	// We call NSX ip pool API to for latest total ip and requested ip.
+	if (!ok || info.totalIP == 0 || sharedSubnet) && dhcpMode == "DHCP_DEACTIVATED" {
 		// For DHCP Deactivated mode Subnet, get total IPs from IP pool static-ipv4-default
-		if dhcpMode == "DHCP_DEACTIVATED" {
-			// only get Subnet total IPs from static IP Pool if staticIpAllocation enabled
-			if staticIpAllocationEnabled {
-				staticIPPool, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv4-default")
-				if err != nil {
-					log.Error(err, "Failed to get Subnet static IP Pool static-ipv4-default", "Subnet", *subnet.Path)
-					return false, err
-				}
-				if staticIPPool.PoolUsage.TotalIps != nil {
-					info.totalIP = int(*staticIPPool.PoolUsage.TotalIps)
-				}
+		// only get Subnet total IPs from static IP Pool if staticIpAllocation enabled
+		if staticIpAllocationEnabled {
+			staticIPPool, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv4-default")
+			if err != nil {
+				log.Error(err, "Failed to get Subnet static IP Pool static-ipv4-default", "Subnet", *subnet.Path)
+				return false, err
+			}
+			if staticIPPool.PoolUsage != nil && staticIPPool.PoolUsage.TotalIps != nil {
+				info.totalIP = int(*staticIPPool.PoolUsage.TotalIps)
+			}
+			if sharedSubnet && staticIPPool.PoolUsage != nil && staticIPPool.PoolUsage.RequestedIpAllocations != nil {
+				allocatedIPNumber = int(*staticIPPool.PoolUsage.RequestedIpAllocations)
 			}
 		}
+	}
+	if !ok && dhcpMode == "DHCP_RELAY" {
 		// For DHCP Relay mode Subnet, assume 4 reserved IPs
-		if dhcpMode == "DHCP_RELAY" {
-			var totalIP int
-			if subnet.Ipv4SubnetSize != nil {
-				totalIP = int(*subnet.Ipv4SubnetSize)
-			}
-			if len(subnet.IpAddresses) > 0 {
-				// totalIP will be overrided if IpAddresses are specified.
-				totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
-			}
-			// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
-			// dhcp server address and broadcast address.
-			info.totalIP = totalIP - 4
+		var totalIP int
+		if subnet.Ipv4SubnetSize != nil {
+			totalIP = int(*subnet.Ipv4SubnetSize)
 		}
+		if len(subnet.IpAddresses) > 0 {
+			// totalIP will be overrided if IpAddresses are specified.
+			totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+		}
+		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
+		// dhcp server address and broadcast address.
+		info.totalIP = totalIP - 4
 	}
 
 	if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
 		return false, nil
 	}
+
+	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
+	// A shared Subnet can be used by other supervisors or other places where SubnetPort
+	// is created and not in operator cache.
+	// For DHCPServer Subnet, the allocated IP number wont change before the VM request IP
+	// from the DHCPServer.
+	// Thus we use the max number of port record in store and allocated number from API to
+	// reduce the possibility to create SubnetPort on a Subnet without available IP
+	if sharedSubnet {
+		existingPortCount = max(existingPortCount, allocatedIPNumber)
+	}
 	// Number of SubnetPorts on the Subnet includes the SubnetPorts under creation
 	// and the SubnetPorts already created
-	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
 	if info.dirtyCount+existingPortCount < info.totalIP {
 		info.dirtyCount += 1
 		log.Trace("Allocate Subnetport to Subnet", "Subnet", *subnet.Path, "dirtyPortCount", info.dirtyCount, "existingPortCount", existingPortCount)
