@@ -365,12 +365,18 @@ func CreateNsxtApiClient(config *config.NSXOperatorConfig, client *http.Client) 
 }
 
 func (client *Client) NSXCheckVersion(feature int) bool {
+	if client == nil {
+		return false
+	}
 	// TODO: Remove this once NSX implementation for SubnetPort VIF restore is merged
 	if feature == RestoreVIF {
 		return false
 	}
 	if client.NSXVerChecker.featureSupported[feature] {
 		return true
+	}
+	if client.NSXVerChecker.cluster == nil {
+		return false
 	}
 
 	nsxVersion, err := client.NSXVerChecker.cluster.GetVersion()
@@ -395,6 +401,19 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 
 func (client *Client) FeatureEnabled(feature int) bool {
 	return client.NSXVerChecker.featureSupported[feature]
+}
+
+// NewClientWithVersionCheckerStub returns a Client whose NSXVerChecker holds a non-nil
+// placeholder *Cluster so NSXCheckVersion can call (*Cluster).GetVersion (or tests can
+// monkey-patch that method). A zero Client has a nil cluster and NSXCheckVersion returns
+// false without contacting NSX; tests that only patch GetVersion must use this helper
+// or otherwise wire NSXVerChecker.cluster.
+func NewClientWithVersionCheckerStub() *Client {
+	return &Client{
+		NSXVerChecker: NSXVersionChecker{
+			cluster: &Cluster{},
+		},
+	}
 }
 
 // ValidateLicense validates NSX license. init is used to indicate whether nsx-operator is init or not
