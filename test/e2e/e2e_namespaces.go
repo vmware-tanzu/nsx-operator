@@ -11,11 +11,17 @@ var cleanupOnce sync.Once
 // Pre-defined namespace names for e2e tests
 // These namespaces are created once at the start of all tests and cleaned up at the end
 var (
-	// NsSecurityPolicy Security Policy test namespaces - need VC namespace for pod creation
-	// NsSecurityPolicy is shared by testSecurityPolicyBasicTraffic, testSecurityPolicyMatchExpression, and testSecurityPolicyAddDeleteRule
-	NsSecurityPolicy                = "e2e-sp-" + getRandomString()
-	NsSecurityPolicyNamedPortClient = "e2e-sp-np-client-" + getRandomString()
-	NsSecurityPolicyNamedPortWeb    = "e2e-sp-np-web-" + getRandomString()
+	// Security Policy test namespaces - each test gets its own isolated VC namespace(s) for parallel execution
+	NsSecurityPolicyBasic           = "e2e-sp-basic-" + getRandomString()
+	NsSecurityPolicyAddDeleteRule   = "e2e-sp-rule-" + getRandomString()
+	NsSecurityPolicyMatchExpr       = "e2e-sp-expr-" + getRandomString()
+	NsSecurityPolicyVPCFromIngress  = "e2e-sp-vpc-in-" + getRandomString()
+	NsSecurityPolicyVPCToEgress     = "e2e-sp-vpc-eg-" + getRandomString()
+	NsSecurityPolicyNPWithoutPodWeb = "e2e-sp-np-wopod-web-" + getRandomString()
+	NsSecurityPolicyNPWithPodClient = "e2e-sp-np-wpod-cli-" + getRandomString()
+	NsSecurityPolicyNPWithPodWeb    = "e2e-sp-np-wpod-web-" + getRandomString()
+	NsSecurityPolicyNativeInv       = "e2e-sp-native-inv-" + getRandomString()
+	NsNetworkPolicyMultipleIn       = "e2e-np-multi-in-" + getRandomString()
 
 	// NsIPv6PolicyVC IPv6 policy test namespace (VC-based, isolated from other security policy tests).
 	NsIPv6PolicyVC = "e2e-ipv6-policy-vc-" + getRandomString()
@@ -41,9 +47,16 @@ var (
 // allVCNamespaces is the list of namespaces that need to be created via VC API
 // These namespaces require VC namespace because they need to create pods or VMs
 var allVCNamespaces = []string{
-	NsSecurityPolicy,
-	NsSecurityPolicyNamedPortClient,
-	NsSecurityPolicyNamedPortWeb,
+	NsSecurityPolicyBasic,
+	NsSecurityPolicyAddDeleteRule,
+	NsSecurityPolicyMatchExpr,
+	NsSecurityPolicyVPCFromIngress,
+	NsSecurityPolicyVPCToEgress,
+	NsSecurityPolicyNPWithoutPodWeb,
+	NsSecurityPolicyNPWithPodClient,
+	NsSecurityPolicyNPWithPodWeb,
+	NsSecurityPolicyNativeInv,
+	NsNetworkPolicyMultipleIn,
 	NsIPv6PolicyVC,
 	NsInventorySync,
 	NsLoadBalancerLB,
