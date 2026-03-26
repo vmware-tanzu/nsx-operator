@@ -266,7 +266,7 @@ func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 func HandleHTTPResponse(response *http.Response, result interface{}, debug bool) (error, []byte) {
 	body, err := io.ReadAll(response.Body)
 	defer response.Body.Close()
-	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted || response.StatusCode == http.StatusCreated) {
+	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted || response.StatusCode == http.StatusCreated || response.StatusCode == http.StatusNoContent) {
 		err := HttpCommonError
 		if response.StatusCode == http.StatusNotFound {
 			err = HttpNotFoundError
@@ -277,7 +277,7 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		log.Error(err, "HTTP resp", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
 	}
-	if err != nil || body == nil {
+	if err != nil || body == nil || len(body) == 0 {
 		return err, body
 	}
 	if result == nil {

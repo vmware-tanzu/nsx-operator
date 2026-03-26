@@ -22,6 +22,9 @@ const (
 	// typically mapping to Kubernetes network policies.
 	ContainerNetworkPolicy InventoryType = "ContainerNetworkPolicy"
 	ContainerIngressPolicy InventoryType = "ContainerIngressPolicy"
+	// InventoryVirtualMachine represents the inventory type for tagging
+	// NSX Inventory VirtualMachine objects with VKS cluster identifiers.
+	InventoryVirtualMachine InventoryType = "InventoryVirtualMachine"
 
 	InventoryClusterTypeSupervisor = "SupervisorCluster"
 	InventoryClusterCNIType        = "NCP"
@@ -47,6 +50,8 @@ const (
 	InventoryStatusUp      = "UP"
 	InventoryStatusDown    = "DOWN"
 	InventoryStatusUnknown = "UNKNOWN"
+
+	TagScopeClusterName = "nsx-op/cluster-name"
 
 	NcpLbError        = "ncp/error.loadbalancer"
 	NcpLbPortError    = "ncp/error.loadbalancer.unrealized_ports"
