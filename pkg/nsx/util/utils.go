@@ -39,9 +39,9 @@ const (
 )
 
 var (
-	HttpCommonError   = errors.New("received HTTP Error")
-	HttpNotFoundError = errors.New("received HTTP Not Found Error")
-	HttpBadRequest    = errors.New("received HTTP Bad Request Error")
+	HttpCommonError   = errors.New("received HTTP Error")             //nolint:staticcheck // ST1012: public vars exported before naming convention was enforced
+	HttpNotFoundError = errors.New("received HTTP Not Found Error")   //nolint:staticcheck // ST1012: public vars exported before naming convention was enforced
+	HttpBadRequest    = errors.New("received HTTP Bad Request Error") //nolint:staticcheck // ST1012: public vars exported before naming convention was enforced
 )
 
 // ErrorDetail is error detail which info extracted from http.Response.Body.
@@ -263,10 +263,10 @@ func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 	return CreateGeneralManagerError("", "", detail.Error())
 }
 
-func HandleHTTPResponse(response *http.Response, result interface{}, debug bool) (error, []byte) {
+func HandleHTTPResponse(response *http.Response, result interface{}, debug bool) (error, []byte) { //nolint:staticcheck // ST1008: exported before convention; changing signature would break callers
 	body, err := io.ReadAll(response.Body)
 	defer response.Body.Close()
-	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted || response.StatusCode == http.StatusCreated) {
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusCreated {
 		err := HttpCommonError
 		if response.StatusCode == http.StatusNotFound {
 			err = HttpNotFoundError

@@ -139,7 +139,7 @@ func isIPChanged(pre containerinventory.ContainerApplicationInstance, cur contai
 	} else if len(curIPArr) == 1 && preIPArr[0] != curIPArr[0] {
 		return true
 	} else if len(curIPArr) == 2 {
-		if !((preIPArr[0] == curIPArr[0] && preIPArr[1] == curIPArr[1]) || (preIPArr[0] == curIPArr[1] && preIPArr[1] == curIPArr[0])) {
+		if (preIPArr[0] != curIPArr[0] || preIPArr[1] != curIPArr[1]) && (preIPArr[0] != curIPArr[1] || preIPArr[1] != curIPArr[0]) {
 			return true
 		}
 	}

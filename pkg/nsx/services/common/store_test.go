@@ -79,7 +79,7 @@ func Test_transError(t *testing.T) {
 type fakeQueryClient struct {
 }
 
-func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+func (*fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
@@ -367,7 +367,7 @@ func (f *fakeStore) IsPolicyAPI() bool {
 
 type fakeMPQueryClient struct{}
 
-func (_ *fakeMPQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mp_model.SearchResponse, error) {
+func (*fakeMPQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mp_model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return mp_model.SearchResponse{

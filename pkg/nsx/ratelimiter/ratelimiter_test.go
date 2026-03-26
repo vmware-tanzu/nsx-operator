@@ -62,7 +62,7 @@ func TestWait(t *testing.T) {
 				break
 			}
 			select {
-			case _ = <-cancel:
+			case <-cancel:
 				done <- 0
 				break
 			default:

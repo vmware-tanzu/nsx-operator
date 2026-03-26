@@ -27,8 +27,8 @@ var (
 func QueryTagCondition(resourceType, cluster string) string {
 	return fmt.Sprintf("%s:%s AND tags.scope:%s AND tags.tag:%s",
 		ResourceType, resourceType,
-		strings.Replace(TagScopeCluster, "/", "\\/", -1),
-		strings.Replace(cluster, ":", "\\:", -1))
+		strings.ReplaceAll(TagScopeCluster, "/", "\\/"),
+		strings.ReplaceAll(cluster, ":", "\\:"))
 }
 
 func ConvertTagsToMPTags(tags []model.Tag) []mpmodel.Tag {

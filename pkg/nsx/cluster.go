@@ -242,7 +242,7 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 		IdleConnTimeout: idle * time.Second,
 	}
 	log.Info("Cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
-	if cluster.config.Insecure == false {
+	if !cluster.config.Insecure {
 		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
 			var config *tls.Config
 			cafile := cluster.getCaFile(addr)

@@ -907,7 +907,6 @@ func TestValidateConnectionStatus(t *testing.T) {
 			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig, tt.vpcNetworkConfig.Spec.VPCConnectivityProfile)
 			assert.Equal(t, tt.expectedStatus, status)
 			assert.Equal(t, tt.expectedError, err)
-			return
 		})
 	}
 }
@@ -1781,9 +1780,7 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			checkVPCStore: true,
 		},
 	}
-	// We do not need to verify copylocks for test case.
-	// nolint: copylocks
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:govet
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, service)

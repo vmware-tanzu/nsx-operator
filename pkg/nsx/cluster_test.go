@@ -239,7 +239,7 @@ func TestCluster_getVersion(t *testing.T) {
 	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
-			w.Write(([]byte(resHealth)))
+			w.Write([]byte(resHealth))
 		} else {
 			w.Write([]byte(resVersion))
 		}

@@ -34,16 +34,10 @@ type GeneralNsxError struct {
 func (impl *nsxErrorImpl) setDetail(detail *ErrorDetail) {
 	impl.ErrorDetail = *detail
 	if len(detail.RelatedErrorCodes) > 0 {
-		impl.ErrorDetail.RelatedErrorCodes = []int{}
-		for index := range detail.RelatedErrorCodes {
-			impl.ErrorDetail.RelatedErrorCodes = append(impl.ErrorDetail.RelatedErrorCodes, detail.RelatedErrorCodes[index])
-		}
+		impl.ErrorDetail.RelatedErrorCodes = append([]int{}, detail.RelatedErrorCodes...)
 	}
 	if len(detail.RelatedStatusCodes) > 0 {
-		impl.ErrorDetail.RelatedStatusCodes = []string{}
-		for index := range detail.RelatedStatusCodes {
-			impl.ErrorDetail.RelatedStatusCodes = append(impl.ErrorDetail.RelatedStatusCodes, detail.RelatedStatusCodes[index])
-		}
+		impl.ErrorDetail.RelatedStatusCodes = append([]string{}, detail.RelatedStatusCodes...)
 	}
 }
 

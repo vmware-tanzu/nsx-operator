@@ -627,7 +627,6 @@ func TestNSXServiceAccountReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	reconciler := NewNSXServiceAccountReconciler(mockMgr, service)
@@ -880,9 +879,10 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 				return gomonkey.ApplyMethodFunc(r.Service, "DeleteNSXServiceAccount", func(ctx context.Context, namespacedName types.NamespacedName, uid types.UID) error {
 					count++
 					if count <= 2 {
-						if namespacedName.Namespace == "ns3" {
+						switch namespacedName.Namespace {
+						case "ns3":
 							return nil
-						} else if namespacedName.Namespace == "ns4" {
+						case "ns4":
 							return fmt.Errorf("mock error")
 						}
 					}

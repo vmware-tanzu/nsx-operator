@@ -82,7 +82,6 @@ func (c *CleanupService) cleanupBeforeVPCDeletion(ctx context.Context) error {
 				if err != nil {
 					errorChans <- err
 				}
-				return
 			}()
 		}
 		wgForPreVPCCleaners.Wait()

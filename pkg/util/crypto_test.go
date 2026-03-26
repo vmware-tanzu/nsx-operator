@@ -62,12 +62,12 @@ func TestGenerateCertificate(t *testing.T) {
 			assert.Equal(t, x509.SHA256WithRSA, cert.SignatureAlgorithm)
 			assert.Equal(t, 3, cert.Version)
 			assert.Equal(t, cert.Subject, cert.Issuer)
-			assert.True(t, time.Now().After(cert.NotBefore) && time.Now().Sub(cert.NotBefore) < time.Minute, "NotBefore is invalid")
+			assert.True(t, time.Now().After(cert.NotBefore) && time.Since(cert.NotBefore) < time.Minute, "NotBefore is invalid")
 			validDays := tt.args.validDays
 			if validDays <= 0 {
 				validDays = DefaultValidDays
 			}
-			assert.True(t, cert.NotAfter == cert.NotBefore.AddDate(0, 0, validDays))
+			assert.True(t, cert.NotAfter.Equal(cert.NotBefore.AddDate(0, 0, validDays)))
 			expectedSubject := tt.args.subject
 			if expectedSubject == nil {
 				expectedSubject = &DefaultSubject

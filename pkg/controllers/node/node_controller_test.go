@@ -202,7 +202,6 @@ func TestNodeReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewNodeReconciler(mockMgr, nodeService)

@@ -71,7 +71,6 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 					return nil
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patch
 			},
@@ -289,7 +288,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -363,7 +361,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -441,7 +438,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -909,7 +905,6 @@ func TestStartSubnetController(t *testing.T) {
 			name: "StartSubnetController with webhook",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -925,7 +920,6 @@ func TestStartSubnetController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil

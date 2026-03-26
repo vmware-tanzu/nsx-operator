@@ -384,7 +384,7 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 }
 
 func (client *Client) FeatureEnabled(feature int) bool {
-	return client.NSXVerChecker.featureSupported[feature] == true
+	return client.NSXVerChecker.featureSupported[feature]
 }
 
 // ValidateLicense validates NSX license. init is used to indicate whether nsx-operator is init or not

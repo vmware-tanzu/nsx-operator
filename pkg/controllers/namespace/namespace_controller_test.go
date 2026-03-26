@@ -305,7 +305,6 @@ func TestNamespaceReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewNamespaceReconciler(mockMgr, nil, vpcService, subnetService, subnetportService)

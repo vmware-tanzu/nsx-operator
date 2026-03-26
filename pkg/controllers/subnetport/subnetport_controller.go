@@ -57,9 +57,9 @@ var (
 )
 
 var (
-	vmOrInterfaceNotFoundError  = fmt.Errorf("VM or interface not found")
-	subnetPortRealizationError  = fmt.Errorf("SubnetPort realization error")
-	multipleInterfaceFoundError = fmt.Errorf("multiple interfaces found")
+	vmOrInterfaceNotFoundError  = fmt.Errorf("VM or interface not found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	subnetPortRealizationError  = fmt.Errorf("SubnetPort realization error") //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	multipleInterfaceFoundError = fmt.Errorf("multiple interfaces found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
 )
 
 // SubnetPortReconciler reconciles a SubnetPort object
@@ -335,7 +335,7 @@ func addressBindingIPAddressAllocationNameIndexFunc(obj client.Object) []string 
 		log.Info("Invalid object", "type", reflect.TypeOf(obj))
 		return []string{}
 	} else {
-		return []string{fmt.Sprintf("%s", ab.Spec.IPAddressAllocationName)}
+		return []string{ab.Spec.IPAddressAllocationName}
 	}
 }
 

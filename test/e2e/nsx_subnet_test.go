@@ -327,11 +327,12 @@ func UserSubnetSet(t *testing.T) {
 				return false, nil
 			}
 			log.Trace("Check IP address", "IPAddress", port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress, "portName", portName)
-			if portName == "port-in-static-subnetset" {
+			switch portName {
+			case "port-in-static-subnetset":
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
 					return true, nil
 				}
-			} else if portName == "port-in-dhcp-subnetset" {
+			case "port-in-dhcp-subnetset":
 				if port.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress == "" {
 					return true, nil
 				}
@@ -422,7 +423,7 @@ func SubnetCIDR(t *testing.T) {
 	require.NoError(t, err)
 	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
 		nsxSubnets = testData.fetchSubnetBySubnetUID(t, subnetCRUID)
-		return len(nsxSubnets) == 0 || *nsxSubnets[0].MarkedForDelete == true, nil
+		return len(nsxSubnets) == 0 || *nsxSubnets[0].MarkedForDelete, nil
 	})
 	require.NoError(t, err)
 
@@ -458,7 +459,7 @@ func SubnetCIDR(t *testing.T) {
 
 	assert.Eventually(t, func() bool {
 		nsxSubnets = testData.fetchSubnetBySubnetUID(t, newSubnetCRUID)
-		return len(nsxSubnets) == 0 || *nsxSubnets[0].MarkedForDelete == true
+		return len(nsxSubnets) == 0 || *nsxSubnets[0].MarkedForDelete
 	}, 100*time.Second, 1*time.Second)
 }
 
@@ -1003,10 +1004,10 @@ func listNamespaceSubnets(ctx context.Context, namespace string) (*v1alpha1.Subn
 // - []*v1alpha1.Subnet: list of found shared subnets (empty if expectedCount is 0)
 func verifySharedSubnets(t *testing.T, namespace string, expectedCount int, namePrefixes ...string) []*v1alpha1.Subnet {
 	var actionMsg string
-	switch {
-	case expectedCount == 0:
+	switch expectedCount {
+	case 0:
 		actionMsg = "to be removed"
-	case expectedCount == 1:
+	case 1:
 		actionMsg = "to be created"
 	default:
 		actionMsg = fmt.Sprintf("%d to be created", expectedCount)

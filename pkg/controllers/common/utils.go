@@ -480,7 +480,7 @@ func ListDefaultSubnetSet(ctx context.Context, client k8sclient.Client, ns strin
 	}
 	// check the old formatted default subnetset
 	if oldObj == nil {
-		newType, _ := NetworkSubnetSetNameMap[subnetSetType]
+		newType := NetworkSubnetSetNameMap[subnetSetType]
 		label = k8sclient.MatchingLabels{
 			servicecommon.LabelDefaultSubnetSet: newType,
 		}

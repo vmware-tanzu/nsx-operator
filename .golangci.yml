@@ -1,45 +1,70 @@
+version: "2"
+
 # golangci-lint configuration used for CI
 run:
   tests: true
   timeout: 15m
-  issues:
-    exclude-files:
-      - third_party/
-      - pkg/client/
-  skip-dirs-use-default: true
-
-linters-settings:
-  goimports:
-    local-prefixes: github.com/vmware-tanzu/nsx-operator
-  revive:
-    ignore-generated-header: false
-    severity: warning
-    confidence: 0.8
-    rules:
-      - name: unreachable-code
-      - name: errorf
-      - name: range
-      - name: superfluous-else
-      - name: var-declaration
-      - name: duplicated-imports
-  gosec:
-    excludes:
-      - G115
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - misspell
-    - gofmt
     - unused
     - staticcheck
     - gosec
-    - goimports
     - govet
     - revive
+  settings:
+    revive:
+      severity: warning
+      confidence: 0.8
+      rules:
+        - name: unreachable-code
+        - name: errorf
+        - name: range
+        - name: superfluous-else
+        - name: var-declaration
+        - name: duplicated-imports
+    gosec:
+      excludes:
+        - G101  # false positive: OAuth token type strings flagged as credentials
+        - G115  # pre-existing exclusion
+        - G118  # false positive: cancel stored in struct for later use
+        - G704  # new rule in v2.10: SSRF taint analysis, too noisy for HTTP client code
+  exclusions:
+    presets:
+      - legacy                 # covers: G104, SA4011, G301/G302/G307
+      - common-false-positives # covers: G103, G204, G304
+    paths:
+      - third_party/
+      - ^pkg/client/.*
+    rules:
+      - linters:
+          - staticcheck
+        text: "SA1019: lbs.RelaxScaleValidation"
+      - linters:
+          - staticcheck
+        # ST1005: error strings should not be capitalized. Many existing error strings
+        # are capitalized intentionally as user-facing messages; enforcing lowercase
+        # would require widespread changes with no functional benefit.
+        # QF1008: unnecessary use of embedded struct name before field (e.g.
+        # Config.CoeConfig.EnableVPC vs Config.EnableVPC). The verbose form is kept
+        # for clarity in codebases with multiple embedded structs.
+        text: "(ST1005:|QF1008:)"
+      - linters:
+          - staticcheck
+        # v1.Endpoints is deprecated in k8s v1.33+; migrating to discoveryv1.EndpointSlice
+        # requires broader refactoring of the inventory controller.
+        text: "SA1019: v1.Endpoints is deprecated"
+      - linters:
+          - staticcheck
+        # v1.EndpointSubset is deprecated in k8s v1.33+; same migration scope as above.
+        text: "SA1019: v1.EndpointSubset is deprecated"
 
-issues:
-  exclude-rules:
-    - linters:
-        - staticcheck
-      text: "SA1019: lbs.RelaxScaleValidation"
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: github.com/vmware-tanzu/nsx-operator
