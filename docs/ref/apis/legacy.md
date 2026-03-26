@@ -357,8 +357,10 @@ _Appears in:_
 | `action` _[RuleAction](#ruleaction)_ | Action specifies the action to be applied on the rule. |  |  |
 | `appliedTo` _[SecurityPolicyTarget](#securitypolicytarget) array_ | AppliedTo is a list of rule targets.<br />Policy level 'Applied To' will take precedence over rule level. |  |  |
 | `direction` _[RuleDirection](#ruledirection)_ | Direction is the direction of the rule, including 'In' or 'Ingress', 'Out' or 'Egress'. |  |  |
-| `sources` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Sources defines the endpoints where the traffic is from. For ingress rule only. |  |  |
-| `destinations` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Destinations defines the endpoints where the traffic is to. For egress rule only. |  |  |
+| `sources` _[SecurityPolicyPeer](#securitypolicypeer) array_ | **Deprecated: use `from` instead.** Sources defines the endpoints where the traffic is from. For ingress rule only. |  |  |
+| `destinations` _[SecurityPolicyPeer](#securitypolicypeer) array_ | **Deprecated: use `to` instead.** Destinations defines the endpoints where the traffic is to. For egress rule only. |  |  |
+| `from` _[SecurityPolicyPeer](#securitypolicypeer) array_ | From defines the endpoints where the traffic is from. For ingress rule only. This is the preferred field over the deprecated Sources. |  |  |
+| `to` _[SecurityPolicyPeer](#securitypolicypeer) array_ | To defines the endpoints where the traffic is to. For egress rule only. This is the preferred field over the deprecated Destinations. |  |  |
 | `ports` _[SecurityPolicyPort](#securitypolicyport) array_ | Ports is a list of ports to be matched. |  |  |
 | `name` _string_ | Name is the display name of this rule. |  |  |
 

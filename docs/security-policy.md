@@ -82,6 +82,57 @@ to access through TCP with port 8000. The second rule allows the selected VMs to
 access Pods with label "role: dns" through UDP with port 53. The third and forth
 rules are to drop any other ingress and egress traffic to/from the selected VMs.
 
+### Kubernetes NetworkPolicy style (from/to)
+
+SecurityPolicy supports `from` and `to` fields as the preferred way to specify
+traffic peers, aligning with the standard Kubernetes NetworkPolicy syntax. The
+legacy `sources` and `destinations` fields are deprecated; use `from` and `to`
+instead. The following example is equivalent to the one above:
+
+```yaml
+apiVersion: nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: db-isolation
+  namespace: prod-ns
+spec:
+  priority: 1
+  appliedTo:
+    - vmSelector:
+        matchLabels:
+          role: db
+  rules:
+    - direction: in
+      action: allow
+      from:
+        - namespaceSelector:
+            matchLabels:
+              role: control
+        - podSelector:
+            matchLabels:
+              role: frontend
+      ports:
+        - protocol: TCP
+          port: 8000
+    - direction: out
+      action: allow
+      to:
+        - podSelector:
+            matchLabels:
+              role: dns
+      ports:
+        - protocol: UDP
+          port: 53
+      appliedTo:
+        - vmSelector:
+            matchLabels:
+              user: internal
+    - direction: in
+      action: drop
+    - direction: out
+      action: drop
+```
+
 Below are explanations for the fields:
 
 **spec**: defines all the configurations for a SecurityPolicy CR.
@@ -107,21 +158,26 @@ or 'Egress'.
 **ports**: define protocol, specific port or port range. `ports.port` will be treated
 as destination port. More details refer to section `Targeting a range of Ports`
 
-**sources** and **destinations**: defines a list of peers where the traffic is from/to.
+**from** and **to**: defines a list of peers where the traffic is from/to.
 It could be `podSelector`, `vmSelector`, `namespaceSelector` and `ipBlocks`.
 `podSelector` and `namespaceSelector` in the same entry select particular Pods within
 particular Namespaces.
 `vmSelector` and `namespaceSelector` in the same entry select particular VMs within
 particular Namespaces.
-More details refer to section `Behavior of sources and destinations selectors`
+More details refer to section `Behavior of from and to selectors`
+
+**sources** and **destinations** *(deprecated)*: legacy names for `from` and `to`.
+These fields are still accepted for backward compatibility but users should migrate
+to `from`/`to`. If both `sources` and `from` (or `destinations` and `to`) are set
+in the same rule, `from`/`to` takes precedence.
 
 **status**: shows CR realization state. If there is any error during realization,
 nsx-operator will also update status with error message.
 
-## Behavior of sources and destinations selectors
+## Behavior of from and to selectors
 
-There are 6 kinds of selectors that can be specified in an `ingress` `sources` section
-or `egress` `destinations` section:
+There are 6 kinds of selectors that can be specified in an `ingress` `from`
+(or legacy `sources`) section or `egress` `to` (or legacy `destinations`) section:
 
 **podSelector**: This selects particular Pods in the same namespace as the SecurityPolicy
 as ingress sources or egress destinations.
@@ -129,7 +185,7 @@ as ingress sources or egress destinations.
 **namespaceSelector**: This selects particular namespaces for which all Pods and
 VMs as ingress sources or egress destinations.
 
-**namespaceSelector and podSelector**: A single `sources`/`destinations` entry that
+**namespaceSelector and podSelector**: A single `from`/`to` entry that
 specifies both `namespaceSelector` and `podSelector` selects particular Pods within
 particular namespaces. Be careful to use correct YAML syntax; this policy:
 
@@ -138,7 +194,7 @@ particular namespaces. Be careful to use correct YAML syntax; this policy:
   rules:
     - direction: in
       action: allow
-      sources:
+      from:
         - namespaceSelector:
             matchLabels:
               user: alice
@@ -147,7 +203,7 @@ particular namespaces. Be careful to use correct YAML syntax; this policy:
               role: client
   ...
 ```
-contains a single `sources` element allowing connections from Pods with the label
+contains a single `from` element allowing connections from Pods with the label
 `role=client` in namespaces with the label `user=alice`. But this policy:
 
 ```
@@ -155,7 +211,7 @@ contains a single `sources` element allowing connections from Pods with the labe
   rules:
     - direction: in
       action: allow
-      sources:
+      from:
         - namespaceSelector:
             matchLabels:
               user: alice
@@ -164,7 +220,7 @@ contains a single `sources` element allowing connections from Pods with the labe
               role: client
   ...
 ```
-contains two elements in the sources array, and allows connections from Pods in
+contains two elements in the `from` array, and allows connections from Pods in
 the current Namespace with the label `role=client`, or from any Pod in the namespaces
 with the label `user=alice`.
 
@@ -176,7 +232,7 @@ the SecurityPolicy as ingress sources or egress destinations. E.g.
   rules:
     - direction: in
       action: allow
-      sources:
+      from:
         - vmSelector:
             matchLabels:
               role: client
@@ -185,7 +241,7 @@ the SecurityPolicy as ingress sources or egress destinations. E.g.
 allows connections from VirtualMachines with the label `role=client` in the current
 namespace.
 
-**namespaceSelector and vmSelector**: A single `sources`/`destinations` entry that
+**namespaceSelector and vmSelector**: A single `from`/`to` entry that
 specifies both `namespaceSelector` and `vmSelector` selects particular VirtualMachines
 within particular namespaces. E.g.
 
@@ -194,7 +250,7 @@ within particular namespaces. E.g.
   rules:
     - direction: in
       action: allow
-      sources:
+      from:
         - namespaceSelector:
             matchLabels:
               user: alice
@@ -203,7 +259,7 @@ within particular namespaces. E.g.
               role: client
   ...
 ```
-contains a single `sources` element allowing connections from VirtualMachines with
+contains a single `from` element allowing connections from VirtualMachines with
 the label `role=client` in namespaces with the label `user=alice`.
 
 **ipBlocks**: This selects particular IP CIDR ranges to allow as ingress sources
@@ -214,7 +270,7 @@ or egress destinations. E.g.
   rules:
     - direction: ingress
       action: allow
-      sources:
+      from:
         - ipBlocks:
             - cidr: 192.168.0.0/24
 ...
@@ -227,7 +283,7 @@ Particularly, it can be used for single IP by suffix `/32`. E.g.
   rules:
     - direction: ingress
       action: allow
-      sources:
+      from:
         - ipBlocks:
             - cidr: 100.64.232.1/32
 ...
@@ -243,7 +299,7 @@ port. E.g.
   rules:
     - direction: in
       action: allow
-      sources:
+      from:
         - podSelector:
             matchLabels:
               role: ui
@@ -270,17 +326,17 @@ In the same policy, the higher rule has the higher priority. E.g. in the policy:
   rules:
     - direction: in
       action: allow
-      sources:
+      from:
         - podSelector:
             matchLabels:
               role: client
     - direction: in
       action: drop
-      sources:
+      from:
         - podSelector: {}
     - direction: out
       action: drop
-      destinations:
+      to:
         - podSelector: {}
 ...
 ```

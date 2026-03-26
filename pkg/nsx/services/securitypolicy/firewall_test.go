@@ -163,7 +163,7 @@ var (
 							},
 						},
 					},
-					Sources: []v1alpha1.SecurityPolicyPeer{
+					From: []v1alpha1.SecurityPolicyPeer{
 						{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
@@ -186,7 +186,7 @@ var (
 							Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 53},
 						},
 					},
-					Sources: []v1alpha1.SecurityPolicyPeer{
+					From: []v1alpha1.SecurityPolicyPeer{
 						{
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels:      map[string]string{"ns1": "spA"},
@@ -224,7 +224,7 @@ var (
 							},
 						},
 					},
-					Destinations: []v1alpha1.SecurityPolicyPeer{
+					To: []v1alpha1.SecurityPolicyPeer{
 						{
 							VMSelector: &metav1.LabelSelector{
 								MatchLabels:      map[string]string{"VM_selector_1": "VM_value_1"},
@@ -237,7 +237,7 @@ var (
 					Action:    &allowDrop,
 					Direction: &directionOut,
 					Name:      "rule-with-ns-selector",
-					Destinations: []v1alpha1.SecurityPolicyPeer{
+					To: []v1alpha1.SecurityPolicyPeer{
 						{
 							NamespaceSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{},
@@ -248,7 +248,7 @@ var (
 				{
 					Action:    &allowDrop,
 					Direction: &directionOut,
-					Destinations: []v1alpha1.SecurityPolicyPeer{
+					To: []v1alpha1.SecurityPolicyPeer{
 						{
 							IPBlocks: []v1alpha1.IPBlock{
 								{CIDR: cidr},
@@ -2989,8 +2989,8 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 
 	serviceEntry := getRuleServiceEntries(53, 0, "UDP")
 
-	ruleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
-	ruleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "2a4595d0", "spA-2a4595d0_re0bz")
+	ruleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "1e510e8a", "spA-1e510e8a_re0bz")
+	ruleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "304ea84a", "spA-304ea84a_re0bz")
 
 	type args struct {
 		spObj      *v1alpha1.SecurityPolicy
@@ -3035,25 +3035,25 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("rule-with-pod-ns-selector_ingress_allow"),
-						Id:                common.String("spA-2c822e90_re0bz_all"),
+						Id:                common.String("spA-1e510e8a_re0bz_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-2c822e90-scope_re0bz"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-1e510e8a-scope_re0bz"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-1e510e8a-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						Tags:              ruleTags1,
 					},
 					{
 						DisplayName:       common.String("rule-with-ns-selector_ingress_allow"),
-						Id:                common.String("spA-2a4595d0_re0bz_53"),
+						Id:                common.String("spA-304ea84a_re0bz_53"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-304ea84a-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              ruleTags2,
@@ -3142,7 +3142,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 						{
 							Action:    &allowAction,
 							Direction: &directionIn,
-							Sources: []v1alpha1.SecurityPolicyPeer{
+							From: []v1alpha1.SecurityPolicyPeer{
 								{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{"app": "coffee"},
@@ -3167,7 +3167,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 						{
 							Action:    &allowAction,
 							Direction: &directionOut,
-							Destinations: []v1alpha1.SecurityPolicyPeer{
+							To: []v1alpha1.SecurityPolicyPeer{
 								{
 									PodSelector: &metav1.LabelSelector{
 										MatchLabels: map[string]string{"app": "mysql"},
@@ -3246,8 +3246,8 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 	ingressServiceEntry := getRuleServiceEntries(6001, 0, "TCP")
 	egressServiceEntry := getRuleServiceEntries(3366, 0, "TCP")
 
-	allowRuleTags1 := appendRuleIDAndHashTags(npAllowBasicTags, "6c2a026c", "np-app-access-allow-6c2a026c_aoqj8")
-	allowRuleTags2 := appendRuleIDAndHashTags(npAllowBasicTags, "025d37a6", "np-app-access-allow-025d37a6_aoqj8")
+	allowRuleTags1 := appendRuleIDAndHashTags(npAllowBasicTags, "41134081", "np-app-access-allow-41134081_aoqj8")
+	allowRuleTags2 := appendRuleIDAndHashTags(npAllowBasicTags, "d66432a3", "np-app-access-allow-d66432a3_aoqj8")
 
 	isolationRuleTags1 := appendRuleIDAndHashTags(npIsolationBasicTags, "114fed10", "np-app-access-isolation-114fed10_aoqj8")
 	isolationRuleTags2 := appendRuleIDAndHashTags(npIsolationBasicTags, "8cae63ab", "np-app-access-isolation-8cae63ab_aoqj8")
@@ -3285,21 +3285,21 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("TCP.6001_ingress_allow"),
-						Id:                common.String("np-app-access-allow-6c2a026c_aoqj8_6001"),
+						Id:                common.String("np-app-access-allow-41134081_aoqj8_6001"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-6c2a026c-src_aoqj8"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-41134081-src_aoqj8"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{ingressServiceEntry},
 						Tags:              allowRuleTags1,
 					},
 					{
 						DisplayName:       common.String("TCP.3366_egress_allow"),
-						Id:                common.String("np-app-access-allow-025d37a6_aoqj8_3366"),
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-025d37a6-dst_aoqj8"},
+						Id:                common.String("np-app-access-allow-d66432a3_aoqj8_3366"),
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-d66432a3-dst_aoqj8"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
@@ -3948,6 +3948,81 @@ func Test_applyVPCGroupShareStore(t *testing.T) {
 			assert.Equal(t, tt.wantProjectShareStoreCount, len(fakeService.projectShareStore.ListKeys()))
 			assert.Equal(t, tt.wantInfraGroupStoreCount, len(fakeService.infraGroupStore.ListKeys()))
 			assert.Equal(t, tt.wantInfraShareStoreCount, len(fakeService.infraShareStore.ListKeys()))
+		})
+	}
+}
+
+func Test_normalizeSecurityPolicyRules_FromToAliases(t *testing.T) {
+	inDir := v1alpha1.RuleDirectionIn
+	outDir := v1alpha1.RuleDirectionOut
+
+	fromPeer := v1alpha1.SecurityPolicyPeer{
+		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"from": "peer"}},
+	}
+	toPeer := v1alpha1.SecurityPolicyPeer{
+		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"to": "peer"}},
+	}
+	legacySrcPeer := v1alpha1.SecurityPolicyPeer{
+		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"legacy": "src"}},
+	}
+	legacyDstPeer := v1alpha1.SecurityPolicyPeer{
+		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"legacy": "dst"}},
+	}
+
+	tests := []struct {
+		name     string
+		rule     v1alpha1.SecurityPolicyRule
+		wantFrom []v1alpha1.SecurityPolicyPeer
+		wantTo   []v1alpha1.SecurityPolicyPeer
+	}{
+		{
+			name: "from/to only — kept as is",
+			rule: v1alpha1.SecurityPolicyRule{
+				Direction: &inDir,
+				From:      []v1alpha1.SecurityPolicyPeer{fromPeer},
+				To:        []v1alpha1.SecurityPolicyPeer{toPeer},
+			},
+			wantFrom: []v1alpha1.SecurityPolicyPeer{fromPeer},
+			wantTo:   []v1alpha1.SecurityPolicyPeer{toPeer},
+		},
+		{
+			name: "sources/destinations only — migrated to from/to (upgrade)",
+			rule: v1alpha1.SecurityPolicyRule{
+				Direction:    &outDir,
+				Sources:      []v1alpha1.SecurityPolicyPeer{legacySrcPeer}, //nolint:staticcheck
+				Destinations: []v1alpha1.SecurityPolicyPeer{legacyDstPeer}, //nolint:staticcheck
+			},
+			wantFrom: []v1alpha1.SecurityPolicyPeer{legacySrcPeer},
+			wantTo:   []v1alpha1.SecurityPolicyPeer{legacyDstPeer},
+		},
+		{
+			name: "both set — from/to takes priority",
+			rule: v1alpha1.SecurityPolicyRule{
+				Direction:    &inDir,
+				Sources:      []v1alpha1.SecurityPolicyPeer{legacySrcPeer}, //nolint:staticcheck
+				Destinations: []v1alpha1.SecurityPolicyPeer{legacyDstPeer}, //nolint:staticcheck
+				From:         []v1alpha1.SecurityPolicyPeer{fromPeer},
+				To:           []v1alpha1.SecurityPolicyPeer{toPeer},
+			},
+			wantFrom: []v1alpha1.SecurityPolicyPeer{fromPeer},
+			wantTo:   []v1alpha1.SecurityPolicyPeer{toPeer},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sp := &v1alpha1.SecurityPolicy{
+				Spec: v1alpha1.SecurityPolicySpec{
+					Rules: []v1alpha1.SecurityPolicyRule{tt.rule},
+				},
+			}
+			normalizeSecurityPolicyRules(sp)
+
+			r := sp.Spec.Rules[0]
+			assert.Equal(t, tt.wantFrom, r.From)
+			assert.Nil(t, r.Sources) //nolint:staticcheck
+			assert.Equal(t, tt.wantTo, r.To)
+			assert.Nil(t, r.Destinations) //nolint:staticcheck
 		})
 	}
 }
