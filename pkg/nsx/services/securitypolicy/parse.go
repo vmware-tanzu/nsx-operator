@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -60,8 +61,11 @@ func getDefaultProjectDomain() string {
 	return "default"
 }
 
+// IsVPCEnabled returns whether VPC namespaces exist. Callers must ensure mixed-mode
+// state has been initialized (InitMixedMode in main; SetMixedModeStateForTest in tests).
+// The "no CR" fallback to config is handled inside InitMixedMode, not here.
 func IsVPCEnabled(service *SecurityPolicyService) bool {
-	return service.NSXConfig.EnableVPCNetwork
+	return config.HasVPCNamespaces()
 }
 
 func getScopeCluserTag(service *SecurityPolicyService) string {
