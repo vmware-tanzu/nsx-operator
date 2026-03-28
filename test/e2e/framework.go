@@ -89,6 +89,7 @@ type TestOptions struct {
 	logsExportOnSuccess bool
 	debugLog            bool
 	logLevel            int
+	logColor            bool
 }
 
 var testOptions TestOptions

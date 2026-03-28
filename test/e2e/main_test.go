@@ -253,9 +253,10 @@ func testMain(m *testing.M) int {
 	flag.StringVar(&testOptions.vcPassword, "vc-password", "", "The password used by the user when requesting vCenter API session")
 	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
 	flag.IntVar(&testOptions.logLevel, "log-level", 0, "")
+	flag.BoolVar(&testOptions.logColor, "log-color", false, "Enable ANSI color in log output.")
 	flag.Parse()
 
-	log = logger.ZapCustomLogger(testOptions.debugLog, testOptions.logLevel)
+	log = logger.ZapCustomLogger(testOptions.debugLog, testOptions.logLevel, testOptions.logColor)
 	logger.Log = log
 	// Set the controller-runtime logger to prevent the warning about log.SetLogger(...) never being called
 	logf.SetLogger(log.Logger)

@@ -41,7 +41,7 @@ func TestClean_ValidationFailed(t *testing.T) {
 
 	defer patches.Reset()
 
-	err := Clean(ctx, cf, &log, debug, logLevel)
+	err := Clean(ctx, cf, &log, debug, logLevel, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "validation failed")
 }
@@ -61,7 +61,7 @@ func TestClean_GetClientFailed(t *testing.T) {
 		return nil
 	})
 
-	err := Clean(ctx, cf, &log, debug, logLevel)
+	err := Clean(ctx, cf, &log, debug, logLevel, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get nsx client")
 }
@@ -85,7 +85,7 @@ func TestClean_InitError(t *testing.T) {
 		return nil, errors.New("init cleanup service failed")
 	})
 
-	err := Clean(ctx, cf, &log, debug, logLevel)
+	err := Clean(ctx, cf, &log, debug, logLevel, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "init cleanup service failed")
 }
@@ -122,7 +122,7 @@ func TestClean_Cleanup(t *testing.T) {
 		return nil
 	})
 
-	err := Clean(ctx, cf, nil, debug, logLevel)
+	err := Clean(ctx, cf, nil, debug, logLevel, false)
 	assert.Nil(t, err)
 	assert.True(t, clean.vpcPreCleanupCalled)
 	assert.True(t, clean.vpcChildrenCleanupCalled)

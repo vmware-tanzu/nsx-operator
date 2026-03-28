@@ -61,6 +61,7 @@ func main() {
 	flag.StringVar(&envoyHost, "envoyhost", "", "envoy host")
 	flag.IntVar(&envoyPort, "envoyport", 0, "envoy port")
 	flag.IntVar(&config.LogLevel, "log-level", 2, "Use zap-core log system.")
+	flag.BoolVar(&config.LogColor, "log-color", false, "Enable ANSI color in log output.")
 	flag.Parse()
 
 	cf = config.NewNSXOpertorConfig()
@@ -80,10 +81,10 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
 	defer cancel()
-	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel)
+	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel, config.LogColor)
 	logger.Log = log
 	logf.SetLogger(log.Logger)
-	err := clean.Clean(ctx, cf, &log.Logger, cf.DefaultConfig.Debug, config.LogLevel)
+	err := clean.Clean(ctx, cf, &log.Logger, cf.DefaultConfig.Debug, config.LogLevel, config.LogColor)
 	if err != nil {
 		log.Error(err, "Failed to clean nsx resources")
 		os.Exit(1)

@@ -88,7 +88,7 @@ func init() {
 		os.Exit(1)
 	}
 
-	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel)
+	log = logger.ZapCustomLogger(cf.DefaultConfig.Debug, config.LogLevel, config.LogColor)
 	logger.Log = log
 	// Set the controller-runtime logger to prevent the warning about log.SetLogger(...) never being called
 	logf.SetLogger(log.Logger)
