@@ -30,13 +30,13 @@ const (
 )
 
 var (
-	subnetTestNamespace       = fmt.Sprintf("subnet-e2e-%s", getRandomString())
-	subnetTestNamespaceShared = fmt.Sprintf("subnet-e2e-shared-%s", getRandomString())
-	subnetTestNamespaceTarget = fmt.Sprintf("target-ns-%s", getRandomString())
+	subnetTestNamespace       = generateUniqueID("subnet-e2e")
+	subnetTestNamespaceShared = generateUniqueID("subnet-e2e-shared")
+	subnetTestNamespaceTarget = generateUniqueID("target-ns")
 
-	precreatedSubnetNs1        = fmt.Sprintf("precreated-subnet-ns1-%s", getRandomString())
-	precreatedSubnetNs2        = fmt.Sprintf("precreated-subnet-ns2-%s", getRandomString())
-	precreatedSubnetNsTargetNs = fmt.Sprintf("precreated-target-ns-%s", getRandomString())
+	precreatedSubnetNs1        = generateUniqueID("precreated-subnet-ns1")
+	precreatedSubnetNs2        = generateUniqueID("precreated-subnet-ns2")
+	precreatedSubnetNsTargetNs = generateUniqueID("precreated-target-ns")
 )
 
 func verifySubnetSetCR(subnetSet string) bool {
