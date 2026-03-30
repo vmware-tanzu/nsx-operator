@@ -126,35 +126,35 @@ func TestGenerateSubnetNSTags(t *testing.T) {
 
 type fakeSubnetsClient struct{}
 
-func (_ fakeSubnetsClient) Delete(_ string, _ string, _ string, _ string) error {
+func (fakeSubnetsClient) Delete(_ string, _ string, _ string, _ string) error {
 	return nil
 }
 
-func (_ fakeSubnetsClient) Get(_ string, _ string, _ string, _ string) (model.VpcSubnet, error) {
+func (fakeSubnetsClient) Get(_ string, _ string, _ string, _ string) (model.VpcSubnet, error) {
 	return model.VpcSubnet{}, nil
 }
 
-func (_ fakeSubnetsClient) List(_ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
+func (fakeSubnetsClient) List(_ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
 	return model.VpcSubnetListResult{}, nil
 }
 
-func (_ fakeSubnetsClient) Patch(_ string, _ string, _ string, _ string, _ model.VpcSubnet) error {
+func (fakeSubnetsClient) Patch(_ string, _ string, _ string, _ string, _ model.VpcSubnet) error {
 	return nil
 }
 
-func (_ fakeSubnetsClient) Update(_ string, _ string, _ string, _ string, _ model.VpcSubnet) (model.VpcSubnet, error) {
+func (fakeSubnetsClient) Update(_ string, _ string, _ string, _ string, _ model.VpcSubnet) (model.VpcSubnet, error) {
 	return model.VpcSubnet{}, nil
 }
 
 type fakeSubnetStatusClient struct{}
 
-func (_ fakeSubnetStatusClient) List(_ string, _ string, _ string, _ string) (model.VpcSubnetStatusListResult, error) {
+func (fakeSubnetStatusClient) List(_ string, _ string, _ string, _ string) (model.VpcSubnetStatusListResult, error) {
 	return model.VpcSubnetStatusListResult{}, nil
 }
 
 type fakeRealizedEntitiesClient struct{}
 
-func (_ fakeRealizedEntitiesClient) List(_ string, _ *string) (model.GenericPolicyRealizedResourceListResult, error) {
+func (fakeRealizedEntitiesClient) List(_ string, _ *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	// GenericPolicyRealizedResource
 	state := model.GenericPolicyRealizedResource_STATE_REALIZED
 	return model.GenericPolicyRealizedResourceListResult{
@@ -921,8 +921,7 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		var patches *gomonkey.Patches
-		patches = tt.prepareFunc()
+		patches := tt.prepareFunc()
 		err := service.RestoreSubnetSet(tt.subnetset, common.VPCResourceInfo{}, []model.Tag{})
 		if tt.expectedErr != "" {
 			assert.NotNil(t, err)

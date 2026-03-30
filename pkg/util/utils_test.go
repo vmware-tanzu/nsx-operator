@@ -534,8 +534,7 @@ func TestGenerateIDByObject(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var id string
-			id = GenerateIDByObject(tc.obj)
+			id := GenerateIDByObject(tc.obj)
 			assert.Equal(t, tc.expID, id)
 		})
 	}

@@ -26,7 +26,7 @@ type (
 	fakeVPCGroupClient    struct{}
 )
 
-func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+func (*fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{

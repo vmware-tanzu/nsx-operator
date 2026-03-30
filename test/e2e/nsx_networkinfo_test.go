@@ -338,7 +338,6 @@ func assureNetworkInfoDeleted(t *testing.T, ns string) {
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
 }
 
 func assureNamespace(t *testing.T, ns string) (res *v12.Namespace) {
@@ -356,7 +355,7 @@ func assureNamespace(t *testing.T, ns string) (res *v12.Namespace) {
 		return true, nil
 	})
 	require.NoError(t, err)
-	return
+	return res
 }
 
 func assureNamespaceDeleted(t *testing.T, ns string) {
@@ -381,7 +380,6 @@ func assureNamespaceDeleted(t *testing.T, ns string) {
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
 }
 
 func getNetworkInfoWithCondition(t *testing.T, ns, networkInfoName string, condition func(networkInfo *v1alpha1.NetworkInfo) (bool, error)) (networkInfo *v1alpha1.NetworkInfo) {
@@ -399,7 +397,7 @@ func getNetworkInfoWithCondition(t *testing.T, ns, networkInfoName string, condi
 		return condition(networkInfo)
 	})
 	require.NoError(t, err)
-	return
+	return networkInfo
 }
 
 func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName string) (vpcPath string) {
@@ -418,7 +416,7 @@ func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName string) (vpcPath
 		return false, nil
 	})
 	require.NoError(t, err)
-	return
+	return vpcPath
 }
 
 func assureVPCNetworkConfigurationStatusEmpty(t *testing.T, ncName string) {

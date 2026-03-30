@@ -153,10 +153,10 @@ func ZapCustomLogger(cfDebug bool, cfLogLevel int) CustomLogger {
 
 	// Set the log level based on the calculated level
 	var zeroLogLevel zerolog.Level
-	switch {
-	case logLevel == 2:
+	switch logLevel {
+	case 2:
 		zeroLogLevel = zerolog.TraceLevel
-	case logLevel == 1:
+	case 1:
 		zeroLogLevel = zerolog.DebugLevel
 	default:
 		zeroLogLevel = zerolog.InfoLevel

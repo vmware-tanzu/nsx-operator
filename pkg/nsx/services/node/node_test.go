@@ -94,7 +94,6 @@ func TestInitializeNode(t *testing.T) {
 		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store servicecommon.Store,
 	) {
 		wg.Done()
-		return
 	})
 	defer patch.Reset()
 
