@@ -106,7 +106,33 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 	return r.handleDeletion(req, obj)
 }
 
+func (r *IPAddressAllocationReconciler) setIPAddressBlockVisibilityDefaultValue(ctx context.Context, obj *v1alpha1.IPAddressAllocation) error {
+	if obj.Spec.IPAddressBlockVisibility == "" {
+		accessMode, _, err := common.GetDefaultAccessMode(r.VPCService, obj.Namespace)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to get access mode", setReadyStatusFalse)
+			return err
+		}
+		if accessMode == v1alpha1.AccessMode(v1alpha1.AccessModePublic) {
+			obj.Spec.IPAddressBlockVisibility = v1alpha1.IPAddressVisibilityExternal
+		} else {
+			obj.Spec.IPAddressBlockVisibility = v1alpha1.IPAddressVisibilityPrivate
+		}
+		// Update the object to persist the IPAddressBlockVisibility default value
+		if err := r.Client.Update(ctx, obj); err != nil {
+			log.Error(err, "Failed to update IPAddressAllocation", "IPAddressVisibility", obj.Spec.IPAddressBlockVisibility, "IPAddressAllocation", obj.Name)
+			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to update IPAddressAllocation", setReadyStatusFalse)
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
+	err := r.setIPAddressBlockVisibilityDefaultValue(ctx, obj)
+	if err != nil {
+		return resultNormal, err
+	}
 	r.StatusUpdater.IncreaseUpdateTotal()
 	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj, r.restoreMode)
 	if err != nil {
