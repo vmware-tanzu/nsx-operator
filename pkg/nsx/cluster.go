@@ -531,6 +531,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case VTEPLessMode:
 		minVersion = nsx910Version
 		validFeature = true
+	case RestoreVIF:
+		minVersion = nsx920Version
+		validFeature = true
 	}
 
 	if validFeature {

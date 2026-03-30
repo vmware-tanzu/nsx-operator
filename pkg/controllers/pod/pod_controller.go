@@ -31,6 +31,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -121,21 +122,15 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		// appplatform webhook may be down if cpvm network is not restored, which blocks annotation update
 		// Avoid to update the MAC annotation on Pod in restore mode as it should not change
-		if !r.restoreMode && nsxSubnetPortState != nil && len(nsxSubnetPortState.RealizedBindings) > 0 &&
-			nsxSubnetPortState.RealizedBindings[0].Binding != nil &&
-			nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress != nil {
-			podAnnotationChanges := map[string]string{
-				servicecommon.AnnotationPodMAC: strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\""),
-			}
-			err = util.UpdateK8sResourceAnnotation(r.Client, ctx, pod, podAnnotationChanges)
-			if err != nil {
-				log.Error(err, "Failed to update Pod annotation", "pod.Name", req.NamespacedName, "pod.UID", pod.UID, "podAnnotationChanges", podAnnotationChanges)
+		// Attachment id annotation will change in restore mode for NSX 9.1, we rely on operator in normal mode to update the annotation
+		if !r.restoreMode && nsxSubnetPortState != nil {
+			if err = updatePodAnnotationForPortState(ctx, r.Client, nsxSubnetPortState, pod); err != nil {
 				return common.ResultNormal, err
 			}
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
-		if r.restoreMode {
-			// Update restore status on Pod to notify Spherelet
+		if r.restoreMode && !r.SubnetPortService.NSXClient.NSXCheckVersion(nsx.RestoreVIF) {
+			// Update restore status on Pod to notify Spherelet for NSX version < 9.2
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
 				log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 				return err != nil
@@ -159,6 +154,26 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, pod)
 	}
 	return common.ResultNormal, nil
+}
+
+func updatePodAnnotationForPortState(ctx context.Context, client client.Client, nsxSubnetPortState *model.SegmentPortState, pod *v1.Pod) error {
+	podAnnotationChanges := make(map[string]string)
+	if len(nsxSubnetPortState.RealizedBindings) > 0 &&
+		nsxSubnetPortState.RealizedBindings[0].Binding != nil &&
+		nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress != nil {
+		podAnnotationChanges[servicecommon.AnnotationPodMAC] = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+	}
+	if nsxSubnetPortState.Attachment != nil && nsxSubnetPortState.Attachment.Id != nil {
+		podAnnotationChanges[servicecommon.AnnotationAttachment] = *nsxSubnetPortState.Attachment.Id
+	}
+	if len(podAnnotationChanges) > 0 {
+		err := util.UpdateK8sResourceAnnotation(client, ctx, pod, podAnnotationChanges)
+		if err != nil {
+			log.Error(err, "Failed to update Pod annotation", "Namespace", pod.Namespace, "Name", pod.Name, "pod.UID", pod.UID, "podAnnotationChanges", podAnnotationChanges)
+			return err
+		}
+	}
+	return nil
 }
 
 // Set PodNetworkReconfigRequired condition to true in Pod to inform spherelet the SubnetPort is restored with another vif ID

@@ -101,6 +101,7 @@ const (
 	AnnotationAssociatedResource       string = "nsx.vmware.com/associated-resource"
 	AnnotationReconfigureNic           string = "nsx/reconfigure-nic"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
+	AnnotationAttachment               string = "nsx.vmware.com/attachment"
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
 	TagScopePodName                    string = "nsx-op/pod_name"
 	TagScopePodUID                     string = "nsx-op/pod_uid"

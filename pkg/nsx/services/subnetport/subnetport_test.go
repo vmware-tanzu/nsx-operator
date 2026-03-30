@@ -254,6 +254,8 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 		wantErr      bool
 		expectedDHCP bool
 		nsxSubnet    *model.VpcSubnet
+		obj          interface{}
+		restore      bool
 	}{
 		{
 			name: "CreateDHCPServer",
@@ -269,6 +271,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			wantErr:      false,
 			nsxSubnet:    nsxSubnet1,
 			expectedDHCP: true,
+			obj:          subnetPortCR,
 		},
 		{
 			name: "CreateDHCPDeactivated",
@@ -289,6 +292,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			wantErr:      false,
 			nsxSubnet:    nsxSubnet2,
 			expectedDHCP: false,
+			obj:          subnetPortCR,
 		},
 		{
 			name: "Update",
@@ -310,6 +314,42 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			wantErr:      false,
 			nsxSubnet:    nsxSubnet2,
 			expectedDHCP: false,
+			obj:          subnetPortCR,
+		},
+		{
+			name: "RestorePod",
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					namespaceCR := &corev1.Namespace{}
+					namespaceCR.UID = "ns1"
+					return nil
+				})
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.PortStateClient), "Get", func(c *fakePortStateClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, enforcementPointPathParam *string, sourceParam *string) (model.SegmentPortState, error) {
+					return model.SegmentPortState{
+						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				return patches
+			},
+			wantErr:      false,
+			nsxSubnet:    nsxSubnet2,
+			expectedDHCP: false,
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "ns-1",
+					Annotations: map[string]string{
+						common.AnnotationPodMAC:     "aa:bb:cc:dd:ee:ff",
+						common.AnnotationAttachment: "attachment-id",
+					},
+					UID: "00000000-0000-0000-0000-000000000002",
+				},
+			},
+			restore: true,
 		},
 		{
 			name: "RealizeFailure",
@@ -328,6 +368,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			},
 			wantErr:   true,
 			nsxSubnet: nsxSubnet1,
+			obj:       subnetPortCR,
 		},
 		{
 			name: "NoRealizeFailure",
@@ -353,6 +394,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			},
 			wantErr:   true,
 			nsxSubnet: nsxSubnet1,
+			obj:       subnetPortCR,
 		},
 		{
 			name: "IPExhaustedRealizeFailure",
@@ -371,6 +413,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			},
 			wantErr:   true,
 			nsxSubnet: nsxSubnet1,
+			obj:       subnetPortCR,
 		},
 		{
 			name: "CreateFailure",
@@ -388,6 +431,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			},
 			wantErr:   true,
 			nsxSubnet: nsxSubnet1,
+			obj:       subnetPortCR,
 		},
 		{
 			name: "GetFailure",
@@ -405,6 +449,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			},
 			wantErr:   true,
 			nsxSubnet: nsxSubnet1,
+			obj:       subnetPortCR,
 		},
 	}
 
@@ -414,7 +459,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(subnetPortCR, tt.nsxSubnet, "", nil, false, false)
+			_, enableDHCP, err := service.CreateOrUpdateSubnetPort(tt.obj, tt.nsxSubnet, "", nil, false, tt.restore)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -1212,6 +1257,7 @@ func TestSubnetPortService_portAlreadyRealized(t *testing.T) {
 	nsxSubnetPortWithBOTH := &model.VpcSubnetPort{
 		Attachment: &model.PortAttachment{
 			AllocateAddresses: common.String("BOTH"),
+			Id:                common.String("attachment-id"),
 		},
 	}
 	// SubnetPort: realized
@@ -1271,7 +1317,10 @@ func TestSubnetPortService_portAlreadyRealized(t *testing.T) {
 
 	// Pod: realized (annotation exists)
 	pod := &corev1.Pod{}
-	pod.Annotations = map[string]string{common.AnnotationPodMAC: "mac"}
+	pod.Annotations = map[string]string{
+		common.AnnotationPodMAC:     "mac",
+		common.AnnotationAttachment: "attachment-id",
+	}
 	assert.True(t, service.portAlreadyRealized(pod, nsxSubnetPortWithBOTH))
 
 	// Pod: not realized (annotation missing)
