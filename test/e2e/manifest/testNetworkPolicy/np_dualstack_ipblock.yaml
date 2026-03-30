@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: np-dualstack-ipblock
+spec:
+  podSelector:
+    matchLabels:
+      role: db
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 192.168.0.0/16
+        except:
+        - 192.168.1.0/24
+    - ipBlock:
+        cidr: 2001:db8::/32
+        except:
+        - 2001:db8:1::/48
+    ports:
+    - protocol: TCP
+      port: 3306
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 10.0.0.0/8
+    - ipBlock:
+        cidr: fd00::/64
+    ports:
+    - protocol: TCP
+      port: 443
