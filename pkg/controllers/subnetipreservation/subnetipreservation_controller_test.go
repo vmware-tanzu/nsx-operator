@@ -33,6 +33,175 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetipreservation"
 )
 
+func TestReconciler_GetRestoreList(t *testing.T) {
+	iprWithStatus := &v1alpha1.SubnetIPReservation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ipr-restore",
+			Namespace: "ns-1",
+			UID:       "ipr-restore-uid",
+		},
+		Spec: v1alpha1.SubnetIPReservationSpec{Subnet: "subnet-1", NumberOfIPs: 5},
+		Status: v1alpha1.SubnetIPReservationStatus{
+			IPs: []string{"10.0.0.1", "10.0.0.2"},
+		},
+	}
+	tests := []struct {
+		name         string
+		objects      []client.Object
+		prepareStore func(r *Reconciler)
+		expectInList bool
+		listErr      bool
+	}{
+		{
+			name:    "List returns error",
+			objects: []client.Object{iprWithStatus},
+			listErr: true,
+		},
+		{
+			name:         "Empty list when no CRs",
+			objects:      []client.Object{},
+			expectInList: false,
+		},
+		{
+			name: "Skip when Status.IPs empty",
+			objects: []client.Object{&v1alpha1.SubnetIPReservation{
+				ObjectMeta: metav1.ObjectMeta{Name: "ipr2", Namespace: "ns-1", UID: "uid2"},
+				Spec:       v1alpha1.SubnetIPReservationSpec{Subnet: "s1"},
+				Status:     v1alpha1.SubnetIPReservationStatus{IPs: nil},
+			}},
+			expectInList: false,
+		},
+		{
+			name:    "Include when store IPs differ from status",
+			objects: []client.Object{iprWithStatus},
+			prepareStore: func(r *Reconciler) {
+				// Store has different IPs -> needs restore
+				r.IPReservationService.StaticIPReservationStore.Apply(&model.StaticIpAddressReservation{
+					Id:          servicecommon.String("sid"),
+					ReservedIps: []string{"10.0.0.3"},
+					Tags:        []model.Tag{{Scope: servicecommon.String(servicecommon.TagScopeSubnetIPReservationCRUID), Tag: servicecommon.String("ipr-restore-uid")}},
+				})
+			},
+			expectInList: true,
+		},
+		{
+			name:    "Skip when store IPs match status",
+			objects: []client.Object{iprWithStatus},
+			prepareStore: func(r *Reconciler) {
+				r.IPReservationService.StaticIPReservationStore.Apply(&model.StaticIpAddressReservation{
+					Id:          servicecommon.String("sid2"),
+					ReservedIps: []string{"10.0.0.1", "10.0.0.2"},
+					Tags:        []model.Tag{{Scope: servicecommon.String(servicecommon.TagScopeSubnetIPReservationCRUID), Tag: servicecommon.String("ipr-restore-uid")}},
+				})
+			},
+			expectInList: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := createFakeReconciler(tc.objects...)
+			if tc.prepareStore != nil {
+				tc.prepareStore(r)
+			}
+			if tc.listErr {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "List", func(_ client.Client, _ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+					return fmt.Errorf("mocked list error")
+				})
+				defer patches.Reset()
+			}
+			list, err := r.getRestoreList()
+			if tc.listErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "mocked list error")
+				return
+			}
+			assert.NoError(t, err)
+			if tc.expectInList {
+				assert.Len(t, list, 1)
+				assert.Equal(t, "ipr-restore", list[0].Name)
+				assert.Equal(t, "ns-1", list[0].Namespace)
+			} else {
+				assert.Len(t, list, 0)
+			}
+		})
+	}
+}
+
+func TestReconciler_RestoreReconcile(t *testing.T) {
+	iprWithStatus := &v1alpha1.SubnetIPReservation{
+		ObjectMeta: metav1.ObjectMeta{Name: "ipr-r", Namespace: "ns-1", UID: "ipr-r-uid"},
+		Spec:       v1alpha1.SubnetIPReservationSpec{Subnet: "subnet-1", NumberOfIPs: 2},
+		Status:     v1alpha1.SubnetIPReservationStatus{IPs: []string{"10.0.0.1"}},
+	}
+	t.Run("returns nil when StaticIPReservation not supported", func(t *testing.T) {
+		r := createFakeReconciler(iprWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return false
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.NoError(t, err)
+	})
+	t.Run("getRestoreList error", func(t *testing.T) {
+		r := createFakeReconciler(iprWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return true
+		})
+		patches.ApplyMethod(reflect.TypeOf(r.Client), "List", func(_ client.Client, _ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("list failed")
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get SubnetIPReservation restore list")
+	})
+	t.Run("success when restore list empty", func(t *testing.T) {
+		r := createFakeReconciler()
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return true
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.NoError(t, err)
+	})
+	t.Run("success when reconcile succeeds for restore items", func(t *testing.T) {
+		r := createFakeReconciler(iprWithStatus)
+		// Store has different IPs so CR is in restore list
+		r.IPReservationService.StaticIPReservationStore.Apply(&model.StaticIpAddressReservation{
+			Id:          servicecommon.String("sid"),
+			ReservedIps: []string{"10.0.0.99"},
+			Tags:        []model.Tag{{Scope: servicecommon.String(servicecommon.TagScopeSubnetIPReservationCRUID), Tag: servicecommon.String("ipr-r-uid")}},
+		})
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return true
+		})
+		patches.ApplyMethod(reflect.TypeOf((*Reconciler)(nil)), "Reconcile", func(_ *Reconciler, _ context.Context, _ ctrl.Request) (ctrl.Result, error) {
+			return ctrl.Result{}, nil
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.NoError(t, err)
+	})
+	t.Run("error when reconcile fails for one restore item", func(t *testing.T) {
+		r := createFakeReconciler(iprWithStatus)
+		r.IPReservationService.StaticIPReservationStore.Apply(&model.StaticIpAddressReservation{
+			Id:          servicecommon.String("sid"),
+			ReservedIps: []string{"10.0.0.99"},
+			Tags:        []model.Tag{{Scope: servicecommon.String(servicecommon.TagScopeSubnetIPReservationCRUID), Tag: servicecommon.String("ipr-r-uid")}},
+		})
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return true
+		})
+		patches.ApplyMethod(reflect.TypeOf((*Reconciler)(nil)), "Reconcile", func(_ *Reconciler, _ context.Context, req ctrl.Request) (ctrl.Result, error) {
+			return ctrl.Result{Requeue: true}, fmt.Errorf("reconcile failed")
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "errors found in SubnetIPReservation restore")
+	})
+}
+
 func TestReconciler_StartController(t *testing.T) {
 	mockMgr := &MockManager{scheme: runtime.NewScheme()}
 	patches := gomonkey.ApplyFunc((*Reconciler).setupWithManager, func(r *Reconciler, mgr manager.Manager) error {
@@ -199,7 +368,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByCR", func(_ *subnet.SubnetService, subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
 					return &model.VpcSubnet{Path: servicecommon.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1")}, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "GetOrCreateSubnetIPReservation", func(_ *subnetipreservation.IPReservationService, ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) (*model.DynamicIpAddressReservation, error) {
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "CreateOrUpdateSubnetIPReservation", func(_ *subnetipreservation.IPReservationService, ipReservation *v1alpha1.SubnetIPReservation, subnetPath string, restoreMode bool) ([]string, error) {
 					return nil, fmt.Errorf("mocked creation error")
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
@@ -219,11 +388,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByCR", func(_ *subnet.SubnetService, subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
 					return &model.VpcSubnet{Path: servicecommon.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1")}, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "GetOrCreateSubnetIPReservation", func(_ *subnetipreservation.IPReservationService, ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) (*model.DynamicIpAddressReservation, error) {
-					return &model.DynamicIpAddressReservation{
-						NumberOfIps: servicecommon.Int64(10),
-						Ips:         []string{"10.0.0.1-10.0.0.9", "10.0.0.13"},
-					}, nil
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "CreateOrUpdateSubnetIPReservation", func(_ *subnetipreservation.IPReservationService, ipReservation *v1alpha1.SubnetIPReservation, subnetPath string, restoreMode bool) ([]string, error) {
+					return []string{"10.0.0.1-10.0.0.9", "10.0.0.13"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
 					return true
@@ -436,8 +602,9 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 		SubnetStore: &subnet.SubnetStore{},
 	}
 	ipReservationService := &subnetipreservation.IPReservationService{
-		Service:            svc,
-		IPReservationStore: subnetipreservation.SetupStore(),
+		Service:                   svc,
+		DynamicIPReservationStore: subnetipreservation.SetupDynamicIPReservationStore(),
+		StaticIPReservationStore:  subnetipreservation.SetupStaticIPReservationStore(),
 	}
 
 	return NewReconciler(mgr, ipReservationService, subnetService)

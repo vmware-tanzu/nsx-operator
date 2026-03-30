@@ -534,6 +534,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case RestoreVIF:
 		minVersion = nsx920Version
 		validFeature = true
+	case StaticIPReservation:
+		minVersion = nsx920Version
+		validFeature = true
 	}
 
 	if validFeature {

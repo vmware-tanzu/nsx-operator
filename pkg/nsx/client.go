@@ -54,10 +54,11 @@ const (
 	SubnetMinimalSize8
 	VTEPLessMode
 	RestoreVIF
+	StaticIPReservation
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -115,6 +116,7 @@ type Client struct {
 	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
 	DynamicIPReservationsClient       subnets.DynamicIpReservationsClient
+	StaticIPReservationsClient        subnets.StaticIpReservationsClient
 	NsxApiClient                      *nsxt.APIClient
 	VifsClient                        fabric.VifsClient
 
@@ -230,6 +232,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
 	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
+	StaticIPReservationsClient := subnets.NewStaticIpReservationsClient(connector)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	vifsClient := fabric.NewVifsClient(connector)
@@ -294,6 +297,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		TransitGatewayStateClient:         transitGatewayStateClient,
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
 		DynamicIPReservationsClient:       DynamicIPReservationsClient,
+		StaticIPReservationsClient:        StaticIPReservationsClient,
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
