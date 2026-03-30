@@ -749,7 +749,7 @@ func deleteYAML(filename string, ns string) error {
 		// log.Error(err, "Error when deleting YAML file")
 		return nil
 	}
-	_, _ = string(stdout.Bytes()), string(stderr.Bytes())
+	_, _ = stdout.String(), stderr.String()
 	return nil
 }
 
@@ -760,8 +760,8 @@ func (data *TestData) queryResource(resourceType string, tags []string) (model.S
 	resourceParam := fmt.Sprintf("%s:%s", common.ResourceType, resourceType)
 	queryParam := resourceParam
 	if len(tags) >= 2 {
-		tagscope := strings.Replace(tags[0], "/", "\\/", -1)
-		tagtag := strings.Replace(tags[1], ":", "\\:", -1)
+		tagscope := strings.ReplaceAll(tags[0], "/", "\\/")
+		tagtag := strings.ReplaceAll(tags[1], ":", "\\:")
 		tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagscope, tagtag)
 		queryParam = resourceParam + " AND " + tagParam
 	}
@@ -784,8 +784,8 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 
 		// Only add the tag query if namespace is not empty and not for inventory resources
 		if namespace != "" && !strings.HasPrefix(resourceType, "Container") {
-			tagScopeClusterKey := strings.Replace(common.TagScopeNamespace, "/", "\\/", -1)
-			tagScopeClusterValue := strings.Replace(namespace, ":", "\\:", -1)
+			tagScopeClusterKey := strings.ReplaceAll(common.TagScopeNamespace, "/", "\\/")
+			tagScopeClusterValue := strings.ReplaceAll(namespace, ":", "\\:")
 			tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 			queryParam = resourceParam + " AND " + tagParam
 			queryParam += " AND marked_for_delete:false"

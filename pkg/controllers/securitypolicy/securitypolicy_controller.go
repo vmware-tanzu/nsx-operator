@@ -92,9 +92,7 @@ func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1a
 	if securityPolicy.Annotations == nil {
 		return
 	}
-	if _, exists := securityPolicy.Annotations[common.NSXOperatorError]; exists {
-		delete(securityPolicy.Annotations, common.NSXOperatorError)
-	}
+	delete(securityPolicy.Annotations, common.NSXOperatorError)
 
 	var updateErr error
 	if isVPCEnabled {
@@ -142,13 +140,12 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	isZero := false
 	finalizerName := servicecommon.T1SecurityPolicyFinalizerName
 	realObj := &v1alpha1.SecurityPolicy{}
-	switch obj.(type) {
+	switch obj := obj.(type) {
 	case *crdv1alpha1.SecurityPolicy:
-		o := obj.(*crdv1alpha1.SecurityPolicy)
-		isZero = o.ObjectMeta.DeletionTimestamp.IsZero()
-		realObj = securitypolicy.VPCToT1(o)
+		isZero = obj.ObjectMeta.DeletionTimestamp.IsZero()
+		realObj = securitypolicy.VPCToT1(obj)
 	case *v1alpha1.SecurityPolicy:
-		realObj = obj.(*v1alpha1.SecurityPolicy)
+		realObj = obj
 		isZero = realObj.ObjectMeta.DeletionTimestamp.IsZero()
 	}
 
@@ -404,15 +401,13 @@ func (r *SecurityPolicyReconciler) listSecurityPolicyCRIDs() (sets.Set[string], 
 	}
 
 	CRPolicySet := sets.New[string]()
-	switch objectList.(type) {
+	switch objectList := objectList.(type) {
 	case *crdv1alpha1.SecurityPolicyList:
-		o := objectList.(*crdv1alpha1.SecurityPolicyList)
-		for _, policy := range o.Items {
+		for _, policy := range objectList.Items {
 			CRPolicySet.Insert(string(policy.UID))
 		}
 	case *v1alpha1.SecurityPolicyList:
-		o := objectList.(*v1alpha1.SecurityPolicyList)
-		for _, policy := range o.Items {
+		for _, policy := range objectList.Items {
 			CRPolicySet.Insert(string(policy.UID))
 		}
 	}
@@ -437,17 +432,15 @@ func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Clien
 	}
 
 	// find the security policy that needs
-	switch spList.(type) {
+	switch spList := spList.(type) {
 	case *crdv1alpha1.SecurityPolicyList:
-		o := spList.(*crdv1alpha1.SecurityPolicyList)
-		for i := 0; i < len(o.Items); i++ {
-			realObj := securitypolicy.VPCToT1(&o.Items[i])
+		for i := 0; i < len(spList.Items); i++ {
+			realObj := securitypolicy.VPCToT1(&spList.Items[i])
 			shouldReconcile(realObj, q, podPortNames)
 		}
 	case *v1alpha1.SecurityPolicyList:
-		o := spList.(*v1alpha1.SecurityPolicyList)
-		for i := 0; i < len(o.Items); i++ {
-			shouldReconcile(&o.Items[i], q, podPortNames)
+		for i := 0; i < len(spList.Items); i++ {
+			shouldReconcile(&spList.Items[i], q, podPortNames)
 		}
 	}
 	return nil

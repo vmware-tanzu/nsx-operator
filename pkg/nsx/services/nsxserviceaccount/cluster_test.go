@@ -2236,7 +2236,7 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 			tt.prepareFunc(t, s, ctx)
 
 			got, err := s.getProxyEndpoints(ctx)
-			if !tt.wantErr(t, err, fmt.Sprintf("getProxyEndpoints()")) {
+			if !tt.wantErr(t, err, "getProxyEndpoints()") {
 				return
 			}
 			assert.Equalf(t, tt.want, got, "getProxyEndpoints()")

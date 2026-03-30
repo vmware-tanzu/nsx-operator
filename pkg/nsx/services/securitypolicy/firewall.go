@@ -235,9 +235,9 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj interface
 	}
 
 	var err error
-	switch obj.(type) {
+	switch obj := obj.(type) {
 	case *networkingv1.NetworkPolicy:
-		internalSecurityPolicies, err := service.convertNetworkPolicyToInternalSecurityPolicies(obj.(*networkingv1.NetworkPolicy))
+		internalSecurityPolicies, err := service.convertNetworkPolicyToInternalSecurityPolicies(obj)
 		if err != nil {
 			return err
 		}
@@ -249,10 +249,10 @@ func (service *SecurityPolicyService) CreateOrUpdateSecurityPolicy(obj interface
 		}
 	case *v1alpha1.SecurityPolicy:
 		if IsVPCEnabled(service) {
-			err = service.createOrUpdateVPCSecurityPolicy(obj.(*v1alpha1.SecurityPolicy), common.ResourceTypeSecurityPolicy)
+			err = service.createOrUpdateVPCSecurityPolicy(obj, common.ResourceTypeSecurityPolicy)
 		} else {
 			// For T1 network SecurityPolicy create/update
-			err = service.createOrUpdateT1SecurityPolicy(obj.(*v1alpha1.SecurityPolicy), common.ResourceTypeSecurityPolicy)
+			err = service.createOrUpdateT1SecurityPolicy(obj, common.ResourceTypeSecurityPolicy)
 		}
 	}
 	return err
@@ -319,21 +319,22 @@ func (service *SecurityPolicyService) populateRulesForIsolationSection(spIsolati
 	directionIn := v1alpha1.RuleDirectionIn
 	directionOut := v1alpha1.RuleDirectionOut
 	for _, policyType := range networkPolicy.Spec.PolicyTypes {
-		if policyType == networkingv1.PolicyTypeIngress {
+		switch policyType {
+		case networkingv1.PolicyTypeIngress:
 			// Generating ingress deny rule in isolation section.
 			spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
 				Action:    &actionDrop,
 				Direction: &directionIn,
 				Name:      strings.Join([]string{common.RuleIngress, common.RuleActionDrop}, common.ConnectorUnderline),
 			})
-		} else if policyType == networkingv1.PolicyTypeEgress {
+		case networkingv1.PolicyTypeEgress:
 			// Generating egress deny rule in isolation section.
 			spIsolation.Spec.Rules = append(spIsolation.Spec.Rules, v1alpha1.SecurityPolicyRule{
 				Action:    &actionDrop,
 				Direction: &directionOut,
 				Name:      strings.Join([]string{common.RuleEgress, common.RuleActionDrop}, common.ConnectorUnderline),
 			})
-		} else {
+		default:
 			// This logic branch is impossible, leave it just for following the coding rules.
 			return &nsxutil.ValidationError{Desc: fmt.Sprintf("invalid network policy type %s", policyType)}
 		}

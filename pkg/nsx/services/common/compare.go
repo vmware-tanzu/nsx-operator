@@ -18,10 +18,7 @@ func CompareResource(existing Comparable, expected Comparable) (isChanged bool) 
 	dataValueToJSONEncoder := cleanjson.NewDataValueToJsonEncoder()
 	s1, _ := dataValueToJSONEncoder.Encode(existing.Value())
 	s2, _ := dataValueToJSONEncoder.Encode(expected.Value())
-	if s1 != s2 {
-		return true
-	}
-	return false
+	return s1 != s2
 }
 
 func CompareResources(existing []Comparable, expected []Comparable) (changed []Comparable, stale []Comparable) {

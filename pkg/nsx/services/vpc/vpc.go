@@ -316,11 +316,8 @@ func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) 
 }
 
 func (s *VPCService) GetNetworkconfigNameFromAnnotation(ns string, annos map[string]string) (string, error) {
-	useDefault := false
 	// use default network config
-	if len(annos) == 0 {
-		useDefault = true
-	}
+	useDefault := len(annos) == 0
 
 	ncName, exist := annos[common.AnnotationVPCNetworkConfig]
 	if !exist {
@@ -356,7 +353,7 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 		return "", err
 	}
 
-	if results.Results == nil || len(results.Results) == 0 {
+	if len(results.Results) == 0 {
 		log.Info("No SNAT rule found under VPC", "VPC", vpc.Id)
 		return "", nil
 	}

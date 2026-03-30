@@ -1886,10 +1886,8 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc((*NetworkInfoReconciler).syncPreCreatedVpcs, func(r *NetworkInfoReconciler, ctx context.Context) {
-		return
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewNetworkInfoReconciler(mockMgr, vpcService, ipblocksInfoService)

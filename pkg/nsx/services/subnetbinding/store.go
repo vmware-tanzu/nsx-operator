@@ -114,9 +114,10 @@ func bindingMapCRNameIndexFunc(obj interface{}) ([]string, error) {
 		var res []string
 		var crName, crNamespace string
 		for _, tag := range o.Tags {
-			if *tag.Scope == common.TagScopeSubnetBindingCRName {
+			switch *tag.Scope {
+			case common.TagScopeSubnetBindingCRName:
 				crName = *tag.Tag
-			} else if *tag.Scope == common.TagScopeNamespace {
+			case common.TagScopeNamespace:
 				crNamespace = *tag.Tag
 			}
 		}

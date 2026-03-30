@@ -31,7 +31,7 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 			log.Info("Invalid object", "type", reflect.TypeOf(obj))
 			return []string{}
 		} else {
-			return []string{fmt.Sprintf("%s", ab.Spec.IPAddressAllocationName)}
+			return []string{ab.Spec.IPAddressAllocationName}
 		}
 	}
 	reqDelete, _ := json.Marshal(&v1alpha1.IPAddressAllocation{

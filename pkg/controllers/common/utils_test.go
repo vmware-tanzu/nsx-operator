@@ -318,7 +318,6 @@ func TestStatusUpdater_DeleteSuccess(t *testing.T) {
 			assert.Equal(t, v1.EventTypeNormal, eventtype)
 			assert.Equal(t, ReasonSuccessfulDelete, reason)
 			assert.Equal(t, "Subnet CR has been successfully deleted", message)
-			return
 		})
 	defer patchesRecordEvent.Reset()
 
@@ -334,7 +333,6 @@ func TestStatusUpdater_DeleteFail(t *testing.T) {
 			assert.Equal(t, v1.EventTypeWarning, eventtype)
 			assert.Equal(t, ReasonFailDelete, reason)
 			assert.Equal(t, "mock error", message)
-			return
 		})
 	defer patchesRecordEvent.Reset()
 

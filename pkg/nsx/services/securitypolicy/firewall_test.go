@@ -518,7 +518,6 @@ func Test_GetSecurityService(t *testing.T) {
 		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
 	) {
 		wg.Done()
-		return
 	})
 	defer patch.Reset()
 
@@ -538,7 +537,6 @@ func Test_InitializeSecurityPolicy(t *testing.T) {
 		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
 	) {
 		wg.Done()
-		return
 	})
 	defer patch.Reset()
 
@@ -932,8 +930,7 @@ func Test_GetUpdateShares(t *testing.T) {
 }
 
 func Test_GetMarkDeleteRules(t *testing.T) {
-	var sp types.UID
-	sp = "sp_test"
+	sp := types.UID("sp_test")
 	markNoDelete := false
 
 	r1 := model.Rule{
@@ -972,8 +969,7 @@ func Test_GetMarkDeleteRules(t *testing.T) {
 }
 
 func Test_GetMarkDeleteGroups(t *testing.T) {
-	var sp types.UID
-	sp = "sp_test"
+	sp := types.UID("sp_test")
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markNoDelete := false
 
@@ -1006,8 +1002,7 @@ func Test_GetMarkDeleteGroups(t *testing.T) {
 }
 
 func Test_GetMarkDeleteShares(t *testing.T) {
-	var sp types.UID
-	sp = "sp_test"
+	sp := types.UID("sp_test")
 	mId, mTag, mScope := "11111", "11111", "nsx-op/security_policy_cr_uid"
 	markNoDelete := false
 

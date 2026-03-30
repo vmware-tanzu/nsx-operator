@@ -850,54 +850,54 @@ func TestCleanupInfraResources(t *testing.T) {
 func generateQueryResponse(t *testing.T, resources interface{}) model.SearchResponse {
 	objects := make([]interface{}, 0)
 	var bindingType bindings.BindingType
-	switch resources.(type) {
+	switch resources := resources.(type) {
 	case []*model.LBVirtualServer:
-		for _, vs := range resources.([]*model.LBVirtualServer) {
+		for _, vs := range resources {
 			objects = append(objects, vs)
 		}
 		bindingType = model.LBVirtualServerBindingType()
 	case []*model.LBPool:
-		for _, pool := range resources.([]*model.LBPool) {
+		for _, pool := range resources {
 			objects = append(objects, pool)
 		}
 		bindingType = model.LBPoolBindingType()
 	case []*model.LBService:
-		for _, lbs := range resources.([]*model.LBService) {
+		for _, lbs := range resources {
 			objects = append(objects, lbs)
 		}
 		bindingType = model.LBServiceBindingType()
 	case []*model.TlsCertificate:
-		for _, cert := range resources.([]*model.TlsCertificate) {
+		for _, cert := range resources {
 			objects = append(objects, cert)
 		}
 		bindingType = model.TlsCertificateBindingType()
 	case []*model.Group:
-		for _, g := range resources.([]*model.Group) {
+		for _, g := range resources {
 			objects = append(objects, g)
 		}
 		bindingType = model.GroupBindingType()
 	case []*model.SharedResource:
-		for _, sharedResource := range resources.([]*model.SharedResource) {
+		for _, sharedResource := range resources {
 			objects = append(objects, sharedResource)
 		}
 		bindingType = model.SharedResourceBindingType()
 	case []*model.Share:
-		for _, share := range resources.([]*model.Share) {
+		for _, share := range resources {
 			objects = append(objects, share)
 		}
 		bindingType = model.ShareBindingType()
 	case []*model.LBHttpProfile:
-		for _, profile := range resources.([]*model.LBHttpProfile) {
+		for _, profile := range resources {
 			objects = append(objects, profile)
 		}
 		bindingType = model.LBHttpProfileBindingType()
 	case []*model.LBTcpMonitorProfile:
-		for _, profile := range resources.([]*model.LBTcpMonitorProfile) {
+		for _, profile := range resources {
 			objects = append(objects, profile)
 		}
 		bindingType = model.LBTcpMonitorProfileBindingType()
 	case []*model.LBSourceIpPersistenceProfile:
-		for _, profile := range resources.([]*model.LBSourceIpPersistenceProfile) {
+		for _, profile := range resources {
 			objects = append(objects, profile)
 		}
 		bindingType = model.LBSourceIpPersistenceProfileBindingType()

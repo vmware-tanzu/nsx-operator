@@ -73,5 +73,5 @@ func GenerateCertificate(subject *pkix.Name, validDays int) (string, string, err
 	keyOut := &bytes.Buffer{}
 	privBytes := x509.MarshalPKCS1PrivateKey(priv)
 	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: privBytes})
-	return string(certOut.Bytes()), string(keyOut.Bytes()), nil
+	return certOut.String(), keyOut.String(), nil
 }

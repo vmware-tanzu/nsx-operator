@@ -154,10 +154,7 @@ var PredicateFuncsForBindingMaps = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldBindingMap := e.ObjectOld.(*v1alpha1.SubnetConnectionBindingMap)
 		newBindingMap := e.ObjectNew.(*v1alpha1.SubnetConnectionBindingMap)
-		if !reflect.DeepEqual(oldBindingMap.Spec, newBindingMap.Spec) {
-			return true
-		}
-		return false
+		return !reflect.DeepEqual(oldBindingMap.Spec, newBindingMap.Spec)
 	},
 	CreateFunc: func(e event.CreateEvent) bool {
 		return true

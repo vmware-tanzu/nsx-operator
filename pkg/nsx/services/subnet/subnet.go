@@ -27,7 +27,7 @@ var (
 	log                = logger.Log
 	MarkedForDelete    = true
 	ResourceTypeSubnet = common.ResourceTypeSubnet
-	SubnetTypeError    = errors.New("unsupported type")
+	SubnetTypeError    = errors.New("unsupported type") //nolint:staticcheck // ST1012: public var exported before naming convention was enforced
 )
 
 // SharedSubnetData contains data related to shared subnets
@@ -526,7 +526,7 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 
 		// Avoid updating vpcSubnets[i] to ensure the Subnet store
 		// is only updated after the updating succeeds.
-		updatedSubnet := *vpcSubnets[i]
+		updatedSubnet := *vpcSubnets[i] // #nosec G602
 		updatedSubnet.Tags = newTags
 		// Update the SubnetSet DHCP Config
 		if updatedSubnet.SubnetDhcpConfig != nil {
@@ -534,15 +534,16 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 			// avoid changing vpcSubnets[i].SubnetDhcpConfig
 			updatedSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, updatedSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig)
 		}
-		changed := common.CompareResource(SubnetToComparable(vpcSubnets[i]), SubnetToComparable(&updatedSubnet))
+		changed := common.CompareResource(SubnetToComparable(vpcSubnets[i]), SubnetToComparable(&updatedSubnet)) // #nosec G602
 		if !changed {
 			log.Info("NSX Subnet unchanged, skipping update", "Subnet", *vpcSubnet.Id)
 			continue
 		}
 
-		vpcInfo, err := common.ParseVPCResourcePath(*vpcSubnets[i].Path)
+		subnetPath := *vpcSubnets[i].Path // #nosec G602
+		vpcInfo, err := common.ParseVPCResourcePath(subnetPath)
 		if err != nil {
-			err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", *vpcSubnets[i].Path, err)
+			err := fmt.Errorf("failed to parse NSX VPC path for Subnet %s: %s", subnetPath, err)
 			return err
 		}
 		if _, err := service.createOrUpdateSubnet(subnetSet, &updatedSubnet, &vpcInfo, false); err != nil {
