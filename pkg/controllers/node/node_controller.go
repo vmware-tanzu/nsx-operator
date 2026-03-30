@@ -6,7 +6,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 
 	v1 "k8s.io/api/core/v1"
@@ -80,20 +79,6 @@ func (r *NodeReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&v1.Node{}).
 		WithEventFilter(PredicateFuncsNode).
 		Complete(r)
-}
-
-func StartNodeController(mgr ctrl.Manager, nodeService *node.NodeService) {
-	nodePortReconciler := NodeReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}
-
-	nodePortReconciler.Service = nodeService
-
-	if err := nodePortReconciler.Start(mgr); err != nil {
-		log.Error(err, "failed to create controller", "controller", "Node")
-		os.Exit(1)
-	}
 }
 
 func (r *NodeReconciler) RestoreReconcile() error {
