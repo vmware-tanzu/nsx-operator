@@ -185,7 +185,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	}
 	wrapInitializeNSXServiceAccount := func(service common.Service) cleanupFunc {
 		return func() (interface{}, error) {
-			return nsxserviceaccount.InitializeNSXServiceAccount(service)
+			return nsxserviceaccount.InitializeNSXServiceAccount(service, vpcService)
 		}
 	}
 
