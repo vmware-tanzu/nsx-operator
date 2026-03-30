@@ -24,6 +24,7 @@ const (
 	MetricResTypePod                        = "pod"
 	MetricResTypeNode                       = "node"
 	MetricResTypeServiceLb                  = "servicelb"
+	MetricResTypeGateway                    = "gateway"
 	MaxConcurrentReconciles                 = 8
 	NSXOperatorError                        = "nsx-op/error"
 	//sync the error with NCP side
@@ -34,6 +35,8 @@ const (
 
 	LabelK8sMasterRole  = "node-role.kubernetes.io/master"
 	LabelK8sControlRole = "node-role.kubernetes.io/control-plane"
+
+	ManagedK8sGatewayClassIstio = "istio"
 )
 
 var (
