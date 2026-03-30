@@ -24,7 +24,8 @@ type NetworkInfo struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	VPCs []VPCState `json:"vpcs"`
+	VPCs       []VPCState       `json:"vpcs"`
+	DNSDomains []DNSDomainState `json:"dnsDomains"`
 }
 
 // +kubebuilder:object:root=true
@@ -50,6 +51,16 @@ type VPCState struct {
 	// Valid values: FullStackVPC, VLANBackedVPC
 	// +kubebuilder:validation:Enum=FullStackVPC;VLANBackedVPC
 	NetworkStack NetworkStackType `json:"networkStack,omitempty"`
+}
+
+// DNSDomainState defines the information for a DNS Domain.
+type DNSDomainState struct {
+	// Domain is the DNS domain name configured in the zone.
+	Domain string `json:"domain"`
+
+	//Type describes the access type of the DNS domain.
+	// +kubebuilder:validation:Enum=Private;Public
+	Type string `json:"type"`
 }
 
 func init() {

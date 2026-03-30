@@ -26,6 +26,24 @@ spec:
               may reject unrecognized values.
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
+          dnsDomains:
+            items:
+              description: DNSDomain defines the information for a DNS Domain.
+              properties:
+                domainName:
+                  description: Domain name for configured in Zone.
+                  type: string
+                zoneType:
+                  description: ZoneType describes the access type of the DNS domain.
+                  enum:
+                  - Private
+                  - Public
+                  type: string
+              required:
+              - domainName
+              - zoneType
+              type: object
+            type: array
           kind:
             description: |-
               Kind is a string value representing the REST resource this object represents.
@@ -69,6 +87,7 @@ spec:
               type: object
             type: array
         required:
+        - dnsDomains
         - vpcs
         type: object
     served: true
