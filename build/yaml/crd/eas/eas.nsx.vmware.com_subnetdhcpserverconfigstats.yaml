@@ -1,0 +1,116 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: subnetdhcpserverconfigstats.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: SubnetDHCPServerConfigStats
+    listKind: SubnetDHCPServerConfigStatsList
+    plural: subnetdhcpserverconfigstats
+    singular: subnetdhcpserverconfigstats
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: DHCP server UUID
+      jsonPath: .spec.dhcpServerId
+      name: DHCPServerID
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SubnetDHCPServerConfigStats is the Schema for the subnet DHCP
+          server config stats API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SubnetDHCPServerConfigStatsSpec represents the DHCP server
+              statistics for a subnet.
+            properties:
+              acks:
+                description: Total number of DHCP ACK packets.
+                format: int64
+                type: integer
+              declines:
+                description: Total number of DHCP DECLINE packets.
+                format: int64
+                type: integer
+              dhcpServerId:
+                description: DHCP server UUID.
+                type: string
+              discovers:
+                description: Total number of DHCP DISCOVER packets.
+                format: int64
+                type: integer
+              errors:
+                description: Total number of DHCP errors.
+                format: int64
+                type: integer
+              informs:
+                description: Total number of DHCP INFORM packets.
+                format: int64
+                type: integer
+              ipPoolStats:
+                description: DHCP IP pool usage statistics.
+                items:
+                  description: DhcpIpPoolUsage represents DHCP IP pool usage statistics.
+                  properties:
+                    allocatedNumber:
+                      description: Allocated number (reference only).
+                      format: int64
+                      type: integer
+                    allocatedPercentage:
+                      description: Allocated percentage (reference only).
+                      format: int64
+                      type: integer
+                    consumedNumber:
+                      description: Total number of IP addresses consumed by DHCP clients.
+                      format: int64
+                      type: integer
+                    dhcpIpPoolId:
+                      description: UUID of DHCP IP pool.
+                      type: string
+                    poolSize:
+                      description: Pool size.
+                      format: int64
+                      type: integer
+                  type: object
+                type: array
+              nacks:
+                description: Total number of DHCP NACK packets.
+                format: int64
+                type: integer
+              offers:
+                description: Total number of DHCP OFFER packets.
+                format: int64
+                type: integer
+              releases:
+                description: Total number of DHCP RELEASE packets.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}
