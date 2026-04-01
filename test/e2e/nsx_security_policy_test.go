@@ -47,6 +47,8 @@ func TestSecurityPolicy(t *testing.T) {
 		RunSubtest(t, "testSecurityPolicyBasicTraffic", func(t *testing.T) { testSecurityPolicyBasicTraffic(t) })
 		RunSubtest(t, "testSecurityPolicyAddDeleteRule", func(t *testing.T) { testSecurityPolicyAddDeleteRule(t) })
 		RunSubtest(t, "testSecurityPolicyMatchExpression", func(t *testing.T) { testSecurityPolicyMatchExpression(t) })
+		RunSubtest(t, "testSecurityPolicyVPCFromFieldIngress", func(t *testing.T) { testSecurityPolicyVPCFromFieldIngress(t) })
+		RunSubtest(t, "testSecurityPolicyVPCToFieldEgress", func(t *testing.T) { testSecurityPolicyVPCToFieldEgress(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
 	})
@@ -259,6 +261,121 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	// Test traffic from clientB to podA
 	require.True(t, checkTrafficByCurl(ns, clientB, clientB, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
 	log.Info("Verified traffic from client Pod to PodB")
+}
+
+// testSecurityPolicyVPCFromFieldIngress verifies VPC SecurityPolicy ingress rules using the preferred `from`
+// field (crd.nsx.vmware.com/v1alpha1). Shares NsSecurityPolicy; must stay in SequentialTests.
+func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+
+	ns := NsSecurityPolicy
+	securityPolicyName := "vpc-from-field-policy-1"
+	ruleAllow := "sp_from_allow"
+	ruleDrop := "sp_from_drop"
+
+	podsPath, _ := filepath.Abs("./manifest/testSecurityPolicy/vpc-from-field-ingress-pods.yaml")
+	policyPath, _ := filepath.Abs("./manifest/testSecurityPolicy/vpc-from-field-ingress-policy.yaml")
+
+	require.NoError(t, applyYAML(podsPath, ns))
+	defer deleteYAML(podsPath, ns)
+
+	srvIP, err := testData.podWaitForIPs(defaultTimeout, "fr-srv", ns)
+	require.NoError(t, err, "wait for fr-srv IP")
+	_, err = testData.podWaitForIPs(defaultTimeout, "frclient-allow", ns)
+	require.NoError(t, err, "wait for frclient-allow")
+	_, err = testData.podWaitForIPs(defaultTimeout, "frclient-deny", ns)
+	require.NoError(t, err, "wait for frclient-deny")
+
+	require.True(t, checkTrafficByCurl(ns, "frclient-allow", "frclient-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server before policy")
+	require.True(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server before policy")
+
+	require.NoError(t, applyYAML(policyPath, ns))
+	defer deleteYAML(policyPath, ns)
+
+	assureSecurityPolicyReady(t, ns, securityPolicyName)
+
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleAllow, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleDrop, true))
+
+	require.True(t, checkTrafficByCurl(ns, "frclient-allow", "frclient-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server with policy")
+	require.False(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server blocked with policy")
+
+	_ = deleteYAML(policyPath, ns)
+	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		_, err = testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, err
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false))
+
+	require.True(t, checkTrafficByCurl(ns, "frclient-allow", "frclient-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server after delete")
+	require.True(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server after delete")
+}
+
+// testSecurityPolicyVPCToFieldEgress verifies VPC SecurityPolicy egress rules using the preferred `to` field.
+func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+
+	ns := NsSecurityPolicy
+	securityPolicyName := "vpc-to-field-policy-1"
+	ruleAllow := "sp_to_allow"
+	ruleDrop := "sp_to_drop"
+
+	podsPath, _ := filepath.Abs("./manifest/testSecurityPolicy/vpc-to-field-egress-pods.yaml")
+	policyPath, _ := filepath.Abs("./manifest/testSecurityPolicy/vpc-to-field-egress-policy.yaml")
+
+	require.NoError(t, applyYAML(podsPath, ns))
+	defer deleteYAML(podsPath, ns)
+
+	srvIP, err := testData.podWaitForIPs(defaultTimeout, "te-srv", ns)
+	require.NoError(t, err, "wait for te-srv IP")
+	otherIP, err := testData.podWaitForIPs(defaultTimeout, "te-other", ns)
+	require.NoError(t, err, "wait for te-other IP")
+	_, err = testData.podWaitForIPs(defaultTimeout, "te-cli", ns)
+	require.NoError(t, err, "wait for te-cli")
+
+	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", srvIP.ipv4.String(), podPort, true), "client -> server before policy")
+	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, true), "client -> other before policy")
+
+	require.NoError(t, applyYAML(policyPath, ns))
+	defer deleteYAML(policyPath, ns)
+
+	assureSecurityPolicyReady(t, ns, securityPolicyName)
+
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleAllow, true))
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleDrop, true))
+
+	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", srvIP.ipv4.String(), podPort, true), "client -> allowed peer with policy")
+	require.False(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, true), "client -> other blocked with policy")
+
+	_ = deleteYAML(policyPath, ns)
+	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		_, err = testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, err
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, securityPolicyName, false))
+
+	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", srvIP.ipv4.String(), podPort, true), "client -> server after delete")
+	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, true), "client -> other after delete")
 }
 
 // TestSecurityPolicyNamedPortWithoutPod verifies that the traffic of security policy when named port applied.

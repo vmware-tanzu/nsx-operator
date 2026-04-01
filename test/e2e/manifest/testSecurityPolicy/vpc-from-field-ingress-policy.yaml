@@ -1,0 +1,24 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: vpc-from-field-policy-1
+spec:
+  priority: 15
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          vpc-from-test: server
+  rules:
+    - direction: in
+      action: allow
+      name: sp_from_allow
+      from:
+        - podSelector:
+            matchLabels:
+              vpc-from-test: client-allow
+      ports:
+        - protocol: TCP
+          port: 80
+    - direction: in
+      action: drop
+      name: sp_from_drop
