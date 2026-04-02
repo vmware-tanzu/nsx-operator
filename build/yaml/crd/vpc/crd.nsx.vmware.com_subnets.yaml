@@ -15,13 +15,21 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: Access mode of Subnet
+    - description: Access mode of IPv4 Subnet
       jsonPath: .spec.accessMode
       name: AccessMode
       type: string
-    - description: Size of Subnet
+    - description: IP address type of Subnet
+      jsonPath: .spec.ipAddressType
+      name: IPAddressType
+      type: string
+    - description: Size of IPv4 Subnet
       jsonPath: .spec.ipv4SubnetSize
       name: IPv4SubnetSize
+      type: string
+    - description: Prefix length of IPv6 Subnet
+      jsonPath: .spec.ipv6SubnetMask
+      name: IPv6SubnetMask
       type: string
     - description: CIDRs for the Subnet
       jsonPath: .status.networkAddresses[*]
@@ -53,8 +61,8 @@ spec:
             description: SubnetSpec defines the desired state of Subnet.
             properties:
               accessMode:
-                description: Access mode of Subnet, accessible only from within VPC
-                  or from outside VPC.
+                description: Access mode of IPv4 Subnet, accessible only from within
+                  VPC or from outside VPC.
                 enum:
                 - Private
                 - Public
@@ -77,18 +85,20 @@ spec:
                     - Disconnected
                     type: string
                   dhcpServerAddresses:
-                    description: DHCPServerAddresses specifies custom DHCP server
-                      IP addresses for the Subnet.
+                    description: |-
+                      DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet.
+                      Supports up to 2 addresses for dual-stack Subnets (1 IPv4 + 1 IPv6).
                     items:
                       type: string
-                    maxItems: 1
+                    maxItems: 2
                     type: array
                   gatewayAddresses:
-                    description: GatewayAddresses specifies custom gateway IP addresses
-                      for the Subnet.
+                    description: |-
+                      GatewayAddresses specifies custom gateway IP addresses for the Subnet.
+                      Supports up to 2 addresses for dual-stack Subnets (1 IPv4 + 1 IPv6).
                     items:
                       type: string
-                    maxItems: 1
+                    maxItems: 2
                     type: array
                   staticIPAllocation:
                     description: Static IP allocation for VPC Subnet Ports.
@@ -102,6 +112,15 @@ spec:
                         type: boolean
                     type: object
                 type: object
+              ipAddressType:
+                default: IPv4
+                description: IPAddressType defines the IP address type that will be
+                  allocated for the Subnet.
+                enum:
+                - IPv4
+                - IPv6
+                - IPV4IPV6
+                type: string
               ipAddresses:
                 description: Subnet CIDRS.
                 items:
@@ -113,8 +132,16 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipv4SubnetSize:
-                description: Size of Subnet based upon estimated workload count.
+                description: Size of IPv4 Subnet based upon estimated workload count.
                 maximum: 65536
+                type: integer
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
+              ipv6SubnetMask:
+                description: IPv6 prefix length for the Subnet (e.g. 64 means /64).
+                maximum: 127
+                minimum: 2
                 type: integer
                 x-kubernetes-validations:
                 - message: Value is immutable
@@ -134,9 +161,8 @@ spec:
                         type: array
                     type: object
                   mode:
-                    description: |-
-                      DHCP Mode. DHCPDeactivated will be used if it is not defined.
-                      It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
+                    description: DHCP Mode. DHCPDeactivated will be used if it is
+                      not defined.
                     enum:
                     - DHCPServer
                     - DHCPRelay
@@ -150,6 +176,36 @@ spec:
                     ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
+              subnetDhcpv6Config:
+                description: DHCPv6 configuration for Subnet.
+                properties:
+                  dhcpv6ServerAdditionalConfig:
+                    description: Additional DHCPv6 server config for a VPC Subnet.
+                    properties:
+                      reservedIPRanges:
+                        description: |-
+                          Reserved IPv6 ranges.
+                          Supported formats include: ["2001:db8::1", "2001:db8::1-2001:db8::ff"]
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  mode:
+                    description: DHCPv6 Mode. DHCPDeactivated will be used if it is
+                      not defined.
+                    enum:
+                    - DHCPServer
+                    - DHCPRelay
+                    - DHCPDeactivated
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: DHCPv6ServerAdditionalConfig must be cleared when Subnet
+                    has DHCP relay enabled or DHCP is deactivated.
+                  rule: (!has(self.mode) || self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay')
+                    && (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)
+                    || size(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)==0)
+                    || has(self.mode) && self.mode=='DHCPServer'
               vlanConnectionName:
                 description: Distributed VLAN Connection name.
                 type: string
@@ -162,6 +218,8 @@ spec:
               rule: '!has(oldSelf.vpcName) || self.vpcName == oldSelf.vpcName'
             - message: ipv4SubnetSize is required once set
               rule: '!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)'
+            - message: ipv6SubnetMask is required once set
+              rule: '!has(oldSelf.ipv6SubnetMask) || has(self.ipv6SubnetMask)'
             - message: accessMode is required once set
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
             - message: staticIPAllocation enabled cannot be changed once set
@@ -174,13 +232,21 @@ spec:
                 && has(self.advancedConfig.staticIPAllocation.enabled) && self.advancedConfig.staticIPAllocation.enabled==true
                 && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) &&
                 (self.subnetDHCPConfig.mode==''DHCPServer'' || self.subnetDHCPConfig.mode==''DHCPRelay''))'
-            - message: DHCPServerAddresses can only be set when DHCP mode is DHCPServer
+            - message: DHCPServerAddresses can only be set when DHCP mode or DHCPv6
+                mode is DHCPServer
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses)
-                && size(self.advancedConfig.dhcpServerAddresses)>0 && (!has(self.subnetDHCPConfig)
-                || !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode!=''DHCPServer''))'
+                && size(self.advancedConfig.dhcpServerAddresses)>0) || (has(self.subnetDHCPConfig)
+                && has(self.subnetDHCPConfig.mode) && self.subnetDHCPConfig.mode==''DHCPServer'')
+                || (has(self.subnetDhcpv6Config) && has(self.subnetDhcpv6Config.mode)
+                && self.subnetDhcpv6Config.mode==''DHCPServer'')'
             - message: ipAddresses is required to configure subnet reserved ip ranges.
               rule: '!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges))
+                || has(self.ipAddresses)'
+            - message: ipAddresses is required to configure subnet DHCPv6 reserved
+                ip ranges.
+              rule: '!has(self.ipAddresses) && !(has(self.subnetDhcpv6Config) && has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig)
+                && has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges))
                 || has(self.ipAddresses)'
             - message: ipAddresses is required when custom gatewayAddresses are specified
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.gatewayAddresses)

@@ -15,13 +15,21 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: Access mode of Subnet
+    - description: Access mode of IPv4 Subnet
       jsonPath: .spec.accessMode
       name: AccessMode
       type: string
-    - description: Size of Subnet
+    - description: IP address type of Subnet
+      jsonPath: .spec.ipAddressType
+      name: IPAddressType
+      type: string
+    - description: Size of IPv4 Subnet
       jsonPath: .spec.ipv4SubnetSize
       name: IPv4SubnetSize
+      type: string
+    - description: Prefix length of IPv6 Subnet
+      jsonPath: .spec.ipv6SubnetMask
+      name: IPv6SubnetMask
       type: string
     - description: CIDRs for the SubnetSet
       jsonPath: .status.subnets[*].networkAddresses[*]
@@ -53,8 +61,8 @@ spec:
             description: SubnetSetSpec defines the desired state of SubnetSet.
             properties:
               accessMode:
-                description: Access mode of Subnet, accessible only from within VPC
-                  or from outside VPC.
+                description: Access mode of IPv4 Subnet, accessible only from within
+                  VPC or from outside VPC.
                 enum:
                 - Private
                 - Public
@@ -63,9 +71,27 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              ipAddressType:
+                default: IPv4
+                description: IPAddressType defines the IP address type that will be
+                  allocated for subnets in the SubnetSet.
+                enum:
+                - IPv4
+                - IPv6
+                - IPV4IPV6
+                type: string
               ipv4SubnetSize:
-                description: Size of Subnet based upon estimated workload count.
+                description: Size of IPv4 Subnet based upon estimated workload count.
                 maximum: 65536
+                type: integer
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
+              ipv6SubnetMask:
+                description: IPv6 prefix length for subnets in the SubnetSet (e.g.
+                  64 means /64).
+                maximum: 127
+                minimum: 2
                 type: integer
                 x-kubernetes-validations:
                 - message: Value is immutable
@@ -85,9 +111,8 @@ spec:
                         type: array
                     type: object
                   mode:
-                    description: |-
-                      DHCP Mode. DHCPDeactivated will be used if it is not defined.
-                      It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay.
+                    description: DHCP Mode. DHCPDeactivated will be used if it is
+                      not defined.
                     enum:
                     - DHCPServer
                     - DHCPRelay
@@ -100,6 +125,36 @@ spec:
                   rule: (!has(self.mode)|| self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay'
                     ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
+                    || has(self.mode) && self.mode=='DHCPServer'
+              subnetDhcpv6Config:
+                description: DHCPv6 configuration for subnets in the SubnetSet.
+                properties:
+                  dhcpv6ServerAdditionalConfig:
+                    description: Additional DHCPv6 server config for a VPC Subnet.
+                    properties:
+                      reservedIPRanges:
+                        description: |-
+                          Reserved IPv6 ranges.
+                          Supported formats include: ["2001:db8::1", "2001:db8::1-2001:db8::ff"]
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  mode:
+                    description: DHCPv6 Mode. DHCPDeactivated will be used if it is
+                      not defined.
+                    enum:
+                    - DHCPServer
+                    - DHCPRelay
+                    - DHCPDeactivated
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: DHCPv6ServerAdditionalConfig must be cleared when Subnet
+                    has DHCP relay enabled or DHCP is deactivated.
+                  rule: (!has(self.mode) || self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay')
+                    && (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)
+                    || size(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
               subnetNames:
                 description: |-
@@ -115,13 +170,22 @@ spec:
               rule: '!has(oldSelf.accessMode) || has(self.accessMode)'
             - message: ipv4SubnetSize is required once set
               rule: '!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)'
+            - message: ipv6SubnetMask is required once set
+              rule: '!has(oldSelf.ipv6SubnetMask) || has(self.ipv6SubnetMask)'
             - message: reservedIPRanges is not supported in SubnetSet
               rule: '!has(self.subnetDHCPConfig) || has(self.subnetDHCPConfig) &&
                 !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) || has(self.subnetDHCPConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)'
+            - message: reservedIPRanges is not supported in SubnetSet
+              rule: '!has(self.subnetDhcpv6Config) || has(self.subnetDhcpv6Config)
+                && !has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig) || has(self.subnetDhcpv6Config)
+                && has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig) && !has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)'
             - message: DHCPRelay is not supported in SubnetSet
               rule: '!has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode)
                 || self.subnetDHCPConfig.mode!=''DHCPRelay'''
+            - message: DHCPRelay is not supported in SubnetSet
+              rule: '!has(self.subnetDhcpv6Config) || !has(self.subnetDhcpv6Config.mode)
+                || self.subnetDhcpv6Config.mode!=''DHCPRelay'''
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
             properties:

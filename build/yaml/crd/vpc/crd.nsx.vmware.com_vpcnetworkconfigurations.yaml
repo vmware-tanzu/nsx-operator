@@ -50,10 +50,18 @@ spec:
               in a Namespace's VPCNetworkConfiguration, the Namespace will use the value
               in the default VPCNetworkConfiguration.
             properties:
+              defaultIPv6SubnetMask:
+                default: 64
+                description: |-
+                  Default prefix length of IPv6 Subnets.
+                  Defaults to 64.
+                maximum: 127
+                minimum: 2
+                type: integer
               defaultSubnetSize:
                 default: 32
                 description: |-
-                  Default size of Subnets.
+                  Default size of IPv4 Subnets.
                   Defaults to 32.
                 maximum: 65536
                 type: integer
