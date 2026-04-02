@@ -71,10 +71,60 @@ var (
 			},
 		},
 	}
+
+	// Static IP reservation fixtures for StaticIPReservationStore tests
+	staticIpr1 = &model.StaticIpAddressReservation{
+		Id:          common.String("sipr1_abc"),
+		DisplayName: common.String("sipr1"),
+		Path:        common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1/static-ip-reservations/sipr1_abc"),
+		ReservedIps: []string{"192.168.1.1", "192.168.1.2"},
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeNamespace), Tag: common.String("ns-1")},
+			{Scope: common.String(common.TagScopeSubnetIPReservationCRName), Tag: common.String("sipr1")},
+			{Scope: common.String(common.TagScopeSubnetIPReservationCRUID), Tag: common.String("sipr1-uuid")},
+		},
+	}
+	staticIpr2 = &model.StaticIpAddressReservation{
+		Id:          common.String("sipr2_def"),
+		DisplayName: common.String("sipr2"),
+		Path:        common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1/static-ip-reservations/sipr2_def"),
+		ReservedIps: []string{"192.168.2.0/28"},
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeNamespace), Tag: common.String("ns-1")},
+			{Scope: common.String(common.TagScopeSubnetIPReservationCRName), Tag: common.String("sipr2")},
+			{Scope: common.String(common.TagScopeSubnetIPReservationCRUID), Tag: common.String("sipr2-uuid")},
+		},
+	}
 )
 
-func TestStore(t *testing.T) {
-	store := SetupStore()
+func TestStaticIPReservationStore(t *testing.T) {
+	store := SetupStaticIPReservationStore()
+
+	store.Apply(staticIpr1)
+	store.Apply(staticIpr2)
+
+	ipr := store.GetByKey("sipr2_def")
+	require.Equal(t, staticIpr2, ipr)
+	iprs := store.GetByIndex(common.TagScopeSubnetIPReservationCRUID, "sipr1-uuid")
+	require.Equal(t, 1, len(iprs))
+	require.Equal(t, staticIpr1, iprs[0])
+	iprs = store.GetByIndex(common.TagScopeSubnetIPReservationCRName, types.NamespacedName{Namespace: "ns-1", Name: "sipr2"}.String())
+	require.Equal(t, 1, len(iprs))
+	require.Equal(t, staticIpr2, iprs[0])
+
+	err := store.Apply(nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, len(store.List()))
+
+	iprCopy := *staticIpr1
+	iprCopy.MarkedForDelete = common.Bool(true)
+	store.Apply(&iprCopy)
+	store.DeleteMultipleObjects([]*model.StaticIpAddressReservation{staticIpr2})
+	require.Equal(t, 0, len(store.List()))
+}
+
+func TestDynamicIPReservationStore(t *testing.T) {
+	store := SetupDynamicIPReservationStore()
 
 	store.Apply(ipr1)
 	store.Apply(ipr2)
@@ -82,10 +132,10 @@ func TestStore(t *testing.T) {
 
 	ipr := store.GetByKey("ipr2_3yw4m")
 	require.Equal(t, ipr2, ipr)
-	iprs := store.GetByIndex(ipReservationCRUIDIndexKey, "ipr1-uuid")
+	iprs := store.GetByIndex(common.TagScopeSubnetIPReservationCRUID, "ipr1-uuid")
 	require.Equal(t, 1, len(iprs))
 	require.Equal(t, ipr1, iprs[0])
-	iprs = store.GetByIndex(ipReservationCRNameIndexKey, types.NamespacedName{Namespace: "ns-2", Name: "ipr1"}.String())
+	iprs = store.GetByIndex(common.TagScopeSubnetIPReservationCRName, types.NamespacedName{Namespace: "ns-2", Name: "ipr1"}.String())
 	require.Equal(t, 1, len(iprs))
 	require.Equal(t, ipr3, iprs[0])
 

@@ -324,6 +324,21 @@ func WrapDynamicIpAddressReservation(ipr *model.DynamicIpAddressReservation) (*d
 	return dataValue.(*data.StructValue), nil
 }
 
+func WrapStaticIpAddressReservation(ipr *model.StaticIpAddressReservation) (*data.StructValue, error) {
+	ipr.ResourceType = &ResourceTypeStaticIpAddressReservation
+	childStaticIpAddressReservation := model.ChildStaticIpAddressReservation{
+		Id:                         ipr.Id,
+		MarkedForDelete:            ipr.MarkedForDelete,
+		ResourceType:               ResourceTypeChildStaticIpAddressReservation,
+		StaticIpAddressReservation: ipr,
+	}
+	dataValue, errors := NewConverter().ConvertToVapi(childStaticIpAddressReservation, childStaticIpAddressReservation.GetType__())
+	if len(errors) > 0 {
+		return nil, errors[0]
+	}
+	return dataValue.(*data.StructValue), nil
+}
+
 func buildInfraFromChildren(children []*data.StructValue) *model.Infra {
 	// This is the outermost layer of the hierarchy infra client.
 	// It doesn't need ID field.

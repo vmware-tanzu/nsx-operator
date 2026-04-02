@@ -59,20 +59,37 @@ spec:
                 minimum: 1
                 type: integer
                 x-kubernetes-validations:
-                - message: NumberOfIPs is immutable
+                - message: numberOfIPs is immutable
                   rule: self == oldSelf
+              reservedIPs:
+                description: |-
+                  ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,
+                  IP Address range and CIDRs.
+                  Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"]
+                items:
+                  type: string
+                minItems: 1
+                type: array
               subnet:
                 description: |-
                   Subnet specifies the Subnet to reserve IPs from.
                   The Subnet needs to have static IP allocation activated.
                 type: string
                 x-kubernetes-validations:
-                - message: Subnet is immutable
+                - message: subnet is immutable
                   rule: self == oldSelf
             required:
-            - numberOfIPs
             - subnet
             type: object
+            x-kubernetes-validations:
+            - message: Only one of numberOfIPs or reservedIPs can be specified
+              rule: '!has(self.numberOfIPs) || !has(self.reservedIPs)'
+            - message: One of numberOfIPs or reservedIPs must be specified
+              rule: has(self.numberOfIPs) || has(self.reservedIPs)
+            - message: reservedIPs cannot be unset once set
+              rule: '!has(oldSelf.reservedIPs) || has(self.reservedIPs)'
+            - message: numberOfIPs cannot be unset once set
+              rule: '!has(oldSelf.numberOfIPs) || has(self.numberOfIPs)'
           status:
             description: SubnetIPReservationStatus defines the observed state of SubnetIPReservation
             properties:
@@ -110,7 +127,7 @@ spec:
               ips:
                 description: |-
                   List of reserved IPs.
-                  Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"]
+                  Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"]
                 items:
                   type: string
                 type: array

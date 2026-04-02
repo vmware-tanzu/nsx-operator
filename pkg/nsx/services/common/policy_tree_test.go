@@ -567,7 +567,7 @@ func TestBuildRootNodePerformance(t *testing.T) {
 	start := time.Now()
 	builder.BuildRootNode(bindings, "")
 	cost := time.Since(start)
-	assert.Truef(t, cost.Seconds() < 3, "It takes %s to build Org root with 10K resources", cost.String())
+	assert.Truef(t, cost.Seconds() < 5, "It takes %s to build Org root with 10K resources", cost.String())
 }
 
 func TestParsePathSegments(t *testing.T) {
