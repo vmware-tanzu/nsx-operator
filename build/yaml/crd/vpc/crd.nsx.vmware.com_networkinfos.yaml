@@ -49,6 +49,13 @@ spec:
                 defaultSNATIP:
                   description: Default SNAT IP for Private Subnets.
                   type: string
+                loadBalancerBackendIPs:
+                  description: |-
+                    LoadBalancerBackendIPs is a list of IPv4 and/or IPv6 IP addresses
+                    which the VPC load balancer uses to reach backend servers.
+                  items:
+                    type: string
+                  type: array
                 loadBalancerIPAddresses:
                   description: LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX
                     LB SNAT IPs).

@@ -1,4 +1,4 @@
-/* Copyright © 2024 VMware, Inc. All Rights Reserved.
+/* Copyright © 2024-2026 VMware, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package v1alpha1
@@ -46,6 +46,9 @@ type VPCState struct {
 	DefaultSNATIP string `json:"defaultSNATIP"`
 	// LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs).
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
+	// LoadBalancerBackendIPs is a list of IPv4 and/or IPv6 IP addresses
+	// which the VPC load balancer uses to reach backend servers.
+	LoadBalancerBackendIPs []string `json:"loadBalancerBackendIPs,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
 	// NetworkStack indicates the networking stack for the VPC.

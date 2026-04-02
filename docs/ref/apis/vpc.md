@@ -191,6 +191,41 @@ _Appears in:_
 | `reservedIPRanges` _string array_ | Reserved IP ranges.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
 
 
+#### DHCPv6ConfigMode
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [SubnetDHCPv6Config](#subnetdhcpv6config)
+
+| Field | Description |
+| --- | --- |
+| `DHCPDeactivated` |  |
+| `DHCPServer` |  |
+| `DHCPRelay` |  |
+
+
+#### DHCPv6ServerAdditionalConfig
+
+
+
+DHCPv6ServerAdditionalConfig is additional DHCPv6 server config for a VPC Subnet.
+The additional configuration must not be set when the Subnet has DHCP relay enabled or DHCP is deactivated.
+
+
+
+_Appears in:_
+- [SubnetDHCPv6Config](#subnetdhcpv6config)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `reservedIPRanges` _string array_ | Reserved IPv6 ranges.<br />Supported formats include: ["2001:db8::1", "2001:db8::1-2001:db8::ff"] |  |  |
+
+
 #### IPAddressAllocation
 
 
@@ -243,6 +278,25 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `allocationIPs` _string_ | AllocationIPs is the allocated IP addresses |  |  |
 | `conditions` _[Condition](#condition) array_ |  |  |  |
+
+
+#### IPAddressType
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [SubnetSetSpec](#subnetsetspec)
+- [SubnetSpec](#subnetspec)
+
+| Field | Description |
+| --- | --- |
+| `IPV4` |  |
+| `IPV6` |  |
+| `IPV4IPV6` |  |
 
 
 #### IPAddressVisibility
@@ -542,10 +596,10 @@ _Appears in:_
 | `action` _[RuleAction](#ruleaction)_ | Action specifies the action to be applied on the rule. |  |  |
 | `appliedTo` _[SecurityPolicyTarget](#securitypolicytarget) array_ | AppliedTo is a list of rule targets.<br />Policy level 'Applied To' will take precedence over rule level. |  |  |
 | `direction` _[RuleDirection](#ruledirection)_ | Direction is the direction of the rule, including 'In' or 'Ingress', 'Out' or 'Egress'. |  |  |
-| `sources` _[SecurityPolicyPeer](#securitypolicypeer) array_ | **Deprecated: use `from` instead.** Sources defines the endpoints where the traffic is from. For ingress rule only. |  |  |
-| `destinations` _[SecurityPolicyPeer](#securitypolicypeer) array_ | **Deprecated: use `to` instead.** Destinations defines the endpoints where the traffic is to. For egress rule only. |  |  |
-| `from` _[SecurityPolicyPeer](#securitypolicypeer) array_ | From defines the endpoints where the traffic is from. For ingress rule only. This is the preferred field over the deprecated Sources. |  |  |
-| `to` _[SecurityPolicyPeer](#securitypolicypeer) array_ | To defines the endpoints where the traffic is to. For egress rule only. This is the preferred field over the deprecated Destinations. |  |  |
+| `sources` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Deprecated: use From instead.<br />Sources defines the endpoints where the traffic is from. For ingress rule only. |  |  |
+| `destinations` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Deprecated: use To instead.<br />Destinations defines the endpoints where the traffic is to. For egress rule only. |  |  |
+| `from` _[SecurityPolicyPeer](#securitypolicypeer) array_ | From defines the endpoints where the traffic is from. For ingress rule only.<br />This is the preferred field over the deprecated Sources. |  |  |
+| `to` _[SecurityPolicyPeer](#securitypolicypeer) array_ | To defines the endpoints where the traffic is to. For egress rule only.<br />This is the preferred field over the deprecated Destinations. |  |  |
 | `ports` _[SecurityPolicyPort](#securitypolicyport) array_ | Ports is a list of ports to be matched. |  |  |
 | `name` _string_ | Name is the display name of this rule. |  |  |
 
@@ -745,8 +799,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `connectivityState` _[ConnectivityState](#connectivitystate)_ | Connectivity status of the Subnet from other Subnets of the VPC.<br />The default value is "Connected". | Connected | Enum: [Connected Disconnected] <br /> |
 | `staticIPAllocation` _[StaticIPAllocation](#staticipallocation)_ | Static IP allocation for VPC Subnet Ports. |  |  |
-| `gatewayAddresses` _string array_ | GatewayAddresses specifies custom gateway IP addresses for the Subnet. |  | MaxItems: 1 <br /> |
-| `dhcpServerAddresses` _string array_ | DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet. |  | MaxItems: 1 <br /> |
+| `gatewayAddresses` _string array_ | GatewayAddresses specifies custom gateway IP addresses for the Subnet.<br />Supports up to 2 addresses for dual-stack Subnets (1 IPv4 + 1 IPv6). |  | MaxItems: 2 <br /> |
+| `dhcpServerAddresses` _string array_ | DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet.<br />Supports up to 2 addresses for dual-stack Subnets (1 IPv4 + 1 IPv6). |  | MaxItems: 2 <br /> |
 
 
 #### SubnetConnectionBindingMap
@@ -817,8 +871,26 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `mode` _[DHCPConfigMode](#dhcpconfigmode)_ | DHCP Mode. DHCPDeactivated will be used if it is not defined.<br />It cannot switch from DHCPDeactivated to DHCPServer or DHCPRelay. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
+| `mode` _[DHCPConfigMode](#dhcpconfigmode)_ | DHCP Mode. DHCPDeactivated will be used if it is not defined. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
 | `dhcpServerAdditionalConfig` _[DHCPServerAdditionalConfig](#dhcpserveradditionalconfig)_ | Additional DHCP server config for a VPC Subnet. |  |  |
+
+
+#### SubnetDHCPv6Config
+
+
+
+SubnetDHCPv6Config is a DHCPv6 configuration for Subnet.
+
+
+
+_Appears in:_
+- [SubnetSetSpec](#subnetsetspec)
+- [SubnetSpec](#subnetspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `mode` _[DHCPv6ConfigMode](#dhcpv6configmode)_ | DHCPv6 Mode. DHCPDeactivated will be used if it is not defined. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
+| `dhcpv6ServerAdditionalConfig` _[DHCPv6ServerAdditionalConfig](#dhcpv6serveradditionalconfig)_ | Additional DHCPv6 server config for a VPC Subnet. |  |  |
 
 
 #### SubnetIPReservation
@@ -980,9 +1052,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
-| `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet. | IPV4 | Enum: [IPV4 IPV6 IPV4IPV6] <br /> |
+| `ipv4SubnetSize` _integer_ | Size of IPv4 Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
+| `ipv6PrefixLength` _integer_ | IPv6 prefix length for subnets in the SubnetSet (e.g. 64 means /64). |  | Maximum: 127 <br />Minimum: 2 <br /> |
+| `accessMode` _[AccessMode](#accessmode)_ | Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
+| `subnetDhcpv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for subnets in the SubnetSet. |  |  |
 | `subnetNames` _string_ | The names of the Subnets that have been created in advance.<br />It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.<br />Once this field is set, the other fields cannot be set. |  |  |
 
 
@@ -1017,10 +1092,13 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `vpcName` _string_ | VPC name of the Subnet. |  |  |
-| `ipv4SubnetSize` _integer_ | Size of Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
-| `accessMode` _[AccessMode](#accessmode)_ | Access mode of Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW L2Only] <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for the Subnet. | IPV4 | Enum: [IPV4 IPV6 IPV4IPV6] <br /> |
+| `ipv4SubnetSize` _integer_ | Size of IPv4 Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
+| `ipv6PrefixLength` _integer_ | IPv6 prefix length for the Subnet (e.g. 64 means /64). |  | Maximum: 127 <br />Minimum: 2 <br /> |
+| `accessMode` _[AccessMode](#accessmode)_ | Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW L2Only] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
+| `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for Subnet. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 | `vlanConnectionName` _string_ | Distributed VLAN Connection name. |  |  |
 
@@ -1123,8 +1201,9 @@ _Appears in:_
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
-| `defaultSubnetSize` _integer_ | Default size of Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
+| `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
+| `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Defaults to 64. | 64 | Maximum: 127 <br />Minimum: 2 <br /> |
 
 
 #### VPCNetworkConfigurationStatus
@@ -1160,6 +1239,7 @@ _Appears in:_
 | `name` _string_ | VPC name. |  |  |
 | `defaultSNATIP` _string_ | Default SNAT IP for Private Subnets. |  |  |
 | `loadBalancerIPAddresses` _string_ | LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs). |  |  |
+| `loadBalancerBackendIPs` _string array_ | LoadBalancerBackendIPs is a list of IPv4 and/or IPv6 IP addresses<br />which the VPC load balancer uses to reach backend servers. |  |  |
 | `privateIPs` _string array_ | Private CIDRs used for the VPC. |  |  |
 | `networkStack` _[NetworkStackType](#networkstacktype)_ | NetworkStack indicates the networking stack for the VPC.<br />Valid values: FullStackVPC, VLANBackedVPC |  | Enum: [FullStackVPC VLANBackedVPC] <br /> |
 
