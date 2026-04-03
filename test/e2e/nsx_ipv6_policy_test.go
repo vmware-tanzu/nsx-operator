@@ -21,16 +21,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-var NsIPv6Policy = "e2e-ipv6-policy-" + getRandomString()
-
-func TestIPv6SecurityPolicy(t *testing.T) {
-	TrackTest(t)
+func testIPv6SecurityPolicy(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 
-	ns := NsIPv6Policy
-	setupNamespace(t, ns)
-	defer teardownNamespace(t, ns)
+	ns := NsIPv6PolicyVC
 
 	securityPolicyName := "ipv6-ipblock-policy"
 
@@ -63,12 +58,8 @@ func TestIPv6SecurityPolicy(t *testing.T) {
 	log.Info("Verified IPv6 SecurityPolicy NSX resource cleaned up", "name", securityPolicyName)
 }
 
-func TestIPv6NetworkPolicy(t *testing.T) {
-	TrackTest(t)
-
-	ns := NsIPv6Policy
-	setupNamespace(t, ns)
-	defer teardownNamespace(t, ns)
+func testIPv6NetworkPolicy(t *testing.T) {
+	ns := NsIPv6PolicyVC
 
 	npName := "np-ipv6-ipblock"
 
@@ -83,12 +74,8 @@ func TestIPv6NetworkPolicy(t *testing.T) {
 	log.Info("Verified IPv6 NetworkPolicy -> NSX SecurityPolicy exists", "name", npName)
 }
 
-func TestDualStackNetworkPolicy(t *testing.T) {
-	TrackTest(t)
-
-	ns := NsIPv6Policy
-	setupNamespace(t, ns)
-	defer teardownNamespace(t, ns)
+func testDualStackNetworkPolicy(t *testing.T) {
+	ns := NsIPv6PolicyVC
 
 	npName := "np-dualstack-ipblock"
 
@@ -99,20 +86,4 @@ func TestDualStackNetworkPolicy(t *testing.T) {
 
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, npName, true))
 	log.Info("Verified dual-stack NetworkPolicy -> NSX SecurityPolicy exists", "name", npName)
-}
-
-func setupNamespace(t *testing.T, ns string) {
-	t.Helper()
-	err := testData.createNamespace(ns)
-	if err != nil {
-		t.Logf("Namespace %s may already exist: %v", ns, err)
-	}
-}
-
-func teardownNamespace(t *testing.T, ns string) {
-	t.Helper()
-	err := testData.deleteNamespace(ns, defaultTimeout)
-	if err != nil {
-		t.Logf("Error deleting namespace %s: %v", ns, err)
-	}
 }
