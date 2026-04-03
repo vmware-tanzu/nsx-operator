@@ -43,6 +43,10 @@ spec:
                 defaultSNATIP:
                   description: Default SNAT IP for Private Subnets.
                   type: string
+                ipv6loadBalancerIPAddresses:
+                  description: IPv6 LoadBalancerIPAddresses (AVI SE Subnet CIDR or
+                    NSX LB SNAT IPs).
+                  type: string
                 loadBalancerIPAddresses:
                   description: LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX
                     LB SNAT IPs).

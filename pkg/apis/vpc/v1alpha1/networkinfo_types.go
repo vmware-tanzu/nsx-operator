@@ -44,6 +44,8 @@ type VPCState struct {
 	DefaultSNATIP string `json:"defaultSNATIP"`
 	// LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs).
 	LoadBalancerIPAddresses string `json:"loadBalancerIPAddresses,omitempty"`
+	// IPv6 LoadBalancerIPAddresses (AVI SE Subnet CIDR or NSX LB SNAT IPs).
+	IPv6LoadBalancerIPAddresses string `json:"ipv6loadBalancerIPAddresses,omitempty"`
 	// Private CIDRs used for the VPC.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
 	// NetworkStack indicates the networking stack for the VPC.

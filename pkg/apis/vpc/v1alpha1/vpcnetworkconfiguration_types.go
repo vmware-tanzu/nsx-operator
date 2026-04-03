@@ -32,11 +32,18 @@ type VPCNetworkConfigurationSpec struct {
 	// Private IPs.
 	PrivateIPs []string `json:"privateIPs,omitempty"`
 
-	// Default size of Subnets.
+	// Default size of IPv4 Subnets.
 	// Defaults to 32.
 	// +kubebuilder:default=32
 	// +kubebuilder:validation:Maximum:=65536
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
+
+	// Default prefix length of IPv6 Subnets.
+	// Defaults to 64.
+	// +kubebuilder:default=64
+	// +kubebuilder:validation:Minimum:=2
+	// +kubebuilder:validation:Maximum:=127
+	DefaultIPv6SubnetMask int `json:"defaultIPv6SubnetMask,omitempty"`
 }
 
 // SharedSubnet defines the information for a Subnet shared with vSphere Namespace.
