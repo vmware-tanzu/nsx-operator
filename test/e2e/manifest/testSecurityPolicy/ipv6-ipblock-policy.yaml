@@ -1,0 +1,25 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: ipv6-ipblock-policy
+spec:
+  priority: 10
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          role: db
+  rules:
+    - direction: in
+      action: allow
+      sources:
+        - ipBlocks:
+            - cidr: 2001:db8::/32
+    - direction: out
+      action: allow
+      destinations:
+        - ipBlocks:
+            - cidr: fd00::/64
+    - direction: in
+      action: drop
+    - direction: out
+      action: drop

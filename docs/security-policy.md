@@ -207,7 +207,7 @@ contains a single `sources` element allowing connections from VirtualMachines wi
 the label `role=client` in namespaces with the label `user=alice`.
 
 **ipBlocks**: This selects particular IP CIDR ranges to allow as ingress sources
-or egress destinations. E.g.
+or egress destinations. Both IPv4 and IPv6 CIDRs are supported. E.g.
 
 ```
 ...
@@ -220,7 +220,7 @@ or egress destinations. E.g.
 ...
 ```
 
-Particularly, it can be used for single IP by suffix `/32`. E.g.
+Particularly, it can be used for single IP by suffix `/32` (IPv4) or `/128` (IPv6). E.g.
 
 ```
 ...
@@ -230,6 +230,40 @@ Particularly, it can be used for single IP by suffix `/32`. E.g.
       sources:
         - ipBlocks:
             - cidr: 100.64.232.1/32
+...
+```
+
+IPv6 CIDRs are also supported in `ipBlocks`:
+
+```
+...
+  rules:
+    - direction: ingress
+      action: allow
+      sources:
+        - ipBlocks:
+            - cidr: 2001:db8::/32
+    - direction: out
+      action: allow
+      destinations:
+        - ipBlocks:
+            - cidr: fd00::/64
+...
+```
+
+Dual-stack configurations mixing both IPv4 and IPv6 `ipBlocks` in the same policy
+are supported as well:
+
+```
+...
+  rules:
+    - direction: ingress
+      action: allow
+      sources:
+        - ipBlocks:
+            - cidr: 192.168.0.0/16
+        - ipBlocks:
+            - cidr: 2001:db8::/32
 ...
 ```
 
@@ -307,3 +341,14 @@ Limitations of SecurityPolicy CR:
 7. Max IP elements in one security policy: 4000
 8. Priority range of SecurityPolicy CR is [0, 1000].
 9. Support named port for Pod, but not for VM.
+
+## IPv6 Support
+
+Both SecurityPolicy CRD and standard Kubernetes NetworkPolicy support IPv6 CIDR
+blocks in `ipBlocks`. The `except` field in NetworkPolicy IPBlock also works
+correctly for IPv6 CIDRs. Dual-stack configurations (mixing IPv4 and IPv6 ipBlocks
+in the same policy) are supported.
+
+For NetworkPolicy with IPv6 `except` clauses, the operator computes IP range
+exclusions and translates them to NSX-T `IPAddressExpression` entries using the
+IP range format (e.g., `2001:db8::b-2001:db8::ffff`).
