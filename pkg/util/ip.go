@@ -119,11 +119,11 @@ func bigIntToIP(n *big.Int, ipLen int) net.IP {
 	return ip
 }
 
-func calculateOffsetIP(ip net.IP, offset int) (net.IP, error) {
+func calculateOffsetIP(ip net.IP, offset int) net.IP {
 	ip = normalizeIP(ip)
 	n := ipToBigInt(ip)
 	n.Add(n, big.NewInt(int64(offset)))
-	return bigIntToIP(n, len(ip)), nil
+	return bigIntToIP(n, len(ip))
 }
 
 func compareIP(ip1, ip2 net.IP) bool {
@@ -178,8 +178,8 @@ func rangesAbstractRange(ranges [][]net.IP, except []net.IP) [][]net.IP {
 		}
 		rng[0] = normalizeIP(rng[0])
 		rng[1] = normalizeIP(rng[1])
-		exceptPrev, _ := calculateOffsetIP(except[0], -1)
-		exceptNext, _ := calculateOffsetIP(except[1], 1)
+		exceptPrev := calculateOffsetIP(except[0], -1)
+		exceptNext := calculateOffsetIP(except[1], 1)
 		if getIPPositionInRange(except[0]) == LocationBeforeStart {
 			if getIPPositionInRange(except[1]) == LocationBeforeStart {
 				results = rangeAppend(results, []net.IP{rng[0], rng[1]})

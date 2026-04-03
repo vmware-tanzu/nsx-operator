@@ -59,9 +59,9 @@ func TestSecurityPolicy(t *testing.T) {
 		}
 		// Allow this suite to run concurrently with other security policy subtests.
 		t.Parallel()
-		RunSubtest(t, "testIPv6SecurityPolicy", func(t *testing.T) {testIPv6SecurityPolicy(t)})
-		RunSubtest(t, "testIPv6NetworkPolicy", func(t *testing.T) {testIPv6NetworkPolicy(t)})
-		RunSubtest(t, "testDualStackNetworkPolicy", func(t *testing.T) {testDualStackNetworkPolicy(t)})
+		RunSubtest(t, "testIPv6SecurityPolicy", func(t *testing.T) { testIPv6SecurityPolicy(t) })
+		RunSubtest(t, "testIPv6NetworkPolicy", func(t *testing.T) { testIPv6NetworkPolicy(t) })
+		RunSubtest(t, "testDualStackNetworkPolicy", func(t *testing.T) { testDualStackNetworkPolicy(t) })
 	})
 }
 
