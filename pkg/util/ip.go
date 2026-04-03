@@ -63,6 +63,10 @@ func IsIPv6(addr string) bool {
 	return ip.To4() == nil
 }
 
+// CalculateIPFromCIDRs returns the sum of host address counts for the given CIDRs.
+// IPv6 subnets can have counts far larger than int can represent; this helper is
+// intended for callers that only need IPv4-scale totals (not used on the security
+// policy path). Revisit if NSX IPv6 subnet features need accurate IPv6 totals.
 func CalculateIPFromCIDRs(IPAddresses []string) (int, error) {
 	total := 0
 	for _, addr := range IPAddresses {

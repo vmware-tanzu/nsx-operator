@@ -255,10 +255,7 @@ func Test_calculateOffsetIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := calculateOffsetIP(tt.args.ip, tt.args.offset)
-			if err != nil {
-				t.Errorf("%s failed: %s", tt.name, err)
-			}
+			got := calculateOffsetIP(tt.args.ip, tt.args.offset)
 			want := normalizeIP(tt.want)
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("%s failed: calculateOffsetIP got %v, want %v", tt.name, got, want)

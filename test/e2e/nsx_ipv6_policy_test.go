@@ -21,9 +21,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-const (
-	NsIPv6Policy = "e2e-ipv6-policy"
-)
+var NsIPv6Policy = "e2e-ipv6-policy-" + getRandomString()
 
 func TestIPv6SecurityPolicy(t *testing.T) {
 	TrackTest(t)
