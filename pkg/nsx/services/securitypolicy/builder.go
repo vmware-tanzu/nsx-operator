@@ -89,6 +89,20 @@ func (service *SecurityPolicyService) buildSecurityPolicyIDAndName(obj *v1alpha1
 	return nsxSecurityPolicyID, service.buildSecurityPolicyName(obj)
 }
 
+func getRuleSourcePeers(rule *v1alpha1.SecurityPolicyRule) []v1alpha1.SecurityPolicyPeer {
+	if len(rule.From) > 0 {
+		return rule.From
+	}
+	return rule.Sources //nolint:staticcheck
+}
+
+func getRuleDestinationPeers(rule *v1alpha1.SecurityPolicyRule) []v1alpha1.SecurityPolicyPeer {
+	if len(rule.To) > 0 {
+		return rule.To
+	}
+	return rule.Destinations //nolint:staticcheck
+}
+
 func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool) (*model.SecurityPolicy, *[]model.Group, *[]GroupShare, error) {
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
@@ -581,7 +595,8 @@ func (service *SecurityPolicyService) buildRuleInGroup(obj *v1alpha1.SecurityPol
 	var nsxRuleSrcGroupPath string
 	var nsxRuleDstGroupPath string
 	var err error
-	if len(rule.Sources) > 0 {
+	sources := getRuleSourcePeers(rule)
+	if len(sources) > 0 {
 		nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxGroupShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, ruleBaseID, true, createdFor, vpcInfo, isDefaultProject)
 		if err != nil {
 			return nil, "", "", nil, err
@@ -609,7 +624,8 @@ func (service *SecurityPolicyService) buildRuleOutGroup(obj *v1alpha1.SecurityPo
 	if len(nsxRule.DestinationGroups) > 0 {
 		nsxRuleDstGroupPath = nsxRule.DestinationGroups[0]
 	} else {
-		if len(rule.Destinations) > 0 {
+		destinations := getRuleDestinationPeers(rule)
+		if len(destinations) > 0 {
 			nsxRuleDstGroup, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRulePeerGroup(obj, rule, ruleIdx, ruleBaseID, false, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
 				return nil, "", "", nil, err
@@ -863,12 +879,11 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	var rulePeers []v1alpha1.SecurityPolicyPeer
 	var ruleDirection string
 	var err error
-
 	if isSource {
-		rulePeers = rule.Sources
+		rulePeers = getRuleSourcePeers(rule)
 		ruleDirection = "source"
 	} else {
-		rulePeers = rule.Destinations
+		rulePeers = getRuleDestinationPeers(rule)
 		ruleDirection = "destination"
 	}
 
@@ -1065,13 +1080,17 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 	ruleBaseID string, isSource bool, groupScope GroupScope, createdFor string,
 ) []model.Tag {
 	basicTags := service.buildBasicTags(obj, createdFor)
-	groupTypeTag := String(common.TagValueGroupDestination)
-	peers := &rule.Destinations
+	var groupTypeTag *string
+
+	var peers []v1alpha1.SecurityPolicyPeer
 	if isSource {
+		peers = getRuleSourcePeers(rule)
 		groupTypeTag = String(common.TagValueGroupSource)
-		peers = &rule.Sources
+	} else {
+		peers = getRuleDestinationPeers(rule)
+		groupTypeTag = String(common.TagValueGroupDestination)
 	}
-	serializedBytes, _ := json.Marshal(*peers)
+	serializedBytes, _ := json.Marshal(peers)
 
 	peerTags := []model.Tag{
 		{

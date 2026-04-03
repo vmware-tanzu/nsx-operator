@@ -59,10 +59,18 @@ type SecurityPolicyRule struct {
 	AppliedTo []SecurityPolicyTarget `json:"appliedTo,omitempty"`
 	// Direction is the direction of the rule, including 'In' or 'Ingress', 'Out' or 'Egress'.
 	Direction *RuleDirection `json:"direction"`
+	// Deprecated: use From instead.
 	// Sources defines the endpoints where the traffic is from. For ingress rule only.
 	Sources []SecurityPolicyPeer `json:"sources,omitempty"`
+	// Deprecated: use To instead.
 	// Destinations defines the endpoints where the traffic is to. For egress rule only.
 	Destinations []SecurityPolicyPeer `json:"destinations,omitempty"`
+	// From defines the endpoints where the traffic is from. For ingress rule only.
+	// This is the preferred field over the deprecated Sources.
+	From []SecurityPolicyPeer `json:"from,omitempty"`
+	// To defines the endpoints where the traffic is to. For egress rule only.
+	// This is the preferred field over the deprecated Destinations.
+	To []SecurityPolicyPeer `json:"to,omitempty"`
 	// Ports is a list of ports to be matched.
 	Ports []SecurityPolicyPort `json:"ports,omitempty"`
 	// Name is the display name of this rule.

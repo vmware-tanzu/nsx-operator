@@ -40,19 +40,19 @@ func Test_BuildSecurityPolicyForT1(t *testing.T) {
 	)
 
 	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
-	podSelectorRule0IDPort000 := "sp_uidA_2c822e90b1377b346014adfa583f08a99dee52a8_0_0_0"
+	podSelectorRule0IDPort000 := "sp_uidA_1e510e8ad94c103f4727e2bfc28bc637cb752831_0_0_0"
 
 	podSelectorRule1Name00 := "rule-with-ns-selector_ingress_allow"
-	podSelectorRule1IDPort000 := "sp_uidA_2a4595d0dd582c2ae5613245ad7b39de5ade2e20_1_0_0"
+	podSelectorRule1IDPort000 := "sp_uidA_304ea84a85a12eae03f799a546ec5bfe1ffaaa64_1_0_0"
 
 	vmSelectorRule0Name00 := "rule-with-VM-selector_egress_isolation"
-	vmSelectorRule0IDPort000 := "sp_uidB_67410606c486d2ba38002ed076a2a4211c9d49b5_0_0_0"
+	vmSelectorRule0IDPort000 := "sp_uidB_db8116ce8304671a055501343fa850eb93b76604_0_0_0"
 
 	vmSelectorRule1Name00 := "rule-with-ns-selector_egress_isolation"
-	vmSelectorRule1IDPort000 := "sp_uidB_7d721f087be35f0bf318f4847b5acdc3d2b91446_1_0_0"
+	vmSelectorRule1IDPort000 := "sp_uidB_52d139ca30855b6286398468ff1fb83b6a80a67a_1_0_0"
 
 	vmSelectorRule2Name00 := "all_egress_isolation"
-	vmSelectorRule2IDPort000 := "sp_uidB_a40c813916cc397fcd2260e48cc773d4c9b08565_2_0_0"
+	vmSelectorRule2IDPort000 := "sp_uidB_1241cf958964f48b167979a831adbae3453dae99_2_0_0"
 
 	tests := []struct {
 		name           string
@@ -216,25 +216,25 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 	defer patches.Reset()
 
 	podSelectorRule0Name00 := "rule-with-pod-ns-selector_ingress_allow"
-	podSelectorRule0IDPort000 := "spA-2c822e90_re0bz_all"
+	podSelectorRule0IDPort000 := "spA-1e510e8a_re0bz_all"
 
 	podSelectorRule1Name00 := "rule-with-ns-selector_ingress_allow"
-	podSelectorRule1IDPort000 := "spA-2a4595d0_re0bz_53"
+	podSelectorRule1IDPort000 := "spA-304ea84a_re0bz_53"
 
 	vmSelectorRule0Name00 := "rule-with-VM-selector_egress_isolation"
-	vmSelectorRule0IDPort000 := "spB-67410606_9u8w9_all"
+	vmSelectorRule0IDPort000 := "spB-db8116ce_9u8w9_all"
 
 	vmSelectorRule1Name00 := "rule-with-ns-selector_egress_isolation"
-	vmSelectorRule1IDPort000 := "spB-7d721f08_9u8w9_all"
+	vmSelectorRule1IDPort000 := "spB-52d139ca_9u8w9_all"
 
 	vmSelectorRule2Name00 := "all_egress_isolation"
-	vmSelectorRule2IDPort000 := "spB-a40c8139_9u8w9_all"
+	vmSelectorRule2IDPort000 := "spB-1241cf95_9u8w9_all"
 
-	vpcRuleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
-	vpcRuleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "2a4595d0", "spA-2a4595d0_re0bz")
-	vpcRuleTags3 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "67410606", "spB-67410606_9u8w9")
-	vpcRuleTags4 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "7d721f08", "spB-7d721f08_9u8w9")
-	vpcRuleTags5 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "a40c8139", "spB-a40c8139_9u8w9")
+	vpcRuleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "1e510e8a", "spA-1e510e8a_re0bz")
+	vpcRuleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "304ea84a", "spA-304ea84a_re0bz")
+	vpcRuleTags3 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "db8116ce", "spB-db8116ce_9u8w9")
+	vpcRuleTags4 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "52d139ca", "spB-52d139ca_9u8w9")
+	vpcRuleTags5 := appendRuleIDAndHashTags(vpcBasicTagsForSpWithVMSelector, "1241cf95", "spB-1241cf95_9u8w9")
 
 	tests := []struct {
 		name             string
@@ -258,10 +258,10 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Id:                &podSelectorRule0IDPort000,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-2c822e90-scope_re0bz"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-1e510e8a-scope_re0bz"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-1e510e8a-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						Tags:              vpcRuleTags1,
 					},
@@ -273,7 +273,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-304ea84a-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              vpcRuleTags2,
@@ -295,9 +295,9 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule0Name00,
 						Id:                &vmSelectorRule0IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-67410606-dst_9u8w9"},
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-db8116ce-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-67410606-scope_9u8w9"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-db8116ce-scope_9u8w9"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
@@ -307,7 +307,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule1Name00,
 						Id:                &vmSelectorRule1IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spB-7d721f08-dst_9u8w9"},
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spB-52d139ca-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
@@ -320,7 +320,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule2Name00,
 						Id:                &vmSelectorRule2IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-a40c8139-dst_9u8w9"},
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spB-1241cf95-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq2,
@@ -349,10 +349,10 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Id:                &podSelectorRule0IDPort000,
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spA-2c822e90-scope_re0bz"},
+						Scope:             []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spA-1e510e8a-scope_re0bz"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/infra/domains/default/groups/spA-2c822e90-src_re0bz"},
+						SourceGroups:      []string{"/infra/domains/default/groups/spA-1e510e8a-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						Tags:              vpcRuleTags1,
 					},
@@ -364,7 +364,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/infra/domains/default/groups/spA-2a4595d0-src_re0bz"},
+						SourceGroups:      []string{"/infra/domains/default/groups/spA-304ea84a-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              vpcRuleTags2,
@@ -387,9 +387,9 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule0Name00,
 						Id:                &vmSelectorRule0IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-67410606-dst_9u8w9"},
+						DestinationGroups: []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-db8116ce-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
-						Scope:             []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-67410606-scope_9u8w9"},
+						Scope:             []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-db8116ce-scope_9u8w9"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
 						SourceGroups:      []string{"ANY"},
@@ -399,7 +399,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule1Name00,
 						Id:                &vmSelectorRule1IDPort000,
-						DestinationGroups: []string{"/infra/domains/default/groups/spB-7d721f08-dst_9u8w9"},
+						DestinationGroups: []string{"/infra/domains/default/groups/spB-52d139ca-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
@@ -412,7 +412,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 					{
 						DisplayName:       &vmSelectorRule2Name00,
 						Id:                &vmSelectorRule2IDPort000,
-						DestinationGroups: []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-a40c8139-dst_9u8w9"},
+						DestinationGroups: []string{"/orgs/default/projects/default/vpcs/vpc1/groups/spB-1241cf95-dst_9u8w9"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq2,
@@ -2110,8 +2110,8 @@ func Test_getRuleIDByUUIDAndRuleHash(t *testing.T) {
 	fakeService.vpcService = &mockVPCService
 	fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 
-	spRuleTags := appendRuleIDAndHashTags(vpcBasicTags, "2c822e90", "spA-2c822e90_re0bz")
-	npRuleTags := appendRuleIDAndHashTags(npAllowBasicTags, "67410606", "npB-67410606_9u8w9")
+	spRuleTags := appendRuleIDAndHashTags(vpcBasicTags, "1e510e8a", "spA-1e510e8a_re0bz")
+	npRuleTags := appendRuleIDAndHashTags(npAllowBasicTags, "db8116ce", "npB-db8116ce_9u8w9")
 	rules := []model.Rule{
 		{
 			Id:   String("rule-1-80"),
@@ -2140,21 +2140,21 @@ func Test_getRuleIDByUUIDAndRuleHash(t *testing.T) {
 		{
 			name:           "get SecurityPolicy rule by UUID and Rule Hash",
 			uuid:           tagValuePolicyCRUID,
-			hash:           "2c822e90",
+			hash:           "1e510e8a",
 			createdFor:     common.ResourceTypeSecurityPolicy,
-			expectedRuleID: String("spA-2c822e90_re0bz"),
+			expectedRuleID: String("spA-1e510e8a_re0bz"),
 		},
 		{
 			name:           "get NetworkPolicy rule by UUID and Rule Hash",
 			uuid:           string(npWithNsSelecotr.UID + "_allow"),
-			hash:           "67410606",
+			hash:           "db8116ce",
 			createdFor:     common.ResourceTypeNetworkPolicy,
-			expectedRuleID: String("npB-67410606_9u8w9"),
+			expectedRuleID: String("npB-db8116ce_9u8w9"),
 		},
 		{
 			name:           "no matching rules with invalid uuid",
 			uuid:           "invaliduid",
-			hash:           "2c822e90",
+			hash:           "1e510e8a",
 			createdFor:     common.ResourceTypeSecurityPolicy,
 			expectedRuleID: nil,
 		},
@@ -2188,7 +2188,7 @@ func Test_buildRuleID(t *testing.T) {
 				{
 					Action:    &allowAction,
 					Direction: &directionIn,
-					Sources: []v1alpha1.SecurityPolicyPeer{
+					From: []v1alpha1.SecurityPolicyPeer{
 						{
 							PodSelector: &v1.LabelSelector{
 								MatchLabels: map[string]string{"app": "coffee"},
@@ -2217,7 +2217,7 @@ func Test_buildRuleID(t *testing.T) {
 			createdFor: common.ResourceTypeSecurityPolicy,
 			enableVPC:  false,
 			checkFunc: func(t *testing.T, result string) {
-				assert.Equal(t, "sp_uidA_2c822e90b1377b346014adfa583f08a99dee52a8_0", result)
+				assert.Equal(t, "sp_uidA_1e510e8ad94c103f4727e2bfc28bc637cb752831_0", result)
 			},
 		},
 		{
@@ -2229,7 +2229,7 @@ func Test_buildRuleID(t *testing.T) {
 			existingRuleID: nil,
 			checkFunc: func(t *testing.T, result string) {
 				assert.NotEmpty(t, result)
-				assert.Equal(t, "spA-2c822e90_re0bz", result)
+				assert.Equal(t, "spA-1e510e8a_re0bz", result)
 			},
 		},
 		{
@@ -2252,10 +2252,10 @@ func Test_buildRuleID(t *testing.T) {
 			existingRuleID: nil,
 			rebuildRuleID:  true,
 			checkFunc: func(t *testing.T, result string) {
-				assert.NotEqual(t, "spA-2c822e90_re0bz", result)
+				assert.NotEqual(t, "spA-1e510e8a_re0bz", result)
 				parts := strings.Split(result, common.ConnectorUnderline)
 				assert.Equal(t, 2, len(parts))
-				assert.Equal(t, "spA-2c822e90", parts[0])
+				assert.Equal(t, "spA-1e510e8a", parts[0])
 				assert.NotEqual(t, "re0bz", parts[1])
 			},
 		},
@@ -2268,7 +2268,7 @@ func Test_buildRuleID(t *testing.T) {
 			existingRuleID: nil,
 			checkFunc: func(t *testing.T, result string) {
 				assert.NotEmpty(t, result)
-				assert.Equal(t, "np-app-access-allow-a6f6b3bc_aoqj8", result)
+				assert.Equal(t, "np-app-access-allow-3ccf8bbb_aoqj8", result)
 			},
 		},
 		{
@@ -2315,10 +2315,10 @@ func Test_buildRuleID(t *testing.T) {
 					ruleStore.Apply(&rules)
 				} else if tt.rebuildRuleID {
 					// Set up rule store with existing ruleID for rebuild testing
-					// "spA-2c822e90_re0bz" should be the same with spWithPodSelector's first rule generated ID,
+					// "spA-1e510e8a_re0bz" should be the same with spWithPodSelector's first rule generated ID,
 					// so that it will rebuilt it
-					ruleTags := appendRuleIDAndHashTags(vpcBasicTags, "hash", "spA-2c822e90_re0bz")
-					nsxRuleID := String("spA-2c822e90_re0bz" + "portSuffix")
+					ruleTags := appendRuleIDAndHashTags(vpcBasicTags, "hash", "spA-1e510e8a_re0bz")
+					nsxRuleID := String("spA-1e510e8a_re0bz" + "portSuffix")
 					rules := []model.Rule{
 						{
 							Id:   nsxRuleID,
