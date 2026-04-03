@@ -317,10 +317,7 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 			}
 		}
 	case "OUT":
-		outPeers := rule.To
-		if len(outPeers) == 0 {
-			outPeers = rule.Destinations //nolint:staticcheck
-		}
+		outPeers := getRuleDestinationPeers(rule)
 		if len(outPeers) > 0 {
 			for _, target := range outPeers {
 				var namespaceSelectors []client.ListOptions // ResolveNamespace may return multiple namespaces
