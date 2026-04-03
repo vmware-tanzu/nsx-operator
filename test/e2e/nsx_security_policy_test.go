@@ -37,7 +37,7 @@ func TestSecurityPolicy(t *testing.T) {
 
 	// Clean up shared namespaces when all subtests complete
 	t.Cleanup(func() {
-		// CleanupVCNamespaces(NsSecurityPolicy, NsSecurityPolicyNamedPortClient, NsSecurityPolicyNamedPortWeb)
+		CleanupVCNamespaces(NsSecurityPolicy, NsSecurityPolicyNamedPortClient, NsSecurityPolicyNamedPortWeb)
 	})
 	StartParallel(t)
 
