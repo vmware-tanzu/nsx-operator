@@ -37,6 +37,9 @@ type VPCNetworkConfigurationSpec struct {
 	// +kubebuilder:default=32
 	// +kubebuilder:validation:Maximum:=65536
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
+
+	// DNSZones specifies the list of permitted DNS zones, identified by their NSX paths.
+	DNSZones []string `json:"dnsZones,omitempty"`
 }
 
 // SharedSubnet defines the information for a Subnet shared with vSphere Namespace.
