@@ -13,26 +13,26 @@ var cleanupOnce sync.Once
 var (
 	// NsSecurityPolicy Security Policy test namespaces - need VC namespace for pod creation
 	// NsSecurityPolicy is shared by testSecurityPolicyBasicTraffic, testSecurityPolicyMatchExpression, and testSecurityPolicyAddDeleteRule
-	NsSecurityPolicy                = "e2e-sp-" + getRandomString()
-	NsSecurityPolicyNamedPortClient = "e2e-sp-np-client-" + getRandomString()
-	NsSecurityPolicyNamedPortWeb    = "e2e-sp-np-web-" + getRandomString()
+	NsSecurityPolicy                = generateUniqueID("e2e-sp")
+	NsSecurityPolicyNamedPortClient = generateUniqueID("e2e-sp-np-client")
+	NsSecurityPolicyNamedPortWeb    = generateUniqueID("e2e-sp-np-web")
 
 	// NsInventorySync Inventory sync test namespaces - need VC namespace for pod creation
-	NsInventorySync = "e2e-inventory-" + getRandomString()
+	NsInventorySync = generateUniqueID("e2e-inventory")
 
-	NsIPAddressAllocation = "e2e-ipalloc-" + getRandomString()
+	NsIPAddressAllocation = generateUniqueID("e2e-ipalloc")
 
 	// NsLoadBalancerLB LoadBalancer test namespaces - need VC namespace for pod creation
-	NsLoadBalancerLB  = "e2e-lb-" + getRandomString()
-	NsLoadBalancerPod = "e2e-lb-pod-" + getRandomString()
+	NsLoadBalancerLB  = generateUniqueID("e2e-lb")
+	NsLoadBalancerPod = generateUniqueID("e2e-lb-pod")
 
 	// NsCreateVM VM test namespace - need VC namespace for VM creation
-	NsCreateVM = "e2e-vm-" + getRandomString()
+	NsCreateVM = generateUniqueID("e2e-vm")
 
 	// NsSubnetPrecreated1 Subnet precreated test namespaces
-	NsSubnetPrecreated1      = "e2e-subnet-pre1-" + getRandomString()
-	NsSubnetPrecreated2      = "e2e-subnet-pre2-" + getRandomString()
-	NsSubnetPrecreatedTarget = "e2e-subnet-pre-target-" + getRandomString()
+	NsSubnetPrecreated1      = generateUniqueID("e2e-subnet-pre1")
+	NsSubnetPrecreated2      = generateUniqueID("e2e-subnet-pre2")
+	NsSubnetPrecreatedTarget = generateUniqueID("e2e-subnet-pre-target")
 )
 
 // allVCNamespaces is the list of namespaces that need to be created via VC API

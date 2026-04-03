@@ -1267,3 +1267,8 @@ func getRandomString() string {
 	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", timestamp)))
 	return hex.EncodeToString(hash[:])[:8]
 }
+
+// generateUniqueID generates a unique ID by appending a random suffix to the given prefix.
+func generateUniqueID(prefix string) string {
+	return fmt.Sprintf("%s-%s", prefix, getRandomString())
+}
