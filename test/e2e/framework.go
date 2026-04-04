@@ -746,7 +746,7 @@ func deleteYAML(filename string, ns string) error {
 		// Ignore error info
 		// very short watch: k8s.io/client-go/tools/watch/informerwatcher.
 		// go:146: Unexpected watch close - watch lasted less than a second and no items received
-		// log.Error(err, "Error when deleting YAML file")
+		log.Error(err, "Error when deleting YAML file")
 		return nil
 	}
 	_, _ = stdout.String(), stderr.String()

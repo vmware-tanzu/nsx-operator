@@ -38,7 +38,7 @@ func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
 				{
 					Action:    &allowAction,
 					Direction: &directionIn,
-					Sources: []v1alpha1.SecurityPolicyPeer{
+					From: []v1alpha1.SecurityPolicyPeer{
 						{
 							PodSelector: &v1.LabelSelector{
 								MatchLabels: map[string]string{"pod_selector_1": "pod_value_1"},
@@ -145,7 +145,7 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 				PodSelector: podSelector,
 			},
 		},
-		Sources: []v1alpha1.SecurityPolicyPeer{
+		From: []v1alpha1.SecurityPolicyPeer{
 			{
 				PodSelector: &v1.LabelSelector{
 					MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
@@ -163,7 +163,7 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 		Direction: &directionIn,
 		Name:      "rule-with-pod-selector-2",
 		AppliedTo: []v1alpha1.SecurityPolicyTarget{},
-		Sources: []v1alpha1.SecurityPolicyPeer{
+		From: []v1alpha1.SecurityPolicyPeer{
 			{
 				PodSelector: &v1.LabelSelector{
 					MatchLabels:      map[string]string{"pod_selector_1": "pod_value_1"},
@@ -246,6 +246,7 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &SecurityPolicyService{}
 			got, _ := service.getPodSelectors(tt.args.obj, tt.args.rule)
+			assert.Equal(t, true, len(got) > 0, "getPodSelector(%v, %v) should return 1 selector", tt.args.obj, tt.args.rule)
 			assert.Equalf(t, tt.want, got[0], "getPodSelector(%v, %v)", tt.args.obj, tt.args.rule)
 		})
 	}
