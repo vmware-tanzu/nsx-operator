@@ -194,6 +194,34 @@ func TestInventoryService_SyncInventoryObject(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("Valid InventoryVirtualMachine key", func(t *testing.T) {
+		key := InventoryKey{Key: "tks/vm-1", InventoryType: InventoryVirtualMachine, ExternalId: "uuid-1"}
+		bufferedKeys := sets.New[InventoryKey]()
+		bufferedKeys.Insert(key)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncVirtualMachineTag", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
+			return nil
+		})
+		defer patches.Reset()
+		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
+		assert.Empty(t, retryKeys)
+		assert.NoError(t, err)
+	})
+
+	t.Run("InventoryVirtualMachine key with sync failure", func(t *testing.T) {
+		key := InventoryKey{Key: "tks/vm-1", InventoryType: InventoryVirtualMachine, ExternalId: "uuid-1"}
+		bufferedKeys := sets.New[InventoryKey]()
+		bufferedKeys.Insert(key)
+
+		retryKey := InventoryKey{Key: "tks/vm-1", InventoryType: InventoryVirtualMachine, ExternalId: "uuid-1"}
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(inventoryService), "SyncVirtualMachineTag", func(s *InventoryService, name string, namespace string, key InventoryKey) *InventoryKey {
+			return &retryKey
+		})
+		defer patches.Reset()
+		retryKeys, err := inventoryService.SyncInventoryObject(bufferedKeys)
+		assert.Contains(t, retryKeys, retryKey)
+		assert.NoError(t, err)
+	})
+
 }
 
 func TestInventoryService_DeleteResource(t *testing.T) {
@@ -523,4 +551,35 @@ func TestInventoryService_Cleanup(t *testing.T) {
 		assert.Equal(t, "cluster deletion error", err.Error())
 		assert.Equal(t, 1, len(inventoryService.ClusterStore.List()))
 	})
+}
+
+func TestInventoryService_SyncInventoryStoreByType_InitTaggedVMsError(t *testing.T) {
+	inventoryService, _ := createService(t)
+
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "initContainerProject", func(_ *InventoryService, _ string) error {
+		return nil
+	})
+	patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "initContainerApplicationInstance", func(_ *InventoryService, _ string) error {
+		return nil
+	})
+	patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "initContainerApplication", func(_ *InventoryService, _ string) error {
+		return nil
+	})
+	patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "initContainerClusterNode", func(_ *InventoryService, _ string) error {
+		return nil
+	})
+	patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "initContainerNetworkPolicy", func(_ *InventoryService, _ string) error {
+		return nil
+	})
+	patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "initContainerIngressPolicy", func(_ *InventoryService, _ string) error {
+		return nil
+	})
+	patches.ApplyPrivateMethod(reflect.TypeOf(inventoryService), "initTaggedVMs", func(_ *InventoryService) error {
+		return errors.New("failed to init tagged VMs")
+	})
+	defer patches.Reset()
+
+	err := inventoryService.SyncInventoryStoreByType("test-cluster-uuid")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to init tagged VMs")
 }
