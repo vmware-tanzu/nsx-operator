@@ -36,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/service"
+	statefulsetcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/statefulset"
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
 	subnetbindingcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetbinding"
@@ -239,6 +240,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService),
 			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
 			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
+			statefulsetcontroller.NewStatefulSetReconciler(mgr, subnetPortService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
 			service.NewServiceLbReconciler(mgr, commonService),
 			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
