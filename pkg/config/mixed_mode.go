@@ -5,6 +5,8 @@ package config
 
 import (
 	"context"
+	v1 "k8s.io/api/core/v1"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +22,8 @@ import (
 )
 
 const (
+	VPCNetworkConfigAnnotation = "nsx.vmware.com/vpc_network_config"
+
 	supervisorCapabilitiesName = "supervisor-capabilities"
 )
 
@@ -373,4 +377,20 @@ func IsPerNamespaceProvidersSupported() bool {
 	stateMu.RLock()
 	defer stateMu.RUnlock()
 	return perNamespaceProvidersSupported != nil && *perNamespaceProvidersSupported
+}
+
+// IsVPCNamespace reports whether ns should be treated as a VPC namespace.
+// In mixed mode (when per-namespace providers are supported), a non-empty
+// VPCNetworkConfigAnnotation marks a VPC namespace.
+// In legacy mode (pre-9.2), the whole cluster runs a single provider, so the
+// cluster-level HasVPCNamespaces flag (derived from EnableVPCNetwork) is
+// returned regardless of the namespace.
+func IsVPCNamespace(ns *v1.Namespace) bool {
+	if ns == nil {
+		return false
+	}
+	if IsPerNamespaceProvidersSupported() {
+		return strings.TrimSpace(ns.Annotations[VPCNetworkConfigAnnotation]) != ""
+	}
+	return HasVPCNamespaces()
 }
