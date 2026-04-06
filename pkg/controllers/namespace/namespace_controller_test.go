@@ -129,6 +129,12 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 }
 
 func TestNamespaceReconciler_Reconcile(t *testing.T) {
+	// Simulate a legacy VPC cluster (EnableVPCNetwork=true, per-namespace
+	// providers not supported) so that all namespaces are treated as VPC
+	// namespaces by IsVPCNamespace.
+	config.SetMixedModeStateForTest(false, true)
+	t.Cleanup(func() { config.SetMixedModeStateForTest(false, false) })
+
 	nc := v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "fake-VPCNetworkConfig",
