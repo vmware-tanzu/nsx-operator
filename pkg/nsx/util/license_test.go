@@ -131,7 +131,6 @@ func TestUpdateFeatureLicense(t *testing.T) {
 	assert.False(t, IsLicensed(FeatureContainer))
 
 	assert.False(t, IsLicensed(FeatureVPC))
-	SetEnableVpcNetwork(true)
 	licenses = &NsxLicense{
 		Results: []struct {
 			FeatureName string `json:"feature_name"`
@@ -148,8 +147,7 @@ func TestUpdateFeatureLicense(t *testing.T) {
 	assert.False(t, IsLicensed(FeatureContainer))
 	assert.True(t, IsLicensed(FeatureVPC))
 
-	// enable vpc network: true; LicenseVPCSecurity: true, GetDFWLicense: true
-	SetEnableVpcNetwork(true)
+	// LicenseVPCSecurity: true, GetDFWLicense: true (DFW path when no VPC-namespace callback)
 	licenses = &NsxLicense{
 		Results: []struct {
 			FeatureName string `json:"feature_name"`
@@ -167,8 +165,7 @@ func TestUpdateFeatureLicense(t *testing.T) {
 	assert.False(t, IsLicensed(FeatureContainer))
 	assert.True(t, IsLicensed(FeatureVPC))
 
-	// enable vpc network: false; LicenseDFW: false, GetDFWLicense: false
-	SetEnableVpcNetwork(false)
+	// LicenseDFW: false, GetDFWLicense: false
 	licenses = &NsxLicense{
 		Results: []struct {
 			FeatureName string `json:"feature_name"`
@@ -187,60 +184,48 @@ func TestUpdateFeatureLicense(t *testing.T) {
 	assert.True(t, IsLicensed(FeatureVPC))
 }
 
-func TestSetEnableVpcNetwork(t *testing.T) {
-	// Test enabling VPC network
-	SetEnableVpcNetwork(true)
-	assert.Equal(t, []string{LicenseVPCSecurity}, FeatureLicenseMap[FeatureVPCSecurity])
-
-	// Test disabling VPC network
-	SetEnableVpcNetwork(false)
-	assert.Equal(t, []string{LicenseDFW}, FeatureLicenseMap[FeatureDFW])
-
-	// Test toggling back to enabled
-	SetEnableVpcNetwork(true)
-	assert.Equal(t, []string{LicenseVPCSecurity}, FeatureLicenseMap[FeatureVPCSecurity])
-}
 func TestGetSecurityPolicyLicense(t *testing.T) {
-	// Test with VPC network disabled, DFW licensed
-	SetEnableVpcNetwork(false)
+	// Test with VPC namespaces disabled (callback nil or returns false), DFW licensed
+	SetHasVPCNamespacesFunc(nil)
 	UpdateLicense(LicenseDFW, true)
 	assert.True(t, GetDFWLicense())
 
-	// Test with VPC network disabled, DFW not licensed
+	// Test with VPC namespaces disabled, DFW not licensed
 	UpdateLicense(LicenseDFW, false)
 	assert.False(t, GetDFWLicense())
 
-	// Test with VPC network enabled, VPC security licensed
-	SetEnableVpcNetwork(true)
+	// Test with VPC namespaces enabled (callback returns true), VPC security licensed
+	SetHasVPCNamespacesFunc(func() bool { return true })
 	UpdateLicense(LicenseVPCSecurity, true)
 	assert.True(t, GetDFWLicense())
 
-	// Test with VPC network enabled, VPC security not licensed
+	// Test with VPC namespaces enabled, VPC security not licensed
 	UpdateLicense(LicenseVPCSecurity, false)
 	assert.False(t, GetDFWLicense())
 
 	// Clean up
-	SetEnableVpcNetwork(false)
+	SetHasVPCNamespacesFunc(nil)
 }
+
 func TestUpdateDFWLicense(t *testing.T) {
-	// Test with VPC network disabled, updating to licensed
-	SetEnableVpcNetwork(false)
+	// Test with VPC namespaces disabled, updating to licensed
+	SetHasVPCNamespacesFunc(nil)
 	UpdateDFWLicense(true)
 	assert.True(t, licenseMap[LicenseDFW])
 
-	// Test with VPC network disabled, updating to not licensed
+	// Test with VPC namespaces disabled, updating to not licensed
 	UpdateDFWLicense(false)
 	assert.False(t, licenseMap[LicenseDFW])
 
-	// Test with VPC network enabled, updating to licensed
-	SetEnableVpcNetwork(true)
+	// Test with VPC namespaces enabled, updating to licensed
+	SetHasVPCNamespacesFunc(func() bool { return true })
 	UpdateDFWLicense(true)
 	assert.True(t, licenseMap[LicenseVPCSecurity])
 
-	// Test with VPC network enabled, updating to not licensed
+	// Test with VPC namespaces enabled, updating to not licensed
 	UpdateDFWLicense(false)
 	assert.False(t, licenseMap[LicenseVPCSecurity])
 
 	// Clean up
-	SetEnableVpcNetwork(false)
+	SetHasVPCNamespacesFunc(nil)
 }
