@@ -385,6 +385,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetSet{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).

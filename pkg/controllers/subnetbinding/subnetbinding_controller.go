@@ -170,6 +170,7 @@ var PredicateFuncsForBindingMaps = predicate.Funcs{
 func (r *Reconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetConnectionBindingMap{}, builder.WithPredicates(PredicateFuncsForBindingMaps)).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).

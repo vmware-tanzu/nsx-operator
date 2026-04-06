@@ -541,6 +541,50 @@ func TestRefreshMixedModeState(t *testing.T) {
 	})
 }
 
+func TestIsVPCNamespace(t *testing.T) {
+	t.Run("nil namespace", func(t *testing.T) {
+		resetMixedModeState()
+		assert.False(t, IsVPCNamespace(nil))
+	})
+
+	t.Run("per-namespace on vpc annotation", func(t *testing.T) {
+		resetMixedModeState()
+		supported := true
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		stateMu.Unlock()
+		ns := makeNamespace("x", "default")
+		assert.True(t, IsVPCNamespace(ns))
+	})
+
+	t.Run("per-namespace on no annotation counts as T1", func(t *testing.T) {
+		resetMixedModeState()
+		supported := true
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		stateMu.Unlock()
+		ns := makeNamespace("y", "")
+		assert.False(t, IsVPCNamespace(ns))
+	})
+
+	t.Run("per-namespace off IsVPCNamespace uses cluster flags", func(t *testing.T) {
+		resetMixedModeState()
+		supported := false
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		hasVPCNamespaces = true
+		hasT1Namespaces = false
+		stateMu.Unlock()
+		ns := makeNamespace("any", "")
+		assert.True(t, IsVPCNamespace(ns))
+		stateMu.Lock()
+		hasVPCNamespaces = false
+		hasT1Namespaces = true
+		stateMu.Unlock()
+		assert.False(t, IsVPCNamespace(ns))
+	})
+}
+
 // ---------- Getters and SetMixedModeStateForTest ----------
 
 func TestGettersAndSetMixedModeStateForTest(t *testing.T) {

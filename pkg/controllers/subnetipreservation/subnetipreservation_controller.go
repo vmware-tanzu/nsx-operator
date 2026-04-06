@@ -101,6 +101,7 @@ func subnetIPReservationSubnetNameIndexFunc(obj client.Object) []string {
 func (r *Reconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetIPReservation{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).
