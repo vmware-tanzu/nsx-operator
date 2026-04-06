@@ -317,3 +317,15 @@ func IsPerNamespaceProvidersSupported() bool {
 	defer stateMu.RUnlock()
 	return perNamespaceProvidersSupported != nil && *perNamespaceProvidersSupported
 }
+
+// IsVPCNamespace reports whether ns should be treated as a VPC namespace.
+// In legacy mode (pre-9.2, per-namespace providers not supported) the whole
+// cluster runs a single provider, so the cluster-level HasVPCNamespaces flag
+// (derived from EnableVPCNetwork) is returned regardless of the namespace.
+// In mixed mode, non-empty VPCNetworkConfigAnnotation marks a VPC namespace.
+func IsVPCNamespace(ns *v1.Namespace) bool {
+	if !IsPerNamespaceProvidersSupported() {
+		return HasVPCNamespaces()
+	}
+	return namespaceHasVPCNetworkConfig(ns)
+}

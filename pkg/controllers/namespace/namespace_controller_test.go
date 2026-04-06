@@ -128,6 +128,12 @@ func TestGetDefaultNetworkConfigName(t *testing.T) {
 }
 
 func TestNamespaceReconciler_Reconcile(t *testing.T) {
+	// Simulate a legacy VPC cluster (EnableVPCNetwork=true, per-namespace
+	// providers not supported) so that all namespaces are treated as VPC
+	// namespaces by IsVPCNamespace.
+	config.SetMixedModeStateForTest(false, true)
+	t.Cleanup(func() { config.SetMixedModeStateForTest(false, false) })
+
 	nc := v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "fake-VPCNetworkConfig",
@@ -374,11 +380,11 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			expectedSubnetSets: 1, // VM
 			networkStack:       v1alpha1.FullStackVPC,
 			nameSpaceType:      ctlcommon.SystemNs,
+			// Stub NSXCheckVersion so getSystemNsDefaultSize does not call a nil cluster (empty Client in createNameSpaceReconciler).
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSystemNsDefaultSize", func(_ *NamespaceReconciler) int {
-					return 8
+				return gomonkey.ApplyMethod(reflect.TypeOf(&nsx.Client{}), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true // treat as NSX >= 9.1 => MinSubnetSizeV91 (8)
 				})
-				return patches
 			},
 		},
 		{
