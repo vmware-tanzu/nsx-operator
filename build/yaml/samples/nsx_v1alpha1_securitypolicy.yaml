@@ -42,3 +42,40 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+
+---
+
+# Example using from/to aliases (Kubernetes NetworkPolicy style)
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: from-to-policy-1
+  namespace: ns-1
+spec:
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          role: db
+  rules:
+    - direction: Ingress
+      action: Allow
+      from:
+        - podSelector:
+            matchLabels:
+              role: frontend
+      ports:
+        - protocol: TCP
+          port: 3306
+    - direction: Out
+      action: Allow
+      to:
+        - podSelector:
+            matchLabels:
+              role: dns
+      ports:
+        - protocol: UDP
+          port: 53
+    - direction: Ingress
+      action: Drop
+    - direction: Out
+      action: Drop
