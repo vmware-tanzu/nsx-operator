@@ -287,6 +287,9 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	_, err = testData.podWaitForIPs(defaultTimeout, "frclient-deny", ns)
 	require.NoError(t, err, "wait for frclient-deny")
 
+	// Pods may be Running before the HTTP process is actually listening; gate on server readiness.
+	require.NoError(t, waitForHTTPEndpointReady(ns, "fr-srv", "fr-srv", srvIP.ipv4.String(), podPort, defaultTimeout), "fr-srv http endpoint should be ready")
+
 	require.True(t, checkTrafficByCurl(ns, "frclient-allow", "frclient-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server before policy")
 	require.True(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server before policy")
 
@@ -343,6 +346,10 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	require.NoError(t, err, "wait for te-other IP")
 	_, err = testData.podWaitForIPs(defaultTimeout, "te-cli", ns)
 	require.NoError(t, err, "wait for te-cli")
+
+	// Ensure both peers are actually serving HTTP before asserting baseline reachability.
+	require.NoError(t, waitForHTTPEndpointReady(ns, "te-srv", "te-srv", srvIP.ipv4.String(), podPort, defaultTimeout), "te-srv http endpoint should be ready")
+	require.NoError(t, waitForHTTPEndpointReady(ns, "te-other", "te-other", otherIP.ipv4.String(), podPort, defaultTimeout), "te-other http endpoint should be ready")
 
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", srvIP.ipv4.String(), podPort, true), "client -> server before policy")
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, true), "client -> other before policy")
@@ -474,7 +481,7 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, 10, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(context.Background(), spName, v1.GetOptions{})
 		log.Trace("Get resources", "SecurityPolicies", resp, "Namespace", ns, "Name", spName)
 		if err != nil {
