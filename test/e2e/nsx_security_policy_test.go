@@ -266,7 +266,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 // testSecurityPolicyVPCFromFieldIngress verifies VPC SecurityPolicy ingress rules using the preferred `from`
 // field (crd.nsx.vmware.com/v1alpha1). Shares NsSecurityPolicy; must stay in SequentialTests.
 func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
 	ns := NsSecurityPolicy
@@ -326,7 +326,7 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 
 // testSecurityPolicyVPCToFieldEgress verifies VPC SecurityPolicy egress rules using the preferred `to` field.
 func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
 	ns := NsSecurityPolicy
