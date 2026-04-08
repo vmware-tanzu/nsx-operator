@@ -303,7 +303,7 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleDrop, true))
 
 	require.True(t, checkTrafficByCurl(ns, "frclient-allow", "frclient-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server with policy")
-	require.False(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server blocked with policy")
+	require.True(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, false), "deny client -> server blocked with policy")
 
 	_ = deleteYAML(policyPath, ns)
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
@@ -364,7 +364,7 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleDrop, true))
 
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", srvIP.ipv4.String(), podPort, true), "client -> allowed peer with policy")
-	require.False(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, true), "client -> other blocked with policy")
+	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, false), "client -> other blocked with policy")
 
 	_ = deleteYAML(policyPath, ns)
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
