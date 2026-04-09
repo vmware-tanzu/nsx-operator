@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/nsx-operator
 
-go 1.25.0
+go 1.25.7
 
 replace (
 	github.com/agiledragon/gomonkey => github.com/agiledragon/gomonkey/v2 v2.11.0
