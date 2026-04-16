@@ -8,8 +8,8 @@ rules:
   - vpcipaddressusages
   - ipblockusages
   - subnetippools
-  - subnetdhcpserverconfigstats
-  verbs: ["get", "list"]
+  - subnetdhcpserverstats
+  verbs: ["get", "list", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

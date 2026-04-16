@@ -10,4 +10,4 @@ spec:
   service:
     name: nsx-eas
     namespace: vmware-system-nsx
-  insecureSkipTLSVerify: true
+  insecureSkipTLSVerify: false

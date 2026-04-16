@@ -1,4 +1,3 @@
-
 // Copyright (c) 2026 Broadcom. All Rights Reserved.
 // Broadcom Confidential. The term "Broadcom" refers to Broadcom Inc.
 // and/or its subsidiaries.
@@ -14,7 +13,7 @@ import (
 // VPCIPAddressUsage is the usage information for IP addresses within a specific VPC. This information provides insights
 // into the allocation and utilization of IP addresses by the VPC and its subnets.
 type VPCIPAddressUsage struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Array of policy VPC IP address block.
@@ -76,4 +75,17 @@ type VPCIPAddress struct {
 	// The name of the IPAddressAllocation to which the IP address is allocated.
 	// Only one of subnetName and ipAddressAllocationName will be set.
 	IPAddressAllocationName string `json:"allocation,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// VPCIPAddressUsageList contains a list of VPCIPAddressUsage.
+type VPCIPAddressUsageList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []VPCIPAddressUsage `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&VPCIPAddressUsage{}, &VPCIPAddressUsageList{})
 }

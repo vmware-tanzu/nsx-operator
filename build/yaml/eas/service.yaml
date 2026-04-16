@@ -9,4 +9,4 @@ spec:
     targetPort: 9553
     protocol: TCP
   selector:
-    component: nsx-ncp
+    component: nsx-eas

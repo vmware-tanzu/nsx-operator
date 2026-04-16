@@ -97,6 +97,11 @@ build-clean: generate fmt vet ## Build clean binary.
 	@mkdir -p $(BINDIR)
 	GOOS=linux go build -o $(BINDIR)/clean $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_clean/main.go
 
+.PHONY: build-eas
+build-eas: generate fmt vet ## Build EAS (Extension API Server) binary.
+	@mkdir -p $(BINDIR)
+	GOOS=linux go build -o $(BINDIR)/nsx-eas $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_eas/main.go
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
@@ -112,6 +117,10 @@ docker-push: ## Push docker image with the manager.
 .PHONY: photon
 photon:
 	docker build -t github.com/vmware-tanzu/nsx-operator -f build/image/photon/Dockerfile .
+
+.PHONY: eas
+eas:
+	docker build -t github.com/vmware-tanzu/nsx-eas -f build/image/eas/Dockerfile .
 
 .PHONY: clean
 clean:

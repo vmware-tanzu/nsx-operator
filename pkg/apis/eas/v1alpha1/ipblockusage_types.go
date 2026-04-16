@@ -1,4 +1,3 @@
-
 // Copyright (c) 2026 Broadcom. All Rights Reserved.
 // Broadcom Confidential. The term "Broadcom" refers to Broadcom Inc.
 // and/or its subsidiaries.
@@ -13,7 +12,7 @@ import (
 // IPBlockUsage is the usage information of an IPBlock.
 // It contains used IP ranges and available IP ranges statistics of an IPBlock.
 type IPBlockUsage struct {
-	metav1.TypeMeta	 `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Used IP ranges in an IPBlock.
@@ -39,14 +38,14 @@ type IPBlockUsage struct {
 // Represents used and available IP statistics for CIDRs in an IPBlock.
 type CIDRUsage struct {
 	// One CIDR in an IPBlock CIDRList.
-	CIDR string `json:"cidr,omitempty"`
-	UsageDetails  `json:"usage,omitempty"`
+	CIDR         string `json:"cidr,omitempty"`
+	UsageDetails `json:"usage,omitempty"`
 }
 
 // Represents used and available IP statistics for IP Ranges in an IPBlock.
 type RangeUsage struct {
 	// One range in an IPBlock RangeList.
-	Range string `json:"range,omitempty"`
+	Range        string `json:"range,omitempty"`
 	UsageDetails `json:"usage,omitempty"`
 }
 
@@ -63,4 +62,17 @@ type UsageDetails struct {
 	OverallUsedIPsCount string `json:"overallUsedIPsCount,omitempty"`
 	// Represents free IP count in the CIDR or IP Range.
 	AvailableIPsCount string `json:"availableIPsCount,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// IPBlockUsageList contains a list of IPBlockUsage.
+type IPBlockUsageList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []IPBlockUsage `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&IPBlockUsage{}, &IPBlockUsageList{})
 }
