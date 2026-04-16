@@ -46,7 +46,9 @@ changecrd: manifests generate generate-api-docs
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1" output:crd:artifacts:config=build/yaml/crd/eas/
+# NOTE: EAS types are served by the generic API server (via APIService), NOT as CRDs.
+# Do NOT run controller-gen crd for pkg/apis/eas/v1alpha1 — installing EAS CRDs alongside
+# the APIService causes duplicate-resource conflicts in kube-apiserver.
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -97,6 +99,11 @@ build-clean: generate fmt vet ## Build clean binary.
 	@mkdir -p $(BINDIR)
 	GOOS=linux go build -o $(BINDIR)/clean $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_clean/main.go
 
+.PHONY: build-eas
+build-eas: generate fmt vet ## Build EAS (Extension API Server) binary.
+	@mkdir -p $(BINDIR)
+	GOOS=linux go build -o $(BINDIR)/eas $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_eas/main.go
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
@@ -112,6 +119,10 @@ docker-push: ## Push docker image with the manager.
 .PHONY: photon
 photon:
 	docker build -t github.com/vmware-tanzu/nsx-operator -f build/image/photon/Dockerfile .
+
+.PHONY: eas
+eas:
+	docker build -t github.com/vmware-tanzu/nsx-eas -f build/image/eas/Dockerfile .
 
 .PHONY: clean
 clean:
@@ -163,6 +174,28 @@ code-generator: ## Download code-generator locally if necessary.
 
 generated: code-generator
 	./hack/update-codegen.sh
+
+OPENAPI_GEN = $(shell pwd)/bin/openapi-gen
+# openapi-gen moved from k8s.io/code-generator to k8s.io/kube-openapi (since ~v0.27).
+# We install it directly via "go install" in the project root so it uses the
+# version already pinned in go.mod without needing to create a throw-away module.
+.PHONY: openapi-gen
+openapi-gen: ## Build openapi-gen binary into bin/ (uses k8s.io/kube-openapi version from go.mod).
+	@[ -f $(OPENAPI_GEN) ] || GOBIN=$(CURDIR)/bin go install k8s.io/kube-openapi/cmd/openapi-gen
+
+.PHONY: generate-eas-openapi
+generate-eas-openapi: openapi-gen ## Generate OpenAPI definitions for EAS types plus the apimachinery meta/v1 and version types they reference.
+	$(OPENAPI_GEN) \
+	  --output-dir     pkg/apis/eas/v1alpha1 \
+	  --output-pkg     github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1 \
+	  --output-file    zz_generated.openapi.go \
+	  --go-header-file hack/boilerplate.go.txt \
+	  --report-filename - \
+	  github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1 \
+	  k8s.io/apimachinery/pkg/apis/meta/v1 \
+	  k8s.io/apimachinery/pkg/version
+	@echo ""
+	@echo "Generated pkg/apis/eas/v1alpha1/zz_generated.openapi.go"
 
 CRD_REF_DOCS = $(shell pwd)/bin/crd-ref-docs
 .PHONY: crd-ref-docs

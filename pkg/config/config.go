@@ -1,4 +1,4 @@
-/* Copyright © 2021 VMware, Inc. All Rights Reserved.
+/* Copyright © 2026 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package config
@@ -31,6 +31,8 @@ const (
 	LicenseIntervalForDFW = 1800
 	defaultWebhookPort    = 9981
 	WebhookCertDir        = "/etc/nsx-operator/webhook-certs"
+	EASCertFile           = "eas.crt"
+	EASKeyFile            = "eas.key"
 )
 
 var (

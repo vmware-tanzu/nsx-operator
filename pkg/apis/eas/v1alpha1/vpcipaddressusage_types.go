@@ -1,4 +1,3 @@
-
 // Copyright (c) 2026 Broadcom. All Rights Reserved.
 // Broadcom Confidential. The term "Broadcom" refers to Broadcom Inc.
 // and/or its subsidiaries.
@@ -14,23 +13,25 @@ import (
 // VPCIPAddressUsage is the usage information for IP addresses within a specific VPC. This information provides insights
 // into the allocation and utilization of IP addresses by the VPC and its subnets.
 type VPCIPAddressUsage struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Array of VPC IP address block.
+	// +listType=atomic
 	IPBlocks []VPCIPAddressBlock `json:"ipBlocks,omitempty"`
 }
 
 // VPC IP address block.
 type VPCIPAddressBlock struct {
-	IPBlockName string `json:"name,omitempty"`
+	// Name of the IPBlock.
+	IPBlockName string `json:"ipBlockName,omitempty"`
 	// CIDR address for IPBlock.
 	// Deprecated: Use CIDRs instead.
 	CIDR string `json:"cidr,omitempty"`
 	// Total IP address space.
-	Total int64 `json:"total,omitempty"`
+	Total int64 `json:"total"`
 	// Available IP address space.
-	Available int64 `json:"available,omitempty"`
+	Available int64 `json:"available"`
 	// Percentage of used IP address space.
 	PercentageUsed string `json:"percentageUsed,omitempty"`
 	// Visibility of IP Block. Must be External or Private.
@@ -39,10 +40,13 @@ type VPCIPAddressBlock struct {
 	// AllocatedByVPC contains the CIDR, used IP range and subnet access mode etc.
 	AllocatedByVPC AllocatedByVPC `json:"allocatedByVPC,omitempty"`
 	// The list of CIDRs.
+	// +listType=atomic
 	CIDRs []string `json:"cidrs,omitempty"`
 	// The list of IP address ranges in the form of start and end IPs.
+	// +listType=atomic
 	Ranges []IPPoolRange `json:"ranges,omitempty"`
 	// The list of excluded IP address in the form of start and end IPs.
+	// +listType=atomic
 	ExcludedIPs []IPPoolRange `json:"excludedIPs,omitempty"`
 }
 
@@ -56,8 +60,9 @@ const (
 
 type AllocatedByVPC struct {
 	// Count of used IPs by VPC from the IP Block.
-	Count int64 `json:"count,omitempty"`
+	Count int64 `json:"count"`
 	// IPAddresses contains CIDR and subnet or IP address allocation.
+	// +listType=atomic
 	IPAddresses []VPCIPAddress `json:"ipAddresses,omitempty"`
 	// Access mode of the subnet allocated from the IP Block.
 	// Must be Public, PrivateTGW or Private.
@@ -75,4 +80,17 @@ type VPCIPAddress struct {
 	// The name of the IPAddressAllocation to which the IP address is allocated.
 	// Only one of subnetName and ipAddressAllocationName will be set.
 	IPAddressAllocationName string `json:"ipAddressAllocationName,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// VPCIPAddressUsageList contains a list of VPCIPAddressUsage.
+type VPCIPAddressUsageList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []VPCIPAddressUsage `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&VPCIPAddressUsage{}, &VPCIPAddressUsageList{})
 }

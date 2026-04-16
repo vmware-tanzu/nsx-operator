@@ -3,4 +3,5 @@
 
 // +kubebuilder:object:generate=true
 // +groupName=eas.nsx.vmware.com
+// +k8s:openapi-gen=true
 package v1alpha1
