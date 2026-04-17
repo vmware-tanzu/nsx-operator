@@ -255,6 +255,12 @@ func (r *NSXServiceAccountReconciler) serviceMapFunc(ctx context.Context, _ clie
 	}
 
 	for _, nsxserviceaccount := range nsxServiceAccountList.Items {
+		// Only enqueue NSXServiceAccounts that use SupervisorManagementProxy
+		// Skip VMCIProxy since it uses hardcoded addresses (127.0.0.1) and is not affected by Service IP changes
+		if nsxserviceaccount.Spec.Proxy == nsxvmwarecomv1alpha1.VMCIProxy {
+			continue
+		}
+
 		requests = append(requests, reconcile.Request{
 			NamespacedName: types.NamespacedName{
 				Namespace: nsxserviceaccount.GetNamespace(),

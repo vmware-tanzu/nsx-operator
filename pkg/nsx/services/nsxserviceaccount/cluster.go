@@ -112,7 +112,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	vpcPath := fmt.Sprintf("/orgs/default/projects/%s/vpcs/%s", util.NormalizeId(project), vpcName)
 
 	// get proxy
-	proxyEndpoints, err := s.getProxyEndpoints(ctx)
+	proxyEndpoints, err := s.getProxyEndpoints(ctx, obj)
 	if err != nil {
 		return err
 	}
@@ -306,11 +306,30 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 	return clusterId, nil
 }
 
-func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context) (v1alpha1.NSXProxyEndpoint, error) {
+func (s *NSXServiceAccountService) getProxyType(obj *v1alpha1.NSXServiceAccount) v1alpha1.NSXServiceAccountProxyType {
+	if obj.Spec.Proxy != "" {
+		return obj.Spec.Proxy
+	}
+	return v1alpha1.SupervisorManagementProxy
+}
+
+func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context, obj *v1alpha1.NSXServiceAccount) (v1alpha1.NSXProxyEndpoint, error) {
+	proxyType := s.getProxyType(obj)
+
+	if proxyType == v1alpha1.VMCIProxy {
+		return v1alpha1.NSXProxyEndpoint{
+			Addresses: []v1alpha1.NSXProxyEndpointAddress{{IP: "127.0.0.1"}},
+			Ports: []v1alpha1.NSXProxyEndpointPort{
+				{Name: PortRestAPI, Port: 10091, Protocol: v1alpha1.NSXProxyProtocolTCP},
+				{Name: PortNSXRPCFwdProxy, Port: 10092, Protocol: v1alpha1.NSXProxyProtocolTCP},
+			},
+		}, nil
+	}
+
 	proxyEndpoints := v1alpha1.NSXProxyEndpoint{}
 	proxies := &v1.ServiceList{}
 	if err := s.Client.List(ctx, proxies, client.MatchingLabels(proxyLabels)); err != nil {
-		return v1alpha1.NSXProxyEndpoint{}, err
+		return proxyEndpoints, err
 	}
 	for _, proxy := range proxies.Items {
 		if proxy.Spec.Type == v1.ServiceTypeLoadBalancer {
@@ -650,7 +669,7 @@ func (s *NSXServiceAccountService) GetNSXRestoreStatus() (*v1alpha1.NSXRestoreSt
 }
 
 func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
-	proxyEndpoints, err := s.getProxyEndpoints(ctx)
+	proxyEndpoints, err := s.getProxyEndpoints(ctx, obj)
 	if err != nil {
 		return err
 	}

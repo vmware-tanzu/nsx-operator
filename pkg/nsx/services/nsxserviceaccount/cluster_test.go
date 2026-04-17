@@ -549,6 +549,143 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 			},
 		},
 		{
+			name: "Success with VMCIProxy",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				assert.NoError(t, s.Client.Create(ctx, obj))
+				normalizedClusterName := "k8scl-one_test-ns1-name1"
+				vpcPath := "/orgs/default/projects/k8scl-one:test/vpcs/vpc1"
+				piId := "Id1"
+				uid := "00000000-0000-0000-0000-000000000001"
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.WithCertificateClient, "Create", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+						IsProtected: &isProtectedTrue,
+						Name:        &normalizedClusterName,
+						NodeId:      &normalizedClusterName,
+						Role:        nil,
+						RolesForPaths: []mpmodel.RolesForPath{{
+							Path: &readerPath,
+							Roles: []mpmodel.Role{{
+								Role: &readerRole,
+							}},
+						}, {
+							Path: &vpcPath,
+							Roles: []mpmodel.Role{{
+								Role: &vpcRole,
+							}},
+						}},
+						Id: &piId,
+						Tags: []mpmodel.Tag{{
+							Scope: &tagScopeCluster,
+							Tag:   &s.NSXConfig.CoeConfig.Cluster,
+						}, {
+							Scope: &tagScopeNamespace,
+							Tag:   &obj.Namespace,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRName,
+							Tag:   &obj.Name,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				nodeId := "clusterId1"
+				patches.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.ClusterControlPlane{
+						Id:           &normalizedClusterName,
+						NodeId:       &nodeId,
+						Revision:     &revision1,
+						ResourceType: &antreaClusterResourceType,
+						Certificate:  nil,
+						VhcPath:      &vpcPath,
+						Tags: []model.Tag{{
+							Scope: &tagScopeCluster,
+							Tag:   &s.NSXConfig.CoeConfig.Cluster,
+						}, {
+							Scope: &tagScopeNamespace,
+							Tag:   &obj.Namespace,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRName,
+							Tag:   &obj.Name,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: v1alpha1.NSXServiceAccountSpec{
+						VPCName: "vpc1",
+						Proxy:   v1alpha1.VMCIProxy,
+					},
+				},
+			},
+			wantErr:    false,
+			wantSecret: true,
+			expectedCR: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "name1",
+					Namespace:       "ns1",
+					UID:             "00000000-0000-0000-0000-000000000001",
+					ResourceVersion: "2",
+				},
+				Spec: v1alpha1.NSXServiceAccountSpec{
+					VPCName: "vpc1",
+					Proxy:   v1alpha1.VMCIProxy,
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{
+						{
+							Type:    v1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionTrue,
+							Reason:  v1alpha1.ConditionReasonRealizationSuccess,
+							Message: "Success.",
+						},
+					},
+					VPCPath:     "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc",
+					NSXManagers: []string{"mgr1:443", "mgr2:443"},
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{
+						Addresses: []v1alpha1.NSXProxyEndpointAddress{
+							{
+								IP: "127.0.0.1",
+							},
+						},
+						Ports: []v1alpha1.NSXProxyEndpointPort{
+							{
+								Name:     PortRestAPI,
+								Port:     10091,
+								Protocol: v1alpha1.NSXProxyProtocolTCP,
+							},
+							{
+								Name:     PortNSXRPCFwdProxy,
+								Port:     10092,
+								Protocol: v1alpha1.NSXProxyProtocolTCP,
+							},
+						},
+					},
+					ClusterID:   "clusterId1",
+					ClusterName: "k8scl-one_test-ns1-name1",
+					Secrets:     []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+				},
+			},
+		},
+		{
 			name: "LongNameSuccess",
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
 				assert.NoError(t, s.Client.Create(ctx, obj))
@@ -2138,12 +2275,16 @@ func TestNSXServiceAccountService_GetNSXServiceAccountNameByUID(t *testing.T) {
 func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 	tests := []struct {
 		name        string
+		obj         *v1alpha1.NSXServiceAccount
 		prepareFunc func(*testing.T, *NSXServiceAccountService, context.Context)
 		want        v1alpha1.NSXProxyEndpoint
 		wantErr     assert.ErrorAssertionFunc
 	}{
 		{
 			name: "NoProxy",
+			obj: &v1alpha1.NSXServiceAccount{
+				Spec: v1alpha1.NSXServiceAccountSpec{},
+			},
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, c context.Context) {
 				svc := &v1.Service{
 					TypeMeta: metav1.TypeMeta{},
@@ -2167,7 +2308,12 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 			wantErr: assert.NoError,
 		},
 		{
-			name: "Proxy",
+			name: "SupervisorManagementProxy",
+			obj: &v1alpha1.NSXServiceAccount{
+				Spec: v1alpha1.NSXServiceAccountSpec{
+					Proxy: v1alpha1.SupervisorManagementProxy,
+				},
+			},
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, c context.Context) {
 				svc := &v1.Service{
 					TypeMeta: metav1.TypeMeta{},
@@ -2179,23 +2325,23 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 					Spec: v1.ServiceSpec{
 						Ports: []v1.ServicePort{
 							{
-								Name:     "rest-api",
+								Name:     PortRestAPI,
 								Protocol: "",
 								Port:     10000,
 							},
 							{
-								Name:     "nsx-rpc-fwd-proxy",
-								Protocol: "TCP",
+								Name:     PortNSXRPCFwdProxy,
+								Protocol: v1.ProtocolTCP,
 								Port:     10001,
 							},
 							{
-								Name:     "rest-api",
-								Protocol: "UDP",
+								Name:     PortRestAPI,
+								Protocol: v1.ProtocolUDP,
 								Port:     10002,
 							},
 							{
 								Name:     "wrong-rest-api",
-								Protocol: "TCP",
+								Protocol: v1.ProtocolTCP,
 								Port:     10003,
 							},
 						},
@@ -2213,14 +2359,91 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 				Addresses: []v1alpha1.NSXProxyEndpointAddress{{IP: "1.2.3.4"}, {IP: "1.2.3.5"}},
 				Ports: []v1alpha1.NSXProxyEndpointPort{
 					{
-						Name:     "rest-api",
+						Name:     PortRestAPI,
 						Port:     10000,
-						Protocol: "TCP",
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 					{
-						Name:     "nsx-rpc-fwd-proxy",
+						Name:     PortNSXRPCFwdProxy,
 						Port:     10001,
-						Protocol: "TCP",
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
+					},
+				},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "VMCIProxy",
+			obj: &v1alpha1.NSXServiceAccount{
+				Spec: v1alpha1.NSXServiceAccountSpec{
+					Proxy: v1alpha1.VMCIProxy,
+				},
+			},
+			want: v1alpha1.NSXProxyEndpoint{
+				Addresses: []v1alpha1.NSXProxyEndpointAddress{{IP: "127.0.0.1"}},
+				Ports: []v1alpha1.NSXProxyEndpointPort{
+					{
+						Name:     PortRestAPI,
+						Port:     10091,
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
+					},
+					{
+						Name:     PortNSXRPCFwdProxy,
+						Port:     10092,
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
+					},
+				},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "DefaultToSupervisorManagementProxy",
+			obj: &v1alpha1.NSXServiceAccount{
+				Spec: v1alpha1.NSXServiceAccountSpec{},
+			},
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, c context.Context) {
+				svc := &v1.Service{
+					TypeMeta: metav1.TypeMeta{},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "with-label",
+						Namespace: "any",
+						Labels:    map[string]string{"mgmt-proxy.antrea-nsx.vmware.com": "", "dummy": "dummy"},
+					},
+					Spec: v1.ServiceSpec{
+						Ports: []v1.ServicePort{
+							{
+								Name:     PortRestAPI,
+								Protocol: v1.ProtocolTCP,
+								Port:     10000,
+							},
+							{
+								Name:     PortNSXRPCFwdProxy,
+								Protocol: v1.ProtocolTCP,
+								Port:     10001,
+							},
+						},
+						Type: v1.ServiceTypeLoadBalancer,
+					},
+					Status: v1.ServiceStatus{
+						LoadBalancer: v1.LoadBalancerStatus{
+							Ingress: []v1.LoadBalancerIngress{{IP: "1.2.3.4"}},
+						},
+					},
+				}
+				assert.NoError(t, s.Client.Create(c, svc))
+			},
+			want: v1alpha1.NSXProxyEndpoint{
+				Addresses: []v1alpha1.NSXProxyEndpointAddress{{IP: "1.2.3.4"}},
+				Ports: []v1alpha1.NSXProxyEndpointPort{
+					{
+						Name:     PortRestAPI,
+						Port:     10000,
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
+					},
+					{
+						Name:     PortNSXRPCFwdProxy,
+						Port:     10001,
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 				},
 			},
@@ -2233,9 +2456,11 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 			commonService := newFakeCommonService()
 			s := &NSXServiceAccountService{Service: commonService}
 			s.SetUpStore()
-			tt.prepareFunc(t, s, ctx)
+			if tt.prepareFunc != nil {
+				tt.prepareFunc(t, s, ctx)
+			}
 
-			got, err := s.getProxyEndpoints(ctx)
+			got, err := s.getProxyEndpoints(ctx, tt.obj)
 			if !tt.wantErr(t, err, "getProxyEndpoints()") {
 				return
 			}
@@ -2379,6 +2604,9 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 					Name:      "nsxsa1",
 					Namespace: "ns1",
 				},
+				Spec: v1alpha1.NSXServiceAccountSpec{
+					Proxy: v1alpha1.SupervisorManagementProxy,
+				},
 				Status: v1alpha1.NSXServiceAccountStatus{
 					Phase: v1alpha1.NSXServiceAccountPhaseRealized,
 					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{
@@ -2389,13 +2617,13 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 						},
 						Ports: []v1alpha1.NSXProxyEndpointPort{
 							{
-								Name:     "rest-api",
+								Name:     PortRestAPI,
 								Port:     10081,
-								Protocol: "TCP",
+								Protocol: v1alpha1.NSXProxyProtocolTCP,
 							},
 							{
-								Name:     "nsx-rpc-fwd-proxy",
-								Protocol: "TCP",
+								Name:     PortNSXRPCFwdProxy,
+								Protocol: v1alpha1.NSXProxyProtocolTCP,
 								Port:     10082,
 							},
 						},
@@ -2412,13 +2640,13 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 					Spec: v1.ServiceSpec{
 						Ports: []v1.ServicePort{
 							{
-								Name:     "rest-api",
-								Protocol: "TCP",
+								Name:     PortRestAPI,
+								Protocol: v1.ProtocolTCP,
 								Port:     10081,
 							},
 							{
-								Name:     "nsx-rpc-fwd-proxy",
-								Protocol: "TCP",
+								Name:     PortNSXRPCFwdProxy,
+								Protocol: v1.ProtocolTCP,
 								Port:     10082,
 							},
 						},
@@ -2440,14 +2668,67 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 				},
 				Ports: []v1alpha1.NSXProxyEndpointPort{
 					{
-						Name:     "rest-api",
+						Name:     PortRestAPI,
 						Port:     10081,
-						Protocol: "TCP",
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 					{
-						Name:     "nsx-rpc-fwd-proxy",
-						Protocol: "TCP",
+						Name:     PortNSXRPCFwdProxy,
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
 						Port:     10082,
+					},
+				},
+			},
+		},
+		{
+			name: "update nsx service account with VMCIProxy endpoints",
+			nsxServiceAccount: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nsxsa1",
+					Namespace: "ns1",
+				},
+				Spec: v1alpha1.NSXServiceAccountSpec{
+					Proxy: v1alpha1.VMCIProxy,
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase: v1alpha1.NSXServiceAccountPhaseRealized,
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{
+						Addresses: []v1alpha1.NSXProxyEndpointAddress{
+							{
+								IP: "1.2.3.4",
+							},
+						},
+						Ports: []v1alpha1.NSXProxyEndpointPort{
+							{
+								Name:     PortRestAPI,
+								Port:     10081,
+								Protocol: v1alpha1.NSXProxyProtocolTCP,
+							},
+							{
+								Name:     PortNSXRPCFwdProxy,
+								Protocol: v1alpha1.NSXProxyProtocolTCP,
+								Port:     10082,
+							},
+						},
+					},
+				},
+			},
+			expectedProxyEndpoints: v1alpha1.NSXProxyEndpoint{
+				Addresses: []v1alpha1.NSXProxyEndpointAddress{
+					{
+						IP: "127.0.0.1",
+					},
+				},
+				Ports: []v1alpha1.NSXProxyEndpointPort{
+					{
+						Name:     PortRestAPI,
+						Port:     10091,
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
+					},
+					{
+						Name:     PortNSXRPCFwdProxy,
+						Protocol: v1alpha1.NSXProxyProtocolTCP,
+						Port:     10092,
 					},
 				},
 			},
@@ -2459,7 +2740,9 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 			commonService := newFakeCommonService()
 			s := &NSXServiceAccountService{Service: commonService}
 			assert.NoError(t, s.Client.Create(ctx, tt.nsxServiceAccount))
-			tt.prepareFunc(t, s, ctx)
+			if tt.prepareFunc != nil {
+				tt.prepareFunc(t, s, ctx)
+			}
 
 			err := s.UpdateProxyEndpointsIfNeeded(ctx, tt.nsxServiceAccount)
 			require.NoError(t, err)
