@@ -580,6 +580,7 @@ func Test_ExpandRule(t *testing.T) {
 						},
 					},
 				},
+				VPCMode:    tc.vpcEnabled,
 				vpcService: &mockVPCService,
 			}
 			svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)

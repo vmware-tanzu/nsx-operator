@@ -157,6 +157,7 @@ func fakeSecurityPolicyService() *SecurityPolicyService {
 				},
 			},
 		},
+		VPCMode: config.HasVPCNamespaces(),
 	}
 	return fakeService
 }

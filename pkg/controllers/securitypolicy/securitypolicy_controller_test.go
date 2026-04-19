@@ -636,10 +636,11 @@ func TestSecurityPolicyReconciler_listSecurityPolciyCRIDsForVPC(t *testing.T) {
 		},
 	}
 	r := &SecurityPolicyReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+		Client:    k8sClient,
+		Scheme:    nil,
+		Service:   service,
+		Recorder:  fakeRecorder{},
+		isVPCMode: true,
 	}
 	ctx := context.Background()
 
@@ -744,6 +745,7 @@ func TestSecurityPolicyReconcilerForVPC_Reconcile(t *testing.T) {
 		Scheme:        nil,
 		Service:       service,
 		Recorder:      fakeRecorder{},
+		isVPCMode:     true,
 		StatusUpdater: ctrcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy"),
 	}
 	ctx := context.Background()
@@ -868,6 +870,7 @@ func TestReconcileSecurityPolicyForVPC(t *testing.T) {
 	r := NewFakeSecurityPolicyReconciler()
 	// Enable VPC network
 	r.Service.NSXConfig.EnableVPCNetwork = true
+	r.isVPCMode = true
 	mockQueue := mock_client.NewMockInterface(mockCtl)
 
 	type args struct {
@@ -916,7 +919,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 				patches.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
 				})
-				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
+				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
 				patches.ApplyMethod(reflect.TypeOf(&SecurityPolicyReconciler{}), "Start", func(_ *SecurityPolicyReconciler, r ctrl.Manager) error {
@@ -931,7 +934,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 				})
-				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
+				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(&SecurityPolicyReconciler{}), "setupWithManager", func(_ *SecurityPolicyReconciler, mgr ctrl.Manager) error {
@@ -947,7 +950,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			r := NewSecurityPolicyReconciler(mgr, commonService, vpcService)
+			r := NewSecurityPolicyReconciler(mgr, commonService, vpcService, true)
 			err := r.StartController(mgr, nil)
 
 			if testCase.expectErrStr != "" {

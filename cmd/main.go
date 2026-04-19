@@ -274,7 +274,12 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	// Add controllers which can run in non-VPC mode
-	reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(mgr, commonService, vpcService))
+	if config.HasT1Namespaces() {
+		reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(mgr, commonService, vpcService, false))
+	}
+	if config.HasVPCNamespaces() {
+		reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(mgr, commonService, vpcService, true))
+	}
 
 	// Add the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {

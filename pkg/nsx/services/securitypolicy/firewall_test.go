@@ -508,6 +508,7 @@ var (
 )
 
 func Test_GetSecurityService(t *testing.T) {
+	ResetSecurityServiceForTest()
 	config.SetMixedModeStateForTest(false, true)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
@@ -515,14 +516,12 @@ func Test_GetSecurityService(t *testing.T) {
 
 	vpcService := &vpc.VPCService{}
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
-		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
-	) {
-		wg.Done()
+	patch := gomonkey.ApplyFunc(InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanUp bool) (*SecurityPolicyService, error) {
+		return &SecurityPolicyService{Service: service, VPCMode: vpcMode}, nil
 	})
 	defer patch.Reset()
 
-	spSvc := GetSecurityService(commonService, vpcService)
+	spSvc := GetSecurityService(commonService, vpcService, true)
 	assert.Equal(t, clusterName, spSvc.NSXConfig.CoeConfig.Cluster)
 	assert.Equal(t, true, spSvc.NSXConfig.EnableVPCNetwork)
 }
@@ -535,14 +534,14 @@ func Test_InitializeSecurityPolicy(t *testing.T) {
 
 	vpcService := &vpc.VPCService{}
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
-		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeCommonStore", func(_ *common.Service, wg *sync.WaitGroup,
+		fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store common.Store,
 	) {
 		wg.Done()
 	})
 	defer patch.Reset()
 
-	_, err := InitializeSecurityPolicy(commonService, vpcService, true)
+	_, err := InitializeSecurityPolicy(commonService, vpcService, true, true)
 	if err != nil {
 		t.Error(err)
 	}

@@ -1413,6 +1413,7 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config.SetMixedModeStateForTest(!tt.vpcEnabled, tt.vpcEnabled)
 			svc.NSXConfig.EnableVPCNetwork = tt.vpcEnabled
+			svc.VPCMode = tt.vpcEnabled
 			ruleBaseID := svc.buildRuleID(tt.inputSecurityPolicy, tt.ruleIdx, common.ResourceTypeSecurityPolicy)
 			observedRuleID := svc.buildExpandedRuleID(tt.inputSecurityPolicy, tt.ruleIdx, ruleBaseID, tt.namedPort)
 			assert.Equal(t, tt.expectedRuleID, observedRuleID)
@@ -1573,6 +1574,7 @@ func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 			config.SetMixedModeStateForTest(!tc.vpcEnabled, tc.vpcEnabled)
 			svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 			svc.NSXConfig.EnableVPCNetwork = tc.vpcEnabled
+			svc.VPCMode = tc.vpcEnabled
 			if tc.existingSecurityPolicy != nil {
 				svc.securityPolicyStore.Add(tc.existingSecurityPolicy)
 			}
@@ -1669,6 +1671,7 @@ func Test_BuildGroupIDAndName(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				config.SetMixedModeStateForTest(!tc.enableVPC, tc.enableVPC)
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
+				svc.VPCMode = tc.enableVPC
 				dispName := svc.buildRulePeerGroupName(obj, tc.ruleIdx, tc.isSource)
 				assert.Equal(t, tc.expName, dispName)
 				groupID := svc.buildRulePeerGroupID(obj, tc.ruleIdx, tc.ruleBasedID, tc.isSource, VPCScopeGroup)
@@ -1732,6 +1735,7 @@ func Test_BuildGroupIDAndName(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				config.SetMixedModeStateForTest(!tc.enableVPC, tc.enableVPC)
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
+				svc.VPCMode = tc.enableVPC
 				id, dispName := svc.buildAppliedGroupIDAndName(obj, tc.ruleIdx, tc.ruleBasedID, common.ResourceTypeNetworkPolicy)
 				assert.Equal(t, tc.expId, id)
 				assert.Equal(t, dispName, tc.expName)
