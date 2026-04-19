@@ -15,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -65,7 +64,7 @@ func (e *EnqueueRequestForPod) Raw(evt interface{}, q workqueue.TypedRateLimitin
 	}
 
 	pod := obj.(*v1.Pod)
-	vpcMode := securitypolicy.IsVPCEnabled(e.SecurityPolicyReconciler.Service)
+	vpcMode := e.SecurityPolicyReconciler.isVPCMode
 	if isInSysNs, err := util.IsSystemNamespace(e.Client, pod.Namespace, nil, vpcMode); err != nil {
 		log.Error(err, "Failed to fetch namespace", "namespace", pod.Namespace)
 		return

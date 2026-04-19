@@ -309,7 +309,7 @@ func NewNetworkPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.Se
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("networkpolicy-controller"),
 	}
-	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
+	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService, true)
 	networkPolicyReconcile.StatusUpdater = common.NewStatusUpdater(networkPolicyReconcile.Client, networkPolicyReconcile.Service.NSXConfig, networkPolicyReconcile.Recorder, MetricResType, "NetworkPolicy", "NetworkPolicy")
 	return networkPolicyReconcile
 }

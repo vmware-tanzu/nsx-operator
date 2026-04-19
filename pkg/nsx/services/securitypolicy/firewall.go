@@ -40,6 +40,7 @@ var (
 
 type SecurityPolicyService struct {
 	common.Service
+	VPCMode             bool
 	securityPolicyStore *SecurityPolicyStore
 	ruleStore           *RuleStore
 	groupStore          *GroupStore
@@ -64,28 +65,42 @@ type GroupShare struct {
 }
 
 var (
-	securityService *SecurityPolicyService
-	lock            = &sync.Mutex{}
+	securityServices = make(map[bool]*SecurityPolicyService)
+	lock             = &sync.Mutex{}
 )
 
-// GetSecurityService get singleton SecurityPolicy Service instance, NetworkPolicy/SecurityPolicy controller share the same instance.
-func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider) *SecurityPolicyService {
-	if securityService == nil {
-		lock.Lock()
-		defer lock.Unlock()
-		if securityService == nil {
-			var err error
-			if securityService, err = InitializeSecurityPolicy(service, vpcService, false); err != nil {
-				log.Error(err, "Failed to initialize SecurityPolicy service")
-				os.Exit(1)
-			}
-		}
+// ResetSecurityServiceForTest clears the per-mode singleton map.
+// Must only be used from test code.
+func ResetSecurityServiceForTest() {
+	lock.Lock()
+	defer lock.Unlock()
+	securityServices = make(map[bool]*SecurityPolicyService)
+}
+
+// GetSecurityService returns a per-mode SecurityPolicyService instance.
+// vpcMode selects whether this instance serves VPC or T1 namespaces.
+// NetworkPolicy/SecurityPolicy controllers that share the same mode share the same instance.
+func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *SecurityPolicyService {
+	if svc := securityServices[vpcMode]; svc != nil {
+		return svc
 	}
-	return securityService
+	lock.Lock()
+	defer lock.Unlock()
+	if svc := securityServices[vpcMode]; svc != nil {
+		return svc
+	}
+	var err error
+	svc, err := InitializeSecurityPolicy(service, vpcService, vpcMode, false)
+	if err != nil {
+		log.Error(err, "Failed to initialize SecurityPolicy service", "vpcMode", vpcMode)
+		os.Exit(1)
+	}
+	securityServices[vpcMode] = svc
+	return svc
 }
 
 // InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServiceProvider, forCleanUp bool) (*SecurityPolicyService, error) {
+func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanUp bool) (*SecurityPolicyService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
@@ -94,6 +109,7 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 
 	securityPolicyService := &SecurityPolicyService{
 		Service: service,
+		VPCMode: vpcMode,
 	}
 
 	if forCleanUp {

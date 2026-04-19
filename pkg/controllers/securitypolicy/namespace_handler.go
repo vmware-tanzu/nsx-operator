@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -41,7 +40,7 @@ func (e *EnqueueRequestForNamespace) Generic(_ context.Context, _ event.GenericE
 
 func (e *EnqueueRequestForNamespace) Update(_ context.Context, updateEvent event.UpdateEvent, l workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	obj := updateEvent.ObjectNew.(*v1.Namespace)
-	vpcMode := securitypolicy.IsVPCEnabled(e.SecurityPolicyReconciler.Service)
+	vpcMode := e.SecurityPolicyReconciler.isVPCMode
 	if isInSysNs, err := util.IsSystemNamespace(nil, "", obj, vpcMode); err != nil {
 		log.Error(err, "Failed to fetch namespace", "namespace", obj.Name)
 		return
