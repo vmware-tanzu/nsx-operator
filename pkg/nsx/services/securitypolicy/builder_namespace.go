@@ -1,4 +1,4 @@
-/* Copyright © 2024 Broadcom, Inc. All Rights Reserved.
+/* Copyright © 2026 Broadcom, Inc. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 */
 
 package securitypolicy
@@ -22,7 +22,7 @@ import (
 // isNamespaceGroupSupported checks whether the NSX backend supports inventory-based
 // Namespace/VirtualMachine member types for group expressions.
 func (service *SecurityPolicyService) isNamespaceGroupSupported() bool {
-	if service.NSXClient == nil {
+	if service.NSXClient == nil || service.NSXClient.Cluster == nil {
 		return false
 	}
 	return service.NSXClient.NSXCheckVersion(nsx.NamespaceGroup)
