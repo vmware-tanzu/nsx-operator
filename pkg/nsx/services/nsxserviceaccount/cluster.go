@@ -33,10 +33,12 @@ import (
 )
 
 const (
-	siteId             = "default"
-	enforcementpointId = "default"
-	PortRestAPI        = "rest-api"
-	PortNSXRPCFwdProxy = "nsx-rpc-fwd-proxy"
+	siteId                = "default"
+	enforcementpointId    = "default"
+	PortRestAPI           = "rest-api"
+	PortNumRestAPI        = 10091
+	PortNSXRPCFwdProxy    = "nsx-rpc-fwd-proxy"
+	PortNumNSXRPCFwdProxy = 10092
 	// #nosec G101: false positive triggered by variable name which includes "secret"
 	SecretSuffix   = "-nsx-cert"
 	SecretCAName   = "ca.crt"
@@ -320,8 +322,8 @@ func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context, obj *v
 		return v1alpha1.NSXProxyEndpoint{
 			Addresses: []v1alpha1.NSXProxyEndpointAddress{{IP: "127.0.0.1"}},
 			Ports: []v1alpha1.NSXProxyEndpointPort{
-				{Name: PortRestAPI, Port: 10091, Protocol: v1alpha1.NSXProxyProtocolTCP},
-				{Name: PortNSXRPCFwdProxy, Port: 10092, Protocol: v1alpha1.NSXProxyProtocolTCP},
+				{Name: PortRestAPI, Port: PortNumRestAPI, Protocol: v1alpha1.NSXProxyProtocolTCP},
+				{Name: PortNSXRPCFwdProxy, Port: PortNumNSXRPCFwdProxy, Protocol: v1alpha1.NSXProxyProtocolTCP},
 			},
 		}, nil
 	}

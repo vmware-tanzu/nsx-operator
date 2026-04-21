@@ -669,12 +669,12 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 						Ports: []v1alpha1.NSXProxyEndpointPort{
 							{
 								Name:     PortRestAPI,
-								Port:     10091,
+								Port:     PortNumRestAPI,
 								Protocol: v1alpha1.NSXProxyProtocolTCP,
 							},
 							{
 								Name:     PortNSXRPCFwdProxy,
-								Port:     10092,
+								Port:     PortNumNSXRPCFwdProxy,
 								Protocol: v1alpha1.NSXProxyProtocolTCP,
 							},
 						},
@@ -2327,12 +2327,12 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 							{
 								Name:     PortRestAPI,
 								Protocol: "",
-								Port:     10000,
+								Port:     PortNumRestAPI,
 							},
 							{
 								Name:     PortNSXRPCFwdProxy,
 								Protocol: v1.ProtocolTCP,
-								Port:     10001,
+								Port:     PortNumNSXRPCFwdProxy,
 							},
 							{
 								Name:     PortRestAPI,
@@ -2360,12 +2360,12 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 				Ports: []v1alpha1.NSXProxyEndpointPort{
 					{
 						Name:     PortRestAPI,
-						Port:     10000,
+						Port:     PortNumRestAPI,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 					{
 						Name:     PortNSXRPCFwdProxy,
-						Port:     10001,
+						Port:     PortNumNSXRPCFwdProxy,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 				},
@@ -2384,12 +2384,12 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 				Ports: []v1alpha1.NSXProxyEndpointPort{
 					{
 						Name:     PortRestAPI,
-						Port:     10091,
+						Port:     PortNumRestAPI,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 					{
 						Name:     PortNSXRPCFwdProxy,
-						Port:     10092,
+						Port:     PortNumNSXRPCFwdProxy,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 				},
@@ -2414,12 +2414,12 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 							{
 								Name:     PortRestAPI,
 								Protocol: v1.ProtocolTCP,
-								Port:     10000,
+								Port:     PortNumRestAPI,
 							},
 							{
 								Name:     PortNSXRPCFwdProxy,
 								Protocol: v1.ProtocolTCP,
-								Port:     10001,
+								Port:     PortNumNSXRPCFwdProxy,
 							},
 						},
 						Type: v1.ServiceTypeLoadBalancer,
@@ -2437,12 +2437,12 @@ func TestNSXServiceAccountService_getProxyEndpoints(t *testing.T) {
 				Ports: []v1alpha1.NSXProxyEndpointPort{
 					{
 						Name:     PortRestAPI,
-						Port:     10000,
+						Port:     PortNumRestAPI,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 					{
 						Name:     PortNSXRPCFwdProxy,
-						Port:     10001,
+						Port:     PortNumNSXRPCFwdProxy,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 				},
@@ -2618,13 +2618,13 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 						Ports: []v1alpha1.NSXProxyEndpointPort{
 							{
 								Name:     PortRestAPI,
-								Port:     10081,
+								Port:     PortNumRestAPI,
 								Protocol: v1alpha1.NSXProxyProtocolTCP,
 							},
 							{
 								Name:     PortNSXRPCFwdProxy,
 								Protocol: v1alpha1.NSXProxyProtocolTCP,
-								Port:     10082,
+								Port:     PortNumNSXRPCFwdProxy,
 							},
 						},
 					},
@@ -2642,12 +2642,12 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 							{
 								Name:     PortRestAPI,
 								Protocol: v1.ProtocolTCP,
-								Port:     10081,
+								Port:     PortNumRestAPI,
 							},
 							{
 								Name:     PortNSXRPCFwdProxy,
 								Protocol: v1.ProtocolTCP,
-								Port:     10082,
+								Port:     PortNumNSXRPCFwdProxy,
 							},
 						},
 						Type: v1.ServiceTypeLoadBalancer,
@@ -2669,13 +2669,13 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 				Ports: []v1alpha1.NSXProxyEndpointPort{
 					{
 						Name:     PortRestAPI,
-						Port:     10081,
+						Port:     PortNumRestAPI,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 					{
 						Name:     PortNSXRPCFwdProxy,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
-						Port:     10082,
+						Port:     PortNumNSXRPCFwdProxy,
 					},
 				},
 			},
@@ -2701,13 +2701,13 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 						Ports: []v1alpha1.NSXProxyEndpointPort{
 							{
 								Name:     PortRestAPI,
-								Port:     10081,
+								Port:     PortNumRestAPI,
 								Protocol: v1alpha1.NSXProxyProtocolTCP,
 							},
 							{
 								Name:     PortNSXRPCFwdProxy,
 								Protocol: v1alpha1.NSXProxyProtocolTCP,
-								Port:     10082,
+								Port:     PortNumNSXRPCFwdProxy,
 							},
 						},
 					},
@@ -2722,13 +2722,13 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 				Ports: []v1alpha1.NSXProxyEndpointPort{
 					{
 						Name:     PortRestAPI,
-						Port:     10091,
+						Port:     PortNumRestAPI,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
 					},
 					{
 						Name:     PortNSXRPCFwdProxy,
 						Protocol: v1alpha1.NSXProxyProtocolTCP,
-						Port:     10092,
+						Port:     PortNumNSXRPCFwdProxy,
 					},
 				},
 			},
