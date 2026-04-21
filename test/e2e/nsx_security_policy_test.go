@@ -278,7 +278,7 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	policyPath, _ := filepath.Abs("./manifest/testSecurityPolicy/vpc-from-field-ingress-policy.yaml")
 
 	require.NoError(t, applyYAML(podsPath, ns))
-	// defer deleteYAML(podsPath, ns)
+	defer deleteYAML(podsPath, ns)
 
 	srvIP, err := testData.podWaitForIPs(defaultTimeout, "fr-srv", ns)
 	require.NoError(t, err, "wait for fr-srv IP")
@@ -294,7 +294,7 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	require.True(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server before policy")
 
 	require.NoError(t, applyYAML(policyPath, ns))
-	// defer deleteYAML(policyPath, ns)
+	defer deleteYAML(policyPath, ns)
 
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
@@ -338,7 +338,7 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	policyPath, _ := filepath.Abs("./manifest/testSecurityPolicy/vpc-to-field-egress-policy.yaml")
 
 	require.NoError(t, applyYAML(podsPath, ns))
-	// defer deleteYAML(podsPath, ns)
+	defer deleteYAML(podsPath, ns)
 
 	srvIP, err := testData.podWaitForIPs(defaultTimeout, "te-srv", ns)
 	require.NoError(t, err, "wait for te-srv IP")
@@ -355,7 +355,7 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, true), "client -> other before policy")
 
 	require.NoError(t, applyYAML(policyPath, ns))
-	// defer deleteYAML(policyPath, ns)
+	defer deleteYAML(policyPath, ns)
 
 	assureSecurityPolicyReady(t, ns, securityPolicyName)
 
