@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: te-srv
+  labels:
+    vpc-to-test: server
+spec:
+  restartPolicy: Never
+  containers:
+    - name: te-srv
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: te-other
+  labels:
+    vpc-to-test: other
+spec:
+  restartPolicy: Never
+  containers:
+    - name: te-other
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: te-cli
+  labels:
+    vpc-to-test: client
+spec:
+  restartPolicy: Never
+  containers:
+    - name: te-cli
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"

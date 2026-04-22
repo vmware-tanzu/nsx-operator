@@ -746,7 +746,7 @@ func deleteYAML(filename string, ns string) error {
 		// Ignore error info
 		// very short watch: k8s.io/client-go/tools/watch/informerwatcher.
 		// go:146: Unexpected watch close - watch lasted less than a second and no items received
-		// log.Error(err, "Error when deleting YAML file")
+		log.Error(err, "Error when deleting YAML file")
 		return nil
 	}
 	_, _ = stdout.String(), stderr.String()
@@ -1209,6 +1209,40 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, shoul
 		}
 	}
 	return false
+}
+
+// waitForHTTPEndpointReady waits until a Pod can successfully curl an HTTP endpoint and get 200.
+// This is used to avoid flakiness when Pods are "Running" but the container process hasn't started listening yet.
+func waitForHTTPEndpointReady(ns, podName, containerName, ip string, port int32, timeout time.Duration, opts ...CurlOption) error {
+	deadlineCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Reuse the same curl construction as checkTrafficByCurl, but gate on "200" and stop on timeout.
+	options := &CurlOptions{Scheme: "http", Path: "", Headers: nil}
+	for _, option := range opts {
+		option(options)
+	}
+	url := fmt.Sprintf("%s://%s:%d%s", options.Scheme, ip, port, options.Path)
+	curlArgs := []string{"curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "2", "--max-time", "5"}
+	if options.Scheme == "https" {
+		curlArgs = append(curlArgs, "-k")
+	}
+	for key, value := range options.Headers {
+		curlArgs = append(curlArgs, "-H", fmt.Sprintf("'%s: %s'", key, value))
+	}
+	curlArgs = append(curlArgs, url)
+	cmd := []string{"/bin/sh", "-c", strings.Join(curlArgs, " ")}
+
+	return wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, timeout, false, func(ctx context.Context) (done bool, err error) {
+		stdOut, _, execErr := testData.runCommandFromPod(ns, podName, containerName, cmd)
+		statusCode := strings.Trim(stdOut, `"`)
+		if execErr == nil && statusCode == "200" {
+			return true, nil
+		}
+		// Keep retrying until timeout; include last observed code for troubleshooting.
+		log.Info("Waiting for HTTP endpoint ready", "pod", podName, "container", containerName, "url", url, "statusCode", statusCode, "execErr", execErr)
+		return false, nil
+	})
 }
 
 func testSSHConnection(host, username, password string, port int, timeout time.Duration, attempts uint, delay time.Duration) error {
