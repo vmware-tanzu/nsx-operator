@@ -126,7 +126,7 @@ spec:
                     ) && (!has(self.dhcpServerAdditionalConfig) || !has(self.dhcpServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
-              subnetDhcpv6Config:
+              subnetDHCPv6Config:
                 description: DHCPv6 configuration for subnets in the SubnetSet.
                 properties:
                   dhcpv6ServerAdditionalConfig:
@@ -177,15 +177,15 @@ spec:
                 !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) || has(self.subnetDHCPConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)'
             - message: reservedIPRanges is not supported in SubnetSet
-              rule: '!has(self.subnetDhcpv6Config) || has(self.subnetDhcpv6Config)
-                && !has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig) || has(self.subnetDhcpv6Config)
-                && has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig) && !has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)'
+              rule: '!has(self.subnetDHCPv6Config) || has(self.subnetDHCPv6Config)
+                && !has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) || has(self.subnetDHCPv6Config)
+                && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) && !has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)'
             - message: DHCPRelay is not supported in SubnetSet
               rule: '!has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode)
                 || self.subnetDHCPConfig.mode!=''DHCPRelay'''
             - message: DHCPRelay is not supported in SubnetSet
-              rule: '!has(self.subnetDhcpv6Config) || !has(self.subnetDhcpv6Config.mode)
-                || self.subnetDhcpv6Config.mode!=''DHCPRelay'''
+              rule: '!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode)
+                || self.subnetDHCPv6Config.mode!=''DHCPRelay'''
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
             properties:

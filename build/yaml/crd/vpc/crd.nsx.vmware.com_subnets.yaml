@@ -237,16 +237,16 @@ spec:
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses)
                 && size(self.advancedConfig.dhcpServerAddresses)>0) || (has(self.subnetDHCPConfig)
                 && has(self.subnetDHCPConfig.mode) && self.subnetDHCPConfig.mode==''DHCPServer'')
-                || (has(self.subnetDhcpv6Config) && has(self.subnetDhcpv6Config.mode)
-                && self.subnetDhcpv6Config.mode==''DHCPServer'')'
+                || (has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.mode)
+                && self.subnetDHCPv6Config.mode==''DHCPServer'')'
             - message: ipAddresses is required to configure subnet reserved ip ranges.
               rule: '!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges))
                 || has(self.ipAddresses)'
             - message: ipAddresses is required to configure subnet DHCPv6 reserved
                 ip ranges.
-              rule: '!has(self.ipAddresses) && !(has(self.subnetDhcpv6Config) && has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig)
-                && has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges))
+              rule: '!has(self.ipAddresses) && !(has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig)
+                && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges))
                 || has(self.ipAddresses)'
             - message: ipAddresses is required when custom gatewayAddresses are specified
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.gatewayAddresses)

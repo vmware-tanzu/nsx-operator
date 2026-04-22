@@ -317,6 +317,7 @@ _Appears in:_
 
 
 IPBlock describes a particular CIDR that is allowed or denied to/from the workloads matched by an AppliedTo.
+Both IPv4 and IPv6 CIDRs are supported.
 
 
 
@@ -325,7 +326,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `cidr` _string_ | CIDR is a string representing the IP Block.<br />A valid example is "192.168.1.1/24". |  |  |
+| `cidr` _string_ | CIDR is a string representing the IP Block.<br />Valid examples are "192.168.1.0/24" and "2001:db8::/32". |  |  |
 
 
 #### IPBlocksInfo
@@ -1057,7 +1058,7 @@ _Appears in:_
 | `ipv6PrefixLength` _integer_ | IPv6 prefix length for subnets in the SubnetSet (e.g. 64 means /64). |  | Maximum: 127 <br />Minimum: 2 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
-| `subnetDhcpv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for subnets in the SubnetSet. |  |  |
+| `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for subnets in the SubnetSet. |  |  |
 | `subnetNames` _string_ | The names of the Subnets that have been created in advance.<br />It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.<br />Once this field is set, the other fields cannot be set. |  |  |
 
 

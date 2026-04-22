@@ -55,6 +55,7 @@ _Appears in:_
 
 
 IPBlock describes a particular CIDR that is allowed or denied to/from the workloads matched by an AppliedTo.
+Both IPv4 and IPv6 CIDRs are supported.
 
 
 
@@ -63,7 +64,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `cidr` _string_ | CIDR is a string representing the IP Block.<br />A valid example is "192.168.1.1/24". |  |  |
+| `cidr` _string_ | CIDR is a string representing the IP Block.<br />Valid examples are "192.168.1.0/24" and "2001:db8::/32". |  |  |
 
 
 #### NSXProxyEndpoint

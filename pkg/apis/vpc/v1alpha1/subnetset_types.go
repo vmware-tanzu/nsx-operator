@@ -12,9 +12,9 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv4SubnetSize) || has(self.ipv4SubnetSize)", message="ipv4SubnetSize is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv6PrefixLength) || has(self.ipv6PrefixLength)", message="ipv6PrefixLength is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPConfig) || has(self.subnetDHCPConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) || has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)", message="reservedIPRanges is not supported in SubnetSet"
-// +kubebuilder:validation:XValidation:rule="!has(self.subnetDhcpv6Config) || has(self.subnetDhcpv6Config) && !has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig) || has(self.subnetDhcpv6Config) && has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig) && !has(self.subnetDhcpv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)", message="reservedIPRanges is not supported in SubnetSet"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPv6Config) || has(self.subnetDHCPv6Config) && !has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) || has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) && !has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)", message="reservedIPRanges is not supported in SubnetSet"
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode!='DHCPRelay'", message="DHCPRelay is not supported in SubnetSet"
-// +kubebuilder:validation:XValidation:rule="!has(self.subnetDhcpv6Config) || !has(self.subnetDhcpv6Config.mode) || self.subnetDhcpv6Config.mode!='DHCPRelay'", message="DHCPRelay is not supported in SubnetSet"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode) || self.subnetDHCPv6Config.mode!='DHCPRelay'", message="DHCPRelay is not supported in SubnetSet"
 type SubnetSetSpec struct {
 	// IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet.
 	// +kubebuilder:validation:Enum=IPV4;IPV6;IPV4IPV6
@@ -36,7 +36,7 @@ type SubnetSetSpec struct {
 	// Subnet DHCP configuration.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
 	// DHCPv6 configuration for subnets in the SubnetSet.
-	SubnetDHCPv6Config SubnetDHCPv6Config `json:"subnetDhcpv6Config,omitempty"`
+	SubnetDHCPv6Config SubnetDHCPv6Config `json:"subnetDHCPv6Config,omitempty"`
 	// The names of the Subnets that have been created in advance.
 	// It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.
 	// Once this field is set, the other fields cannot be set.
