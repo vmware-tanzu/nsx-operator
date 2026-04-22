@@ -93,9 +93,6 @@ spec:
                 maximum: 127
                 minimum: 2
                 type: integer
-                x-kubernetes-validations:
-                - message: Value is immutable
-                  rule: self == oldSelf
               subnetDHCPConfig:
                 description: Subnet DHCP configuration.
                 properties:

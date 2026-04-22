@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 )
 
 type SubnetSetHandler struct {
@@ -50,7 +50,7 @@ var PredicateFuncsSubnetSet = predicate.Funcs{
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		obj := e.Object.(*v1alpha1.SubnetSet)
-		if isDefaultSubnetSet(obj) {
+		if controllercommon.IsVPCDefaultSubnetSet(obj) {
 			log.Debug("Delete default SubnetSet", "Namespace", obj.Namespace, "SubnetSet", obj.Name)
 			return true
 		}
@@ -59,11 +59,4 @@ var PredicateFuncsSubnetSet = predicate.Funcs{
 	GenericFunc: func(genericEvent event.GenericEvent) bool {
 		return false
 	},
-}
-
-func isDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
-	if _, ok := s.Labels[common.LabelDefaultNetwork]; ok {
-		return true
-	}
-	return s.Name == common.DefaultVMSubnetSet || s.Name == common.DefaultPodSubnetSet
 }

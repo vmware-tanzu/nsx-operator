@@ -15,7 +15,7 @@ import (
 // in the default VPCNetworkConfiguration.
 type VPCNetworkConfigurationSpec struct {
 	// NSX path of the VPC the Namespace is associated with.
-	// If vpc is set, only defaultSubnetSize takes effect, other fields are ignored.
+	// If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored.
 	// +optional
 	VPC string `json:"vpc,omitempty"`
 

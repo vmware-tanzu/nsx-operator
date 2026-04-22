@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 const (
@@ -53,6 +54,11 @@ func verifySubnetSetCR(subnetSet string) bool {
 
 	if subnetSetCR.Spec.IPv4SubnetSize != vpcNetworkConfig.Spec.DefaultSubnetSize {
 		log.Error(nil, "IPv4SubnetSize mismatch", "IPv4SubnetSize", subnetSetCR.Spec.IPv4SubnetSize, "expected", vpcNetworkConfig.Spec.DefaultSubnetSize)
+		return false
+	}
+	wantIPv6 := util.EffectiveDefaultIPv6PrefixLength(vpcNetworkConfig.Spec)
+	if subnetSetCR.Spec.IPv6PrefixLength != wantIPv6 {
+		log.Error(nil, "IPv6PrefixLength mismatch", "IPv6PrefixLength", subnetSetCR.Spec.IPv6PrefixLength, "expected", wantIPv6)
 		return false
 	}
 	return true

@@ -41,6 +41,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type fakeVPCConnectivityProfilesClient struct{}
@@ -2263,11 +2264,22 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 			r := createNetworkInfoReconciler(tc.subnetSetList)
 			ctx := context.TODO()
 
-			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", 32, tc.hasCIDR, tc.hasPrecreatedSubnet)
+			nc := &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					DefaultSubnetSize:       32,
+					DefaultIPv6PrefixLength: 80,
+				},
+			}
+			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasCIDR, tc.hasPrecreatedSubnet)
 			if tc.expectErrStr != "" {
 				assert.ErrorContains(t, err, tc.expectErrStr)
 			} else {
 				require.NoError(t, err)
+			}
+			if tc.name == "Existing default SubnetSet" {
+				updated := &v1alpha1.SubnetSet{}
+				require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-1", Name: "pod-default"}, updated))
+				assert.Equal(t, util.EffectiveDefaultIPv6PrefixLength(nc.Spec), updated.Spec.IPv6PrefixLength)
 			}
 		})
 	}
