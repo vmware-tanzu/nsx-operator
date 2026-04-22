@@ -20,6 +20,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 const (
@@ -54,6 +55,15 @@ func verifySubnetSetCR(subnetSet string) bool {
 	if subnetSetCR.Spec.IPv4SubnetSize != vpcNetworkConfig.Spec.DefaultSubnetSize {
 		log.Error(nil, "IPv4SubnetSize mismatch", "IPv4SubnetSize", subnetSetCR.Spec.IPv4SubnetSize, "expected", vpcNetworkConfig.Spec.DefaultSubnetSize)
 		return false
+	}
+	// IPv6PrefixLength is only set on SubnetSets for IPv6 or dual-stack clusters.
+	// Skip this check when the SubnetSet IP address type is IPv4-only (or unset).
+	if util.IPv6PrefixLengthApplicable(subnetSetCR.Spec.IPAddressType) {
+		wantIPv6 := vpcNetworkConfig.Spec.DefaultIPv6PrefixLength
+		if subnetSetCR.Spec.IPv6PrefixLength != wantIPv6 {
+			log.Error(nil, "IPv6PrefixLength mismatch", "IPv6PrefixLength", subnetSetCR.Spec.IPv6PrefixLength, "expected", wantIPv6)
+			return false
+		}
 	}
 	return true
 }

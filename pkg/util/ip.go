@@ -54,6 +54,27 @@ func IsIPv6CIDR(cidrStr string) bool {
 	return ip.To4() == nil
 }
 
+// ContainsIPv4CIDR returns true if any CIDR in the slice is an IPv4 CIDR.
+func ContainsIPv4CIDR(cidrs []string) bool {
+	for _, c := range cidrs {
+		ip, _, err := net.ParseCIDR(c)
+		if err == nil && ip.To4() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsIPv6CIDR returns true if any CIDR in the slice is an IPv6 CIDR.
+func ContainsIPv6CIDR(cidrs []string) bool {
+	for _, c := range cidrs {
+		if IsIPv6CIDR(c) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsIPv6 returns true if the given IP address string is IPv6.
 func IsIPv6(addr string) bool {
 	ip := net.ParseIP(addr)

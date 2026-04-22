@@ -124,6 +124,7 @@ func createNetworkInfoReconciler(objs []client.Object) *NetworkInfoReconciler {
 					EnforcementPoint:   "vmc-enforcementpoint",
 					UseAVILoadBalancer: false,
 				},
+				K8sConfig: &config.K8sConfig{},
 			},
 		},
 	}
@@ -2263,11 +2264,24 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 			r := createNetworkInfoReconciler(tc.subnetSetList)
 			ctx := context.TODO()
 
-			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", 32, tc.hasCIDR, tc.hasPrecreatedSubnet)
+			nc := &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					DefaultSubnetSize:       32,
+					DefaultIPv6PrefixLength: 80,
+				},
+			}
+			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasCIDR, tc.hasPrecreatedSubnet)
 			if tc.expectErrStr != "" {
 				assert.ErrorContains(t, err, tc.expectErrStr)
 			} else {
 				require.NoError(t, err)
+			}
+			if tc.name == "Existing default SubnetSet" {
+				updated := &v1alpha1.SubnetSet{}
+				require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-1", Name: "pod-default"}, updated))
+				// IPv6PrefixLength must not be propagated to an existing SubnetSet because
+				// NSX subnets have an immutable IPv6PrefixLength.
+				assert.Equal(t, subnetSet.Spec.IPv6PrefixLength, updated.Spec.IPv6PrefixLength)
 			}
 		})
 	}

@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 	ini "gopkg.in/ini.v1"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 )
@@ -142,6 +143,11 @@ type K8sConfig struct {
 	KubeConfigFile     string `ini:"kubeconfig"`
 	// Controlled by FSS
 	EnableAntreaNSXInterworking bool `ini:"enable_antrea_nsx_interworking"`
+	// IPFamily holds the cluster-wide IP address family read from the [k8s]
+	// ip_family key. Expected values: v1alpha1.IPAddressTypeIPv4 ("IPV4"),
+	// v1alpha1.IPAddressTypeIPv6 ("IPV6"), or v1alpha1.IPAddressTypeIPv4IPv6
+	// ("IPV4IPV6").  An empty value means IPv4-only (default).
+	IPFamily v1alpha1.IPAddressType `ini:"ip_family"`
 }
 
 type VCConfig struct {
@@ -457,3 +463,4 @@ func (nsxConfig *NsxConfig) GetNSXLBSize() string {
 	}
 	return lbsSize
 }
+

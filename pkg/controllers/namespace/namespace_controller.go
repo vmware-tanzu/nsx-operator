@@ -150,8 +150,9 @@ func getDefaultSubnetsets(namespaceType common.NameSpaceType) map[string]string 
 }
 
 // createDefaultSubnetSet only create default subnetset for system Namespace or SVService Namespace
-func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, defaultSubnetSize int, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
+func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, nc *v1alpha1.VPCNetworkConfiguration, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
 	defaultSubnetSets := getDefaultSubnetsets(namespaceType)
+	ipFamily := r.NSXConfig.K8sConfig.IPFamily
 	for name, subnetSetType := range defaultSubnetSets {
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 			return err != nil
@@ -168,19 +169,24 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns str
 			if networkStack == v1alpha1.FullStackVPC {
 				accessMode = getDefaultAccessMode(name)
 			}
-			if namespaceType == common.SystemNs {
-				defaultSubnetSize = r.getSystemNsDefaultSize()
+			spec := v1alpha1.SubnetSetSpec{AccessMode: accessMode}
+			if util.IPv4SubnetSizeApplicable(ipFamily) {
+				spec.IPv4SubnetSize = nc.Spec.DefaultSubnetSize
+				if namespaceType == common.SystemNs {
+					spec.IPv4SubnetSize = r.getSystemNsDefaultSize()
+				}
 			}
+			if util.IPv6PrefixLengthApplicable(ipFamily) {
+				spec.IPv6PrefixLength = nc.Spec.DefaultIPv6PrefixLength
+			}
+			spec.IPAddressType = ipFamily
 			obj := &v1alpha1.SubnetSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: ns,
 					Name:      name,
 					Labels:    map[string]string{types.LabelDefaultNetwork: subnetSetType},
 				},
-				Spec: v1alpha1.SubnetSetSpec{
-					AccessMode:     accessMode,
-					IPv4SubnetSize: defaultSubnetSize,
-				},
+				Spec: spec,
 			}
 			// set the label for backward compatibility
 			switch subnetSetType {
@@ -294,7 +300,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		namespaceType := common.GetNamespaceType(obj, nc)
 
 		// create default SubnetSet for system Namespace or SVService Namespace
-		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize, namespaceType, networkStack); err != nil {
+		if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack); err != nil {
 			return common.ResultNormal, err
 		}
 

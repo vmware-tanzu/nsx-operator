@@ -558,7 +558,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return false, nil
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetsByIndex", func(_ *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/subnet_fake-path"
 					tags := []model.Tag{
@@ -568,7 +568,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return []*model.VpcSubnet{{Id: &id1, Path: &path, Tags: tags}}
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus", func(_ *subnet.SubnetService) ([]model.VpcSubnetStatus, error) {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus", func(_ *subnet.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
 					fakeStatus := model.VpcSubnetStatus{}
 					value := ""
 					fakeStatus.GatewayAddress = &value
@@ -580,7 +580,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: "Private",
+				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 0, AccessMode: "Private",
 					IPAddresses:      []string(nil),
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)},
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
@@ -623,7 +623,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil, nil
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetsByIndex", func(_ *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 					return nil
 				})
 
@@ -634,7 +634,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			existingSubnetCR: createNewSubnet(),
 			expectSubnetCR: &v1alpha1.Subnet{
-				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 16, AccessMode: "Private", IPAddresses: []string(nil),
+				Spec: v1alpha1.SubnetSpec{VPCName: "project-id:vpc-id", IPv4SubnetSize: 0, AccessMode: "Private", IPAddresses: []string(nil),
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)},
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{

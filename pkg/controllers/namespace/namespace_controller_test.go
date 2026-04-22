@@ -59,6 +59,7 @@ func createNameSpaceReconciler(objs []client.Object) *NamespaceReconciler {
 			EnforcementPoint:   "vmc-enforcementpoint",
 			UseAVILoadBalancer: false,
 		},
+		K8sConfig: &config.K8sConfig{},
 	}
 
 	service := &vpc.VPCService{
@@ -236,7 +237,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 				})
 				// Mock createDefaultSubnetSet to return nil (no error)
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createDefaultSubnetSet", func(_ *NamespaceReconciler, _ context.Context, _ string,
-					_ int, _ []v1alpha1.SharedSubnet, _ ctlcommon.NameSpaceType, _ bool) error {
+					_ *v1alpha1.VPCNetworkConfiguration, _ ctlcommon.NameSpaceType, _ v1alpha1.NetworkStackType) error {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
@@ -345,15 +346,18 @@ func TestGetAccessMode(t *testing.T) {
 
 func TestCreateDefaultSubnetSet(t *testing.T) {
 	tests := []struct {
-		name               string
-		namespace          string
-		defaultSubnetSize  int
-		existingResources  []client.Object
-		expectedError      bool
-		networkStack       v1alpha1.NetworkStackType
-		nameSpaceType      ctlcommon.NameSpaceType
-		expectedSubnetSets int
-		setupMocks         func(r *NamespaceReconciler) *gomonkey.Patches
+		name                    string
+		namespace               string
+		defaultSubnetSize       int
+		defaultIPv6PrefixLength int
+		existingResources       []client.Object
+		ipFamily                v1alpha1.IPAddressType
+		expectedError           bool
+		networkStack            v1alpha1.NetworkStackType
+		nameSpaceType           ctlcommon.NameSpaceType
+		expectedSubnetSets      int
+		expectedIPAddressType   v1alpha1.IPAddressType
+		setupMocks              func(r *NamespaceReconciler) *gomonkey.Patches
 	}{
 		{
 			name:              "Skip case - not create SubnetSet for NormalNs",
@@ -366,37 +370,43 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			setupMocks:        func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
 		},
 		{
-			name:               "Success case - create new SubnetSets for cpvm namespace",
-			namespace:          "test-ns",
-			defaultSubnetSize:  8,
-			existingResources:  []client.Object{},
-			expectedError:      false,
-			expectedSubnetSets: 1, // VM
-			networkStack:       v1alpha1.FullStackVPC,
-			nameSpaceType:      ctlcommon.SystemNs,
+			name:                    "Success case - create new SubnetSets for cpvm namespace (dual-stack)",
+			namespace:               "test-ns",
+			defaultSubnetSize:       8,
+			defaultIPv6PrefixLength: 72,
+			existingResources:       []client.Object{},
+			ipFamily:                v1alpha1.IPAddressTypeIPv4IPv6,
+			expectedError:           false,
+			expectedSubnetSets:      1, // VM
+			networkStack:            v1alpha1.FullStackVPC,
+			nameSpaceType:           ctlcommon.SystemNs,
+			expectedIPAddressType:   v1alpha1.IPAddressTypeIPv4IPv6,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSystemNsDefaultSize", func(_ *NamespaceReconciler) int {
-					return 8
+				// Avoid NSXClient version checks that require a populated Cluster in unit tests.
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
 				})
-				return patches
 			},
 		},
 		{
-			name:               "Success case - create new SubnetSets for system svc namespace",
-			namespace:          "test-ns",
-			defaultSubnetSize:  24,
-			existingResources:  []client.Object{},
-			expectedError:      false,
-			expectedSubnetSets: 1, // Pod
-			networkStack:       v1alpha1.FullStackVPC,
-			nameSpaceType:      ctlcommon.SVServiceNs,
-			setupMocks:         func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
+			name:                  "Success case - create new SubnetSets for system svc namespace (IPv4-only)",
+			namespace:             "test-ns",
+			defaultSubnetSize:     24,
+			existingResources:     []client.Object{},
+			ipFamily:              v1alpha1.IPAddressTypeIPv4,
+			expectedError:         false,
+			expectedSubnetSets:    1, // Pod
+			networkStack:          v1alpha1.FullStackVPC,
+			nameSpaceType:         ctlcommon.SVServiceNs,
+			expectedIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			setupMocks:            func(r *NamespaceReconciler) *gomonkey.Patches { return nil },
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := createNameSpaceReconciler(tt.existingResources)
+			r.NSXConfig.K8sConfig.IPFamily = tt.ipFamily
 
 			if tt.setupMocks != nil {
 				patches := tt.setupMocks(r)
@@ -405,8 +415,14 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 				}
 			}
 
+			nc := &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					DefaultSubnetSize:       tt.defaultSubnetSize,
+					DefaultIPv6PrefixLength: tt.defaultIPv6PrefixLength,
+				},
+			}
 			// Call the function being tested
-			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, tt.defaultSubnetSize, tt.nameSpaceType, tt.networkStack)
+			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, nc, tt.nameSpaceType, tt.networkStack)
 
 			// Check the result
 			if tt.expectedError {
@@ -422,6 +438,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 
 				// Check that the SubnetSets have the correct properties
 				if len(subnetSetList.Items) > 0 {
+					wantIPv6 := nc.Spec.DefaultIPv6PrefixLength
 					for _, subnetSet := range subnetSetList.Items {
 						switch subnetSet.Name {
 						case servicetypes.DefaultVMSubnetSet:
@@ -430,6 +447,8 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 							assert.Equal(t, v1alpha1.AccessMode(v1alpha1.AccessModeProject), subnetSet.Spec.AccessMode)
 						}
 						assert.Equal(t, tt.defaultSubnetSize, subnetSet.Spec.IPv4SubnetSize)
+						assert.Equal(t, wantIPv6, subnetSet.Spec.IPv6PrefixLength)
+						assert.Equal(t, tt.expectedIPAddressType, subnetSet.Spec.IPAddressType)
 					}
 				}
 			}
