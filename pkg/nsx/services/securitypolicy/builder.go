@@ -104,6 +104,10 @@ func getRuleDestinationPeers(rule *v1alpha1.SecurityPolicyRule) []v1alpha1.Secur
 }
 
 func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool) (*model.SecurityPolicy, *[]model.Group, *[]GroupShare, error) {
+	if service.isNamespaceGroupSupported() {
+		return service.buildNativeSecurityPolicy(obj, createdFor, vpcInfo)
+	}
+
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
 	var nsxShareGroups []model.Group

@@ -61,6 +61,7 @@ const (
 	TagScopeAddressBindingCRUID        string = "nsx-op/addressbinding_uid"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
+	TagScopeNativeGroupType            string = "nsx-op/native_group"
 	TagScopeManagedBy                  string = "nsx/managed-by"
 	TagScopeEnable                     string = "ENABLED"
 	AutoCreatedTagValue                string = "nsx-op"
@@ -145,6 +146,16 @@ const (
 
 	GatewayInterfaceId = "gateway-interface"
 	VPCKey             = "/orgs/%s/projects/%s/vpcs/%s"
+
+	MemberTypeNamespace      = "Namespace"
+	MemberTypeVirtualMachine = "VirtualMachine"
+	VMTypePod                = "POD"
+	VMTypeRegular            = "REGULAR"
+
+	MaxNamespaceNames = 500
+
+	EvalScopeDefaultProject = "INFRA_GROUP_EVALUATION_SCOPE_DEFAULT_PROJECT"
+	EvalScopeAllProjects    = "INFRA_GROUP_EVALUATION_SCOPE_ALL_PROJECTS"
 )
 
 var (
