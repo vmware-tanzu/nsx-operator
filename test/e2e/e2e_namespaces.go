@@ -17,6 +17,9 @@ var (
 	NsSecurityPolicyNamedPortClient = "e2e-sp-np-client-" + getRandomString()
 	NsSecurityPolicyNamedPortWeb    = "e2e-sp-np-web-" + getRandomString()
 
+	// NsIPv6PolicyVC IPv6 policy test namespace (VC-based, isolated from other security policy tests).
+	NsIPv6PolicyVC = "e2e-ipv6-policy-vc-" + getRandomString()
+
 	// NsInventorySync Inventory sync test namespaces - need VC namespace for pod creation
 	NsInventorySync = "e2e-inventory-" + getRandomString()
 
@@ -41,6 +44,7 @@ var allVCNamespaces = []string{
 	NsSecurityPolicy,
 	NsSecurityPolicyNamedPortClient,
 	NsSecurityPolicyNamedPortWeb,
+	NsIPv6PolicyVC,
 	NsInventorySync,
 	NsLoadBalancerLB,
 	NsLoadBalancerPod,
@@ -112,7 +116,9 @@ func CleanupVCNamespaces(namespaces ...string) {
 // This is a safety net cleanup - most namespaces should be deleted by individual tests
 func CleanupAllNamespaces() {
 	cleanupOnce.Do(func() {
-		log.Info("Running safety net cleanup for VC namespaces", "count", len(allVCNamespaces))
+		// Safety net cleanup: most namespaces should be deleted by individual tests,
+		// but we still try to clean up shared namespace here.
+		log.Info("Running safety net cleanup for namespaces", "vcCount", len(allVCNamespaces))
 		CleanupVCNamespaces(allVCNamespaces...)
 		log.Info("Safety net cleanup completed")
 	})

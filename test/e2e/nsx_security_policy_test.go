@@ -37,7 +37,7 @@ func TestSecurityPolicy(t *testing.T) {
 
 	// Clean up shared namespaces when all subtests complete
 	t.Cleanup(func() {
-		CleanupVCNamespaces(NsSecurityPolicy, NsSecurityPolicyNamedPortClient, NsSecurityPolicyNamedPortWeb)
+		CleanupVCNamespaces(NsSecurityPolicy, NsSecurityPolicyNamedPortClient, NsSecurityPolicyNamedPortWeb, NsIPv6PolicyVC)
 	})
 	StartParallel(t)
 
@@ -51,6 +51,19 @@ func TestSecurityPolicy(t *testing.T) {
 		RunSubtest(t, "testSecurityPolicyVPCToFieldEgress", func(t *testing.T) { testSecurityPolicyVPCToFieldEgress(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
+	})
+
+	// IPv6-only tests: run only when cluster has IPv6 Pod CIDR configured.
+	// They use an isolated VC namespace and can run in parallel with other security policy subtests.
+	RunSubtest(t, "IPv6SecurityPolicyTests", func(t *testing.T) {
+		if clusterInfo.podV6NetworkCIDR == "" {
+			t.Skip("cluster does not support IPv6 Pod CIDR")
+		}
+		// Allow this suite to run concurrently with other security policy subtests.
+		t.Parallel()
+		RunSubtest(t, "testIPv6SecurityPolicy", func(t *testing.T) { testIPv6SecurityPolicy(t) })
+		RunSubtest(t, "testIPv6NetworkPolicy", func(t *testing.T) { testIPv6NetworkPolicy(t) })
+		RunSubtest(t, "testDualStackNetworkPolicy", func(t *testing.T) { testDualStackNetworkPolicy(t) })
 	})
 }
 
