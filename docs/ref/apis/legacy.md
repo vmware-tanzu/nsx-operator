@@ -207,6 +207,24 @@ _Appears in:_
 | `failed` |  |
 
 
+#### NSXServiceAccountProxyType
+
+_Underlying type:_ _string_
+
+NSXServiceAccountProxyType defines the proxy type used for NSX connectivity
+
+_Validation:_
+- Enum: [VMCIProxy SupervisorManagementProxy]
+
+_Appears in:_
+- [NSXServiceAccountSpec](#nsxserviceaccountspec)
+
+| Field | Description |
+| --- | --- |
+| `VMCIProxy` |  |
+| `SupervisorManagementProxy` |  |
+
+
 #### NSXServiceAccountSpec
 
 
@@ -222,6 +240,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `vpcName` _string_ |  |  |  |
 | `enableCertRotation` _boolean_ | EnableCertRotation enables cert rotation feature in this cluster when NSXT >=4.1.3 |  |  |
+| `proxy` _[NSXServiceAccountProxyType](#nsxserviceaccountproxytype)_ | Proxy specifies the proxy type for NSX connectivity<br />Defaults to SupervisorManagementProxy if not specified | SupervisorManagementProxy | Enum: [VMCIProxy SupervisorManagementProxy] <br /> |
 
 
 #### NSXServiceAccountStatus
