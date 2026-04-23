@@ -24,6 +24,7 @@ const (
 	MetricResTypePod                        = "pod"
 	MetricResTypeNode                       = "node"
 	MetricResTypeServiceLb                  = "servicelb"
+	MetricResTypeStatefulSet                = "statefulset"
 	MaxConcurrentReconciles                 = 8
 	NSXOperatorError                        = "nsx-op/error"
 	//sync the error with NCP side

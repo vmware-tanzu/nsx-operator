@@ -222,3 +222,144 @@ func Test_subnetPortIndexByCRUID(t *testing.T) {
 		})
 	}
 }
+
+func Test_subnetPortIndexByStatefulSetUID(t *testing.T) {
+	type args struct {
+		obj interface{}
+	}
+	stsUIDScope := "nsx-op/sts_uid"
+	stsUID := "sts-uid-123"
+	tests := []struct {
+		name           string
+		expectedResult []string
+		expectedErr    string
+		args           args
+	}{
+		{
+			name:           "Success",
+			expectedResult: []string{stsUID},
+			args: args{obj: &model.VpcSubnetPort{
+				Tags: []model.Tag{
+					{
+						Scope: &stsUIDScope,
+						Tag:   &stsUID,
+					},
+				},
+			}},
+		},
+		{
+			name:        "Failure",
+			expectedErr: "subnetPortIndexByStatefulSetUID doesn't support unknown type",
+			args:        args{obj: &stsUID},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := subnetPortIndexByStatefulSetUID(tt.args.obj)
+			if tt.expectedErr != "" {
+				assert.EqualError(t, err, tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedResult, result)
+			}
+		})
+	}
+}
+
+func Test_subnetPortIndexByStatefulSetName(t *testing.T) {
+	type args struct {
+		obj interface{}
+	}
+	stsNameScope := "nsx-op/sts_name"
+	stsName := "test-sts"
+	tests := []struct {
+		name           string
+		expectedResult []string
+		expectedErr    string
+		args           args
+	}{
+		{
+			name:           "Success",
+			expectedResult: []string{stsName},
+			args: args{obj: &model.VpcSubnetPort{
+				Tags: []model.Tag{
+					{
+						Scope: &stsNameScope,
+						Tag:   &stsName,
+					},
+				},
+			}},
+		},
+		{
+			name:        "Failure",
+			expectedErr: "subnetPortIndexByStatefulSetName doesn't support unknown type",
+			args:        args{obj: &stsName},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := subnetPortIndexByStatefulSetName(tt.args.obj)
+			if tt.expectedErr != "" {
+				assert.EqualError(t, err, tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedResult, result)
+			}
+		})
+	}
+}
+
+func Test_subnetPortIndexBySts(t *testing.T) {
+	type args struct {
+		obj interface{}
+	}
+	stsUIDScope := "nsx-op/sts_uid"
+	stsUID := "sts-uid-123"
+	tests := []struct {
+		name           string
+		expectedResult []string
+		expectedErr    string
+		args           args
+	}{
+		{
+			name:           "STS port - should return bucket",
+			expectedResult: []string{"allStsPorts"},
+			args: args{obj: &model.VpcSubnetPort{
+				Tags: []model.Tag{
+					{
+						Scope: &stsUIDScope,
+						Tag:   &stsUID,
+					},
+				},
+			}},
+		},
+		{
+			name:           "Non-STS port - should return nil",
+			expectedResult: nil,
+			args: args{obj: &model.VpcSubnetPort{
+				Tags: []model.Tag{},
+			}},
+		},
+		{
+			name:           "Nil port",
+			expectedResult: nil,
+			args:           args{obj: (*model.VpcSubnetPort)(nil)},
+		},
+		{
+			name:        "Failure - unknown type",
+			expectedErr: "subnetPortIndexBySts doesn't support unknown type",
+			args:        args{obj: "invalid"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := subnetPortIndexBySts(tt.args.obj)
+			if tt.expectedErr != "" {
+				assert.EqualError(t, err, tt.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tt.expectedResult, result)
+			}
+		})
+	}
+}
