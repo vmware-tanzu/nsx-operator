@@ -88,7 +88,10 @@ func setupStore() *SubnetPortStore {
 					servicecommon.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					servicecommon.TagScopeNamespace:       subnetPortIndexPodNamespace,
 					// Use Subnet Path instead of Subnet ID as shared Subnet ID on different VPC can be the same
-					servicecommon.IndexKeySubnetPath: subnetPortIndexBySubnetPath,
+					servicecommon.IndexKeySubnetPath:      subnetPortIndexBySubnetPath,
+					servicecommon.TagScopeStatefulSetUID:  subnetPortIndexByStatefulSetUID,
+					servicecommon.TagScopeStatefulSetName: subnetPortIndexByStatefulSetName,
+					servicecommon.IndexKeyAllStsPorts:     subnetPortIndexBySts,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
@@ -293,6 +296,9 @@ func (service *SubnetPortService) GetSubnetPortState(nsxSubnetPortID string, nsx
 }
 
 func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubnetPort) error {
+	if nsxSubnetPort.Path == nil {
+		return errors.New("subnet port path is nil")
+	}
 	subnetPortInfo, _ := servicecommon.ParseVPCResourcePath(*nsxSubnetPort.Path)
 	err := service.NSXClient.PortClient.Delete(subnetPortInfo.OrgID, subnetPortInfo.ProjectID, subnetPortInfo.VPCID, subnetPortInfo.ParentID, *nsxSubnetPort.Id)
 	err = nsxutil.TransNSXApiError(err)
@@ -397,6 +403,9 @@ func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) [
 
 func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string) []*model.VpcSubnetPort {
 	var result []*model.VpcSubnetPort
+	if service.SubnetPortStore == nil {
+		return result
+	}
 	subnetports := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeNamespace, ns)
 	for _, subnetport := range subnetports {
 		tagname := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopePodName)
@@ -417,6 +426,36 @@ func (service *SubnetPortService) ResetSubnetTotalIP(path string) {
 	info.lock.Lock()
 	defer info.lock.Unlock()
 	info.totalIP = 0
+}
+
+func (service *SubnetPortService) ListSubnetPortByStsName(ns string, stsName string) []*model.VpcSubnetPort {
+	var result []*model.VpcSubnetPort
+	if service.SubnetPortStore == nil {
+		return result
+	}
+	subnetports := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeStatefulSetName, stsName)
+	for _, subnetport := range subnetports {
+		tagname := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeNamespace)
+		if tagname == ns {
+			result = append(result, subnetport)
+		}
+	}
+	return result
+}
+
+func (service *SubnetPortService) ListSubnetPortByStsUid(ns string, stsUid string) []*model.VpcSubnetPort {
+	var result []*model.VpcSubnetPort
+	if service.SubnetPortStore == nil {
+		return result
+	}
+	subnetports := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeStatefulSetUID, stsUid)
+	for _, subnetport := range subnetports {
+		tagname := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeNamespace)
+		if tagname == ns {
+			result = append(result, subnetport)
+		}
+	}
+	return result
 }
 
 // AllocatePortFromSubnet checks the number of SubnetPorts on the Subnet.

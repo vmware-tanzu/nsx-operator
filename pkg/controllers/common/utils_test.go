@@ -1150,3 +1150,27 @@ func TestGetDefaultAccessMode(t *testing.T) {
 		})
 	}
 }
+
+func TestPodIsDeleted(t *testing.T) {
+	now := metav1.Now()
+	tests := []struct {
+		name string
+		pod  *v1.Pod
+		want bool
+	}{
+		{"nil", nil, false},
+		{"running", &v1.Pod{Status: v1.PodStatus{Phase: v1.PodRunning}}, false},
+		{"pending", &v1.Pod{Status: v1.PodStatus{Phase: v1.PodPending}}, false},
+		{"terminating_running", &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &now, Finalizers: []string{"x"}},
+			Status:     v1.PodStatus{Phase: v1.PodRunning},
+		}, false},
+		{"succeeded", &v1.Pod{Status: v1.PodStatus{Phase: v1.PodSucceeded}}, true},
+		{"failed", &v1.Pod{Status: v1.PodStatus{Phase: v1.PodFailed}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, PodIsDeleted(tt.pod))
+		})
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -684,4 +685,69 @@ func TestValidateSubnetSize(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildBasicTagsWithStatefulSetPod(t *testing.T) {
+	cluster := "test-cluster"
+	namespaceID := types.UID("ns-uid-123")
+
+	controller := true
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod-0",
+			Namespace: "default",
+			UID:       "pod-uid-123",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Kind:       appsv1.SchemeGroupVersion.WithKind("StatefulSet").Kind,
+					Name:       "test-sts",
+					UID:        "sts-uid-123",
+					Controller: &controller,
+				},
+			},
+		},
+	}
+
+	tags := BuildBasicTags(cluster, pod, namespaceID)
+
+	assert.Len(t, tags, 8)
+	foundCluster := false
+	foundVersion := false
+	foundNamespace := false
+	foundPodName := false
+	foundPodUID := false
+	foundStsName := false
+	foundStsUID := false
+
+	for _, tag := range tags {
+		if *tag.Scope == common.TagScopeCluster && *tag.Tag == cluster {
+			foundCluster = true
+		}
+		if *tag.Scope == common.TagScopeVersion {
+			foundVersion = true
+		}
+		if *tag.Scope == common.TagScopeNamespace && *tag.Tag == "default" {
+			foundNamespace = true
+		}
+		if *tag.Scope == common.TagScopePodName && *tag.Tag == "test-pod-0" {
+			foundPodName = true
+		}
+		if *tag.Scope == common.TagScopePodUID && *tag.Tag == "pod-uid-123" {
+			foundPodUID = true
+		}
+		if *tag.Scope == common.TagScopeStatefulSetName && *tag.Tag == "test-sts" {
+			foundStsName = true
+		}
+		if *tag.Scope == common.TagScopeStatefulSetUID && *tag.Tag == "sts-uid-123" {
+			foundStsUID = true
+		}
+	}
+
+	assert.True(t, foundCluster, "should have cluster tag")
+	assert.True(t, foundVersion, "should have version tag")
+	assert.True(t, foundNamespace, "should have namespace tag")
+	assert.True(t, foundPodName, "should have pod name tag")
+	assert.True(t, foundPodUID, "should have pod uid tag")
+	assert.True(t, foundStsName, "should have statefulset name tag")
+	assert.True(t, foundStsUID, "should have statefulset uid tag")
 }

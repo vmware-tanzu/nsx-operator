@@ -61,6 +61,8 @@ type Cluster struct {
 	sync.Mutex
 	nsxVersion         *NsxVersion
 	lastTimeGetVersion time.Time
+	// onNodeVersionChanged is invoked after a successful HTTP refresh when node_version changes (non-empty old and new, and different).
+	onNodeVersionChanged func(oldVersion, newVersion string)
 }
 type NsxVersion struct {
 	NodeVersion string `json:"node_version"`
@@ -356,10 +358,24 @@ func (cluster *Cluster) Health() ClusterHealth {
 	return ORANGE
 }
 
+// SetOnNodeVersionChanged registers a callback run after GetVersion successfully refreshes
+// from NSX and detects a non-empty node_version change. Used to invalidate client-side
+// feature caches. Safe to call once during operator init; fn may be nil to clear.
+func (cluster *Cluster) SetOnNodeVersionChanged(fn func(oldVersion, newVersion string)) {
+	cluster.Mutex.Lock()
+	defer cluster.Mutex.Unlock()
+	cluster.onNodeVersionChanged = fn
+}
+
 func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	if cluster.nsxVersion != nil && len(cluster.nsxVersion.NodeVersion) > 0 && time.Since(cluster.lastTimeGetVersion) < GetNsxVersionInterval {
 		log.Debug("Get version from cache", "version", cluster.nsxVersion.NodeVersion)
 		return cluster.nsxVersion, nil
+	}
+
+	oldVersion := ""
+	if cluster.nsxVersion != nil {
+		oldVersion = cluster.nsxVersion.NodeVersion
 	}
 
 	ep := cluster.endpoints[0]
@@ -384,6 +400,18 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 	err, _ = util.HandleHTTPResponse(resp, cluster.nsxVersion, true)
 	if err == nil {
 		cluster.lastTimeGetVersion = time.Now()
+		newVersion := ""
+		if cluster.nsxVersion != nil {
+			newVersion = cluster.nsxVersion.NodeVersion
+		}
+		if oldVersion != "" && newVersion != "" && oldVersion != newVersion {
+			cluster.Mutex.Lock()
+			cb := cluster.onNodeVersionChanged
+			cluster.Mutex.Unlock()
+			if cb != nil {
+				cb(oldVersion, newVersion)
+			}
+		}
 	} else {
 		cluster.nsxVersion = &NsxVersion{}
 	}
@@ -536,6 +564,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 		validFeature = true
 	case StaticIPReservation:
 		minVersion = nsx920Version
+		validFeature = true
+	case StatefulSetPod:
+		minVersion = nsx912Version
 		validFeature = true
 	}
 

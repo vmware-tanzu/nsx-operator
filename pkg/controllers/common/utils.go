@@ -592,3 +592,13 @@ func IsTepLessMode(k8sClient k8sclient.Client, ctx context.Context, ns string) (
 	}
 	return false, nil
 }
+
+// PodIsDeleted reports whether the Pod has reached a terminal phase (Succeeded / Failed).
+// Used by the Pod reconciler and StatefulSet subnet-port cleanup for aligned release semantics.
+func PodIsDeleted(pod *v1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	return pod.Status.Phase == v1.PodSucceeded ||
+		pod.Status.Phase == v1.PodFailed
+}

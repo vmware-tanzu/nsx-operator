@@ -15,6 +15,7 @@ import (
 	mapset "github.com/deckarep/golang-set"
 	"github.com/google/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -383,6 +384,12 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopePodName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopePodUID), Tag: String(string(i.UID))})
+		// StatefulSet is the controller ref on pods it creates (see metav1.GetControllerOf).
+		stsKind := appsv1.SchemeGroupVersion.WithKind("StatefulSet").Kind
+		if ref := metav1.GetControllerOf(i); ref != nil && ref.Kind == stsKind {
+			tags = append(tags, model.Tag{Scope: String(common.TagScopeStatefulSetName), Tag: String(ref.Name)})
+			tags = append(tags, model.Tag{Scope: String(common.TagScopeStatefulSetUID), Tag: String(string(ref.UID))})
+		}
 	case *v1alpha1.NetworkInfo:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 	case *v1alpha1.IPAddressAllocation:
