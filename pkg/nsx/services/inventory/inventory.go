@@ -36,6 +36,8 @@ type InventoryService struct {
 	pendingDelete map[string]interface{}
 
 	stalePods map[string]interface{}
+
+	taggedVMs map[string]string // key: externalID (instanceUUID), value: clusterName tag
 }
 
 func InitializeService(service commonservice.Service, cleanup bool) (*InventoryService, error) {
@@ -50,6 +52,7 @@ func NewInventoryService(service commonservice.Service) *InventoryService {
 		pendingAdd:    make(map[string]interface{}),
 		pendingDelete: make(map[string]interface{}),
 		stalePods:     make(map[string]interface{}),
+		taggedVMs:     make(map[string]string),
 	}
 
 	// TODO, Inventory store should have its own store
@@ -157,6 +160,10 @@ func (s *InventoryService) SyncInventoryStoreByType(clusterUUID string) error {
 	if err != nil {
 		return err
 	}
+	err = s.initTaggedVMs()
+	if err != nil {
+		return err
+	}
 	return nil
 
 }
@@ -203,6 +210,11 @@ func (s *InventoryService) SyncInventoryObject(bufferedKeys sets.Set[InventoryKe
 			}
 		case ContainerNetworkPolicy:
 			retryKey := s.SyncContainerNetworkPolicy(name, namespace, key)
+			if retryKey != nil {
+				retryKeys.Insert(*retryKey)
+			}
+		case InventoryVirtualMachine:
+			retryKey := s.SyncVirtualMachineTag(name, namespace, key)
 			if retryKey != nil {
 				retryKeys.Insert(*retryKey)
 			}
