@@ -541,6 +541,7 @@ func Test_ExpandRule(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			config.SetMixedModeStateForTest(!tc.vpcEnabled, tc.vpcEnabled)
 			// Initial the security policy related tags. This is executed in `InitializeSecurityPolicy` in
 			// function logic.
 			if tc.vpcEnabled {
@@ -560,6 +561,7 @@ func Test_ExpandRule(t *testing.T) {
 						},
 					},
 				},
+				VPCMode:    tc.vpcEnabled,
 				vpcService: &mockVPCService,
 			}
 			svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)

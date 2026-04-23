@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -81,9 +80,6 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
-	})
-	patches.ApplyFunc(securitypolicy.IsVPCEnabled, func(_ interface{}) bool {
-		return false
 	})
 	defer patches.Reset()
 

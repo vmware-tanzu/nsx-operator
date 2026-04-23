@@ -130,7 +130,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	}
 	wrapInitializeSecurityPolicy := func(service common.Service) cleanupFunc {
 		return func() (interface{}, error) {
-			return securitypolicy.InitializeSecurityPolicy(service, vpcService, true)
+			return securitypolicy.InitializeSecurityPolicy(service, vpcService, true, true)
 		}
 	}
 	wrapInitializeVPC := func(service common.Service) cleanupFunc {
