@@ -13,6 +13,7 @@
 - [AddressBinding](#addressbinding)
 - [IPAddressAllocation](#ipaddressallocation)
 - [IPBlocksInfo](#ipblocksinfo)
+- [NAT](#nat)
 - [NetworkInfo](#networkinfo)
 - [SecurityPolicy](#securitypolicy)
 - [StaticRoute](#staticroute)
@@ -104,6 +105,7 @@ Condition defines condition of custom resource.
 _Appears in:_
 - [AddressBindingStatus](#addressbindingstatus)
 - [IPAddressAllocationStatus](#ipaddressallocationstatus)
+- [NATStatus](#natstatus)
 - [SecurityPolicyStatus](#securitypolicystatus)
 - [StaticRouteCondition](#staticroutecondition)
 - [SubnetConnectionBindingMapStatus](#subnetconnectionbindingmapstatus)
@@ -365,6 +367,88 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `start` _string_ | The start IP Address of the IP Range. |  |  |
 | `end` _string_ | The end IP Address of the IP Range. |  |  |
+
+
+#### NAT
+
+
+
+NAT is the Schema for configuring SNAT or DNAT on a VPC (one action per object).
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `NAT` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[NATSpec](#natspec)_ |  |  |  |
+| `status` _[NATStatus](#natstatus)_ |  |  |  |
+
+
+#### NATAction
+
+_Underlying type:_ _string_
+
+NATAction defines the direction of NAT for this object. Each NAT CR uses exactly one action.
+
+
+
+_Appears in:_
+- [NATSpec](#natspec)
+
+| Field | Description |
+| --- | --- |
+| `SNAT` |  |
+| `DNAT` |  |
+
+
+#### NATSpec
+
+
+
+NATSpec defines the desired state of NAT.
+translatedNetworkAllocation vs translatedNetwork, and destinationNetworkAllocation vs destinationNetwork, are mutually exclusive pairs.
+Allocation fields reference an IPAddressAllocation CR by metadata.name in the same namespace as this NAT.
+
+
+SNAT is modeled with sourceNetwork plus a translated side (allocation or literal). DNAT adds a destination side.
+If you later need destination-specific SNAT, extend this spec explicitly rather than overloading DNAT-only fields.
+
+
+
+_Appears in:_
+- [NAT](#nat)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `action` _[NATAction](#nataction)_ | Action is the NAT direction. One of SNAT or DNAT; create separate NAT objects if both are needed. |  | Enum: [SNAT DNAT] <br /> |
+| `sourceNetwork` _string_ | SourceNetwork is the source CIDR or IP for SNAT (required when action is SNAT).<br />Changing this in place can break existing sessions; treat updates as invalid and recreate the NAT if needed. |  |  |
+| `translatedNetworkAllocation` _string_ | TranslatedNetworkAllocation is the metadata.name of an IPAddressAllocation in the same namespace<br />whose allocated address is used as the post-NAT address on the translated side (mutually exclusive with TranslatedNetwork). |  |  |
+| `translatedNetwork` _string_ | TranslatedNetwork is a literal IP or CIDR for the translated side (mutually exclusive with TranslatedNetworkAllocation). |  |  |
+| `destinationNetworkAllocation` _string_ | DestinationNetworkAllocation is the metadata.name of an IPAddressAllocation in the same namespace<br />for the destination side on DNAT (mutually exclusive with DestinationNetwork). |  |  |
+| `destinationNetwork` _string_ | DestinationNetwork is a literal IP or CIDR for the destination side on DNAT (mutually exclusive with DestinationNetworkAllocation). |  |  |
+
+
+#### NATStatus
+
+
+
+NATStatus defines the observed state of NAT.
+Conditions use the shared Condition type (same as other vpc v1alpha1 CRDs).
+Controllers should use the Ready condition (Reason/Message carry finer-grained states until more condition types are needed).
+
+
+
+_Appears in:_
+- [NAT](#nat)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](#condition) array_ |  |  |  |
+| `realizedCIDR` _string_ | RealizedCIDR surfaces the effective IP or CIDR after realization (especially useful when spec only names an IPAddressAllocation). |  |  |
 
 
 #### NetworkInfo
