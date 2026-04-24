@@ -185,6 +185,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 	VPCInfo1[0].ProjectID = "default"
 	VPCInfo1[0].VPCID = "vpc1"
 
+	config.SetMixedModeStateForTest(false, true)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 	mockVPCService := mock.MockVPCServiceProvider{}
@@ -436,6 +437,7 @@ func Test_BuildSecurityPolicyForVPC(t *testing.T) {
 }
 
 func Test_BuildPolicyGroupForT1(t *testing.T) {
+	config.SetMixedModeStateForTest(true, false)
 	tests := []struct {
 		name                    string
 		inputPolicy             *v1alpha1.SecurityPolicy
@@ -452,8 +454,16 @@ func Test_BuildPolicyGroupForT1(t *testing.T) {
 		},
 	}
 	s := &SecurityPolicyService{
-		Service: common.Service{},
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster:          "k8scl-one",
+					EnableVPCNetwork: false,
+				},
+			},
+		},
 	}
+	s.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
@@ -461,7 +471,7 @@ func Test_BuildPolicyGroupForT1(t *testing.T) {
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedGroup, observedGroupPath, _ := service.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy, nil)
+			observedGroup, observedGroupPath, _ := s.buildPolicyGroup(tt.inputPolicy, common.ResourceTypeSecurityPolicy, nil)
 			assert.Equal(t, tt.expectedPolicyGroupID, observedGroup.Id)
 			assert.Equal(t, tt.expectedPolicyGroupName, observedGroup.DisplayName)
 			assert.Equal(t, tt.expectedPolicyGroupPath, observedGroupPath)
@@ -470,6 +480,7 @@ func Test_BuildPolicyGroupForT1(t *testing.T) {
 }
 
 func Test_BuildPolicyGroupForVPC(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "project1"
@@ -518,10 +529,19 @@ func Test_BuildPolicyGroupForVPC(t *testing.T) {
 }
 
 func Test_BuildTargetTags(t *testing.T) {
+	config.SetMixedModeStateForTest(true, false)
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
 
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
+	svc := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "k8scl-one", EnableVPCNetwork: false},
+			},
+		},
+	}
+	svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+	ruleTagID0 := svc.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -590,24 +610,30 @@ func Test_BuildTargetTags(t *testing.T) {
 			},
 		},
 	}
-	s := &SecurityPolicyService{
-		Service: common.Service{},
-	}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&svc.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ruleBaseID := service.buildRuleID(tt.inputPolicy, tt.inputIndex, common.ResourceTypeSecurityPolicy)
-			assert.ElementsMatch(t, tt.expectedTags, service.buildTargetTags(tt.inputPolicy, tt.inputTargets, ruleBaseID, common.ResourceTypeSecurityPolicy))
+			ruleBaseID := svc.buildRuleID(tt.inputPolicy, tt.inputIndex, common.ResourceTypeSecurityPolicy)
+			assert.ElementsMatch(t, tt.expectedTags, svc.buildTargetTags(tt.inputPolicy, tt.inputTargets, ruleBaseID, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
 
 func Test_BuildPeerTags(t *testing.T) {
-	ruleTagID0 := service.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
+	config.SetMixedModeStateForTest(true, false)
+	svc := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "k8scl-one", EnableVPCNetwork: false},
+			},
+		},
+	}
+	svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+	ruleTagID0 := svc.buildRuleID(&spWithPodSelector, 0, common.ResourceTypeSecurityPolicy)
 	tests := []struct {
 		name         string
 		inputPolicy  *v1alpha1.SecurityPolicy
@@ -656,17 +682,14 @@ func Test_BuildPeerTags(t *testing.T) {
 			},
 		},
 	}
-	s := &SecurityPolicyService{
-		Service: common.Service{},
-	}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&svc.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
 			return types.UID(tagValueNSUID)
 		})
 	defer patches.Reset()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.ElementsMatch(t, tt.expectedTags, service.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], ruleTagID0, true, VPCScopeGroup, common.ResourceTypeSecurityPolicy))
+			assert.ElementsMatch(t, tt.expectedTags, svc.buildPeerTags(tt.inputPolicy, &tt.inputPolicy.Spec.Rules[0], ruleTagID0, true, VPCScopeGroup, common.ResourceTypeSecurityPolicy))
 		})
 	}
 }
@@ -1357,6 +1380,7 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			config.SetMixedModeStateForTest(!tt.vpcEnabled, tt.vpcEnabled)
 			svc.NSXConfig.EnableVPCNetwork = tt.vpcEnabled
 			ruleBaseID := svc.buildRuleID(tt.inputSecurityPolicy, tt.ruleIdx, common.ResourceTypeSecurityPolicy)
 			observedRuleID := svc.buildExpandedRuleID(tt.inputSecurityPolicy, tt.ruleIdx, ruleBaseID, tt.namedPort)
@@ -1515,6 +1539,7 @@ func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			config.SetMixedModeStateForTest(!tc.vpcEnabled, tc.vpcEnabled)
 			svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
 			svc.NSXConfig.EnableVPCNetwork = tc.vpcEnabled
 			if tc.existingSecurityPolicy != nil {
@@ -1611,6 +1636,7 @@ func Test_BuildGroupIDAndName(t *testing.T) {
 			},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
+				config.SetMixedModeStateForTest(!tc.enableVPC, tc.enableVPC)
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
 				dispName := svc.buildRulePeerGroupName(obj, tc.ruleIdx, tc.isSource)
 				assert.Equal(t, tc.expName, dispName)
@@ -1673,6 +1699,7 @@ func Test_BuildGroupIDAndName(t *testing.T) {
 			},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
+				config.SetMixedModeStateForTest(!tc.enableVPC, tc.enableVPC)
 				svc.NSXConfig.EnableVPCNetwork = tc.enableVPC
 				id, dispName := svc.buildAppliedGroupIDAndName(obj, tc.ruleIdx, tc.ruleBasedID, common.ResourceTypeNetworkPolicy)
 				assert.Equal(t, tc.expId, id)
@@ -1878,6 +1905,7 @@ func Test_dedupBlocks(t *testing.T) {
 }
 
 func Test_getAppliedGroupByRuleID(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
@@ -1971,6 +1999,7 @@ func Test_getAppliedGroupByRuleID(t *testing.T) {
 }
 
 func Test_getPeerGroupByRuleID(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
@@ -2101,6 +2130,7 @@ func Test_getPeerGroupByRuleID(t *testing.T) {
 }
 
 func Test_getRuleIDByUUIDAndRuleHash(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 	common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
@@ -2287,6 +2317,7 @@ func Test_buildRuleID(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			config.SetMixedModeStateForTest(!tt.enableVPC, tt.enableVPC)
 			service := fakeSecurityPolicyService()
 			service.NSXConfig.EnableVPCNetwork = tt.enableVPC
 
