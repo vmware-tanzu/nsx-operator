@@ -53,6 +53,16 @@ spec:
           spec:
             description: SubnetIPReservationSpec defines the desired state of SubnetIPReservation
             properties:
+              ipAddressType:
+                description: IPAddressType defines the IP address type of the SubnetIPReservation.
+                enum:
+                - IPV4
+                - IPV6
+                - IPV4IPV6
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               numberOfIPs:
                 description: NumberOfIPs defines number of IPs requested to be reserved.
                 maximum: 100
@@ -65,7 +75,8 @@ spec:
                 description: |-
                   ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,
                   IP Address range and CIDRs.
-                  Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"]
+                  Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28",
+                  "2001:db8::1", "2001:db8::1-2001:db8::ff", "2001:db8::1/64"]
                 items:
                   type: string
                 minItems: 1
@@ -90,6 +101,8 @@ spec:
               rule: '!has(oldSelf.reservedIPs) || has(self.reservedIPs)'
             - message: numberOfIPs cannot be unset once set
               rule: '!has(oldSelf.numberOfIPs) || has(self.numberOfIPs)'
+            - message: ipAddressType can only be set when numberOfIPs is specified
+              rule: '!has(self.ipAddressType) || has(self.numberOfIPs)'
           status:
             description: SubnetIPReservationStatus defines the observed state of SubnetIPReservation
             properties:

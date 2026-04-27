@@ -12,6 +12,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="has(self.numberOfIPs) || has(self.reservedIPs)",message="One of numberOfIPs or reservedIPs must be specified"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.reservedIPs) || has(self.reservedIPs)",message="reservedIPs cannot be unset once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.numberOfIPs) || has(self.numberOfIPs)",message="numberOfIPs cannot be unset once set"
+// +kubebuilder:validation:XValidation:rule="!has(self.ipAddressType) || has(self.numberOfIPs)",message="ipAddressType can only be set when numberOfIPs is specified"
 type SubnetIPReservationSpec struct {
 	// Subnet specifies the Subnet to reserve IPs from.
 	// The Subnet needs to have static IP allocation activated.
@@ -27,9 +28,15 @@ type SubnetIPReservationSpec struct {
 
 	// ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,
 	// IP Address range and CIDRs.
-	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"]
+	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28",
+	// "2001:db8::1", "2001:db8::1-2001:db8::ff", "2001:db8::1/64"]
 	// +kubebuilder:validation:MinItems=1
 	ReservedIPs []string `json:"reservedIPs,omitempty"`
+
+	// IPAddressType defines the IP address type of the SubnetIPReservation.
+	// +kubebuilder:validation:Enum=IPV4;IPV6;IPV4IPV6
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	IPAddressType string `json:"ipAddressType,omitempty"`
 }
 
 // SubnetIPReservationStatus defines the observed state of SubnetIPReservation
