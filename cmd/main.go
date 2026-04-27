@@ -58,6 +58,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -192,6 +193,11 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
 		}
+		dnsRecordService, err := dns.InitializeDNSRecordService(commonService, vpcService)
+		if err != nil {
+			log.Error(err, "Failed to initialize DNS record service", "controller", "DNS")
+			os.Exit(1)
+		}
 		ipblocksInfoService := ipblocksinfo.InitializeIPBlocksInfoService(commonService, subnetService)
 
 		subnetBindingService, err := subnetbindingservice.InitializeService(commonService)
@@ -241,7 +247,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
 			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
-			service.NewServiceLbReconciler(mgr, commonService),
+			service.NewServiceLbReconciler(mgr, commonService, dnsRecordService),
 			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
 			subnetipreservationcontroller.NewReconciler(mgr, subnetIPReservationService, subnetService),
 		)

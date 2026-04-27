@@ -93,6 +93,20 @@ const (
 	TagValueShareNotCreated            string = "notShared"
 	TagValueDLB                        string = "DLB"
 	TagValueSLB                        string = "SLB"
+	TagScopeDNSRecordFor               string = "nsx-op/dns_for" // value: gateway, service, xxroutes
+	TagScopeDNSRecordGatewayIndexList  string = "nsx-op/dns_gateway_index_list"
+	TagScopeDNSRecordOwnerNamespace    string = "nsx-op/dns_owner_namespace"
+	TagScopeDNSRecordOwnerName         string = "nsx-op/dns_owner_name"
+	TagScopeDNSRecordContributingOwners string = "nsx-op/dns_contributing_owners"
+	TagValueDNSRecordForGateway        string = "gateway"
+	TagValueDNSRecordForHTTPRoute      string = "httproute"
+	TagValueDNSRecordForGRPCRoute      string = "grpcroute"
+	TagValueDNSRecordForTLSRoute       string = "tlsroute"
+	TagValueDNSRecordForService        string = "service"
+	AnnotationDNSHostnameKey           string = "nsx.vmware.com/hostname"
+	AnnotationDNSHostnameSourceKey     string = "nsx.vmware.com/gateway-hostname-source"
+	AnnotationsDNSIgnoreGateway        string = "nsx.vmware.com/gateway-ignore"
+
 	TagValueL3InVlanBackedVPCMode      string = "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
@@ -210,6 +224,10 @@ var (
 	ResourceTypeSubnetConnectionBindingMap       = "SubnetConnectionBindingMap"
 	ResourceTypeDynamicIpAddressReservation      = "DynamicIpAddressReservation"
 	ResourceTypeStaticIpAddressReservation       = "StaticIpAddressReservation"
+
+	// DNS Policy resources (NSX search resource_type values; adjust when product/API finalizes).
+	ResourceTypeDNSRecord = "DnsRecord"
+	ResourceTypeDNSZone   = "DnsZone"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"
