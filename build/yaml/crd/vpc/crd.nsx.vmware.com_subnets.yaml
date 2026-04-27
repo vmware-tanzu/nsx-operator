@@ -113,13 +113,13 @@ spec:
                     type: object
                 type: object
               ipAddressType:
-                default: IPV4
+                default: IPv4
                 description: IPAddressType defines the IP address type that will be
                   allocated for the Subnet.
                 enum:
-                - IPV4
-                - IPV6
-                - IPV4IPV6
+                - IPv4
+                - IPv6
+                - IPv4IPv6
                 type: string
               ipAddresses:
                 description: Subnet CIDRS.

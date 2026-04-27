@@ -72,13 +72,12 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipAddressType:
-                default: IPV4
                 description: IPAddressType defines the IP address type that will be
                   allocated for subnets in the SubnetSet.
                 enum:
-                - IPV4
-                - IPV6
-                - IPV4IPV6
+                - IPv4
+                - IPv6
+                - IPv4IPv6
                 type: string
               ipv4SubnetSize:
                 description: Size of IPv4 Subnet based upon estimated workload count.
