@@ -60,6 +60,31 @@ linters:
           - staticcheck
         # v1.EndpointSubset is deprecated in k8s v1.33+; same migration scope as above.
         text: "SA1019: v1.EndpointSubset is deprecated"
+      # Generated / conventional mock packages use underscores (mock_client, mock_manager).
+      - linters:
+          - revive
+        path: ^pkg/mock/controller-runtime/
+        text: "var-naming: don't use an underscore in package name"
+      # Stable public type name; renaming would churn API and imports across the repo.
+      - linters:
+          - revive
+        path: ^pkg/controllers/gateway/gateway_controller\.go$
+        text: "exported: type name will be used as gateway.GatewayReconciler"
+      # Intentional internal cache type; exporting would widen surface without benefit.
+      - linters:
+          - revive
+        path: ^pkg/controllers/gateway/gateway_ip_cache\.go$
+        text: "unexported-return:"
+      # NSX / SDK-aligned field names on stub models.
+      - linters:
+          - revive
+        path: ^pkg/nsx/services/dns/model\.go$
+        text: "var-naming:"
+      # Established service type name used across controllers.
+      - linters:
+          - revive
+        path: ^pkg/nsx/services/dns/recordservice\.go$
+        text: "exported: type name will be used as dns.DNSRecordService"
 
 formatters:
   enable:
