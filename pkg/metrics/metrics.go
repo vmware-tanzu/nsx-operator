@@ -35,6 +35,14 @@ var (
 			Help:      "Last health status for NSX-Operator. 1 for 'status' label with current status.",
 		},
 	)
+	NSXAntreaOperatorHealthStats = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: MetricNamespace,
+			Subsystem: MetricSubsystem,
+			Name:      "nsx_antrea_operator_health_status",
+			Help:      "Last health status for NSX-Antrea-Operator. 1 for 'status' label with current status.",
+		},
+	)
 	ControllerSyncTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: MetricNamespace,
@@ -114,6 +122,20 @@ func InitializePrometheusMetrics() {
 	log.Info("Initializing prometheus metrics")
 	Register(
 		NSXOperatorHealthStats,
+		ControllerSyncTotal,
+		ControllerUpdateTotal,
+		ControllerUpdateSuccessTotal,
+		ControllerUpdateFailTotal,
+		ControllerDeleteTotal,
+		ControllerDeleteSuccessTotal,
+		ControllerDeleteFailTotal,
+	)
+}
+
+func InitializeNSXAntreaOperatorPrometheusMetrics() {
+	log.Info("Initializing prometheus metrics")
+	Register(
+		NSXAntreaOperatorHealthStats,
 		ControllerSyncTotal,
 		ControllerUpdateTotal,
 		ControllerUpdateSuccessTotal,
