@@ -12,6 +12,7 @@ import (
 
 const (
 	InvalidLicenseErrorCode                   = 505
+	CCPConnectionCapacityFullErrorCode        = 610139 // NSX cluster control plane connection capacity full
 	ProviderNotReadyErrorCode                 = 500042
 	PendingDeleteErrorCode                    = 500045
 	IPAllocationErrorCode                     = 8212
