@@ -5,6 +5,7 @@ package nsxserviceaccount
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -23,7 +24,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -106,6 +106,170 @@ func (s *NSXServiceAccountService) SetUpStore() {
 	}}
 }
 
+type secretOwnership int
+
+const (
+	secretOwnedByCurrentCR secretOwnership = iota
+	secretOwnedByOlderCR
+	secretOwnedByOther
+)
+
+func evaluateSecretOwnership(secret *v1.Secret, obj *v1alpha1.NSXServiceAccount) secretOwnership {
+	kind := obj.Kind
+	if kind == "" {
+		kind = "NSXServiceAccount"
+	}
+	for _, ref := range secret.OwnerReferences {
+		if ref.UID == obj.UID {
+			return secretOwnedByCurrentCR
+		}
+		if (ref.Kind == kind || ref.Kind == "NSXServiceAccount") && ref.Name == obj.Name {
+			return secretOwnedByOlderCR
+		}
+	}
+	return secretOwnedByOther
+}
+
+// validateServiceAccountSecretIdentity checks that credentials still belong to this account.
+func validateServiceAccountSecretIdentity(secret *v1.Secret, obj *v1alpha1.NSXServiceAccount, expectedUID types.UID) error {
+	if expectedUID != "" && secret.UID != expectedUID {
+		return fmt.Errorf("secret %s/%s was replaced concurrently (UID changed from %s to %s)", secret.Namespace, secret.Name, expectedUID, secret.UID)
+	}
+	if !secret.DeletionTimestamp.IsZero() {
+		return fmt.Errorf("secret %s/%s is being deleted, retrying later", secret.Namespace, secret.Name)
+	}
+	if evaluateSecretOwnership(secret, obj) != secretOwnedByCurrentCR {
+		return fmt.Errorf("secret %s/%s is no longer owned by current NSXServiceAccount %s (UID %s)", secret.Namespace, secret.Name, obj.Name, obj.UID)
+	}
+	return nil
+}
+
+// reusableServiceAccountCertificate validates credentials before reusing them on a retry.
+func reusableServiceAccountCertificate(secret *v1.Secret, rotate bool, now time.Time) bool {
+	pair, err := tls.X509KeyPair(secret.Data[SecretCertName], secret.Data[SecretKeyName])
+	if err != nil || len(pair.Certificate) == 0 {
+		return false
+	}
+	cert, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil || now.Before(cert.NotBefore) || !now.Before(cert.NotAfter) {
+		return false
+	}
+	return !rotate || !now.AddDate(0, 0, util.DefaultRotateDays).After(cert.NotAfter)
+}
+
+// ensureServiceAccountSecret persists usable credentials before NSX is updated.
+func (s *NSXServiceAccountService) ensureServiceAccountSecret(ctx context.Context, obj *v1alpha1.NSXServiceAccount, normalizedClusterName string) (*v1.Secret, error) {
+	secretName := obj.Name + SecretSuffix
+	secretNamespace := obj.Namespace
+
+	kind := obj.Kind
+	if kind == "" {
+		kind = "NSXServiceAccount"
+	}
+	apiVersion := obj.APIVersion
+	if apiVersion == "" {
+		apiVersion = v1alpha1.SchemeGroupVersion.String()
+	}
+
+	// 1. Inspect existing Secret and validate ownership.
+	// Reuse existing certificate and key across retries if already owned by this CR.
+	var cert, key string
+	existingSecret := &v1.Secret{}
+	foundExistingSecret := false
+	err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, existingSecret)
+	if err == nil {
+		foundExistingSecret = true
+		if !existingSecret.DeletionTimestamp.IsZero() {
+			return nil, fmt.Errorf("secret %s/%s is being deleted, retrying later", secretNamespace, secretName)
+		}
+		ownership := evaluateSecretOwnership(existingSecret, obj)
+		switch ownership {
+		case secretOwnedByCurrentCR:
+			rotate := obj.Spec.EnableCertRotation && s.NSXClient.NSXCheckVersion(nsx.ServiceAccountCertRotation)
+			if reusableServiceAccountCertificate(existingSecret, rotate, time.Now()) {
+				cert = string(existingSecret.Data[SecretCertName])
+				key = string(existingSecret.Data[SecretKeyName])
+			}
+		case secretOwnedByOlderCR:
+			log.Info("Deleting stale secret belonging to older NSXServiceAccount CR", "secret", secretName, "namespace", secretNamespace)
+			if err := s.Client.Delete(ctx, existingSecret, client.Preconditions{UID: &existingSecret.UID}); err != nil && !errors.IsNotFound(err) {
+				return nil, fmt.Errorf("failed to delete stale secret %s/%s: %w", secretNamespace, secretName, err)
+			}
+			return nil, fmt.Errorf("stale secret %s/%s was deleted, retrying reconcile", secretNamespace, secretName)
+		default:
+			return nil, fmt.Errorf("secret %s/%s already exists but is not owned by current NSXServiceAccount %s (UID %s)", secretNamespace, secretName, obj.Name, obj.UID)
+		}
+	} else if !errors.IsNotFound(err) {
+		return nil, err
+	}
+
+	// 2. Generate certificate if not reused from existing owned secret
+	if cert == "" || key == "" {
+		subject := util.DefaultSubject
+		subject.CommonName = normalizedClusterName
+		validDays := util.DefaultValidDays
+		if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountCertRotation) && obj.Spec.EnableCertRotation {
+			validDays = util.DefaultValidDaysWithRotation
+		}
+		cert, key, err = util.GenerateCertificate(&subject, validDays)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 3. Persist Secret to Kubernetes first so credentials exist and can be recovered across retries
+	desiredSecret := &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: secretNamespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: apiVersion,
+				Kind:       kind,
+				Name:       obj.Name,
+				UID:        obj.UID,
+			}},
+		},
+		Data: map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(key), CAName: s.NSXConfig.GetCACert()},
+	}
+	if foundExistingSecret {
+		// Preserve an existing CA when no replacement CA is configured.
+		if len(desiredSecret.Data[CAName]) == 0 {
+			if ca, exists := existingSecret.Data[CAName]; exists {
+				desiredSecret.Data[CAName] = ca
+			}
+		}
+		if !reflect.DeepEqual(existingSecret.Data, desiredSecret.Data) || !reflect.DeepEqual(existingSecret.OwnerReferences, desiredSecret.OwnerReferences) {
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				latestSecret := &v1.Secret{}
+				if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, latestSecret); err != nil {
+					return err
+				}
+				if err := validateServiceAccountSecretIdentity(latestSecret, obj, existingSecret.UID); err != nil {
+					return err
+				}
+				latestSecret.OwnerReferences = desiredSecret.OwnerReferences
+				latestSecret.Data = desiredSecret.Data
+				if err := s.Client.Update(ctx, latestSecret); err != nil {
+					return err
+				}
+				desiredSecret = latestSecret
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			return existingSecret, nil
+		}
+	} else if err := s.Client.Create(ctx, desiredSecret); err != nil {
+		// AlreadyExists can follow a cache miss. Requeue without overwriting the
+		// existing credentials; the next reconcile will inspect and reuse them.
+		return nil, err
+	}
+
+	return desiredSecret, nil
+}
+
 func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	// Always derive the name and VPC path from trusted inputs (operator config and the object's
 	// namespace/name). Status is not a trusted input (it may be writable by users depending on RBAC),
@@ -123,14 +287,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 		return err
 	}
 
-	// generate certificate
-	subject := util.DefaultSubject
-	subject.CommonName = normalizedClusterName
-	validDays := util.DefaultValidDays
-	if s.NSXClient.NSXCheckVersion(nsx.ServiceAccountCertRotation) && obj.Spec.EnableCertRotation {
-		validDays = util.DefaultValidDaysWithRotation
-	}
-	cert, key, err := util.GenerateCertificate(&subject, validDays)
+	secret, err := s.ensureServiceAccountSecret(ctx, obj, normalizedClusterName)
 	if err != nil {
 		return err
 	}
@@ -144,56 +301,35 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	if obj.Status.ClusterID != "" {
 		existingClusterId = &obj.Status.ClusterID
 	}
-	clusterId, err := s.createPIAndCCP(normalizedClusterName, vpcPath, cert, existingClusterId, obj)
+	clusterId, err := s.createPIAndCCP(normalizedClusterName, vpcPath, string(secret.Data[SecretCertName]), existingClusterId, obj)
 	if err != nil {
 		return err
 	}
 
-	// Persist credentials only after PI and CCP have been reconciled.
-	secretName := obj.Name + SecretSuffix
-	secretNamespace := obj.Namespace
-	secret := &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: secretNamespace,
-		},
-	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, s.Client, secret, func() error {
-		// Replace stale ownership on the nsxserviceaccount's certificate Secret.
-		secret.OwnerReferences = []metav1.OwnerReference{{
-			APIVersion: obj.APIVersion,
-			Kind:       obj.Kind,
-			Name:       obj.Name,
-			UID:        obj.UID,
-		}}
-		if secret.Data == nil {
-			secret.Data = make(map[string][]byte)
+	// Preserve status fields maintained by other operations.
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latestObj := &v1alpha1.NSXServiceAccount{}
+		if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, latestObj); err != nil {
+			return err
 		}
-		secret.Data[SecretCertName] = []byte(cert)
-		secret.Data[SecretKeyName] = []byte(key)
-		// Always include ca.crt on creation; an empty configuration preserves an existing CA.
-		if ca := s.NSXConfig.GetCACert(); secret.ResourceVersion == "" || len(ca) > 0 {
-			secret.Data[CAName] = ca
+		latestObj.Status.Phase = v1alpha1.NSXServiceAccountPhaseRealized
+		latestObj.Status.Reason = "Success"
+		latestObj.Status.Conditions = GenerateNSXServiceAccountConditions(
+			latestObj.Status.Conditions, latestObj.Generation, metav1.ConditionTrue,
+			v1alpha1.ConditionReasonRealizationSuccess, "Success.")
+		latestObj.Status.NSXManagers = s.NSXConfig.NsxApiManagers
+		latestObj.Status.ClusterID = clusterId
+		latestObj.Status.ClusterName = normalizedClusterName
+		latestObj.Status.Secrets = []v1alpha1.NSXSecret{{Name: secret.Name, Namespace: secret.Namespace}}
+		latestObj.Status.VPCPath = vpcPath
+		latestObj.Status.ProxyEndpoints = proxyEndpoints
+		if err := s.Client.Status().Update(ctx, latestObj); err != nil {
+			return err
 		}
+		obj.ResourceVersion = latestObj.ResourceVersion
+		obj.Status = latestObj.Status
 		return nil
-	}); err != nil {
-		return err
-	}
-
-	// update NSXServiceAccountStatus
-	obj.Status.Phase = v1alpha1.NSXServiceAccountPhaseRealized
-	obj.Status.Reason = "Success"
-	obj.Status.Conditions = GenerateNSXServiceAccountConditions(obj.Status.Conditions, obj.Generation, metav1.ConditionTrue, v1alpha1.ConditionReasonRealizationSuccess, "Success.")
-	obj.Status.NSXManagers = s.NSXConfig.NsxApiManagers
-	obj.Status.ClusterID = clusterId
-	obj.Status.ClusterName = normalizedClusterName
-	obj.Status.Secrets = []v1alpha1.NSXSecret{{
-		Name:      secretName,
-		Namespace: secretNamespace,
-	}}
-	obj.Status.VPCPath = vpcPath
-	obj.Status.ProxyEndpoints = proxyEndpoints
-	return s.Client.Status().Update(ctx, obj)
+	})
 }
 
 // RestoreRealizedNSXServiceAccount checks if PI/CCP is created on NSXT for a realized NSXServiceAccount. If both PI/CCP
@@ -214,6 +350,9 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 		certificate, _ = s.NSXClient.CertificatesClient.Get(*(pi.CertificateId), &detail, nil)
 	}
 	// read Secret
+	if len(obj.Status.Secrets) == 0 {
+		return fmt.Errorf("realized NSXServiceAccount %s/%s has no secret in status", obj.Namespace, obj.Name)
+	}
 	secretName := obj.Status.Secrets[0].Name
 	secretNamespace := obj.Status.Secrets[0].Namespace
 	secret := &v1.Secret{}
@@ -233,6 +372,12 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 		return nil
 	} else if hasPI || hasCCP || (piObj != nil) || (ccpObj != nil) {
 		return fmt.Errorf("PI/CCP doesn't match")
+	}
+
+	if requeueAfter, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now()); skip {
+		log.Info("skipping NSX API calls for restore while cluster control plane connection capacity backoff is active",
+			"nsxserviceaccount", types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, "requeueAfter", requeueAfter)
+		return CCPBackoffError{RequeueAfter: requeueAfter}
 	}
 	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
 	log.Debug("RestoreRealizedNSXServiceAccount s.NSXClient.ClusterControlPlanesClient.Get", "err", err)
@@ -259,6 +404,9 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 }
 
 func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, vpcPath string, cert string, existingClusterId *string, obj *v1alpha1.NSXServiceAccount) (string, error) {
+	if err := checkCCPCapacityBackoff(); err != nil {
+		return "", err
+	}
 	// create PI
 	log.Debug("createPIAndCCP")
 	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
@@ -296,64 +444,43 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		pi := piObj.(*mpmodel.PrincipalIdentity)
 		err := s.updatePICert(pi, normalizedClusterName, cert)
 		if err != nil {
-			return "failed to update PICert", err
+			return "", err
 		}
 	}
 
-	// create ClusterControlPlane
+	// Prepare a new CCP or update the existing CCP with the same persisted certificate.
 	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
-	clusterId := ""
-	if ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName); !hasCCP && ccpObj == nil {
-		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, model.ClusterControlPlane{
-			Revision:     &revision1,
-			ResourceType: &antreaClusterResourceType,
-			Certificate:  &cert,
-			VhcPath:      &vpcPath,
-			NodeId:       existingClusterId,
-			Tags:         s.buildBasicTags(obj),
-		})
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			return "", err
-		}
-		if ccp.NodeId != nil {
-			clusterId = *ccp.NodeId
-		} else if existingClusterId != nil {
-			clusterId = *existingClusterId
-		}
-		// Keep the node ID in the store even if NSX omitted it from the response, so later reconciles
-		// can still report it.
-		if clusterId != "" {
-			ccp.NodeId = &clusterId
-		}
-		s.ClusterControlPlaneStore.Add(&ccp)
-	} else if !hasCCP != (ccpObj == nil) {
+	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
+	if !hasCCP != (ccpObj == nil) {
 		return "", fmt.Errorf("old CCP exists")
-	} else {
-		// The CCP already exists, e.g. a previous reconcile created it but failed before updating the
-		// NSXServiceAccount status, or the NSXServiceAccount was realized earlier and later moved out of
-		// the realized phase (e.g. by a failed version check). Refresh its certificate and report its
-		// existing node ID so the caller does not record an empty ClusterID when the node ID is known.
-		updated := *ccpObj.(*model.ClusterControlPlane)
-		updated.Certificate = &cert
-		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, updated)
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			return "", err
-		}
-		if ccp.NodeId != nil {
-			clusterId = *ccp.NodeId
-		} else if updated.NodeId != nil {
-			clusterId = *updated.NodeId
-		}
-		// Keep the node ID in the store even if NSX omitted it from the response, so later reconciles
-		// can still report it.
-		if clusterId != "" {
-			ccp.NodeId = &clusterId
-		}
-		s.ClusterControlPlaneStore.Add(&ccp)
 	}
-	return clusterId, nil
+
+	ccp := model.ClusterControlPlane{
+		Revision: &revision1, ResourceType: &antreaClusterResourceType,
+		VhcPath: &vpcPath, NodeId: existingClusterId, Tags: s.buildBasicTags(obj),
+	}
+	if ccpObj != nil {
+		ccp = *ccpObj.(*model.ClusterControlPlane)
+	}
+	ccp.Certificate = &cert
+	updated, err := s.updateClusterControlPlane(normalizedClusterName, ccp)
+	if err != nil {
+		return "", err
+	}
+	nodeID := updated.NodeId
+	if nodeID == nil {
+		nodeID = ccp.NodeId
+	}
+	if nodeID == nil || *nodeID == "" {
+		nodeID = existingClusterId
+	}
+	if nodeID == nil || *nodeID == "" {
+		return "", fmt.Errorf("cluster control plane %s has no node ID", normalizedClusterName)
+	}
+	// Preserve the node ID in the cache when NSX omits it from the response.
+	updated.NodeId = nodeID
+	s.ClusterControlPlaneStore.Add(&updated)
+	return *nodeID, nil
 }
 
 func (s *NSXServiceAccountService) getProxyType(obj *v1alpha1.NSXServiceAccount) v1alpha1.NSXServiceAccountProxyType {
@@ -420,8 +547,23 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 	if isDeleteSecret {
 		secretName := namespacedName.Name + SecretSuffix
 		secretNamespace := namespacedName.Namespace
-		if err := s.Client.Delete(ctx, &v1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: secretNamespace}}); err != nil && !errors.IsNotFound(err) {
-			log.Error(err, "failed to delete", "secret", secretName, "namespace", secretNamespace)
+		existingSecret := &v1.Secret{}
+		if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, existingSecret); err == nil {
+			isOwnedByThisUID := false
+			for _, ref := range existingSecret.OwnerReferences {
+				if ref.UID == uid {
+					isOwnedByThisUID = true
+					break
+				}
+			}
+			if isOwnedByThisUID || len(existingSecret.OwnerReferences) == 0 {
+				if err := s.Client.Delete(ctx, existingSecret, client.Preconditions{UID: &existingSecret.UID}); err != nil && !errors.IsNotFound(err) {
+					log.Error(err, "failed to delete", "secret", secretName, "namespace", secretNamespace)
+					return err
+				}
+			}
+		} else if !errors.IsNotFound(err) {
+			log.Error(err, "failed to get", "secret", secretName, "namespace", secretNamespace)
 			return err
 		}
 	}
@@ -473,14 +615,19 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 	normalizedClusterName := util.NormalizeId(clusterName)
 	secretName := obj.Name + SecretSuffix
 	secretNamespace := obj.Namespace
-	isUpdated := false
 	secret := &v1.Secret{}
 	isCheckCert := s.NSXClient.NSXCheckVersion(nsx.ServiceAccountCertRotation) && obj.Spec.EnableCertRotation
 	if len(ca) > 0 || isCheckCert {
 		if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, secret); err != nil {
 			return err
 		}
+		if err := validateServiceAccountSecretIdentity(secret, obj, ""); err != nil {
+			return err
+		}
 	}
+
+	var caUpdated, certRotated bool
+	var newCert, newKey []byte
 
 	// check CA is up-to-date
 	if len(ca) > 0 {
@@ -490,8 +637,7 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 		caPool := x509.NewCertPool()
 		caPool.AppendCertsFromPEM(ca)
 		if !caPool.Equal(oldCAPool) {
-			isUpdated = true
-			secret.Data[CAName] = ca
+			caUpdated = true
 		}
 	}
 
@@ -505,7 +651,6 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 		if oldCertObj, err := x509.ParseCertificate(certBlock.Bytes); err != nil {
 			return err
 		} else if time.Now().AddDate(0, 0, util.DefaultRotateDays).After(oldCertObj.NotAfter) {
-			isUpdated = true
 			// generate certificate
 			subject := util.DefaultSubject
 			subject.CommonName = normalizedClusterName
@@ -517,14 +662,35 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 			if err = s.updatePIAndCCPCert(normalizedClusterName, string(obj.UID), cert); err != nil {
 				return err
 			}
-			secret.Data[SecretCertName] = []byte(cert)
-			secret.Data[SecretKeyName] = []byte(key)
+			certRotated = true
+			newCert = []byte(cert)
+			newKey = []byte(key)
 		}
 	}
 
-	if isUpdated {
+	if caUpdated || certRotated {
 		log.Info("Update realized NSXServiceAccount", "namespace", obj.Namespace, "name", obj.Name)
-		if err := s.Client.Update(ctx, secret); err != nil {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestSecret := &v1.Secret{}
+			if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, latestSecret); err != nil {
+				return err
+			}
+			if err := validateServiceAccountSecretIdentity(latestSecret, obj, secret.UID); err != nil {
+				return err
+			}
+			if latestSecret.Data == nil {
+				latestSecret.Data = make(map[string][]byte)
+			}
+			if caUpdated {
+				latestSecret.Data[CAName] = ca
+			}
+			if certRotated {
+				latestSecret.Data[SecretCertName] = newCert
+				latestSecret.Data[SecretKeyName] = newKey
+			}
+			return s.Client.Update(ctx, latestSecret)
+		})
+		if err != nil {
 			return err
 		}
 	}
@@ -536,10 +702,18 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 		log.Info("Updating NSX restore status to NSXServiceAccount", "namespace", obj.Namespace, "name", obj.Name, "nsxRestoreStatus", nsxRestoreStatus)
 		oldNSXRestoreStatus := obj.Status.NSXRestoreStatus
 		obj.Status.NSXRestoreStatus = nsxRestoreStatus
-		err := retry.OnError(retry.DefaultRetry, func(err error) bool {
-			return err != nil
-		}, func() error {
-			return s.Client.Status().Update(ctx, obj)
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestObj := &v1alpha1.NSXServiceAccount{}
+			if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, latestObj); err != nil {
+				return err
+			}
+			latestObj.Status.NSXRestoreStatus = nsxRestoreStatus
+			if err := s.Client.Status().Update(ctx, latestObj); err != nil {
+				return err
+			}
+			obj.ResourceVersion = latestObj.ResourceVersion
+			obj.Status = latestObj.Status
+			return nil
 		})
 		if err != nil {
 			obj.Status.NSXRestoreStatus = oldNSXRestoreStatus
@@ -550,7 +724,27 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 	return nil
 }
 
+// updateClusterControlPlane shares backoff, error handling, and cache updates for CCP writes.
+func (s *NSXServiceAccountService) updateClusterControlPlane(name string, ccp model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+	if err := checkCCPCapacityBackoff(); err != nil {
+		return model.ClusterControlPlane{}, err
+	}
+	updated, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, name, ccp)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		if nsxutil.IsCCPConnectionCapacityFullError(err) {
+			MarkCCPConnectionCapacityFull()
+		}
+		return model.ClusterControlPlane{}, err
+	}
+	s.ClusterControlPlaneStore.Add(&updated)
+	return updated, nil
+}
+
 func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid, cert string) error {
+	if err := checkCCPCapacityBackoff(); err != nil {
+		return err
+	}
 	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, uid)) > 0
 	hasCCP := len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, uid)) > 0
 	piObj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName)
@@ -559,15 +753,10 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 		return fmt.Errorf("missing PI or CCP, cluster=%s", normalizedClusterName)
 	}
 
-	// update ClusterControlPlane cert
-	ccp := ccpObj.(*model.ClusterControlPlane)
+	ccp := *ccpObj.(*model.ClusterControlPlane)
 	ccp.Certificate = &cert
-	if ccp2, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, *ccp); err != nil {
-		err = nsxutil.TransNSXApiError(err)
+	if _, err := s.updateClusterControlPlane(normalizedClusterName, ccp); err != nil {
 		return err
-	} else {
-		ccp = &ccp2
-		s.ClusterControlPlaneStore.Add(ccp)
 	}
 
 	// update PI cert
@@ -727,7 +916,20 @@ func (s *NSXServiceAccountService) UpdateConnectionInfoIfNeeded(ctx context.Cont
 		!reflect.DeepEqual(s.NSXConfig.NsxApiManagers, obj.Status.NSXManagers) {
 		obj.Status.NSXManagers = s.NSXConfig.NsxApiManagers
 		obj.Status.ProxyEndpoints = proxyEndpoints
-		return s.Client.Status().Update(ctx, obj)
+		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			latestObj := &v1alpha1.NSXServiceAccount{}
+			if err := s.Client.Get(ctx, types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, latestObj); err != nil {
+				return err
+			}
+			latestObj.Status.NSXManagers = obj.Status.NSXManagers
+			latestObj.Status.ProxyEndpoints = obj.Status.ProxyEndpoints
+			if err := s.Client.Status().Update(ctx, latestObj); err != nil {
+				return err
+			}
+			obj.ResourceVersion = latestObj.ResourceVersion
+			obj.Status = latestObj.Status
+			return nil
+		})
 	}
 	return nil
 }
