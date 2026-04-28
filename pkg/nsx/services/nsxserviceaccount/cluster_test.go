@@ -5,6 +5,7 @@ package nsxserviceaccount
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -24,15 +25,19 @@ import (
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -230,8 +235,8 @@ func TestInitializeNSXServiceAccount(t *testing.T) {
 	}
 }
 
-// createStaleSecret creates the certificate Secret as left over by a previous reconcile, owned by another UID.
-func createStaleSecret(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) {
+// createInvalidOwnedSecret creates an owned Secret with credentials that need regeneration.
+func createInvalidOwnedSecret(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) {
 	assert.NoError(t, s.Client.Create(ctx, &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      obj.Name + SecretSuffix,
@@ -239,15 +244,15 @@ func createStaleSecret(t *testing.T, s *NSXServiceAccountService, ctx context.Co
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: "nsx.vmware.com/v1alpha1",
 				Kind:       "NSXServiceAccount",
-				Name:       "stale-name",
-				UID:        "stale-uid",
+				Name:       obj.Name,
+				UID:        obj.UID,
 			}},
 		},
 		Data: map[string][]byte{SecretCertName: []byte("old-cert"), SecretKeyName: []byte("old-key"), CAName: []byte("old-ca")},
 	}))
 }
 
-// verifyRefreshedSecret checks the stale Secret is updated in place: new credentials and owner, existing CA kept.
+// verifyRefreshedSecret checks the owned Secret is updated in place with new credentials and its existing CA.
 func verifyRefreshedSecret(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) {
 	secret := &v1.Secret{}
 	assert.NoError(t, s.Client.Get(ctx, types.NamespacedName{Namespace: obj.Namespace, Name: obj.Name + SecretSuffix}, secret))
@@ -832,7 +837,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 			name: "Success with existing Secret",
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
 				assert.NoError(t, s.Client.Create(ctx, obj))
-				createStaleSecret(t, s, ctx, obj)
+				createInvalidOwnedSecret(t, s, ctx, obj)
 				normalizedClusterName := "k8scl-one_test-ns1-name1"
 				vpcPath := "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc"
 				piId := "Id1"
@@ -911,7 +916,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 			name: "Success with populated status and existing Secret",
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
 				assert.NoError(t, s.Client.Create(ctx, obj))
-				createStaleSecret(t, s, ctx, obj)
+				createInvalidOwnedSecret(t, s, ctx, obj)
 				// Tampered Status.ClusterName/VPCPath (see args) must be ignored; the identity is derived from config.
 				clusterName := "k8scl-one_test-ns1-name1"
 				vpcPath := "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc"
@@ -1285,7 +1290,9 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 			s := &NSXServiceAccountService{Service: commonService}
 			s.SetUpStore()
 			patches := tt.prepareFunc(t, s, ctx, tt.args.obj)
-			defer patches.Reset()
+			if patches != nil {
+				defer patches.Reset()
+			}
 
 			if err := s.CreateOrUpdateNSXServiceAccount(ctx, tt.args.obj); (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
@@ -1323,6 +1330,251 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 			}
 		})
 	}
+}
+
+func newTestServiceAccount() *v1alpha1.NSXServiceAccount {
+	return &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{
+		Name: "name1", Namespace: "ns1", UID: "00000000-0000-0000-0000-000000000001",
+	}}
+}
+
+func newOwnedTestSecret(obj *v1alpha1.NSXServiceAccount, data map[string][]byte) *v1.Secret {
+	return &v1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: obj.Name + SecretSuffix, Namespace: obj.Namespace, UID: "secret-uid-1",
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: v1alpha1.SchemeGroupVersion.String(),
+			Kind: "NSXServiceAccount", Name: obj.Name, UID: obj.UID}},
+	}, Data: data}
+}
+
+type serviceAccountCertificates struct {
+	pi, ccp string
+}
+
+// Mock the NSX boundary while retaining the real credential and status handling.
+func mockServiceAccountNSX(t *testing.T, s *NSXServiceAccountService, obj *v1alpha1.NSXServiceAccount, existing bool) *serviceAccountCertificates {
+	t.Helper()
+	name := util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+	piID, certID, nodeID := "pi1", "cert1", "clusterId1"
+	scope, uid := common.TagScopeNSXServiceAccountCRUID, string(obj.UID)
+	pi := mpmodel.PrincipalIdentity{Name: &name, Id: &piID,
+		Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}
+	ccp := model.ClusterControlPlane{Id: &name, NodeId: &nodeID,
+		Tags: []model.Tag{{Scope: &scope, Tag: &uid}}}
+	if existing {
+		require.NoError(t, s.PrincipalIdentityStore.Add(&pi))
+		require.NoError(t, s.ClusterControlPlaneStore.Add(&ccp))
+	}
+	captured := &serviceAccountCertificates{}
+	patches := gomonkey.ApplyMethod(s.NSXClient, "NSXCheckVersion", func(_ *nsx.Client, _ int) bool { return true })
+	t.Cleanup(patches.Reset)
+	patches.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, request mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+		captured.pi = *request.CertificatePem
+		return pi, nil
+	})
+	patches.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, request mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+		captured.pi = *request.PemEncoded
+		return mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &certID}}}, nil
+	})
+	patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, _ mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+		pi.CertificateId = &certID
+		return pi, nil
+	})
+	patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+		captured.ccp = *request.Certificate
+		request.Id, request.NodeId = &name, &nodeID
+		return request, nil
+	})
+	return captured
+}
+
+func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount_Recovery(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "k8scl-one_test-ns1-name1"
+	cert, key, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	_, otherKey, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		name                                    string
+		data                                    map[string][]byte
+		ownerUID                                types.UID
+		otherOwner, existingNSX, restore, reuse bool
+		wantErr                                 string
+	}{
+		{name: "InvalidOwnedSecretRegeneratesCredentials", data: map[string][]byte{"old": []byte("old")}},
+		{name: "ValidOwnedSecretReusesCredentials", data: map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(key)}, reuse: true},
+		{name: "StaleSecretDeleted", data: map[string][]byte{}, ownerUID: "older-cr", wantErr: "stale secret"},
+		{name: "MismatchedKeyRegeneratesCredentials", data: map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(otherKey)}},
+		{name: "PreservesRestoreStatus", restore: true},
+		{name: "UnrelatedOwnerRejected", data: map[string][]byte{"unrelated": []byte("data")}, otherOwner: true, wantErr: "not owned"},
+		{name: "UpdatesExistingPIAndCCP", existingNSX: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := newTestServiceAccount()
+			initial := obj.DeepCopy()
+			if tt.restore {
+				initial.Status.NSXRestoreStatus = &v1alpha1.NSXRestoreStatus{Status: "SUCCESS"}
+			}
+			require.NoError(t, s.Client.Create(ctx, initial))
+			if tt.data != nil {
+				secret := newOwnedTestSecret(obj, tt.data)
+				if tt.ownerUID != "" {
+					secret.OwnerReferences[0].UID = tt.ownerUID
+				}
+				if tt.otherOwner {
+					secret.OwnerReferences[0] = metav1.OwnerReference{APIVersion: "apps/v1", Kind: "Deployment", Name: "unrelated", UID: "other-uid"}
+				}
+				require.NoError(t, s.Client.Create(ctx, secret))
+			}
+			captured := mockServiceAccountNSX(t, s, obj, tt.existingNSX)
+			err := s.CreateOrUpdateNSXServiceAccount(ctx, obj)
+			secret := &v1.Secret{}
+			secretErr := s.Client.Get(ctx, types.NamespacedName{Namespace: obj.Namespace, Name: obj.Name + SecretSuffix}, secret)
+			actual := &v1alpha1.NSXServiceAccount{}
+			require.NoError(t, s.Client.Get(ctx, client.ObjectKeyFromObject(obj), actual))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Empty(t, captured.pi)
+				assert.Empty(t, captured.ccp)
+				assert.Equal(t, initial.Status, actual.Status)
+				if tt.ownerUID != "" {
+					assert.True(t, k8serrors.IsNotFound(secretErr))
+				} else {
+					require.NoError(t, secretErr)
+					assert.Equal(t, tt.data, secret.Data)
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, secretErr)
+			_, err = tls.X509KeyPair(secret.Data[SecretCertName], secret.Data[SecretKeyName])
+			require.NoError(t, err)
+			assert.Equal(t, string(secret.Data[SecretCertName]), captured.pi)
+			assert.Equal(t, captured.pi, captured.ccp)
+			assert.Equal(t, s.NSXConfig.GetCACert(), secret.Data[CAName])
+			assert.Equal(t, secretOwnedByCurrentCR, evaluateSecretOwnership(secret, obj))
+			assert.Equal(t, v1alpha1.NSXServiceAccountPhaseRealized, actual.Status.Phase)
+			assert.Equal(t, "Success", actual.Status.Reason)
+			assert.Equal(t, "clusterId1", actual.Status.ClusterID)
+			assert.Equal(t, subject.CommonName, actual.Status.ClusterName)
+			assert.Equal(t, s.NSXConfig.NsxApiManagers, actual.Status.NSXManagers)
+			assert.Equal(t, []v1alpha1.NSXSecret{{Name: secret.Name, Namespace: secret.Namespace}}, actual.Status.Secrets)
+			assert.Equal(t, initial.Status.NSXRestoreStatus, actual.Status.NSXRestoreStatus)
+			if tt.reuse {
+				assert.Equal(t, cert, string(secret.Data[SecretCertName]))
+				assert.Equal(t, key, string(secret.Data[SecretKeyName]))
+			} else if tt.data != nil {
+				assert.NotEqual(t, cert, string(secret.Data[SecretCertName]))
+			}
+		})
+	}
+}
+
+func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount_CacheMissAlreadyExists(t *testing.T) {
+	ctx := context.Background()
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	require.NoError(t, s.Client.Create(ctx, obj))
+	subject := util.DefaultSubject
+	subject.CommonName = util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+	cert, key, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	secret := newOwnedTestSecret(obj, map[string][]byte{
+		SecretCertName: []byte(cert), SecretKeyName: []byte(key), CAName: s.NSXConfig.GetCACert(),
+	})
+	require.NoError(t, s.Client.Create(ctx, secret))
+	base := s.Client
+	missed := false
+	s.Client = interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+			if k == client.ObjectKeyFromObject(secret) && !missed {
+				missed = true
+				return k8serrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, k.Name)
+			}
+			return c.Get(ctx, k, o, opts...)
+		},
+	})
+	captured := mockServiceAccountNSX(t, s, obj, false)
+	require.True(t, k8serrors.IsAlreadyExists(s.CreateOrUpdateNSXServiceAccount(ctx, obj)))
+	assert.Empty(t, captured.pi)
+	assert.Empty(t, captured.ccp)
+	stored := &v1.Secret{}
+	require.NoError(t, base.Get(ctx, client.ObjectKeyFromObject(secret), stored))
+	assert.Equal(t, secret.Data, stored.Data)
+
+	// Once the cache catches up, reuse the same credentials and complete creation.
+	require.NoError(t, s.CreateOrUpdateNSXServiceAccount(ctx, obj))
+	assert.Equal(t, cert, captured.pi)
+	assert.Equal(t, cert, captured.ccp)
+	actual := &v1alpha1.NSXServiceAccount{}
+	require.NoError(t, base.Get(ctx, client.ObjectKeyFromObject(obj), actual))
+	assert.Equal(t, v1alpha1.NSXServiceAccountPhaseRealized, actual.Status.Phase)
+	require.NoError(t, base.Get(ctx, client.ObjectKeyFromObject(secret), stored))
+	assert.Equal(t, secret.Data, stored.Data)
+}
+
+func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount_StatusFailureRecovery(t *testing.T) {
+	ctx := context.Background()
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	require.NoError(t, s.Client.Create(ctx, obj))
+	captured := mockServiceAccountNSX(t, s, obj, false)
+	base := s.Client
+	failStatus := true
+	statusWrites := 0
+	s.Client = interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
+		SubResourceUpdate: func(ctx context.Context, c client.Client, subresource string, o client.Object, opts ...client.SubResourceUpdateOption) error {
+			if subresource == "status" && client.ObjectKeyFromObject(o) == client.ObjectKeyFromObject(obj) {
+				statusWrites++
+				if failStatus {
+					return k8serrors.NewConflict(schema.GroupResource{Group: "nsx.vmware.com", Resource: "nsxserviceaccounts"}, o.GetName(), fmt.Errorf("injected status conflict"))
+				}
+			}
+			return c.SubResource(subresource).Update(ctx, o, opts...)
+		},
+	})
+
+	// Provisioning succeeds, but status conflicts outlast the in-call retries.
+	require.True(t, k8serrors.IsConflict(s.CreateOrUpdateNSXServiceAccount(ctx, obj)))
+	assert.Greater(t, statusWrites, 1)
+	secretKey := client.ObjectKey{Namespace: obj.Namespace, Name: obj.Name + SecretSuffix}
+	originalSecret := &v1.Secret{}
+	require.NoError(t, base.Get(ctx, secretKey, originalSecret))
+	cert := string(originalSecret.Data[SecretCertName])
+	require.NotEmpty(t, cert)
+	assert.Equal(t, cert, captured.pi)
+	assert.Equal(t, cert, captured.ccp)
+	name := util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+	ccp, ok := s.ClusterControlPlaneStore.GetByKey(name).(*model.ClusterControlPlane)
+	require.True(t, ok)
+	require.NotNil(t, ccp.NodeId)
+	clusterID := *ccp.NodeId
+	require.NotEmpty(t, clusterID)
+
+	// Retry from persisted state, rather than the object used by the failed call.
+	retried := &v1alpha1.NSXServiceAccount{}
+	require.NoError(t, base.Get(ctx, client.ObjectKeyFromObject(obj), retried))
+	assert.False(t, IsNSXServiceAccountRealized(&retried.Status))
+	failStatus = false
+	captured.pi, captured.ccp = "", ""
+	require.NoError(t, s.CreateOrUpdateNSXServiceAccount(ctx, retried))
+
+	storedSecret := &v1.Secret{}
+	require.NoError(t, base.Get(ctx, secretKey, storedSecret))
+	assert.Equal(t, originalSecret.Data, storedSecret.Data)
+	assert.Equal(t, cert, captured.pi)
+	assert.Equal(t, cert, captured.ccp)
+	realized := &v1alpha1.NSXServiceAccount{}
+	require.NoError(t, base.Get(ctx, client.ObjectKeyFromObject(obj), realized))
+	assert.Equal(t, v1alpha1.NSXServiceAccountPhaseRealized, realized.Status.Phase)
+	assert.True(t, IsNSXServiceAccountRealized(&realized.Status))
+	assert.Equal(t, clusterID, realized.Status.ClusterID)
+	assert.Equal(t, []v1alpha1.NSXSecret{{Name: secretKey.Name, Namespace: secretKey.Namespace}}, realized.Status.Secrets)
 }
 
 func TestNSXServiceAccountService_RestoreRealizedNSXServiceAccount(t *testing.T) {
@@ -2403,6 +2655,75 @@ func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount(t *
 	}
 }
 
+func TestNSXServiceAccountService_ValidateAndUpdateRealizedNSXServiceAccount_ConcurrencyAndOwnership(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "ca1"
+	oldCA, _, err := util.GenerateCertificate(&subject, 100)
+	require.NoError(t, err)
+	subject.CommonName = "ca2"
+	newCA, _, err := util.GenerateCertificate(&subject, 100)
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name         string
+		mutateSecret func(*v1.Secret)
+		wantErr      string
+	}{
+		{name: "CAOnlyUpdatePreservesLatestCertAndKey", mutateSecret: func(secret *v1.Secret) {
+			secret.Data[SecretCertName] = []byte("newerCert")
+			secret.Data[SecretKeyName] = []byte("newerKey")
+		}},
+		{name: "ReplacedSecretUIDAbortsUpdate", mutateSecret: func(secret *v1.Secret) {
+			secret.UID = "replaced-secret-uid-2"
+		}, wantErr: "was replaced concurrently"},
+		{name: "SecretOwnershipLostAbortsUpdate", mutateSecret: func(secret *v1.Secret) {
+			secret.OwnerReferences = nil
+		}, wantErr: "no longer owned by current NSXServiceAccount"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			patches := gomonkey.ApplyMethod(s.NSXClient, "NSXCheckVersion", func(_ *nsx.Client, _ int) bool { return false })
+			defer patches.Reset()
+			obj := newTestServiceAccount()
+			obj.Status.Phase = v1alpha1.NSXServiceAccountPhaseRealized
+			require.NoError(t, s.Client.Create(ctx, obj))
+			secret := newOwnedTestSecret(obj, map[string][]byte{
+				SecretCertName: []byte("originalCert"), SecretKeyName: []byte("originalKey"), CAName: []byte(oldCA),
+			})
+			require.NoError(t, s.Client.Create(ctx, secret))
+			base := s.Client
+			reads := 0
+			s.Client = interceptor.NewClient(base.(client.WithWatch), interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+					if err := c.Get(ctx, key, o, opts...); err != nil {
+						return err
+					}
+					if key == client.ObjectKeyFromObject(secret) {
+						reads++
+						if reads > 1 {
+							tt.mutateSecret(o.(*v1.Secret))
+						}
+					}
+					return nil
+				},
+			})
+			err := s.ValidateAndUpdateRealizedNSXServiceAccount(ctx, obj, []byte(newCA), nil)
+			stored := &v1.Secret{}
+			require.NoError(t, base.Get(ctx, client.ObjectKeyFromObject(secret), stored))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Equal(t, secret.Data, stored.Data)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, []byte(newCA), stored.Data[CAName])
+			assert.Equal(t, []byte("newerCert"), stored.Data[SecretCertName])
+			assert.Equal(t, []byte("newerKey"), stored.Data[SecretKeyName])
+		})
+	}
+}
+
 func TestNSXServiceAccountService_GetNSXRestoreStatus(t *testing.T) {
 	fakeId := "fakeBackupId"
 	fakeRestoreEndTime := int64(12345678)
@@ -3328,6 +3649,331 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 				assert.NoError(t, err)
 			} else {
 				assert.EqualError(t, err, tt.expectedErr)
+			}
+		})
+	}
+}
+
+func TestCCPCapacityBackoffBlocksCreation(t *testing.T) {
+	ClearCCPConnectionCapacityFull()
+	t.Cleanup(ClearCCPConnectionCapacityFull)
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "pending", Namespace: "ns1", UID: "pending-uid"}}
+	calls := 0
+	patches := gomonkey.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, _ mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+		calls++
+		return mpmodel.PrincipalIdentity{}, fmt.Errorf("probe reached NSX")
+	})
+	patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, _ model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+		calls++
+		return model.ClusterControlPlane{}, fmt.Errorf("rotation reached NSX")
+	})
+	defer patches.Reset()
+
+	MarkCCPConnectionCapacityFull()
+	_, err := s.createPIAndCCP("pending", "/vpc", "cert", nil, obj)
+	_, deferred := IsCCPBackoffError(err)
+	require.True(t, deferred)
+	assert.Zero(t, calls)
+
+	// After expiry, a pending account can probe NSX again without restarting.
+	_, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now().Add(6 * time.Minute))
+	require.False(t, skip)
+	_, err = s.createPIAndCCP("pending", "/vpc", "cert", nil, obj)
+	require.ErrorContains(t, err, "probe reached NSX")
+	assert.Equal(t, 1, calls)
+}
+
+func TestCCPCapacityBackoffAllowsExistingAccountUpdates(t *testing.T) {
+	for _, operation := range []string{"rotate", "retry-failed-account"} {
+		t.Run(operation, func(t *testing.T) {
+			ClearCCPConnectionCapacityFull()
+			t.Cleanup(ClearCCPConnectionCapacityFull)
+			ctx := context.Background()
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := newTestServiceAccount()
+			obj.Status.Phase = v1alpha1.NSXServiceAccountPhaseFailed
+			require.NoError(t, s.Client.Create(ctx, obj))
+			captured := mockServiceAccountNSX(t, s, obj, true)
+			name := util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+			MarkCCPConnectionCapacityFull()
+			if operation == "rotate" {
+				require.NoError(t, s.updatePIAndCCPCert(name, string(obj.UID), "rotated-cert"))
+				assert.Equal(t, "rotated-cert", captured.ccp)
+			} else {
+				require.NoError(t, s.CreateOrUpdateNSXServiceAccount(ctx, obj))
+				assert.True(t, IsNSXServiceAccountRealized(&obj.Status))
+			}
+			assert.NotEmpty(t, captured.ccp)
+			assert.Equal(t, captured.pi, captured.ccp)
+			_, active := CCPConnectionCapacityFullBackoffRequeue(time.Now())
+			assert.True(t, active, "updating an existing CCP must not clear the creation backoff")
+		})
+	}
+}
+
+func TestCCPCreationDefersWhenCapacityFillsDuringPICreation(t *testing.T) {
+	ClearCCPConnectionCapacityFull()
+	t.Cleanup(ClearCCPConnectionCapacityFull)
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	patches := gomonkey.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, request mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+		MarkCCPConnectionCapacityFull()
+		return mpmodel.PrincipalIdentity{Name: request.Name, Tags: request.Tags}, nil
+	})
+	defer patches.Reset()
+	patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, _ model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+		t.Fatal("new CCP creation must wait after another worker detects full capacity")
+		return model.ClusterControlPlane{}, nil
+	})
+	_, err := s.createPIAndCCP("account", "/vpc", "cert", nil, obj)
+	_, deferred := IsCCPBackoffError(err)
+	require.True(t, deferred)
+}
+
+func TestCCPWritesPreserveNewCapacityError(t *testing.T) {
+	for _, operation := range []string{"create", "retry", "rotate"} {
+		t.Run(operation, func(t *testing.T) {
+			ClearCCPConnectionCapacityFull()
+			t.Cleanup(ClearCCPConnectionCapacityFull)
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := newTestServiceAccount()
+			mockServiceAccountNSX(t, s, obj, operation != "create")
+			name := util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+			nodeID := "cluster-id"
+			patches := gomonkey.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+				// Another worker discovers full capacity while this request is in flight.
+				MarkCCPConnectionCapacityFull()
+				request.Id, request.NodeId = &name, &nodeID
+				return request, nil
+			})
+			defer patches.Reset()
+			if operation == "rotate" {
+				require.NoError(t, s.updatePIAndCCPCert(name, string(obj.UID), "cert"))
+			} else {
+				_, err := s.createPIAndCCP(name, "/vpc", "cert", nil, obj)
+				require.NoError(t, err)
+			}
+			_, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now())
+			assert.True(t, skip, "a successful request must not clear a newer capacity error")
+		})
+	}
+}
+
+func TestNSXServiceAccountRejectsMissingCCPNodeID(t *testing.T) {
+	empty := ""
+	for name, nodeID := range map[string]*string{"nil": nil, "empty": &empty} {
+		t.Run(name, func(t *testing.T) {
+			ClearCCPConnectionCapacityFull()
+			t.Cleanup(ClearCCPConnectionCapacityFull)
+			ctx := context.Background()
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := newTestServiceAccount()
+			require.NoError(t, s.Client.Create(ctx, obj))
+			mockServiceAccountNSX(t, s, obj, false)
+			patches := gomonkey.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, name string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+				request.Id, request.NodeId = &name, nodeID
+				return request, nil
+			})
+			defer patches.Reset()
+			// Both initial creation and a retry must reject the incomplete NSX response.
+			for attempt := 0; attempt < 2; attempt++ {
+				require.ErrorContains(t, s.CreateOrUpdateNSXServiceAccount(ctx, obj), "has no node ID")
+				require.NoError(t, s.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj))
+				assert.False(t, IsNSXServiceAccountRealized(&obj.Status))
+			}
+		})
+	}
+}
+
+func TestNSXServiceAccountRecoversAfterCapacityReturns(t *testing.T) {
+	ClearCCPConnectionCapacityFull()
+	t.Cleanup(ClearCCPConnectionCapacityFull)
+	ctx := context.Background()
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	require.NoError(t, s.Client.Create(ctx, obj))
+	captured := mockServiceAccountNSX(t, s, obj, false)
+	full, requests := true, 0
+	code := int64(nsxutil.CCPConnectionCapacityFullErrorCode)
+	capacityErr := nsxutil.NewNSXApiError(&model.ApiError{ErrorCode: &code}, vapierrors.ErrorType_INVALID_REQUEST)
+	nodeID := "recovered-cluster"
+	patches := gomonkey.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, name string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+		requests++
+		if full {
+			return model.ClusterControlPlane{}, capacityErr
+		}
+		captured.ccp = *request.Certificate
+		request.Id, request.NodeId = &name, &nodeID
+		return request, nil
+	})
+	defer patches.Reset()
+
+	require.True(t, nsxutil.IsCCPConnectionCapacityFullError(s.CreateOrUpdateNSXServiceAccount(ctx, obj)))
+	secretKey := types.NamespacedName{Name: obj.Name + SecretSuffix, Namespace: obj.Namespace}
+	original := &v1.Secret{}
+	require.NoError(t, s.Client.Get(ctx, secretKey, original))
+	_, deferred := IsCCPBackoffError(s.CreateOrUpdateNSXServiceAccount(ctx, obj))
+	require.True(t, deferred)
+	assert.Equal(t, 1, requests)
+	stored := &v1.Secret{}
+	require.NoError(t, s.Client.Get(ctx, secretKey, stored))
+	assert.Equal(t, original.Data, stored.Data)
+
+	// A later probe succeeds after capacity has returned and cooldown expires.
+	full = false
+	_, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now().Add(6 * time.Minute))
+	require.False(t, skip)
+	retried := &v1alpha1.NSXServiceAccount{}
+	require.NoError(t, s.Client.Get(ctx, client.ObjectKeyFromObject(obj), retried))
+	require.NoError(t, s.CreateOrUpdateNSXServiceAccount(ctx, retried))
+	require.NoError(t, s.Client.Get(ctx, secretKey, stored))
+	assert.Equal(t, original.Data, stored.Data)
+	assert.Equal(t, string(original.Data[SecretCertName]), captured.pi)
+	assert.Equal(t, captured.pi, captured.ccp)
+	assert.Equal(t, 2, requests)
+	assert.Equal(t, nodeID, retried.Status.ClusterID)
+	assert.True(t, IsNSXServiceAccountRealized(&retried.Status))
+}
+
+func TestRestoreRealizedNSXServiceAccountRetriesPartialRestore(t *testing.T) {
+	code := int64(nsxutil.CCPConnectionCapacityFullErrorCode)
+	for _, failure := range []struct {
+		name string
+		err  error
+	}{
+		{name: "capacity", err: nsxutil.NewNSXApiError(&model.ApiError{ErrorCode: &code}, vapierrors.ErrorType_INVALID_REQUEST)},
+		{name: "transient", err: errors.New("CCP update failed")},
+	} {
+		for _, restart := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/restart=%t", failure.name, restart), func(t *testing.T) {
+				ClearCCPConnectionCapacityFull()
+				t.Cleanup(ClearCCPConnectionCapacityFull)
+				ctx := context.Background()
+				s := &NSXServiceAccountService{Service: newFakeCommonService()}
+				s.SetUpStore()
+				obj := newTestServiceAccount()
+				name := util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+				obj.Status = v1alpha1.NSXServiceAccountStatus{
+					Phase: v1alpha1.NSXServiceAccountPhaseRealized, ClusterName: name,
+					ClusterID: "original-cluster-id", VPCPath: "/orgs/default/projects/project/vpcs/vpc",
+					Secrets: []v1alpha1.NSXSecret{{Name: obj.Name + SecretSuffix, Namespace: obj.Namespace}},
+				}
+				secret := newOwnedTestSecret(obj, map[string][]byte{SecretCertName: []byte("persisted-cert"), SecretKeyName: []byte("persisted-key")})
+				require.NoError(t, s.Client.Create(ctx, secret))
+				captured := mockServiceAccountNSX(t, s, obj, false)
+				creates, updates, gets := 0, 0, 0
+				var persistedPI mpmodel.PrincipalIdentity
+				patches := gomonkey.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, request mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+					creates++
+					captured.pi = *request.CertificatePem
+					id, certID := "pi-id", "cert-id"
+					persistedPI = mpmodel.PrincipalIdentity{Name: request.Name, Id: &id, CertificateId: &certID, Tags: request.Tags}
+					return persistedPI, nil
+				})
+				defer patches.Reset()
+				patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Get", func(_ *fakeClusterControlPlanesClient, _, _, _ string) (model.ClusterControlPlane, error) {
+					gets++
+					return model.ClusterControlPlane{}, nsxutil.NewNSXApiError(nil, vapierrors.ErrorType_NOT_FOUND)
+				})
+				patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, id string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+					updates++
+					if updates == 1 {
+						return model.ClusterControlPlane{}, failure.err
+					}
+					require.Equal(t, obj.Status.ClusterID, *request.NodeId)
+					require.Equal(t, obj.Status.VPCPath, *request.VhcPath)
+					captured.ccp = *request.Certificate
+					request.Id = &id
+					return request, nil
+				})
+				require.ErrorIs(t, s.RestoreRealizedNSXServiceAccount(ctx, obj), failure.err)
+				require.NotNil(t, s.PrincipalIdentityStore.GetByKey(name))
+				require.Nil(t, s.ClusterControlPlaneStore.GetByKey(name))
+				if failure.name == "capacity" {
+					_, deferred := IsCCPBackoffError(s.RestoreRealizedNSXServiceAccount(ctx, obj))
+					require.True(t, deferred)
+					assert.Equal(t, 1, gets)
+					assert.Equal(t, 1, updates)
+				}
+				if restart {
+					// Reload the persisted PI into fresh stores, as startup does.
+					s = &NSXServiceAccountService{Service: s.Service}
+					s.SetUpStore()
+					require.NoError(t, s.PrincipalIdentityStore.Add(&persistedPI))
+					ClearCCPConnectionCapacityFull()
+				} else {
+					_, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now().Add(6 * time.Minute))
+					require.False(t, skip)
+				}
+				require.NoError(t, s.RestoreRealizedNSXServiceAccount(ctx, obj))
+				assert.Equal(t, 1, creates, "retry must reuse the PI")
+				assert.Equal(t, 2, updates)
+				require.NotNil(t, s.ClusterControlPlaneStore.GetByKey(name))
+				assert.Equal(t, "persisted-cert", captured.pi)
+				assert.Equal(t, captured.pi, captured.ccp)
+				storedSecret := &v1.Secret{}
+				require.NoError(t, s.Client.Get(ctx, client.ObjectKeyFromObject(secret), storedSecret))
+				assert.Equal(t, secret.Data, storedSecret.Data)
+				assert.True(t, IsNSXServiceAccountRealized(&obj.Status))
+			})
+		}
+	}
+}
+
+func TestRestoreRealizedNSXServiceAccountPartialRestoreGuards(t *testing.T) {
+	for _, test := range []struct {
+		name                  string
+		piUID                 types.UID
+		otherOwnedPI, ccpOnly bool
+		ccpExistsOnNSX        bool
+	}{
+		{name: "PI owned by another account", piUID: "other-uid"},
+		{name: "conflicting PI with another owned PI", piUID: "other-uid", otherOwnedPI: true},
+		{name: "owned PI under a different name", otherOwnedPI: true},
+		{name: "CCP without PI", ccpOnly: true},
+		{name: "CCP missing from cache only", ccpExistsOnNSX: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ClearCCPConnectionCapacityFull()
+			t.Cleanup(ClearCCPConnectionCapacityFull)
+			ctx := context.Background()
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := newTestServiceAccount()
+			name := "realized-account"
+			obj.Status = v1alpha1.NSXServiceAccountStatus{
+				ClusterName: name,
+				Secrets:     []v1alpha1.NSXSecret{{Name: obj.Name + SecretSuffix, Namespace: obj.Namespace}},
+			}
+			require.NoError(t, s.Client.Create(ctx, newOwnedTestSecret(obj, map[string][]byte{SecretCertName: []byte("persisted-cert")})))
+			ownedTags := s.buildBasicTags(obj)
+			if test.ccpOnly {
+				require.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &name, Tags: ownedTags}))
+			} else if test.piUID != "" || test.ccpExistsOnNSX {
+				piOwner := obj.DeepCopy()
+				if test.piUID != "" {
+					piOwner.UID = test.piUID
+				}
+				require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &name, Tags: common.ConvertTagsToMPTags(s.buildBasicTags(piOwner))}))
+			}
+			if test.otherOwnedPI {
+				otherName := "other-account-name"
+				require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &otherName, Tags: common.ConvertTagsToMPTags(ownedTags)}))
+			}
+			// The default NSX fake reports an existing CCP. In the cache-only
+			// case, restore must detect it before changing the PI or CCP.
+			err := s.RestoreRealizedNSXServiceAccount(ctx, obj)
+			if test.ccpExistsOnNSX {
+				require.EqualError(t, err, "CCP store is not synchronized")
+			} else {
+				require.EqualError(t, err, "PI/CCP doesn't match")
 			}
 		})
 	}
