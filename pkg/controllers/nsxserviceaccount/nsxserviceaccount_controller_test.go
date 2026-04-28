@@ -7,12 +7,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -25,6 +27,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -35,7 +38,7 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
+	nsxsasvc "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 )
 
 type fakeRecorder struct {
@@ -342,6 +345,8 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 		{
 			name: "DeleteWithoutFinalizer",
 			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				// Fake client strips DeletionTimestamp on Create; wrap Get so Reconcile sees a terminating CR.
+				base := fake.NewClientBuilder().WithScheme(r.Scheme).WithStatusSubresource(&nsxvmwarecomv1alpha1.NSXServiceAccount{}).Build()
 				obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:         requestArgs.req.Namespace,
@@ -349,12 +354,26 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						CreationTimestamp: *createTimestamp,
 					},
 				}
-				assert.NoError(t, r.Client.Create(ctx, obj))
+				assert.NoError(t, base.Create(ctx, obj))
+				wrapped := interceptor.NewClient(base, interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+						if err := c.Get(ctx, key, o, opts...); err != nil {
+							return err
+						}
+						if key.Namespace == requestArgs.req.Namespace && key.Name == requestArgs.req.Name {
+							if nsxsa, ok := o.(*nsxvmwarecomv1alpha1.NSXServiceAccount); ok {
+								ts := deletionTimestamp.DeepCopy()
+								nsxsa.SetDeletionTimestamp(ts)
+							}
+						}
+						return nil
+					},
+				})
+				r.Client = wrapped
 				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
-				patches.ApplyMethod(obj.DeletionTimestamp, "IsZero", func() bool { return false })
 				return patches
 			},
 			args:    requestArgs,
@@ -375,13 +394,13 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace:         requestArgs.req.Namespace,
-						Name:              requestArgs.req.Name,
-						DeletionTimestamp: deletionTimestamp,
-						Finalizers:        []string{servicecommon.NSXServiceAccountFinalizerName},
+						Namespace:  requestArgs.req.Namespace,
+						Name:       requestArgs.req.Name,
+						Finalizers: []string{servicecommon.NSXServiceAccountFinalizerName},
 					},
 				}
 				assert.NoError(t, r.Client.Create(ctx, obj))
+				assert.NoError(t, r.Client.Delete(ctx, obj))
 				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
@@ -390,7 +409,6 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})
-				patches.ApplyMethod(obj.DeletionTimestamp, "IsZero", func() bool { return false })
 				return patches
 			},
 			args:    requestArgs,
@@ -411,13 +429,13 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace:         requestArgs.req.Namespace,
-						Name:              requestArgs.req.Name,
-						DeletionTimestamp: deletionTimestamp,
-						Finalizers:        []string{servicecommon.NSXServiceAccountFinalizerName},
+						Namespace:  requestArgs.req.Namespace,
+						Name:       requestArgs.req.Name,
+						Finalizers: []string{servicecommon.NSXServiceAccountFinalizerName},
 					},
 				}
 				assert.NoError(t, r.Client.Create(ctx, obj))
+				assert.NoError(t, r.Client.Delete(ctx, obj))
 				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
@@ -433,7 +451,6 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
-				patches.ApplyMethod(obj.DeletionTimestamp, "IsZero", func() bool { return false })
 				return patches
 			},
 			args:    requestArgs,
@@ -454,13 +471,13 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace:         requestArgs.req.Namespace,
-						Name:              requestArgs.req.Name,
-						DeletionTimestamp: deletionTimestamp,
-						Finalizers:        []string{servicecommon.NSXServiceAccountFinalizerName},
+						Namespace:  requestArgs.req.Namespace,
+						Name:       requestArgs.req.Name,
+						Finalizers: []string{servicecommon.NSXServiceAccountFinalizerName},
 					},
 				}
 				assert.NoError(t, r.Client.Create(ctx, obj))
+				assert.NoError(t, r.Client.Delete(ctx, obj))
 				patches = gomonkey.ApplyMethodSeq(r.Service.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{true},
 					Times:  1,
@@ -469,7 +486,6 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
-				patches.ApplyMethod(obj.DeletionTimestamp, "IsZero", func() bool { return false })
 				return patches
 			},
 			args:       requestArgs,
@@ -482,7 +498,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newFakeNSXServiceAccountReconciler()
 			nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
-			r.Service = &nsxserviceaccount.NSXServiceAccountService{
+			r.Service = &nsxsasvc.NSXServiceAccountService{
 				Service: servicecommon.Service{
 					NSXClient: &nsx.Client{},
 					NSXConfig: &config.NSXOperatorConfig{
@@ -504,7 +520,6 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				t.Errorf("Reconcile() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			fmt.Printf("err: %+v", err)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Reconcile() got = %v, want %v", got, tt.want)
 			}
@@ -513,8 +528,15 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 			if tt.expectedCR == nil {
 				assert.True(t, errors.IsNotFound(err))
 			} else {
+				expectedCR := tt.expectedCR.DeepCopy()
 				actualCR.CreationTimestamp = metav1.Time{}
-				assert.Equal(t, tt.expectedCR.ObjectMeta, actualCR.ObjectMeta)
+				expectedCR.CreationTimestamp = metav1.Time{}
+				switch tt.name {
+				case "DeleteError", "RemoveFinalizerFailed", "DeleteWithoutFinalizer":
+					expectedCR.DeletionTimestamp = actualCR.DeletionTimestamp
+					expectedCR.ResourceVersion = actualCR.ResourceVersion
+				}
+				assert.Equal(t, expectedCR.ObjectMeta, actualCR.ObjectMeta)
 				assert.Equal(t, tt.expectedCR.Spec, actualCR.Spec)
 				for i := range actualCR.Status.Conditions {
 					actualCR.Status.Conditions[i].LastTransitionTime = metav1.Time{}
@@ -523,6 +545,51 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNSXServiceAccountReconciler_Reconcile_CCPConnectionCapacityBackoffSkipsNSX(t *testing.T) {
+	t.Cleanup(nsxsasvc.ClearCCPConnectionCapacityFull)
+	nsxsasvc.ClearCCPConnectionCapacityFull()
+	nsxsasvc.MarkCCPConnectionCapacityFull()
+
+	r := newFakeNSXServiceAccountReconciler()
+	nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
+	r.Service = &nsxsasvc.NSXServiceAccountService{
+		Service: servicecommon.Service{
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "ServiceAccount", "NSXServiceAccount")
+
+	ctx := context.TODO()
+	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "ccpboff"}}
+
+	obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: req.Namespace,
+			Name:      req.Name,
+		},
+	}
+	require.NoError(t, r.Client.Create(ctx, obj))
+
+	var nsxCheckCalls int32
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&nsx.Client{}), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		atomic.AddInt32(&nsxCheckCalls, 1)
+		return true
+	})
+	defer patches.Reset()
+
+	got, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), nsxCheckCalls, "NSX version check should be skipped during backoff")
+	assert.True(t, got.Requeue)
+	assert.GreaterOrEqual(t, got.RequeueAfter, time.Second)
+	assert.LessOrEqual(t, got.RequeueAfter, 5*time.Minute+time.Second)
 }
 
 func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
@@ -564,7 +631,7 @@ func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newFakeNSXServiceAccountReconciler()
-			r.Service = &nsxserviceaccount.NSXServiceAccountService{
+			r.Service = &nsxsasvc.NSXServiceAccountService{
 				Service: servicecommon.Service{
 					NSXClient: &nsx.Client{},
 					NSXConfig: &config.NSXOperatorConfig{
@@ -619,9 +686,9 @@ func TestNSXServiceAccountReconciler_StartController(t *testing.T) {
 		Client: fakeClient,
 	}
 	mockMgr := &MockManager{scheme: runtime.NewScheme()}
-	patches := gomonkey.ApplyFunc(nsxserviceaccount.InitializeNSXServiceAccount,
-		func(service servicecommon.Service) (*nsxserviceaccount.NSXServiceAccountService, error) {
-			return &nsxserviceaccount.NSXServiceAccountService{Service: service}, nil
+	patches := gomonkey.ApplyFunc(nsxsasvc.InitializeNSXServiceAccount,
+		func(service servicecommon.Service) (*nsxsasvc.NSXServiceAccountService, error) {
+			return &nsxsasvc.NSXServiceAccountService{Service: service}, nil
 		})
 	patches.ApplyFunc((*NSXServiceAccountReconciler).setupWithManager, func(r *NSXServiceAccountReconciler, mgr manager.Manager) error {
 		return nil
@@ -916,7 +983,7 @@ func TestNSXServiceAccountReconciler_garbageCollector(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newFakeNSXServiceAccountReconciler()
-			r.Service = &nsxserviceaccount.NSXServiceAccountService{
+			r.Service = &nsxsasvc.NSXServiceAccountService{
 				Service: servicecommon.Service{
 					NSXClient: &nsx.Client{},
 					NSXConfig: &config.NSXOperatorConfig{
@@ -1049,7 +1116,7 @@ func TestNSXServiceAccountReconciler_validateRealized(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &NSXServiceAccountReconciler{
-				Service: &nsxserviceaccount.NSXServiceAccountService{},
+				Service: &nsxsasvc.NSXServiceAccountService{},
 			}
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, r)

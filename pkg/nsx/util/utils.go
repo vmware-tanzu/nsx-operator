@@ -747,6 +747,26 @@ func DiffArrays[T comparable](firstArray []T, secondArray []T) []T {
 	return diffSet.UnsortedList()
 }
 
+// IsCCPConnectionCapacityFullError reports NSX API error 610139 (cluster control plane connection capacity full).
+// It follows errors.Unwrap so wrapped errors are recognized.
+func IsCCPConnectionCapacityFullError(err error) bool {
+	for err != nil {
+		if apiErr, ok := err.(*NSXApiError); ok && apiErr.ApiError != nil {
+			if apiErr.ErrorCode != nil && *apiErr.ErrorCode == CCPConnectionCapacityFullErrorCode {
+				return true
+			}
+			for i := range apiErr.RelatedErrors {
+				rel := &apiErr.RelatedErrors[i]
+				if rel.ErrorCode != nil && *rel.ErrorCode == CCPConnectionCapacityFullErrorCode {
+					return true
+				}
+			}
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
+}
+
 func IsInvalidLicense(err error) bool {
 	invalidLicense := false
 	if apiErr, ok := err.(*NSXApiError); ok {

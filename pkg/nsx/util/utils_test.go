@@ -1078,6 +1078,34 @@ func TestTransNSXApiError(t *testing.T) {
 	assert.Equal(t, gotErr.Type(), apierrors.ErrorType_NOT_FOUND)
 }
 
+func TestIsCCPConnectionCapacityFullError(t *testing.T) {
+	code610139 := int64(CCPConnectionCapacityFullErrorCode)
+	codeOther := int64(500)
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "non_nsx_api", err: errors.New("x"), want: false},
+		{name: "nil_api_error", err: &NSXApiError{ApiError: nil}, want: false},
+		{name: "main_error_code", err: &NSXApiError{ApiError: &model.ApiError{ErrorCode: &code610139}}, want: true},
+		{name: "related_error_code", err: &NSXApiError{ApiError: &model.ApiError{
+			ErrorCode: &codeOther,
+			RelatedErrors: []model.RelatedApiError{
+				{ErrorCode: &code610139},
+			},
+		}}, want: true},
+		{name: "other_code", err: &NSXApiError{ApiError: &model.ApiError{ErrorCode: &codeOther}}, want: false},
+		{name: "wrapped", err: fmt.Errorf("outer: %w", &NSXApiError{ApiError: &model.ApiError{ErrorCode: &code610139}}), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsCCPConnectionCapacityFullError(tt.err))
+		})
+	}
+}
+
 func TestParseDHCPMode(t *testing.T) {
 	nsxMode := ParseDHCPMode("DHCPDeactivated")
 	assert.Equal(t, "DHCP_DEACTIVATED", nsxMode)
