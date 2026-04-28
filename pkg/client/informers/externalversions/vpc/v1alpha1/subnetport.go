@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // SubnetPorts.
 type SubnetPortInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.SubnetPortLister
+	Lister() vpcv1alpha1.SubnetPortLister
 }
 
 type subnetPortInformer struct {
@@ -44,21 +44,33 @@ func NewSubnetPortInformer(client versioned.Interface, namespace string, resyncP
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredSubnetPortInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().SubnetPorts(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().SubnetPorts(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().SubnetPorts(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().SubnetPorts(namespace).Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.SubnetPort{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().SubnetPorts(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().SubnetPorts(namespace).Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.SubnetPort{},
 		resyncPeriod,
 		indexers,
 	)
@@ -69,9 +81,9 @@ func (f *subnetPortInformer) defaultInformer(client versioned.Interface, resyncP
 }
 
 func (f *subnetPortInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.SubnetPort{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.SubnetPort{}, f.defaultInformer)
 }
 
-func (f *subnetPortInformer) Lister() v1alpha1.SubnetPortLister {
-	return v1alpha1.NewSubnetPortLister(f.Informer().GetIndexer())
+func (f *subnetPortInformer) Lister() vpcv1alpha1.SubnetPortLister {
+	return vpcv1alpha1.NewSubnetPortLister(f.Informer().GetIndexer())
 }

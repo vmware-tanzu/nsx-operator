@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // NetworkInfos.
 type NetworkInfoInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.NetworkInfoLister
+	Lister() vpcv1alpha1.NetworkInfoLister
 }
 
 type networkInfoInformer struct {
@@ -44,21 +44,33 @@ func NewNetworkInfoInformer(client versioned.Interface, namespace string, resync
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredNetworkInfoInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().NetworkInfos(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().NetworkInfos(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().NetworkInfos(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().NetworkInfos(namespace).Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.NetworkInfo{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().NetworkInfos(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().NetworkInfos(namespace).Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.NetworkInfo{},
 		resyncPeriod,
 		indexers,
 	)
@@ -69,9 +81,9 @@ func (f *networkInfoInformer) defaultInformer(client versioned.Interface, resync
 }
 
 func (f *networkInfoInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.NetworkInfo{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.NetworkInfo{}, f.defaultInformer)
 }
 
-func (f *networkInfoInformer) Lister() v1alpha1.NetworkInfoLister {
-	return v1alpha1.NewNetworkInfoLister(f.Informer().GetIndexer())
+func (f *networkInfoInformer) Lister() vpcv1alpha1.NetworkInfoLister {
+	return vpcv1alpha1.NewNetworkInfoLister(f.Informer().GetIndexer())
 }

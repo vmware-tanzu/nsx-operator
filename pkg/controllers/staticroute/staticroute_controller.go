@@ -263,7 +263,7 @@ func NewStaticRouteReconciler(mgr ctrl.Manager, staticRouteService *staticroute.
 	staticRouteReconcile := &StaticRouteReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("staticroute-controller"),
+		Recorder: mgr.GetEventRecorderFor("staticroute-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	staticRouteReconcile.Service = staticRouteService
 	staticRouteReconcile.StatusUpdater = common.NewStatusUpdater(staticRouteReconcile.Client, staticRouteReconcile.Service.NSXConfig, staticRouteReconcile.Recorder, MetricResTypeStaticRoute, "StaticRoute", "StaticRoute")

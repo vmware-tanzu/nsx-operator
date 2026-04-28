@@ -193,7 +193,7 @@ func TestReconciler_RestoreReconcile(t *testing.T) {
 			return true
 		})
 		patches.ApplyMethod(reflect.TypeOf((*Reconciler)(nil)), "Reconcile", func(_ *Reconciler, _ context.Context, req ctrl.Request) (ctrl.Result, error) {
-			return ctrl.Result{Requeue: true}, fmt.Errorf("reconcile failed")
+			return ctrl.Result{RequeueAfter: time.Millisecond}, fmt.Errorf("reconcile failed")
 		})
 		defer patches.Reset()
 		err := r.RestoreReconcile()

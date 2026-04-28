@@ -81,6 +81,10 @@ func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, pat
 	return nil
 }
 
+func (writer fakeStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	return nil
+}
+
 type fakeRecorder struct {
 }
 

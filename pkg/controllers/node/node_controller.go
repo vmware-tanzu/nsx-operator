@@ -107,7 +107,7 @@ func (r *NodeReconciler) RestoreReconcile() error {
 	var errorList []error
 	for _, node := range nodeList.Items {
 		result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: node.Namespace, Name: node.Name}})
-		if result.Requeue || err != nil {
+		if err != nil || result.RequeueAfter > 0 {
 			errorList = append(errorList, fmt.Errorf("failed to reconcile Node %v, error: %w", node, err))
 		}
 	}

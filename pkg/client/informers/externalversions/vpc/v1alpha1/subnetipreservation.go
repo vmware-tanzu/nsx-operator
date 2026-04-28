@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // SubnetIPReservations.
 type SubnetIPReservationInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.SubnetIPReservationLister
+	Lister() vpcv1alpha1.SubnetIPReservationLister
 }
 
 type subnetIPReservationInformer struct {
@@ -44,21 +44,33 @@ func NewSubnetIPReservationInformer(client versioned.Interface, namespace string
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredSubnetIPReservationInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().SubnetIPReservations(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().SubnetIPReservations(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().SubnetIPReservations(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().SubnetIPReservations(namespace).Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.SubnetIPReservation{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().SubnetIPReservations(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().SubnetIPReservations(namespace).Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.SubnetIPReservation{},
 		resyncPeriod,
 		indexers,
 	)
@@ -69,9 +81,9 @@ func (f *subnetIPReservationInformer) defaultInformer(client versioned.Interface
 }
 
 func (f *subnetIPReservationInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.SubnetIPReservation{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.SubnetIPReservation{}, f.defaultInformer)
 }
 
-func (f *subnetIPReservationInformer) Lister() v1alpha1.SubnetIPReservationLister {
-	return v1alpha1.NewSubnetIPReservationLister(f.Informer().GetIndexer())
+func (f *subnetIPReservationInformer) Lister() vpcv1alpha1.SubnetIPReservationLister {
+	return vpcv1alpha1.NewSubnetIPReservationLister(f.Informer().GetIndexer())
 }

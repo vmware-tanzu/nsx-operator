@@ -6,8 +6,8 @@
 package versioned
 
 import (
-	"fmt"
-	"net/http"
+	fmt "fmt"
+	http "net/http"
 
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1"
 	discovery "k8s.io/client-go/discovery"

@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // IPAddressAllocations.
 type IPAddressAllocationInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.IPAddressAllocationLister
+	Lister() vpcv1alpha1.IPAddressAllocationLister
 }
 
 type iPAddressAllocationInformer struct {
@@ -44,21 +44,33 @@ func NewIPAddressAllocationInformer(client versioned.Interface, namespace string
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredIPAddressAllocationInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().IPAddressAllocations(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().IPAddressAllocations(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().IPAddressAllocations(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().IPAddressAllocations(namespace).Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.IPAddressAllocation{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().IPAddressAllocations(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().IPAddressAllocations(namespace).Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.IPAddressAllocation{},
 		resyncPeriod,
 		indexers,
 	)
@@ -69,9 +81,9 @@ func (f *iPAddressAllocationInformer) defaultInformer(client versioned.Interface
 }
 
 func (f *iPAddressAllocationInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.IPAddressAllocation{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.IPAddressAllocation{}, f.defaultInformer)
 }
 
-func (f *iPAddressAllocationInformer) Lister() v1alpha1.IPAddressAllocationLister {
-	return v1alpha1.NewIPAddressAllocationLister(f.Informer().GetIndexer())
+func (f *iPAddressAllocationInformer) Lister() vpcv1alpha1.IPAddressAllocationLister {
+	return vpcv1alpha1.NewIPAddressAllocationLister(f.Informer().GetIndexer())
 }
