@@ -46,6 +46,7 @@ changecrd: manifests generate generate-api-docs
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1" output:crd:artifacts:config=build/yaml/crd/eas/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -96,6 +97,11 @@ build-clean: generate fmt vet ## Build clean binary.
 	@mkdir -p $(BINDIR)
 	GOOS=linux go build -o $(BINDIR)/clean $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_clean/main.go
 
+.PHONY: build-eas
+build-eas: generate fmt vet ## Build EAS (Extension API Server) binary.
+	@mkdir -p $(BINDIR)
+	GOOS=linux go build -o $(BINDIR)/nsx-eas $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd_eas/main.go
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
@@ -111,6 +117,10 @@ docker-push: ## Push docker image with the manager.
 .PHONY: photon
 photon:
 	docker build -t github.com/vmware-tanzu/nsx-operator -f build/image/photon/Dockerfile .
+
+.PHONY: eas
+eas:
+	docker build -t github.com/vmware-tanzu/nsx-eas -f build/image/eas/Dockerfile .
 
 .PHONY: clean
 clean:
