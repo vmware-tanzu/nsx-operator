@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,7 +34,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
+	nsxsasvc "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
 )
 
 const proxyLabelKey = "mgmt-proxy.antrea-nsx.vmware.com"
@@ -114,6 +115,8 @@ var (
 )
 
 // NSXServiceAccountReconciler reconciles a NSXServiceAccount object.
+// After NSX error 610139 (cluster control plane connection capacity full), reconciles may
+// requeue without calling NSX until a shared backoff window expires.
 // Requires NSXT 4.0.1
 //
 // create/delete event will be processed by Reconcile
@@ -128,7 +131,7 @@ var (
 type NSXServiceAccountReconciler struct {
 	client.Client
 	Scheme        *apimachineryruntime.Scheme
-	Service       *nsxserviceaccount.NSXServiceAccountService
+	Service       *nsxsasvc.NSXServiceAccountService
 	Recorder      record.EventRecorder
 	StatusUpdater common.StatusUpdater
 }
@@ -149,8 +152,6 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ResultNormal, client.IgnoreNotFound(err)
 	}
 
-	// Since NSXServiceAccount service can only be activated from NSX 4.1.0 onwards,
-	// So need to check NSX version before starting NSXServiceAccount reconcile
 	if !r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccount) {
 		err := errors.New("NSX version check failed, NSXServiceAccount feature is not supported")
 		r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
@@ -170,9 +171,14 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			log.Debug("added finalizer on CR", "nsxserviceaccount", req.NamespacedName)
 		}
 
-		if nsxserviceaccount.IsNSXServiceAccountRealized(&obj.Status) {
+		if nsxsasvc.IsNSXServiceAccountRealized(&obj.Status) {
 			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
 				if err := r.Service.RestoreRealizedNSXServiceAccount(ctx, obj); err != nil {
+					if requeueAfter, skip := nsxsasvc.IsCCPBackoffError(err); skip {
+						log.Info("skipping NSX API calls while cluster control plane connection capacity backoff is active",
+							"nsxserviceaccount", req.NamespacedName, "requeueAfter", requeueAfter)
+						return ctrl.Result{Requeue: true, RequeueAfter: requeueAfter}, nil
+					}
 					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 					r.StatusUpdater.IncreaseDeleteFailTotal()
 					return ResultRequeue, err
@@ -183,14 +189,23 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 				return ResultRequeue, err
 			}
-			r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
+			r.StatusUpdater.UpdateSuccess(ctx, obj, nil)
 			return ResultNormal, nil
 		}
+
+		if requeueAfter, skip := nsxsasvc.CCPConnectionCapacityFullBackoffRequeue(time.Now()); skip {
+			log.Info("skipping NSX API calls while cluster control plane connection capacity backoff is active",
+				"nsxserviceaccount", req.NamespacedName, "requeueAfter", requeueAfter)
+			return ctrl.Result{Requeue: true, RequeueAfter: requeueAfter}, nil
+		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
+			if delay, skip := nsxsasvc.IsCCPBackoffError(err); skip {
+				return ctrl.Result{RequeueAfter: delay}, nil
+			}
 			r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 			return ResultRequeue, err
 		}
-		r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
+		r.StatusUpdater.UpdateSuccess(ctx, obj, nil)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
 			r.StatusUpdater.IncreaseDeleteTotal()
@@ -301,6 +316,28 @@ func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) error 
 }
 
 func (r *NSXServiceAccountReconciler) RestoreReconcile() error {
+	log.Info("Starting NSXServiceAccount RestoreReconcile")
+	accounts := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
+	if err := r.Client.List(context.Background(), accounts); err != nil {
+		return fmt.Errorf("failed to get NSXServiceAccount restore list: %w", err)
+	}
+	var errorList []error
+	for _, account := range accounts.Items {
+		if !nsxsasvc.IsNSXServiceAccountRealized(&account.Status) {
+			continue
+		}
+		key := client.ObjectKeyFromObject(&account)
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if err == nil && common.IsReconcileResultRequeue(result) {
+			err = fmt.Errorf("reconciliation deferred, requeue after %v", result.RequeueAfter)
+		}
+		if err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore NSXServiceAccount %s: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return fmt.Errorf("errors found in NSXServiceAccount restore: %v", errorList)
+	}
 	return nil
 }
 
@@ -321,7 +358,7 @@ func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommo
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("nsxserviceaccount-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
-	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
+	nsxServiceAccountService, err := nsxsasvc.InitializeNSXServiceAccount(commonService)
 	if err != nil {
 		log.Error(err, "Failed to initialize service", "controller", "NSXServiceAccount")
 		os.Exit(1)
@@ -347,7 +384,7 @@ func (r *NSXServiceAccountReconciler) validateRealized(count uint16, ca []byte, 
 		}
 		for _, account := range nsxServiceAccountList.Items {
 			nsxServiceAccount := account
-			if nsxserviceaccount.IsNSXServiceAccountRealized(&nsxServiceAccount.Status) {
+			if nsxsasvc.IsNSXServiceAccountRealized(&nsxServiceAccount.Status) {
 				if err := r.Service.ValidateAndUpdateRealizedNSXServiceAccount(context.TODO(), &nsxServiceAccount, ca, nsxRestoreStatus); err != nil {
 					log.Error(err, "Failed to update realized NSXServiceAccount", "namespace", nsxServiceAccount.Namespace, "name", nsxServiceAccount.Name)
 					setCountToZero = true
@@ -395,29 +432,29 @@ func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet s
 	return
 }
 
-func updateNSXServiceAccountStatus(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, _ ...interface{}) {
+func updateNSXServiceAccountStatuswithError(c client.Client, ctx context.Context, obj client.Object, _ metav1.Time, e error, _ ...interface{}) {
+	if e == nil {
+		return
+	}
 	nsa := obj.(*nsxvmwarecomv1alpha1.NSXServiceAccount)
-	err := client.Status().Update(ctx, obj)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(nsa), latest); err != nil {
+			return err
+		}
+		latest.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
+		latest.Status.Reason = fmt.Sprintf("Error: %v", e)
+		latest.Status.Conditions = nsxsasvc.GenerateNSXServiceAccountConditions(
+			latest.Status.Conditions, latest.Generation, metav1.ConditionFalse,
+			nsxvmwarecomv1alpha1.ConditionReasonRealizationError, latest.Status.Reason)
+		if err := c.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+		nsa.ResourceVersion = latest.ResourceVersion
+		nsa.Status = latest.Status
+		return nil
+	})
 	if err != nil {
-		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
-	} else {
-		log.Debug("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
-	}
-}
-
-func updateNSXServiceAccountStatuswithError(client client.Client, ctx context.Context, o client.Object, _ metav1.Time, e error, _ ...interface{}) {
-	obj := o.(*nsxvmwarecomv1alpha1.NSXServiceAccount)
-	nsa := obj
-	if e != nil {
-		nsa = obj.DeepCopy()
-		nsa.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
-		nsa.Status.Reason = fmt.Sprintf("Error: %v", e)
-		nsa.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(nsa.Status.Conditions, nsa.Generation, metav1.ConditionFalse, nsxvmwarecomv1alpha1.ConditionReasonRealizationError, fmt.Sprintf("Error: %v", e))
-	}
-	err := client.Status().Update(ctx, nsa)
-	if err != nil {
-		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
-	} else {
-		log.Debug("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
+		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name)
 	}
 }
