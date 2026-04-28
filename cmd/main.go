@@ -58,6 +58,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -192,6 +193,11 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
 		}
+		dnsRecordService, err := dns.InitializeDNSRecordService(commonService, vpcService)
+		if err != nil {
+			log.Error(err, "Failed to initialize DNS record service", "controller", "DNS")
+			os.Exit(1)
+		}
 		ipblocksInfoService := ipblocksinfo.InitializeIPBlocksInfoService(commonService, subnetService)
 
 		subnetBindingService, err := subnetbindingservice.InitializeService(commonService)
@@ -230,7 +236,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		subnetSetReconcile = subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService)
 		reconcilerList = append(
 			reconcilerList,
-			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService),
+			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService, dnsRecordService),
 			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService, subnetService, subnetPortService),
 			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
 			subnetSetReconcile,

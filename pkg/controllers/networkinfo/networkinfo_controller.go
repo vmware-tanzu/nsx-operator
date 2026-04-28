@@ -6,7 +6,9 @@ package networkinfo
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,6 +74,7 @@ var (
 	nsMsgVPCAutoSNATDisabled      = newNsUnreadyMessage("SNAT is not enabled in System VPC", NSReasonVPCSnatNotReady)
 	nsMsgVPCDefaultSNATIPGetError = newNsUnreadyMessage("Default SNAT IP is not allocated in VPC: %v", NSReasonVPCSnatNotReady)
 	nsMsgVPCIsReady               = newNsUnreadyMessage("", "")
+	nsMsgVPCDNSZonesSyncError     = newNsUnreadyMessage("Failed to sync permitted DNS zones from NSX: %v", NSReasonVPCNotReady)
 )
 
 type nsUnreadyMessage struct {
@@ -99,12 +102,18 @@ func (m *nsUnreadyMessage) getNSNetworkCondition(options ...interface{}) *corev1
 	return cond
 }
 
+// dnsZoneSyncer is the minimal DNS interface needed by NetworkInfoReconciler for VPC DNS zone lookups.
+type dnsZoneSyncer interface {
+	SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VPCNetworkConfiguration) (map[string]string, error)
+}
+
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
 // Actually it is more like a shell, which is used to manage nsx VPC
 type NetworkInfoReconciler struct {
 	Client              client.Client
 	Scheme              *apimachineryruntime.Scheme
 	Service             *vpc.VPCService
+	DNSRecordService    dnsZoneSyncer
 	IPBlocksInfoService *ipblocksinfo.IPBlocksInfoService
 	Recorder            record.EventRecorder
 	queue               workqueue.TypedRateLimitingInterface[reconcile.Request]
@@ -452,9 +461,25 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		NetworkStack:            networkStack,
 	}
 
+	var allowedDNSDomains []string
+	if r.DNSRecordService != nil && len(nc.Spec.DNSZones) > 0 {
+		zoneMap, zoneSyncErr := r.DNSRecordService.SyncDNSZonesByVpcNetworkConfig(nc)
+		if zoneSyncErr != nil {
+			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, zoneSyncErr, "Failed to sync DNS zones for VPC network configuration", setNetworkInfoVPCStatusWithError, state)
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCDNSZonesSyncError.getNSNetworkCondition(zoneSyncErr))
+			return common.ResultRequeueAfter10sec, zoneSyncErr
+		}
+		for _, domainName := range slices.Sorted(maps.Values(zoneMap)) {
+			if domainName == "" {
+				continue
+			}
+			allowedDNSDomains = append(allowedDNSDomains, domainName)
+		}
+	}
+
 	// AKO needs to know the AVI subnet path created by NSX
 	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, aviSubnetPath, nsxLBSPath, *createdVpc.Path)
-	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
+	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state, allowedDNSDomains)
 
 	if retryWithSystemVPC {
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, systemNSCondition)
@@ -851,11 +876,12 @@ func (r *NetworkInfoReconciler) StartController(mgr ctrl.Manager, _ webhook.Serv
 	return nil
 }
 
-func NewNetworkInfoReconciler(mgr ctrl.Manager, vpcService *vpc.VPCService, ipblocksInfoService *ipblocksinfo.IPBlocksInfoService) *NetworkInfoReconciler {
+func NewNetworkInfoReconciler(mgr ctrl.Manager, vpcService *vpc.VPCService, ipblocksInfoService *ipblocksinfo.IPBlocksInfoService, dnsRecordService dnsZoneSyncer) *NetworkInfoReconciler {
 	networkInfoReconciler := &NetworkInfoReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		DNSRecordService: dnsRecordService,
+		Recorder:         mgr.GetEventRecorderFor("networkinfo-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	networkInfoReconciler.Service = vpcService
 	networkInfoReconciler.IPBlocksInfoService = ipblocksInfoService

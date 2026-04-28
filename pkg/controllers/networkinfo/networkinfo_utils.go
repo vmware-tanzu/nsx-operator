@@ -21,19 +21,27 @@ func setNetworkInfoVPCStatusWithError(client client.Client, ctx context.Context,
 }
 
 func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) {
-	if len(args) != 1 {
+	if len(args) < 1 {
 		log.Error(nil, "VPC State is needed when updating NetworkInfo status")
 		return
 	}
 	networkInfo := obj.(*v1alpha1.NetworkInfo)
-	var createdVPC *v1alpha1.VPCState
 	if args[0] == nil {
 		// Not clear the existing VPC in NetworkInfo as
 		// currently one Namespace only maps to one VPC
 		return
-	} else {
-		createdVPC = args[0].(*v1alpha1.VPCState)
 	}
+	createdVPC := args[0].(*v1alpha1.VPCState)
+
+	var allowedDNSDomains []string
+	updateAllowedDomains := false
+	if len(args) >= 2 {
+		if d, ok := args[1].([]string); ok {
+			allowedDNSDomains = append([]string(nil), d...)
+			updateAllowedDomains = true
+		}
+	}
+
 	existingVPC := &v1alpha1.VPCState{}
 	if len(networkInfo.VPCs) > 0 {
 		existingVPC = &networkInfo.VPCs[0]
@@ -42,11 +50,25 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	slices.Sort(createdVPC.PrivateIPs)
 	slices.Sort(existingVPC.LoadBalancerBackendIPs)
 	slices.Sort(createdVPC.LoadBalancerBackendIPs)
-	if reflect.DeepEqual(*existingVPC, *createdVPC) {
+
+	domainsEqual := true
+	if updateAllowedDomains {
+		currentDomains := append([]string(nil), networkInfo.AllowedDNSDomains...)
+		slices.Sort(currentDomains)
+		slices.Sort(allowedDNSDomains)
+		domainsEqual = slices.Equal(currentDomains, allowedDNSDomains)
+	}
+
+	if reflect.DeepEqual(*existingVPC, *createdVPC) && domainsEqual {
 		return
 	}
 	networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
-	client.Update(ctx, networkInfo)
+	if updateAllowedDomains {
+		networkInfo.AllowedDNSDomains = allowedDNSDomains
+	}
+	if err := client.Update(ctx, networkInfo); err != nil {
+		log.Error(err, "Failed to update NetworkInfo VPC status", "NetworkInfo", networkInfo.Name)
+	}
 }
 
 func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.Client, ncName, vpcName, aviSubnetPath, nsxLBSPath, vpcPath string) {

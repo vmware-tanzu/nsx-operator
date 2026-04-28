@@ -487,3 +487,30 @@ func TestHasPodOrVMDefaultSubnets(t *testing.T) {
 	assert.False(t, hasPodDefaultSubnets(subnets))
 	assert.False(t, hasVMDefaultSubnets(subnets))
 }
+
+func TestSetNetworkInfoVPCStatus_AllowedDNSDomains(t *testing.T) {
+	ctx := context.TODO()
+	scheme := clientgoscheme.Scheme
+	v1alpha1.AddToScheme(scheme)
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha1.NetworkInfo{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "ni1"},
+	}).Build()
+
+	networkInfoCR := &v1alpha1.NetworkInfo{}
+	require.NoError(t, kubeClient.Get(ctx, apitypes.NamespacedName{Namespace: "ns1", Name: "ni1"}, networkInfoCR))
+
+	state := &v1alpha1.VPCState{Name: "vpc-a"}
+	domains := []string{"zone1.example.com", "zone2.example.com"}
+	setNetworkInfoVPCStatus(kubeClient, ctx, networkInfoCR, metav1.Now(), state, domains)
+
+	require.NoError(t, kubeClient.Get(ctx, apitypes.NamespacedName{Namespace: "ns1", Name: "ni1"}, networkInfoCR))
+	require.Len(t, networkInfoCR.VPCs, 1)
+	assert.Equal(t, "vpc-a", networkInfoCR.VPCs[0].Name)
+	assert.Equal(t, domains, networkInfoCR.AllowedDNSDomains)
+
+	// Clearing domains while keeping VPC state requires explicit second arg (nil slice).
+	state2 := &v1alpha1.VPCState{Name: "vpc-a"}
+	setNetworkInfoVPCStatus(kubeClient, ctx, networkInfoCR, metav1.Now(), state2, []string(nil))
+	require.NoError(t, kubeClient.Get(ctx, apitypes.NamespacedName{Namespace: "ns1", Name: "ni1"}, networkInfoCR))
+	assert.Nil(t, networkInfoCR.AllowedDNSDomains)
+}
