@@ -21,8 +21,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -750,4 +752,107 @@ func TestBuildBasicTagsWithStatefulSetPod(t *testing.T) {
 	assert.True(t, foundPodUID, "should have pod uid tag")
 	assert.True(t, foundStsName, "should have statefulset name tag")
 	assert.True(t, foundStsUID, "should have statefulset uid tag")
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+func TestCRSubnetStaticIPAllocationEnabled(t *testing.T) {
+	tests := []struct {
+		name string
+		obj  client.Object
+		want bool
+	}{
+		{"nil enabled on Subnet", &v1alpha1.Subnet{}, false},
+		{"enabled=false on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(false)}}}}, false},
+		{"enabled=true on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(true)}}}}, true},
+		{"SubnetSet never has static enabled", &v1alpha1.SubnetSet{}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, CRSubnetStaticIPAllocationEnabled(tc.obj))
+		})
+	}
+}
+
+func TestCRPoolRangesToNSX(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []v1alpha1.IPAddressRange
+		want []string
+	}{
+		{"nil -> nil", nil, nil},
+		{"empty -> nil", []v1alpha1.IPAddressRange{}, nil},
+		{"single IP collapses", []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.4"}}, []string{"1.2.3.4"}},
+		{"range", []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.10"}}, []string{"1.2.3.4-1.2.3.10"}},
+		{"mixed", []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.10"}, {Start: "2001:db8::1", End: "2001:db8::1"}}, []string{"1.2.3.4-1.2.3.10", "2001:db8::1"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CRPoolRangesToNSX(tc.in)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestNSXPoolRangesToCR(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []v1alpha1.IPAddressRange
+	}{
+		{"nil -> nil", nil, nil},
+		{"empty -> nil", []string{}, nil},
+		{"single IP", []string{"1.2.3.4"}, []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.4"}}},
+		{"range", []string{"1.2.3.4-1.2.3.10"}, []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.10"}}},
+		{"IPv6 range", []string{"2001:db8::1-2001:db8::ff"}, []v1alpha1.IPAddressRange{{Start: "2001:db8::1", End: "2001:db8::ff"}}},
+		{"malformed skipped", []string{"garbage", "1.2.3.4"}, []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.4"}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := NSXPoolRangesToCR(tc.in)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestCRPoolRangesRoundTrip(t *testing.T) {
+	orig := []v1alpha1.IPAddressRange{
+		{Start: "1.2.3.4", End: "1.2.3.10"},
+		{Start: "2001:db8::1", End: "2001:db8::1"},
+	}
+	round := NSXPoolRangesToCR(CRPoolRangesToNSX(orig))
+	assert.Equal(t, orig, round)
+}
+
+func TestParseIPRange(t *testing.T) {
+	tests := []struct {
+		name      string
+		in        string
+		wantErr   bool
+		wantStart string
+		wantEnd   string
+	}{
+		{"single IPv4", "1.2.3.4", false, "1.2.3.4", "1.2.3.4"},
+		{"IPv4 range", "1.2.3.4-1.2.3.10", false, "1.2.3.4", "1.2.3.10"},
+		{"IPv4 range with spaces", " 1.2.3.4 - 1.2.3.10 ", false, "1.2.3.4", "1.2.3.10"},
+		{"single IPv6", "2001:db8::1", false, "2001:db8::1", "2001:db8::1"},
+		{"IPv6 range", "2001:db8::1-2001:db8::ff", false, "2001:db8::1", "2001:db8::ff"},
+		{"empty", "", true, "", ""},
+		{"invalid start", "garbage-1.2.3.4", true, "", ""},
+		{"invalid end", "1.2.3.4-garbage", true, "", ""},
+		{"mixed family", "1.2.3.4-2001:db8::1", true, "", ""},
+		{"end < start", "1.2.3.10-1.2.3.4", true, "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			start, end, err := ParseIPRange(tc.in)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantStart, start.String())
+			assert.Equal(t, tc.wantEnd, end.String())
+		})
+	}
 }

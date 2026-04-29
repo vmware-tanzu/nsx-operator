@@ -190,6 +190,66 @@ func TestSubnetToComparable(t *testing.T) {
 			expectChanged: false,
 		},
 		{
+			name: "StaticIpAllocation.Enabled change should cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(true)},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(false)},
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "StaticIpAllocation.PoolRanges change should cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"10.0.0.2-10.0.0.8"},
+					},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"10.0.0.2-10.0.0.4"},
+					},
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "StaticIpAllocation equal should not cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"10.0.0.2-10.0.0.8"},
+					},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"10.0.0.2-10.0.0.8"},
+					},
+				},
+			},
+			expectChanged: false,
+		},
+		{
 			name: "SubnetDhcpConfig changed",
 			nsxSubnet: &model.VpcSubnet{
 				Id: &id1,

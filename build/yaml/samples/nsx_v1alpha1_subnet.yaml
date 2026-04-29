@@ -21,6 +21,26 @@ spec:
       reservedIPRanges:
       - 172.26.2.4-172.26.2.10
 ---
+# Subnet CR sample for mixed-mode IPAM (DHCPServer + Static IP allocation).
+# The DHCP pool is derived from the Subnet CIDR minus poolRanges minus
+# reservedIPRanges minus NSX system-reserved IPs.
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: Subnet
+metadata:
+  name: subnet-sample-mixed
+spec:
+  accessMode: Private
+  ipAddresses:
+  - 172.26.2.0/28
+  subnetDHCPConfig:
+    mode: DHCPServer
+  advancedConfig:
+    staticIPAllocation:
+      enabled: true
+      poolRanges:
+      - start: 172.26.2.2
+        end: 172.26.2.8
+---
 # Subnet CR sample for assigned VLAN extension Subnet
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: Subnet
