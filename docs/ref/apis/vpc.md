@@ -298,6 +298,24 @@ _Appears in:_
 | `IPV6` |  |
 | `IPV4IPV6` |  |
 
+#### IPAddressRange
+
+
+
+IPAddressRange represents an inclusive IP address range.
+Supports both IPv4 (e.g. "192.168.1.51") and IPv6 (e.g. "2001:db8::51").
+For a single IP, set Start and End to the same value.
+
+
+
+_Appears in:_
+- [StaticIPAllocation](#staticipallocation)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `start` _string_ | Start IP address of the range (inclusive).<br />Must be a valid IPv4 or IPv6 address. |  |  |
+| `end` _string_ | End IP address of the range (inclusive).<br />Must be of the same address family as Start and >= Start. |  |  |
+
 
 #### IPAddressVisibility
 
@@ -689,7 +707,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer or DHCPRelay, its default value is false.<br />The value cannot be set to true when the DHCP mode is DHCPServer or DHCPRelay. |  |  |
+| `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false. When enabled<br />together with DHCPServer, the Subnet operates in mixed mode: PoolRanges<br />defines the static pool and NSX allocates the remaining IPs to the DHCP<br />pool.<br />The value cannot be set to true when the DHCP mode is DHCPRelay. |  |  |
+| `poolRanges` _[IPAddressRange](#ipaddressrange) array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Supports both IPv4 and IPv6 ranges in a single list; the address family<br />is determined by inspecting the Start IP of each range.<br />When specified with DHCPServer mode, enables mixed mode where the DHCP<br />pool is derived from the Subnet CIDR minus poolRanges, reservedIPRanges<br />and system-reserved IPs (gateway, network, broadcast, DHCP server IP). |  | MaxItems: 20 <br /> |
 
 
 #### StaticRoute

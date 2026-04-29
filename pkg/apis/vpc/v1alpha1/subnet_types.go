@@ -37,7 +37,10 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv6PrefixLength) || has(self.ipv6PrefixLength)", message="ipv6PrefixLength is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.accessMode) || has(self.accessMode)", message="accessMode is required once set"
 // +kubebuilder:validation:XValidation:rule="!(has(oldSelf.advancedConfig) && has(oldSelf.advancedConfig.staticIPAllocation) && has(oldSelf.advancedConfig.staticIPAllocation.enabled) && (!has(self.advancedConfig.staticIPAllocation.enabled) || oldSelf.advancedConfig.staticIPAllocation.enabled != self.advancedConfig.staticIPAllocation.enabled))", message="staticIPAllocation enabled cannot be changed once set"
-// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation) && has(self.advancedConfig.staticIPAllocation.enabled) && self.advancedConfig.staticIPAllocation.enabled==true && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) && (self.subnetDHCPConfig.mode=='DHCPServer' || self.subnetDHCPConfig.mode=='DHCPRelay'))", message="Static IP allocation and Subnet DHCP configuration cannot be enabled simultaneously on a Subnet"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation) && has(self.advancedConfig.staticIPAllocation.enabled) && self.advancedConfig.staticIPAllocation.enabled==true && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) && self.subnetDHCPConfig.mode=='DHCPRelay')", message="Static IP allocation cannot be enabled when Subnet DHCP mode is DHCPRelay"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation) && has(self.advancedConfig.staticIPAllocation.poolRanges) && size(self.advancedConfig.staticIPAllocation.poolRanges)>0 && (!has(self.advancedConfig.staticIPAllocation.enabled) || self.advancedConfig.staticIPAllocation.enabled!=true))", message="staticIPAllocation.poolRanges can only be set when staticIPAllocation.enabled is true"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation) && has(self.advancedConfig.staticIPAllocation.poolRanges) && size(self.advancedConfig.staticIPAllocation.poolRanges)>0) || has(self.ipAddresses)", message="ipAddresses is required when staticIPAllocation.poolRanges is specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation) && has(self.advancedConfig.staticIPAllocation.poolRanges) && size(self.advancedConfig.staticIPAllocation.poolRanges)>0 && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) && self.subnetDHCPConfig.mode=='DHCPRelay')", message="staticIPAllocation.poolRanges is not supported when Subnet DHCP mode is DHCPRelay"
 // +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses) && size(self.advancedConfig.dhcpServerAddresses)>0) || (has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) && self.subnetDHCPConfig.mode=='DHCPServer') || (has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.mode) && self.subnetDHCPv6Config.mode=='DHCPServer')", message="DHCPServerAddresses can only be set when DHCP mode or DHCPv6 mode is DHCPServer"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)) || has(self.ipAddresses)", message="ipAddresses is required to configure subnet reserved ip ranges."
 // +kubebuilder:validation:XValidation:rule="!has(self.ipAddresses) && !(has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)) || has(self.ipAddresses)", message="ipAddresses is required to configure subnet DHCPv6 reserved ip ranges."
@@ -144,9 +147,33 @@ type SubnetAdvancedConfig struct {
 type StaticIPAllocation struct {
 	// Activate or deactivate static IP allocation for VPC Subnet Ports.
 	// If the DHCP mode is DHCPDeactivated or not set, its default value is true.
-	// If the DHCP mode is DHCPServer or DHCPRelay, its default value is false.
-	// The value cannot be set to true when the DHCP mode is DHCPServer or DHCPRelay.
+	// If the DHCP mode is DHCPServer, its default value is false. When enabled
+	// together with DHCPServer, the Subnet operates in mixed mode: PoolRanges
+	// defines the static pool and NSX allocates the remaining IPs to the DHCP
+	// pool.
+	// The value cannot be set to true when the DHCP mode is DHCPRelay.
 	Enabled *bool `json:"enabled,omitempty"`
+	// PoolRanges specifies the IP address ranges for static IP allocation.
+	// Supports both IPv4 and IPv6 ranges in a single list; the address family
+	// is determined by inspecting the Start IP of each range.
+	// When specified with DHCPServer mode, enables mixed mode where the DHCP
+	// pool is derived from the Subnet CIDR minus poolRanges, reservedIPRanges
+	// and system-reserved IPs (gateway, network, broadcast, DHCP server IP).
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	PoolRanges []IPAddressRange `json:"poolRanges,omitempty"`
+}
+
+// IPAddressRange represents an inclusive IP address range.
+// Supports both IPv4 (e.g. "192.168.1.51") and IPv6 (e.g. "2001:db8::51").
+// For a single IP, set Start and End to the same value.
+type IPAddressRange struct {
+	// Start IP address of the range (inclusive).
+	// Must be a valid IPv4 or IPv6 address.
+	Start string `json:"start"`
+	// End IP address of the range (inclusive).
+	// Must be of the same address family as Start and >= Start.
+	End string `json:"end"`
 }
 
 // Additional DHCP server config for a VPC Subnet.

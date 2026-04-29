@@ -1111,6 +1111,46 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			},
 		},
 		{
+			name: "Map NSX Subnet with StaticIpAllocation enabled + PoolRanges",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"192.168.1.10-192.168.1.20", "192.168.1.30"},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+							PoolRanges: []v1alpha1.IPAddressRange{
+								{Start: "192.168.1.10", End: "192.168.1.20"},
+								{Start: "192.168.1.30", End: "192.168.1.30"},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "Map NSX Subnet with Private_TGW AccessMode",
 			subnetCR: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{},
