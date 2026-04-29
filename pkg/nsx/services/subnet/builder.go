@@ -113,7 +113,8 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 			Tags:        tags,
 			AdvancedConfig: &model.SubnetAdvancedConfig{
 				StaticIpAllocation: &model.StaticIpAllocation{
-					Enabled: &staticIpAllocation,
+					Enabled:    &staticIpAllocation,
+					PoolRanges: util.CRPoolRangesToNSX(o.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges),
 				},
 			},
 		}
@@ -148,8 +149,10 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if len(o.Spec.AdvancedConfig.GatewayAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.GatewayAddresses = o.Spec.AdvancedConfig.GatewayAddresses
 		}
-		// Support custom DHCP server addresses only when static IP allocation is disabled and dhcp mode is v1alpha1.DHCPConfigModeServer
-		if !staticIpAllocation && string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer && len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
+		// Support custom DHCP server addresses whenever DHCP mode is DHCPServer,
+		// regardless of staticIPAllocation. In mixed mode (Static + DHCPServer),
+		// the operator still needs to forward user-provided DHCP server IPs.
+		if string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer && len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.DhcpServerAddresses = o.Spec.AdvancedConfig.DHCPServerAddresses
 		}
 	case *v1alpha1.SubnetSet:

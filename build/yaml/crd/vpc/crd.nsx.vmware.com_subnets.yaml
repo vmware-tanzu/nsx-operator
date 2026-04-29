@@ -107,9 +107,42 @@ spec:
                         description: |-
                           Activate or deactivate static IP allocation for VPC Subnet Ports.
                           If the DHCP mode is DHCPDeactivated or not set, its default value is true.
-                          If the DHCP mode is DHCPServer or DHCPRelay, its default value is false.
-                          The value cannot be set to true when the DHCP mode is DHCPServer or DHCPRelay.
+                          If the DHCP mode is DHCPServer, its default value is false. When enabled
+                          together with DHCPServer, the Subnet operates in mixed mode: PoolRanges
+                          defines the static pool and NSX allocates the remaining IPs to the DHCP
+                          pool.
+                          The value cannot be set to true when the DHCP mode is DHCPRelay.
                         type: boolean
+                      poolRanges:
+                        description: |-
+                          PoolRanges specifies the IP address ranges for static IP allocation.
+                          Supports both IPv4 and IPv6 ranges in a single list; the address family
+                          is determined by inspecting the Start IP of each range.
+                          When specified with DHCPServer mode, enables mixed mode where the DHCP
+                          pool is derived from the Subnet CIDR minus poolRanges, reservedIPRanges
+                          and system-reserved IPs (gateway, network, broadcast, DHCP server IP).
+                        items:
+                          description: |-
+                            IPAddressRange represents an inclusive IP address range.
+                            Supports both IPv4 (e.g. "192.168.1.51") and IPv6 (e.g. "2001:db8::51").
+                            For a single IP, set Start and End to the same value.
+                          properties:
+                            end:
+                              description: |-
+                                End IP address of the range (inclusive).
+                                Must be of the same address family as Start and >= Start.
+                              type: string
+                            start:
+                              description: |-
+                                Start IP address of the range (inclusive).
+                                Must be a valid IPv4 or IPv6 address.
+                              type: string
+                          required:
+                          - end
+                          - start
+                          type: object
+                        maxItems: 20
+                        type: array
                     type: object
                 type: object
               ipAddressType:
@@ -226,12 +259,28 @@ spec:
               rule: '!(has(oldSelf.advancedConfig) && has(oldSelf.advancedConfig.staticIPAllocation)
                 && has(oldSelf.advancedConfig.staticIPAllocation.enabled) && (!has(self.advancedConfig.staticIPAllocation.enabled)
                 || oldSelf.advancedConfig.staticIPAllocation.enabled != self.advancedConfig.staticIPAllocation.enabled))'
-            - message: Static IP allocation and Subnet DHCP configuration cannot be
-                enabled simultaneously on a Subnet
+            - message: Static IP allocation cannot be enabled when Subnet DHCP mode
+                is DHCPRelay
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation)
                 && has(self.advancedConfig.staticIPAllocation.enabled) && self.advancedConfig.staticIPAllocation.enabled==true
                 && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) &&
-                (self.subnetDHCPConfig.mode==''DHCPServer'' || self.subnetDHCPConfig.mode==''DHCPRelay''))'
+                self.subnetDHCPConfig.mode==''DHCPRelay'')'
+            - message: staticIPAllocation.poolRanges can only be set when staticIPAllocation.enabled
+                is true
+              rule: '!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation)
+                && has(self.advancedConfig.staticIPAllocation.poolRanges) && size(self.advancedConfig.staticIPAllocation.poolRanges)>0
+                && (!has(self.advancedConfig.staticIPAllocation.enabled) || self.advancedConfig.staticIPAllocation.enabled!=true))'
+            - message: ipAddresses is required when staticIPAllocation.poolRanges
+                is specified
+              rule: '!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation)
+                && has(self.advancedConfig.staticIPAllocation.poolRanges) && size(self.advancedConfig.staticIPAllocation.poolRanges)>0)
+                || has(self.ipAddresses)'
+            - message: staticIPAllocation.poolRanges is not supported when Subnet
+                DHCP mode is DHCPRelay
+              rule: '!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation)
+                && has(self.advancedConfig.staticIPAllocation.poolRanges) && size(self.advancedConfig.staticIPAllocation.poolRanges)>0
+                && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) &&
+                self.subnetDHCPConfig.mode==''DHCPRelay'')'
             - message: DHCPServerAddresses can only be set when DHCP mode or DHCPv6
                 mode is DHCPServer
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses)

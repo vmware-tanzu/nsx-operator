@@ -512,3 +512,164 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateStaticIPAllocation(t *testing.T) {
+	bp := func(b bool) *bool { return &b }
+	tests := []struct {
+		name    string
+		subnet  *v1alpha1.Subnet
+		wantMsg string // empty == allowed; otherwise expect message contains
+	}{
+		{
+			name:    "empty spec allowed",
+			subnet:  &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"}},
+			wantMsg: "",
+		},
+		{
+			name: "allow: mixed mode within CIDR",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses:      []string{"172.26.2.0/28"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "172.26.2.2", End: "172.26.2.8"}},
+						},
+					},
+				},
+			},
+			wantMsg: "",
+		},
+		{
+			name: "deny: poolRanges but enabled=false",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(false),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.4"}},
+						},
+					},
+				},
+			},
+			wantMsg: "staticIPAllocation.poolRanges can only be set when staticIPAllocation.enabled is true",
+		},
+		{
+			name: "deny: range outside CIDR",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.100", End: "10.0.0.200"}},
+						},
+					},
+				},
+			},
+			wantMsg: "not contained within any spec.ipAddresses CIDR",
+		},
+		{
+			name: "deny: pairwise overlap",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{
+								{Start: "10.0.0.2", End: "10.0.0.6"},
+								{Start: "10.0.0.5", End: "10.0.0.8"},
+							},
+						},
+					},
+				},
+			},
+			wantMsg: "overlap",
+		},
+		{
+			name: "deny: overlaps reservedIPRanges",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+						DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+							ReservedIPRanges: []string{"10.0.0.4-10.0.0.6"},
+						},
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.5", End: "10.0.0.8"}},
+						},
+					},
+				},
+			},
+			wantMsg: "overlaps reservedIPRanges",
+		},
+		{
+			name: "deny: DHCPRelay + enabled",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses:      []string{"10.0.0.0/28"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay)},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: bp(true)},
+					},
+				},
+			},
+			wantMsg: "DHCPRelay",
+		},
+		{
+			name: "deny: mixed-family range",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "2001:db8::1"}},
+						},
+					},
+				},
+			},
+			wantMsg: "invalid",
+		},
+		{
+			name: "deny: invalid CIDR",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"not-a-cidr"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.4"}},
+						},
+					},
+				},
+			},
+			wantMsg: "not a valid CIDR",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := validateStaticIPAllocation(tc.subnet)
+			if tc.wantMsg == "" {
+				assert.Equal(t, "", got)
+				return
+			}
+			assert.Contains(t, got, tc.wantMsg)
+		})
+	}
+}

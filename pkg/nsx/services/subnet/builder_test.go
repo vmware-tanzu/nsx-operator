@@ -553,6 +553,101 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 	assert.Equal(t, false, *nsxSubnet4.AdvancedConfig.StaticIpAllocation.Enabled)
 }
 
+func TestBuildSubnetMixedModeIPAM(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	defer patches.Reset()
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "k8scl-one:test"},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns-1")}}
+
+	t.Run("mixed mode: DHCPServer + Static + PoolRanges", func(t *testing.T) {
+		subnet := &v1alpha1.Subnet{
+			ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed", Namespace: "ns-1"},
+			Spec: v1alpha1.SubnetSpec{
+				IPAddresses: []string{"172.26.2.0/28"},
+				SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+					Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+				},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					DHCPServerAddresses: []string{"172.26.2.3"},
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+						PoolRanges: []v1alpha1.IPAddressRange{
+							{Start: "172.26.2.2", End: "172.26.2.8"},
+							{Start: "172.26.2.10", End: "172.26.2.10"},
+						},
+					},
+				},
+			},
+		}
+		got, err := service.buildSubnet(subnet, tags, []string{})
+		assert.NoError(t, err)
+		assert.Equal(t, "DHCP_SERVER", *got.SubnetDhcpConfig.Mode)
+		assert.Equal(t, true, *got.AdvancedConfig.StaticIpAllocation.Enabled)
+		assert.Equal(t, []string{"172.26.2.2-172.26.2.8", "172.26.2.10"}, got.AdvancedConfig.StaticIpAllocation.PoolRanges)
+		// Custom DhcpServerAddresses must be forwarded in mixed mode.
+		assert.Equal(t, []string{"172.26.2.3"}, got.AdvancedConfig.DhcpServerAddresses)
+	})
+
+	t.Run("IPv6 range serialized unchanged", func(t *testing.T) {
+		subnet := &v1alpha1.Subnet{
+			ObjectMeta: v1.ObjectMeta{Name: "subnet-v6", Namespace: "ns-1"},
+			Spec: v1alpha1.SubnetSpec{
+				IPAddresses: []string{"2001:db8::/64"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{
+						Enabled: common.Bool(true),
+						PoolRanges: []v1alpha1.IPAddressRange{
+							{Start: "2001:db8::1", End: "2001:db8::ff"},
+						},
+					},
+				},
+			},
+		}
+		got, err := service.buildSubnet(subnet, tags, []string{})
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"2001:db8::1-2001:db8::ff"}, got.AdvancedConfig.StaticIpAllocation.PoolRanges)
+	})
+
+	t.Run("no PoolRanges -> nil on NSX model", func(t *testing.T) {
+		subnet := &v1alpha1.Subnet{
+			ObjectMeta: v1.ObjectMeta{Name: "subnet-none", Namespace: "ns-1"},
+			Spec: v1alpha1.SubnetSpec{
+				IPAddresses: []string{"10.0.0.0/28"},
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: common.Bool(true)},
+				},
+			},
+		}
+		got, err := service.buildSubnet(subnet, tags, []string{})
+		assert.NoError(t, err)
+		assert.Nil(t, got.AdvancedConfig.StaticIpAllocation.PoolRanges)
+	})
+}
+
 func TestBuildSubnetWithExceedTagsLimit(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)

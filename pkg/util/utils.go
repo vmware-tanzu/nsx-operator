@@ -8,6 +8,7 @@ import (
 	"crypto/sha1" // #nosec G505: not used for security purposes
 	"fmt"
 	"math/big"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -484,6 +485,94 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 		mode = string(o.Spec.SubnetDHCPConfig.Mode)
 	}
 	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
+}
+
+// CRSubnetStaticIPAllocationEnabled is the CR-side counterpart of
+// NSXSubnetStaticIPAllocationEnabled. It returns true iff the Subnet CR has
+// advancedConfig.staticIPAllocation.enabled explicitly set to true.
+// SubnetSet does not expose AdvancedConfig today, so it always returns false
+// for SubnetSet objects until that API is added.
+func CRSubnetStaticIPAllocationEnabled(obj client.Object) bool {
+	subnet, ok := obj.(*v1alpha1.Subnet)
+	if !ok {
+		return false
+	}
+	enabled := subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled
+	return enabled != nil && *enabled
+}
+
+// CRPoolRangesToNSX converts the structured CR form ([]IPAddressRange) to the
+// flat string form ("start-end", or a single IP when start==end) that the
+// NSX policy API expects on StaticIpAllocation.PoolRanges.
+func CRPoolRangesToNSX(ranges []v1alpha1.IPAddressRange) []string {
+	if len(ranges) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ranges))
+	for _, r := range ranges {
+		if r.Start == r.End {
+			out = append(out, r.Start)
+		} else {
+			out = append(out, fmt.Sprintf("%s-%s", r.Start, r.End))
+		}
+	}
+	return out
+}
+
+// NSXPoolRangesToCR converts the NSX string form ("start-end" or a single IP)
+// back to the structured CR form. Malformed entries are silently skipped so a
+// partial NSX state does not block reconciliation; callers that need strict
+// validation should use ParseIPRange directly.
+func NSXPoolRangesToCR(ranges []string) []v1alpha1.IPAddressRange {
+	if len(ranges) == 0 {
+		return nil
+	}
+	out := make([]v1alpha1.IPAddressRange, 0, len(ranges))
+	for _, s := range ranges {
+		start, end, err := ParseIPRange(s)
+		if err != nil {
+			continue
+		}
+		out = append(out, v1alpha1.IPAddressRange{
+			Start: start.String(),
+			End:   end.String(),
+		})
+	}
+	return out
+}
+
+// ParseIPRange parses the NSX pool-range string form and returns the Start and
+// End addresses. Accepted forms: "1.2.3.4", "1.2.3.4-1.2.3.10",
+// "2001:db8::1", "2001:db8::1-2001:db8::ff" (whitespace around the dash is
+// tolerated to mirror the NSX spec example "startIp - endIp").
+// It enforces same address family and start <= end.
+func ParseIPRange(s string) (netip.Addr, netip.Addr, error) {
+	var zero netip.Addr
+	raw := strings.TrimSpace(s)
+	if raw == "" {
+		return zero, zero, fmt.Errorf("empty IP range")
+	}
+	parts := strings.SplitN(raw, "-", 2)
+	startStr := strings.TrimSpace(parts[0])
+	start, err := netip.ParseAddr(startStr)
+	if err != nil {
+		return zero, zero, fmt.Errorf("invalid start IP %q: %w", startStr, err)
+	}
+	if len(parts) == 1 {
+		return start, start, nil
+	}
+	endStr := strings.TrimSpace(parts[1])
+	end, err := netip.ParseAddr(endStr)
+	if err != nil {
+		return zero, zero, fmt.Errorf("invalid end IP %q: %w", endStr, err)
+	}
+	if start.Is4() != end.Is4() || start.Is6() != end.Is6() {
+		return zero, zero, fmt.Errorf("IP range %q mixes IPv4 and IPv6", raw)
+	}
+	if end.Less(start) {
+		return zero, zero, fmt.Errorf("IP range %q has end < start", raw)
+	}
+	return start, end, nil
 }
 
 // ValidateSubnetSize checks if the given subnet size is valid based on NSX version.
