@@ -1,0 +1,154 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: ipblockusages.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: IPBlockUsage
+    listKind: IPBlockUsageList
+    plural: ipblockusages
+    singular: ipblockusage
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          IPBlockUsage is the usage information of an IPBlock.
+          It contains used IP ranges and available IP ranges statistics of an IPBlock.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          availableIPRanges:
+            description: Available IP ranges in an IPBlock.
+            items:
+              type: string
+            type: array
+          availableIPsCount:
+            description: Available IP count in an IPBlock.
+            type: string
+          cidrUsage:
+            description: CIDR usage details for each CIDR in an IPBlock.
+            items:
+              description: Represents used and available IP statistics for CIDRs in
+                an IPBlock.
+              properties:
+                cidr:
+                  description: One CIDR in an IPBlock CIDRList.
+                  type: string
+                usage:
+                  properties:
+                    availableIPRanges:
+                      description: Represents free IP ranges from the CIDR or IP range.
+                      items:
+                        type: string
+                      type: array
+                    availableIPsCount:
+                      description: Represents free IP count in the CIDR or IP range.
+                      type: string
+                    overallUsedIPRanges:
+                      description: Represents the overall IP ranges allocated from
+                        the CIDR or IP range across all orgs.
+                      items:
+                        type: string
+                      type: array
+                    overallUsedIPsCount:
+                      description: Represents the overall IP count allocated from
+                        the CIDR or IP range across all orgs.
+                      type: string
+                    usedIPRanges:
+                      description: Represents IP ranges that are allocated from the
+                        CIDR or IP range in the org scope.
+                      items:
+                        type: string
+                      type: array
+                    usedIPsCount:
+                      description: Represents IP count that are allocated from the
+                        CIDR or IP range in the org scope.
+                      type: string
+                  type: object
+              type: object
+            type: array
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          overallIPsCount:
+            description: Total count of IPs which are present in this block.
+            type: string
+          rangeUsage:
+            description: Range usage details for each IP range in an IPBlock.
+            items:
+              description: Represents used and available IP statistics for IP ranges
+                in an IPBlock.
+              properties:
+                range:
+                  description: One range in an IPBlock range list.
+                  type: string
+                usage:
+                  properties:
+                    availableIPRanges:
+                      description: Represents free IP ranges from the CIDR or IP range.
+                      items:
+                        type: string
+                      type: array
+                    availableIPsCount:
+                      description: Represents free IP count in the CIDR or IP range.
+                      type: string
+                    overallUsedIPRanges:
+                      description: Represents the overall IP ranges allocated from
+                        the CIDR or IP range across all orgs.
+                      items:
+                        type: string
+                      type: array
+                    overallUsedIPsCount:
+                      description: Represents the overall IP count allocated from
+                        the CIDR or IP range across all orgs.
+                      type: string
+                    usedIPRanges:
+                      description: Represents IP ranges that are allocated from the
+                        CIDR or IP range in the org scope.
+                      items:
+                        type: string
+                      type: array
+                    usedIPsCount:
+                      description: Represents IP count that are allocated from the
+                        CIDR or IP range in the org scope.
+                      type: string
+                  type: object
+              type: object
+            type: array
+          usedIPRanges:
+            description: Used IP ranges in an IPBlock.
+            items:
+              type: string
+            type: array
+          usedIPsCount:
+            description: Used IPs count in an IPBlock.
+            type: string
+          visibility:
+            description: |-
+              Visibility of IPBlock.
+              Must be External or Private.
+            enum:
+            - External
+            - Private
+            type: string
+        type: object
+    served: true
+    storage: true

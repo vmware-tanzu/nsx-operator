@@ -1,0 +1,159 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: vpcipaddressusages.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: VPCIPAddressUsage
+    listKind: VPCIPAddressUsageList
+    plural: vpcipaddressusages
+    singular: vpcipaddressusage
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          VPCIPAddressUsage is the usage information for IP addresses within a specific VPC. This information provides insights
+          into the allocation and utilization of IP addresses by the VPC and its subnets.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          ipBlocks:
+            description: Array of VPC IP address block.
+            items:
+              description: VPC IP address block.
+              properties:
+                allocatedByVPC:
+                  description: AllocatedByVPC contains the CIDR, used IP range and
+                    subnet access mode etc.
+                  properties:
+                    accessMode:
+                      description: |-
+                        Access mode of the subnet allocated from the IP Block.
+                        Must be Public, PrivateTGW or Private.
+                      enum:
+                      - Public
+                      - PrivateTGW
+                      - Private
+                      type: string
+                    count:
+                      description: Count of used IPs by VPC from the IP Block.
+                      format: int64
+                      type: integer
+                    ipAddresses:
+                      description: IPAddresses contains CIDR and subnet or IP address
+                        allocation.
+                      items:
+                        properties:
+                          address:
+                            type: string
+                          ipAddressAllocationName:
+                            description: |-
+                              The name of the IPAddressAllocation to which the IP address is allocated.
+                              Only one of subnetName and ipAddressAllocationName will be set.
+                            type: string
+                          subnetName:
+                            description: |-
+                              The name of the Subnet to which the IP address is allocated.
+                              Only one of subnetName and ipAddressAllocationName will be set.
+                            type: string
+                        type: object
+                      type: array
+                    percentageUsed:
+                      description: Percentage of used IP address resources by VPC.
+                      type: string
+                  type: object
+                available:
+                  description: Available IP address space.
+                  format: int64
+                  type: integer
+                cidr:
+                  description: |-
+                    CIDR address for IPBlock.
+                    Deprecated: Use CIDRs instead.
+                  type: string
+                cidrs:
+                  description: The list of CIDRs.
+                  items:
+                    type: string
+                  type: array
+                excludedIPs:
+                  description: The list of excluded IP address in the form of start
+                    and end IPs.
+                  items:
+                    description: A set of IPv4 or IPv6 addresses defined by a start
+                      and end address.
+                    properties:
+                      end:
+                        description: 'The end IP Address of the IP range. format:
+                          IP.'
+                        type: string
+                      start:
+                        description: 'The start IP Address of the IP range. format:
+                          IP.'
+                        type: string
+                    required:
+                    - end
+                    - start
+                    type: object
+                  type: array
+                name:
+                  type: string
+                percentageUsed:
+                  description: Percentage of used IP address space.
+                  type: string
+                ranges:
+                  description: The list of IP address ranges in the form of start
+                    and end IPs.
+                  items:
+                    description: A set of IPv4 or IPv6 addresses defined by a start
+                      and end address.
+                    properties:
+                      end:
+                        description: 'The end IP Address of the IP range. format:
+                          IP.'
+                        type: string
+                      start:
+                        description: 'The start IP Address of the IP range. format:
+                          IP.'
+                        type: string
+                    required:
+                    - end
+                    - start
+                    type: object
+                  type: array
+                total:
+                  description: Total IP address space.
+                  format: int64
+                  type: integer
+                visibility:
+                  description: Visibility of IP Block. Must be External or Private.
+                  enum:
+                  - External
+                  - Private
+                  type: string
+              type: object
+            type: array
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+        type: object
+    served: true
+    storage: true
