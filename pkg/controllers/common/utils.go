@@ -470,6 +470,20 @@ func listSubnetSet(ctx context.Context, client k8sclient.Client, ns string, labe
 	return oldObj, nil
 }
 
+// IsVPCDefaultSubnetSet reports whether the SubnetSet is a namespace default VM/Pod network SubnetSet managed by the operator.
+func IsVPCDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
+	if s == nil {
+		return false
+	}
+	if _, ok := s.Labels[servicecommon.LabelDefaultNetwork]; ok {
+		return true
+	}
+	if _, ok := s.Labels[servicecommon.LabelDefaultSubnetSet]; ok {
+		return true
+	}
+	return s.Name == servicecommon.DefaultVMSubnetSet || s.Name == servicecommon.DefaultPodSubnetSet
+}
+
 func ListDefaultSubnetSet(ctx context.Context, client k8sclient.Client, ns string, subnetSetType string) (*v1alpha1.SubnetSet, error) {
 	label := k8sclient.MatchingLabels{
 		servicecommon.LabelDefaultNetwork: subnetSetType,

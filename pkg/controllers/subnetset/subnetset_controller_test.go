@@ -161,7 +161,7 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
-				//vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
+				// vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return nil, fmt.Errorf("failed to locate default NetworkConfig")
 				})
@@ -519,14 +519,33 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 	name := "subnetset"
 	ns := "ns1"
+	namespace := &v12.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
+	defaultVPCNC := &v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "default-nc",
+			Annotations: map[string]string{
+				common.AnnotationDefaultNetworkConfig: "true",
+			},
+		},
+		Spec: v1alpha1.VPCNetworkConfigurationSpec{
+			DefaultSubnetSize:      32,
+			PrivateIPs:             []string{"10.0.0.0/24"},
+			NSXProject:             "/orgs/default/projects/proj",
+			VPCConnectivityProfile: "profile",
+		},
+	}
+	// Align with util.EffectiveDefaultIPv6PrefixLength(default VPC NC spec) so Reconcile does not
+	// patch Spec and trip tests that assert Client.Update is not called (finalizer-only cases).
+	const testSubnetSetIPv6PrefixLen = 64
 	testSubnetSet1 := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
 		},
 		Spec: v1alpha1.SubnetSetSpec{
-			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
-			IPv4SubnetSize: 16,
+			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPv4SubnetSize:   16,
+			IPv6PrefixLength: testSubnetSetIPv6PrefixLen,
 		},
 	}
 	testSubnetSet2 := &v1alpha1.SubnetSet{
@@ -538,8 +557,9 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			},
 		},
 		Spec: v1alpha1.SubnetSetSpec{
-			AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
-			IPv4SubnetSize: 16,
+			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPv4SubnetSize:   16,
+			IPv6PrefixLength: testSubnetSetIPv6PrefixLen,
 		},
 	}
 	deleteTime := metav1.Now()
@@ -551,6 +571,9 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				common.SubnetSetFinalizerName,
 			},
 			DeletionTimestamp: &deleteTime,
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			IPv6PrefixLength: testSubnetSetIPv6PrefixLen,
 		},
 	}
 	for _, tc := range []struct {
@@ -691,7 +714,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.TODO()
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: ns}}
-			r := createFakeSubnetSetReconciler([]client.Object{tc.existingSubnetSet})
+			r := createFakeSubnetSetReconciler([]client.Object{namespace, defaultVPCNC, tc.existingSubnetSet})
 			if tc.patches != nil {
 				patches := tc.patches(t, r)
 				defer patches.Reset()

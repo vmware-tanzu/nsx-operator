@@ -59,26 +59,15 @@ func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) b
 	return oldExists != exists || oldValue != value
 }
 
-func isDefaultSubnetSet(s *v1alpha1.SubnetSet) bool {
-	if _, ok := s.Labels[common.LabelDefaultNetwork]; ok {
-		return true
-	}
-	// keep the old logic for backward compatibility
-	if _, ok := s.Labels[common.LabelDefaultSubnetSet]; ok {
-		return true
-	}
-	return s.Name == common.DefaultVMSubnetSet || s.Name == common.DefaultPodSubnetSet
-}
-
 func hasExclusiveFields(s *v1alpha1.SubnetSet) bool {
-	return s.Spec.SubnetNames != nil && (s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "")
+	return s.Spec.SubnetNames != nil && (s.Spec.IPv4SubnetSize != 0 || s.Spec.IPv6PrefixLength != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "")
 }
 
 func subnetSetType(s *v1alpha1.SubnetSet) SubnetSetType {
 	if s.Spec.SubnetNames != nil {
 		return SubnetSetTypePreCreated
 	}
-	if s.Spec.IPv4SubnetSize != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "" {
+	if s.Spec.IPv4SubnetSize != 0 || s.Spec.IPv6PrefixLength != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "" {
 		return SubnetSetTypeAutoCreated
 	}
 	return SubnetSetTypeNone
@@ -121,7 +110,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if !valid {
 			return admission.Denied(fmt.Sprintf("SubnetSet %s/%s has invalid size %d: %s", subnetSet.Namespace, subnetSet.Name, subnetSet.Spec.IPv4SubnetSize, msg))
 		}
-		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
+		if controllercommon.IsVPCDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
 		deny, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
@@ -138,7 +127,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			log.Error(err, "Failed to decode old SubnetSet", "SubnetSet", req.Namespace+"/"+req.Name)
 			return admission.Errored(http.StatusBadRequest, err)
 		}
-		if (isDefaultSubnetSet(subnetSet) || isDefaultSubnetSet(oldSubnetSet)) && req.UserInfo.Username != NSXOperatorSA {
+		if (controllercommon.IsVPCDefaultSubnetSet(subnetSet) || controllercommon.IsVPCDefaultSubnetSet(oldSubnetSet)) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be updated by nsx-operator")
 		}
 		if defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet) && req.UserInfo.Username != NSXOperatorSA {
@@ -173,7 +162,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			}
 		}
 	case admissionv1.Delete:
-		if isDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
+		if controllercommon.IsVPCDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be deleted by nsx-operator")
 		}
 		hasSubnetPort, err := v.checkSubnetPort(ctx, subnetSet.Namespace, subnetSet)
@@ -212,7 +201,7 @@ func (v *SubnetSetValidator) checkSubnetPort(ctx context.Context, ns string, sub
 			return true, nil
 		}
 	}
-	if isDefaultSubnetSet(subnetSet) {
+	if controllercommon.IsVPCDefaultSubnetSet(subnetSet) {
 		defaultSubnetSetFor := util.GetSubnetSetKind(subnetSet)
 		switch defaultSubnetSetFor {
 		case common.DefaultPodNetwork:
@@ -250,7 +239,7 @@ func (v *SubnetSetValidator) getSubnetPortsID(ctx context.Context, subnetSet *v1
 			crdSubnetPortsIDs = append(crdSubnetPortsIDs, crdSubnetPort.UID)
 		}
 	}
-	if isDefaultSubnetSet(subnetSet) {
+	if controllercommon.IsVPCDefaultSubnetSet(subnetSet) {
 		defaultSubnetSetFor := util.GetSubnetSetKind(subnetSet)
 		switch defaultSubnetSetFor {
 		// Check Pods for pod-default SubnetSet

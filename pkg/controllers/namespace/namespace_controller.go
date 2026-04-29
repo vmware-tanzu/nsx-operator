@@ -150,7 +150,7 @@ func getDefaultSubnetsets(namespaceType common.NameSpaceType) map[string]string 
 }
 
 // createDefaultSubnetSet only create default subnetset for system Namespace or SVService Namespace
-func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, defaultSubnetSize int, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
+func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, nc *v1alpha1.VPCNetworkConfiguration, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
 	defaultSubnetSets := getDefaultSubnetsets(namespaceType)
 	for name, subnetSetType := range defaultSubnetSets {
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
@@ -164,6 +164,8 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns str
 				log.Debug("Default SubnetSet already exists", "Namespace", ns, "Name", name)
 				return nil
 			}
+			defaultSubnetSize := nc.Spec.DefaultSubnetSize
+			desiredIPv6Prefix := util.EffectiveDefaultIPv6PrefixLength(nc.Spec)
 			accessMode := v1alpha1.AccessMode(v1alpha1.AccessModePublic)
 			if networkStack == v1alpha1.FullStackVPC {
 				accessMode = getDefaultAccessMode(name)
@@ -178,8 +180,9 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns str
 					Labels:    map[string]string{types.LabelDefaultNetwork: subnetSetType},
 				},
 				Spec: v1alpha1.SubnetSetSpec{
-					AccessMode:     accessMode,
-					IPv4SubnetSize: defaultSubnetSize,
+					AccessMode:       accessMode,
+					IPv4SubnetSize:   defaultSubnetSize,
+					IPv6PrefixLength: desiredIPv6Prefix,
 				},
 			}
 			// set the label for backward compatibility
@@ -294,7 +297,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		namespaceType := common.GetNamespaceType(obj, nc)
 
 		// create default SubnetSet for system Namespace or SVService Namespace
-		if err := r.createDefaultSubnetSet(ctx, ns, nc.Spec.DefaultSubnetSize, namespaceType, networkStack); err != nil {
+		if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack); err != nil {
 			return common.ResultNormal, err
 		}
 

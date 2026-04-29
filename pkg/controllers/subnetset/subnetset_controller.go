@@ -204,6 +204,27 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
 	}
+	if subnetsetCR.Spec.SubnetNames == nil {
+		if vpcNetworkConfig == nil && (common.IsVPCDefaultSubnetSet(subnetsetCR) || subnetsetCR.Spec.IPv4SubnetSize == 0 || subnetsetCR.Spec.IPv6PrefixLength == 0) {
+			vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetsetCR.Namespace)
+			if err != nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to find VPCNetworkConfig", setSubnetSetReadyStatusFalse)
+				return ResultNormal, err
+			}
+		}
+		if vpcNetworkConfig != nil {
+			desiredIPv6 := util.EffectiveDefaultIPv6PrefixLength(vpcNetworkConfig.Spec)
+			if common.IsVPCDefaultSubnetSet(subnetsetCR) {
+				if subnetsetCR.Spec.IPv6PrefixLength != desiredIPv6 {
+					subnetsetCR.Spec.IPv6PrefixLength = desiredIPv6
+					specChanged = true
+				}
+			} else if subnetsetCR.Spec.IPv6PrefixLength == 0 {
+				subnetsetCR.Spec.IPv6PrefixLength = desiredIPv6
+				specChanged = true
+			}
+		}
+	}
 	isSystemNs, err := util.IsVPCSystemNamespace(r.Client, subnetsetCR.Namespace, nil)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)

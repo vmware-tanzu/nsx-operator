@@ -57,7 +57,6 @@ type SubnetSpec struct {
 	// IPv6 prefix length for the Subnet (e.g. 64 means /64).
 	// +kubebuilder:validation:Minimum:=2
 	// +kubebuilder:validation:Maximum:=127
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPv6PrefixLength int `json:"ipv6PrefixLength,omitempty"`
 	// Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC.
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW;L2Only
