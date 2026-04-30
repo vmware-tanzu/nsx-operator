@@ -16,6 +16,18 @@ type SubnetPortSpec struct {
 	SubnetSet string `json:"subnetSet,omitempty"`
 	// AddressBindings defines static address bindings used for the SubnetPort.
 	AddressBindings []PortAddressBinding `json:"addressBindings,omitempty"`
+	// InterfaceIPTypePolicy decides the SubnetPort auto-allocation types when
+	// DHCP or SLAAC is not activated on the Subnet. It will be ignored when
+	// StaticIPAllocationType is set.
+	// +kubebuilder:validation:Enum=IPV4;IPV6;IPV4IPV6
+	InterfaceIPTypePolicy string `json:"interfaceIPTypePolicy,omitempty"`
+	// StaticIPAllocationType defines the address family for static IP allocation.
+	// Use this on Subnets in mixed mode (DHCP and static allocation both enabled)
+	// to specify which IP families should be allocated from the static IP pool(s).
+	// It can only be set when the Subnet has static allocation enabled.
+	// If StaticIPAllocationType is set, InterfaceIPTypePolicy will be ignored.
+	// +kubebuilder:validation:Enum=IPV4;IPV6;IPV4IPV6;None
+	StaticIPAllocationType string `json:"staticIPAllocationType,omitempty"`
 }
 
 // PortAddressBinding defines static addresses for the Port.

@@ -258,9 +258,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW. | Private | Enum: [External Private PrivateTGW] <br /> |
-| `allocationSize` _integer_ | AllocationSize specifies the size of allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
+| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. | Private | Enum: [External Private PrivateTGW] <br /> |
+| `allocationSize` _integer_ | AllocationSize specifies the size of IPv4 allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
+| `allocationPrefixLength` _integer_ | AllocationPrefixLength specifies the prefix length of IPv6 addresses. |  | Maximum: 128 <br />Minimum: 64 <br /> |
+| `ipAddressType` _string_ | IPAddressType specifies the IP address type of the IPAddressAllocation. | IPV4 | Enum: [IPV4 IPV6] <br /> |
 
 
 #### IPAddressAllocationStatus
@@ -928,7 +930,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from.<br />The Subnet needs to have static IP allocation activated. |  | Required: \{\} <br /> |
 | `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br /> |
-| `reservedIPs` _string array_ | ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,<br />IP Address range and CIDRs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"] |  | MinItems: 1 <br /> |
+| `reservedIPs` _string array_ | ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,<br />IP Address range and CIDRs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28",<br />"2001:db8::1", "2001:db8::1-2001:db8::ff", "2001:db8::1/64"] |  | MinItems: 1 <br /> |
+| `ipAddressType` _string_ | IPAddressType defines the IP address type of the SubnetIPReservation. |  | Enum: [IPV4 IPV6 IPV4IPV6] <br /> |
 
 
 #### SubnetIPReservationStatus
@@ -1001,6 +1004,8 @@ _Appears in:_
 | `subnet` _string_ | Subnet defines the parent Subnet name of the SubnetPort. |  |  |
 | `subnetSet` _string_ | SubnetSet defines the parent SubnetSet name of the SubnetPort. |  |  |
 | `addressBindings` _[PortAddressBinding](#portaddressbinding) array_ | AddressBindings defines static address bindings used for the SubnetPort. |  |  |
+| `interfaceIPTypePolicy` _string_ | InterfaceIPTypePolicy decides the SubnetPort auto-allocation types when<br />DHCP or SLAAC is not activated on the Subnet. It will be ignored when<br />StaticIPAllocationType is set. |  | Enum: [IPV4 IPV6 IPV4IPV6] <br /> |
+| `staticIPAllocationType` _string_ | StaticIPAllocationType defines the address family for static IP allocation.<br />Use this on Subnets in mixed mode (DHCP and static allocation both enabled)<br />to specify which IP families should be allocated from the static IP pool(s).<br />It can only be set when the Subnet has static allocation enabled.<br />If StaticIPAllocationType is set, InterfaceIPTypePolicy will be ignored. |  | Enum: [IPV4 IPV6 IPV4IPV6 None] <br /> |
 
 
 #### SubnetPortStatus

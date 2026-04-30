@@ -55,9 +55,18 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              allocationPrefixLength:
+                description: AllocationPrefixLength specifies the prefix length of
+                  IPv6 addresses.
+                maximum: 128
+                minimum: 64
+                type: integer
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               allocationSize:
                 description: |-
-                  AllocationSize specifies the size of allocationIPs to be allocated.
+                  AllocationSize specifies the size of IPv4 allocationIPs to be allocated.
                   It should be a power of 2.
                 minimum: 1
                 type: integer
@@ -66,13 +75,23 @@ spec:
                   rule: self == oldSelf
               ipAddressBlockVisibility:
                 default: Private
-                description: IPAddressBlockVisibility specifies the visibility of
-                  the IPBlocks to allocate IP addresses. Can be External, Private
-                  or PrivateTGW.
+                description: |-
+                  IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
+                  This field is not applicable if ipAddressType is IPv6.
                 enum:
                 - External
                 - Private
                 - PrivateTGW
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
+              ipAddressType:
+                default: IPV4
+                description: IPAddressType specifies the IP address type of the IPAddressAllocation.
+                enum:
+                - IPV4
+                - IPV6
                 type: string
                 x-kubernetes-validations:
                 - message: Value is immutable

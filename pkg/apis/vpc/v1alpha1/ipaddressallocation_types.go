@@ -44,12 +44,13 @@ type IPAddressAllocationList struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.allocationIPs) || has(self.allocationIPs)", message="allocationIPs is required once set"
 type IPAddressAllocationSpec struct {
 	// IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
+	// This field is not applicable if ipAddressType is IPv6.
 	// +kubebuilder:validation:Enum=External;Private;PrivateTGW
 	// +kubebuilder:default=Private
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddressBlockVisibility IPAddressVisibility `json:"ipAddressBlockVisibility,omitempty"`
-	// AllocationSize specifies the size of allocationIPs to be allocated.
+	// AllocationSize specifies the size of IPv4 allocationIPs to be allocated.
 	// It should be a power of 2.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	// +kubebuilder:validation:Minimum:=1
@@ -57,6 +58,16 @@ type IPAddressAllocationSpec struct {
 	// AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AllocationIPs string `json:"allocationIPs,omitempty"`
+	// AllocationPrefixLength specifies the prefix length of IPv6 addresses.
+	// +kubebuilder:validation:Minimum:=64
+	// +kubebuilder:validation:Maximum:=128
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	AllocationPrefixLength int `json:"allocationPrefixLength,omitempty"`
+	// IPAddressType specifies the IP address type of the IPAddressAllocation.
+	// +kubebuilder:validation:Enum=IPV4;IPV6
+	// +kubebuilder:default=IPV4
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	IPAddressType string `json:"ipAddressType,omitempty"`
 }
 
 // IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
