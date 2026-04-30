@@ -6,10 +6,10 @@
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 )
 
 // SubnetPortLister helps list SubnetPorts.
@@ -17,7 +17,7 @@ import (
 type SubnetPortLister interface {
 	// List lists all SubnetPorts in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.SubnetPort, err error)
+	List(selector labels.Selector) (ret []*vpcv1alpha1.SubnetPort, err error)
 	// SubnetPorts returns an object that can list and get SubnetPorts.
 	SubnetPorts(namespace string) SubnetPortNamespaceLister
 	SubnetPortListerExpansion
@@ -25,25 +25,17 @@ type SubnetPortLister interface {
 
 // subnetPortLister implements the SubnetPortLister interface.
 type subnetPortLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*vpcv1alpha1.SubnetPort]
 }
 
 // NewSubnetPortLister returns a new SubnetPortLister.
 func NewSubnetPortLister(indexer cache.Indexer) SubnetPortLister {
-	return &subnetPortLister{indexer: indexer}
-}
-
-// List lists all SubnetPorts in the indexer.
-func (s *subnetPortLister) List(selector labels.Selector) (ret []*v1alpha1.SubnetPort, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.SubnetPort))
-	})
-	return ret, err
+	return &subnetPortLister{listers.New[*vpcv1alpha1.SubnetPort](indexer, vpcv1alpha1.Resource("subnetport"))}
 }
 
 // SubnetPorts returns an object that can list and get SubnetPorts.
 func (s *subnetPortLister) SubnetPorts(namespace string) SubnetPortNamespaceLister {
-	return subnetPortNamespaceLister{indexer: s.indexer, namespace: namespace}
+	return subnetPortNamespaceLister{listers.NewNamespaced[*vpcv1alpha1.SubnetPort](s.ResourceIndexer, namespace)}
 }
 
 // SubnetPortNamespaceLister helps list and get SubnetPorts.
@@ -51,36 +43,15 @@ func (s *subnetPortLister) SubnetPorts(namespace string) SubnetPortNamespaceList
 type SubnetPortNamespaceLister interface {
 	// List lists all SubnetPorts in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.SubnetPort, err error)
+	List(selector labels.Selector) (ret []*vpcv1alpha1.SubnetPort, err error)
 	// Get retrieves the SubnetPort from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.SubnetPort, error)
+	Get(name string) (*vpcv1alpha1.SubnetPort, error)
 	SubnetPortNamespaceListerExpansion
 }
 
 // subnetPortNamespaceLister implements the SubnetPortNamespaceLister
 // interface.
 type subnetPortNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all SubnetPorts in the indexer for a given namespace.
-func (s subnetPortNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.SubnetPort, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.SubnetPort))
-	})
-	return ret, err
-}
-
-// Get retrieves the SubnetPort from the indexer for a given namespace and name.
-func (s subnetPortNamespaceLister) Get(name string) (*v1alpha1.SubnetPort, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("subnetport"), name)
-	}
-	return obj.(*v1alpha1.SubnetPort), nil
+	listers.ResourceIndexer[*vpcv1alpha1.SubnetPort]
 }

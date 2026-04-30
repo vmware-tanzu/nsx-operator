@@ -1,9 +1,9 @@
 package common
 
 import (
-	"github.com/openlyinc/pointy"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.openly.dev/pointy"
 )
 
 // WrapInfra TODO(gran) refactor existing code in other package

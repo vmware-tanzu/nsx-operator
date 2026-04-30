@@ -6,10 +6,10 @@
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 )
 
 // SubnetSetLister helps list SubnetSets.
@@ -17,7 +17,7 @@ import (
 type SubnetSetLister interface {
 	// List lists all SubnetSets in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.SubnetSet, err error)
+	List(selector labels.Selector) (ret []*vpcv1alpha1.SubnetSet, err error)
 	// SubnetSets returns an object that can list and get SubnetSets.
 	SubnetSets(namespace string) SubnetSetNamespaceLister
 	SubnetSetListerExpansion
@@ -25,25 +25,17 @@ type SubnetSetLister interface {
 
 // subnetSetLister implements the SubnetSetLister interface.
 type subnetSetLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*vpcv1alpha1.SubnetSet]
 }
 
 // NewSubnetSetLister returns a new SubnetSetLister.
 func NewSubnetSetLister(indexer cache.Indexer) SubnetSetLister {
-	return &subnetSetLister{indexer: indexer}
-}
-
-// List lists all SubnetSets in the indexer.
-func (s *subnetSetLister) List(selector labels.Selector) (ret []*v1alpha1.SubnetSet, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.SubnetSet))
-	})
-	return ret, err
+	return &subnetSetLister{listers.New[*vpcv1alpha1.SubnetSet](indexer, vpcv1alpha1.Resource("subnetset"))}
 }
 
 // SubnetSets returns an object that can list and get SubnetSets.
 func (s *subnetSetLister) SubnetSets(namespace string) SubnetSetNamespaceLister {
-	return subnetSetNamespaceLister{indexer: s.indexer, namespace: namespace}
+	return subnetSetNamespaceLister{listers.NewNamespaced[*vpcv1alpha1.SubnetSet](s.ResourceIndexer, namespace)}
 }
 
 // SubnetSetNamespaceLister helps list and get SubnetSets.
@@ -51,36 +43,15 @@ func (s *subnetSetLister) SubnetSets(namespace string) SubnetSetNamespaceLister 
 type SubnetSetNamespaceLister interface {
 	// List lists all SubnetSets in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.SubnetSet, err error)
+	List(selector labels.Selector) (ret []*vpcv1alpha1.SubnetSet, err error)
 	// Get retrieves the SubnetSet from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.SubnetSet, error)
+	Get(name string) (*vpcv1alpha1.SubnetSet, error)
 	SubnetSetNamespaceListerExpansion
 }
 
 // subnetSetNamespaceLister implements the SubnetSetNamespaceLister
 // interface.
 type subnetSetNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all SubnetSets in the indexer for a given namespace.
-func (s subnetSetNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.SubnetSet, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.SubnetSet))
-	})
-	return ret, err
-}
-
-// Get retrieves the SubnetSet from the indexer for a given namespace and name.
-func (s subnetSetNamespaceLister) Get(name string) (*v1alpha1.SubnetSet, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("subnetset"), name)
-	}
-	return obj.(*v1alpha1.SubnetSet), nil
+	listers.ResourceIndexer[*vpcv1alpha1.SubnetSet]
 }

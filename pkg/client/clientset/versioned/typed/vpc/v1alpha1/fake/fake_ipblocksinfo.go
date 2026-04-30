@@ -6,103 +6,34 @@
 package fake
 
 import (
-	"context"
-
 	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
-	types "k8s.io/apimachinery/pkg/types"
-	watch "k8s.io/apimachinery/pkg/watch"
-	testing "k8s.io/client-go/testing"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1"
+	gentype "k8s.io/client-go/gentype"
 )
 
-// FakeIPBlocksInfos implements IPBlocksInfoInterface
-type FakeIPBlocksInfos struct {
+// fakeIPBlocksInfos implements IPBlocksInfoInterface
+type fakeIPBlocksInfos struct {
+	*gentype.FakeClientWithList[*v1alpha1.IPBlocksInfo, *v1alpha1.IPBlocksInfoList]
 	Fake *FakeCrdV1alpha1
 }
 
-var ipblocksinfosResource = v1alpha1.SchemeGroupVersion.WithResource("ipblocksinfos")
-
-var ipblocksinfosKind = v1alpha1.SchemeGroupVersion.WithKind("IPBlocksInfo")
-
-// Get takes name of the iPBlocksInfo, and returns the corresponding iPBlocksInfo object, and an error if there is any.
-func (c *FakeIPBlocksInfos) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.IPBlocksInfo, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootGetAction(ipblocksinfosResource, name), &v1alpha1.IPBlocksInfo{})
-	if obj == nil {
-		return nil, err
+func newFakeIPBlocksInfos(fake *FakeCrdV1alpha1) vpcv1alpha1.IPBlocksInfoInterface {
+	return &fakeIPBlocksInfos{
+		gentype.NewFakeClientWithList[*v1alpha1.IPBlocksInfo, *v1alpha1.IPBlocksInfoList](
+			fake.Fake,
+			"",
+			v1alpha1.SchemeGroupVersion.WithResource("ipblocksinfos"),
+			v1alpha1.SchemeGroupVersion.WithKind("IPBlocksInfo"),
+			func() *v1alpha1.IPBlocksInfo { return &v1alpha1.IPBlocksInfo{} },
+			func() *v1alpha1.IPBlocksInfoList { return &v1alpha1.IPBlocksInfoList{} },
+			func(dst, src *v1alpha1.IPBlocksInfoList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.IPBlocksInfoList) []*v1alpha1.IPBlocksInfo {
+				return gentype.ToPointerSlice(list.Items)
+			},
+			func(list *v1alpha1.IPBlocksInfoList, items []*v1alpha1.IPBlocksInfo) {
+				list.Items = gentype.FromPointerSlice(items)
+			},
+		),
+		fake,
 	}
-	return obj.(*v1alpha1.IPBlocksInfo), err
-}
-
-// List takes label and field selectors, and returns the list of IPBlocksInfos that match those selectors.
-func (c *FakeIPBlocksInfos) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.IPBlocksInfoList, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootListAction(ipblocksinfosResource, ipblocksinfosKind, opts), &v1alpha1.IPBlocksInfoList{})
-	if obj == nil {
-		return nil, err
-	}
-
-	label, _, _ := testing.ExtractFromListOptions(opts)
-	if label == nil {
-		label = labels.Everything()
-	}
-	list := &v1alpha1.IPBlocksInfoList{ListMeta: obj.(*v1alpha1.IPBlocksInfoList).ListMeta}
-	for _, item := range obj.(*v1alpha1.IPBlocksInfoList).Items {
-		if label.Matches(labels.Set(item.Labels)) {
-			list.Items = append(list.Items, item)
-		}
-	}
-	return list, err
-}
-
-// Watch returns a watch.Interface that watches the requested iPBlocksInfos.
-func (c *FakeIPBlocksInfos) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	return c.Fake.
-		InvokesWatch(testing.NewRootWatchAction(ipblocksinfosResource, opts))
-}
-
-// Create takes the representation of a iPBlocksInfo and creates it.  Returns the server's representation of the iPBlocksInfo, and an error, if there is any.
-func (c *FakeIPBlocksInfos) Create(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlocksInfo, opts v1.CreateOptions) (result *v1alpha1.IPBlocksInfo, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootCreateAction(ipblocksinfosResource, iPBlocksInfo), &v1alpha1.IPBlocksInfo{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.IPBlocksInfo), err
-}
-
-// Update takes the representation of a iPBlocksInfo and updates it. Returns the server's representation of the iPBlocksInfo, and an error, if there is any.
-func (c *FakeIPBlocksInfos) Update(ctx context.Context, iPBlocksInfo *v1alpha1.IPBlocksInfo, opts v1.UpdateOptions) (result *v1alpha1.IPBlocksInfo, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootUpdateAction(ipblocksinfosResource, iPBlocksInfo), &v1alpha1.IPBlocksInfo{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.IPBlocksInfo), err
-}
-
-// Delete takes name of the iPBlocksInfo and deletes it. Returns an error if one occurs.
-func (c *FakeIPBlocksInfos) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	_, err := c.Fake.
-		Invokes(testing.NewRootDeleteActionWithOptions(ipblocksinfosResource, name, opts), &v1alpha1.IPBlocksInfo{})
-	return err
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *FakeIPBlocksInfos) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewRootDeleteCollectionAction(ipblocksinfosResource, listOpts)
-
-	_, err := c.Fake.Invokes(action, &v1alpha1.IPBlocksInfoList{})
-	return err
-}
-
-// Patch applies the patch and returns the patched iPBlocksInfo.
-func (c *FakeIPBlocksInfos) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.IPBlocksInfo, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewRootPatchSubresourceAction(ipblocksinfosResource, name, pt, data, subresources...), &v1alpha1.IPBlocksInfo{})
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.IPBlocksInfo), err
 }

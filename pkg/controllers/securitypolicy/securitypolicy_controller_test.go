@@ -19,10 +19,10 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.openly.dev/pointy"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -181,6 +181,10 @@ func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, pat
 	return nil
 }
 
+func (writer fakeStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	return nil
+}
+
 type fakeRecorder struct{}
 
 func (recorder fakeRecorder) Event(object runtime.Object, eventtype, reason, message string) {
@@ -324,7 +328,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
-	resultRequeueAfter5mins := ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
+	resultRequeueAfter5mins := ctrl.Result{RequeueAfter: 5 * time.Minute}
 	assert.Equal(t, retErr, nil)
 	assert.Equal(t, resultRequeueAfter5mins, result)
 	checkNsxVersionPatch.Reset()
@@ -783,7 +787,7 @@ func TestSecurityPolicyReconcilerForVPC_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
-	resultRequeueAfter5mins := ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
+	resultRequeueAfter5mins := ctrl.Result{RequeueAfter: 5 * time.Minute}
 	assert.Equal(t, retErr, nil)
 	assert.Equal(t, resultRequeueAfter5mins, result)
 	checkNsxVersionPatch.Reset()

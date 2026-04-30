@@ -3,9 +3,9 @@ package staticroute
 import (
 	"testing"
 
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.openly.dev/pointy"
 )
 
 func TestCompareStaticRoute(t *testing.T) {

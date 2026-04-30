@@ -6,10 +6,10 @@
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 )
 
 // IPBlocksInfoLister helps list IPBlocksInfos.
@@ -17,39 +17,19 @@ import (
 type IPBlocksInfoLister interface {
 	// List lists all IPBlocksInfos in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.IPBlocksInfo, err error)
+	List(selector labels.Selector) (ret []*vpcv1alpha1.IPBlocksInfo, err error)
 	// Get retrieves the IPBlocksInfo from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.IPBlocksInfo, error)
+	Get(name string) (*vpcv1alpha1.IPBlocksInfo, error)
 	IPBlocksInfoListerExpansion
 }
 
 // iPBlocksInfoLister implements the IPBlocksInfoLister interface.
 type iPBlocksInfoLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*vpcv1alpha1.IPBlocksInfo]
 }
 
 // NewIPBlocksInfoLister returns a new IPBlocksInfoLister.
 func NewIPBlocksInfoLister(indexer cache.Indexer) IPBlocksInfoLister {
-	return &iPBlocksInfoLister{indexer: indexer}
-}
-
-// List lists all IPBlocksInfos in the indexer.
-func (s *iPBlocksInfoLister) List(selector labels.Selector) (ret []*v1alpha1.IPBlocksInfo, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.IPBlocksInfo))
-	})
-	return ret, err
-}
-
-// Get retrieves the IPBlocksInfo from the index for a given name.
-func (s *iPBlocksInfoLister) Get(name string) (*v1alpha1.IPBlocksInfo, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("ipblocksinfo"), name)
-	}
-	return obj.(*v1alpha1.IPBlocksInfo), nil
+	return &iPBlocksInfoLister{listers.New[*vpcv1alpha1.IPBlocksInfo](indexer, vpcv1alpha1.Resource("ipblocksinfo"))}
 }

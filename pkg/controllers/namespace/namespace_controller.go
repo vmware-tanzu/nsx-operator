@@ -367,7 +367,7 @@ func NewNamespaceReconciler(mgr ctrl.Manager, cf *config.NSXOperatorConfig, vpcS
 		VPCService:        vpcService,
 		SubnetService:     subnetService,
 		SubnetPortService: subnetportService,
-		Recorder:          mgr.GetEventRecorderFor("namespace-controller"),
+		Recorder:          mgr.GetEventRecorderFor("namespace-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	nsReconciler.SubnetStatusUpdater = common.NewStatusUpdater(nsReconciler.Client, nsReconciler.SubnetService.NSXConfig, nsReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
 	return nsReconciler

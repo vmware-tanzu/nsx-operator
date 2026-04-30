@@ -184,7 +184,7 @@ func NewServiceLbReconciler(mgr ctrl.Manager, commonService servicecommon.Servic
 		serviceLbReconciler := &ServiceLbReconciler{
 			Client:   mgr.GetClient(),
 			Scheme:   mgr.GetScheme(),
-			Recorder: mgr.GetEventRecorderFor("serviceLb-controller"),
+			Recorder: mgr.GetEventRecorderFor("serviceLb-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 		}
 		serviceLbReconciler.Service = &commonService
 		return serviceLbReconciler

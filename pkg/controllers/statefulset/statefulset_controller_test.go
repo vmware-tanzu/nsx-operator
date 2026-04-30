@@ -484,7 +484,6 @@ func TestZStatefulSetReconciler_Reconcile_RequeueAfterOutOfRangePortBlockedByPod
 	})
 	require.NoError(t, err)
 	assert.Equal(t, stsSubnetPortPendingRequeueAfter, res.RequeueAfter)
-	assert.True(t, res.Requeue)
 }
 
 func TestStatefulSetReconciler_CollectGarbage(t *testing.T) {
@@ -1797,7 +1796,7 @@ func TestReconcile_PodCacheNotReady(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Equal(t, "cache not ready", err.Error())
-	assert.True(t, res.Requeue)
+	assert.Greater(t, res.RequeueAfter, time.Duration(0))
 }
 
 func TestReconcile_WithDeleteAnnotation(t *testing.T) {
@@ -1953,7 +1952,6 @@ func TestProcessDelete_PendingRunningPodRequeues(t *testing.T) {
 
 	res, err := r.processDelete(context.Background(), types.NamespacedName{Namespace: "default", Name: "test-sts"}, nil)
 	require.NoError(t, err)
-	assert.True(t, res.Requeue)
 	assert.Equal(t, stsSubnetPortPendingRequeueAfter, res.RequeueAfter)
 }
 

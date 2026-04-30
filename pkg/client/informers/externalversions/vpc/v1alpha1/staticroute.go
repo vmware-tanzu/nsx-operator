@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // StaticRoutes.
 type StaticRouteInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.StaticRouteLister
+	Lister() vpcv1alpha1.StaticRouteLister
 }
 
 type staticRouteInformer struct {
@@ -44,21 +44,33 @@ func NewStaticRouteInformer(client versioned.Interface, namespace string, resync
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredStaticRouteInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().StaticRoutes(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().StaticRoutes(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().StaticRoutes(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().StaticRoutes(namespace).Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.StaticRoute{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().StaticRoutes(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().StaticRoutes(namespace).Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.StaticRoute{},
 		resyncPeriod,
 		indexers,
 	)
@@ -69,9 +81,9 @@ func (f *staticRouteInformer) defaultInformer(client versioned.Interface, resync
 }
 
 func (f *staticRouteInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.StaticRoute{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.StaticRoute{}, f.defaultInformer)
 }
 
-func (f *staticRouteInformer) Lister() v1alpha1.StaticRouteLister {
-	return v1alpha1.NewStaticRouteLister(f.Informer().GetIndexer())
+func (f *staticRouteInformer) Lister() vpcv1alpha1.StaticRouteLister {
+	return vpcv1alpha1.NewStaticRouteLister(f.Informer().GetIndexer())
 }

@@ -100,7 +100,7 @@ func (r *StatefulSetReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	r.StatusUpdater.UpdateSuccess(ctx, sts, nil)
 	if replicaResult.RequeueAfter > 0 {
-		return ctrl.Result{Requeue: true, RequeueAfter: replicaResult.RequeueAfter}, nil
+		return ctrl.Result{RequeueAfter: replicaResult.RequeueAfter}, nil
 	}
 	return common.ResultNormal, nil
 }
@@ -118,7 +118,7 @@ func (r *StatefulSetReconciler) processDelete(ctx context.Context, namespacedNam
 		r.StatusUpdater.DeleteSuccess(namespacedName, sts)
 	}
 	if pendingRunningPod {
-		return ctrl.Result{Requeue: true, RequeueAfter: stsSubnetPortPendingRequeueAfter}, nil
+		return ctrl.Result{RequeueAfter: stsSubnetPortPendingRequeueAfter}, nil
 	}
 	return common.ResultNormal, nil
 }
@@ -450,7 +450,7 @@ func NewStatefulSetReconciler(mgr ctrl.Manager, subnetPortService *subnetportser
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		SubnetPortService: subnetPortService,
-		Recorder:          mgr.GetEventRecorderFor("statefulset-controller"),
+		Recorder:          mgr.GetEventRecorderFor("statefulset-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	reconciler.StatusUpdater = common.NewStatusUpdater(reconciler.Client, reconciler.SubnetPortService.NSXConfig, reconciler.Recorder, MetricResTypeStatefulSet, "SubnetPort", "StatefulSet")
 	return reconciler

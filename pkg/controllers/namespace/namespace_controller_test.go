@@ -186,7 +186,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 				// GetDefaultNetworkConfig
 				return nil
 			},
-			expectRes: ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second},
+			expectRes: ctrl.Result{RequeueAfter: 10 * time.Second},
 			existingNamespaceCR: &v1.Namespace{
 				TypeMeta:   metav1.TypeMeta{},
 				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
@@ -205,7 +205,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			expectErrStr: "missing NetworkConfig",
-			expectRes:    ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second},
+			expectRes:    ctrl.Result{RequeueAfter: 10 * time.Second},
 			existingNamespaceCR: &v1.Namespace{
 				TypeMeta:   metav1.TypeMeta{},
 				ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
