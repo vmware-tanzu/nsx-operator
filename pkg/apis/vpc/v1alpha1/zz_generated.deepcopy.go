@@ -285,8 +285,18 @@ func (in *IPBlocksInfo) DeepCopyInto(out *IPBlocksInfo) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ExternalIPv6CIDRs != nil {
+		in, out := &in.ExternalIPv6CIDRs, &out.ExternalIPv6CIDRs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.PrivateTGWIPCIDRs != nil {
 		in, out := &in.PrivateTGWIPCIDRs, &out.PrivateTGWIPCIDRs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.PrivateTGWIPv6CIDRs != nil {
+		in, out := &in.PrivateTGWIPv6CIDRs, &out.PrivateTGWIPv6CIDRs
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
@@ -295,8 +305,18 @@ func (in *IPBlocksInfo) DeepCopyInto(out *IPBlocksInfo) {
 		*out = make([]IPPoolRange, len(*in))
 		copy(*out, *in)
 	}
+	if in.ExternalIPv6Ranges != nil {
+		in, out := &in.ExternalIPv6Ranges, &out.ExternalIPv6Ranges
+		*out = make([]IPPoolRange, len(*in))
+		copy(*out, *in)
+	}
 	if in.PrivateTGWIPRanges != nil {
 		in, out := &in.PrivateTGWIPRanges, &out.PrivateTGWIPRanges
+		*out = make([]IPPoolRange, len(*in))
+		copy(*out, *in)
+	}
+	if in.PrivateTGWIPv6Ranges != nil {
+		in, out := &in.PrivateTGWIPv6Ranges, &out.PrivateTGWIPv6Ranges
 		*out = make([]IPPoolRange, len(*in))
 		copy(*out, *in)
 	}

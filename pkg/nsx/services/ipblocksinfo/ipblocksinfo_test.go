@@ -121,7 +121,8 @@ func TestIPBlocksInfoService_UpdateIPBlocksInfo(t *testing.T) {
 	mockK8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 		actualUpdated, ok := obj.(*v1alpha1.IPBlocksInfo)
 		assert.True(t, ok, "expected *v1alpha1.IPBlocksInfo when updating CR, got %T")
-		assert.True(t, util.CompareArraysWithoutOrder(actualUpdated.ExternalIPCIDRs, []string{ipBlocksMap[ipBlocksPath4], ipBlocksMap[ipBlocksPath1]}))
+		assert.True(t, util.CompareArraysWithoutOrder(actualUpdated.ExternalIPCIDRs, []string{ipBlocksMap[ipBlocksPath1]}))
+		assert.True(t, util.CompareArraysWithoutOrder(actualUpdated.ExternalIPv6CIDRs, []string{ipBlocksMap[ipBlocksPath4]}))
 		assert.Equal(t, actualUpdated.PrivateTGWIPCIDRs, []string{ipBlocksMap[ipBlocksPath2]})
 		return nil
 	})
@@ -174,7 +175,8 @@ func TestIPBlocksInfoService_SyncIPBlocksInfo(t *testing.T) {
 	mockK8sClient.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
 		actualCreated, ok := obj.(*v1alpha1.IPBlocksInfo)
 		assert.True(t, ok, "expected *v1alpha1.IPBlocksInfo when updating CR, got %T")
-		assert.Equal(t, actualCreated.ExternalIPCIDRs, []string{ipBlocksMap[ipBlocksPath4]})
+		assert.Empty(t, actualCreated.ExternalIPCIDRs)
+		assert.Equal(t, actualCreated.ExternalIPv6CIDRs, []string{ipBlocksMap[ipBlocksPath4]})
 		assert.Equal(t, actualCreated.PrivateTGWIPCIDRs, []string{ipBlocksMap[ipBlocksPath3]})
 		return nil
 	})
@@ -290,6 +292,12 @@ func TestIPBlocksInfoService_mergeIPCidrs(t *testing.T) {
 			expected: []string{"10.0.0.0/8"},
 		},
 		{
+			name:     "IPv6 target not covered by IPv4 source",
+			source:   []string{"192.168.0.0/16"},
+			target:   []string{"2001:db8::/32"},
+			expected: []string{"192.168.0.0/16", "2001:db8::/32"},
+		},
+		{
 			name:     "invalid target, source",
 			source:   []string{"10.0.0.0/8", "192.168.1.0/24/24"},
 			target:   []string{"10.0.0.1", "192.168.1.0/-1"},
@@ -303,6 +311,21 @@ func TestIPBlocksInfoService_mergeIPCidrs(t *testing.T) {
 			assert.ElementsMatch(t, tt.expected, result)
 		})
 	}
+}
+
+func TestSplitCIDRsByIPFamily(t *testing.T) {
+	v4, v6 := SplitCIDRsByIPFamily([]string{"192.168.0.0/16", "2001:db8::/32", "not-a-cidr"})
+	assert.ElementsMatch(t, []string{"192.168.0.0/16"}, v4)
+	assert.ElementsMatch(t, []string{"2001:db8::/32"}, v6)
+}
+
+func TestSplitIPPoolRangesByFamily(t *testing.T) {
+	v4, v6 := SplitIPPoolRangesByFamily([]v1alpha1.IPPoolRange{
+		{Start: "10.0.0.1", End: "10.0.0.2"},
+		{Start: "2001:db8::1", End: "2001:db8::2"},
+	})
+	assert.Equal(t, []v1alpha1.IPPoolRange{{Start: "10.0.0.1", End: "10.0.0.2"}}, v4)
+	assert.Equal(t, []v1alpha1.IPPoolRange{{Start: "2001:db8::1", End: "2001:db8::2"}}, v6)
 }
 
 func stringPtr(s string) *string {

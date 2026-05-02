@@ -16,6 +16,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	ipblocksvc "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -239,7 +240,11 @@ func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, external
 func assertIPBlocksInfo(t *testing.T, privateTGWIPCIDRs []string, externalIPCIDRs []string, privateRanges []v1alpha1.IPPoolRange, externalRanges []v1alpha1.IPPoolRange) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
-	log.Debug("Expecting IPBlocksInfo", "externalIPCIDRs", externalIPCIDRs, "externalIPRanges", externalRanges, "privateTGWIPCIDRs", privateTGWIPCIDRs, "privateTGWIPRanges", privateRanges)
+	expPriv4, expPriv6 := ipblocksvc.SplitCIDRsByIPFamily(privateTGWIPCIDRs)
+	expExt4, expExt6 := ipblocksvc.SplitCIDRsByIPFamily(externalIPCIDRs)
+	expPrivR4, expPrivR6 := ipblocksvc.SplitIPPoolRangesByFamily(privateRanges)
+	expExtR4, expExtR6 := ipblocksvc.SplitIPPoolRangesByFamily(externalRanges)
+	log.Debug("Expecting IPBlocksInfo", "externalIPCIDRs", expExt4, "externalIPv6CIDRs", expExt6, "externalIPRanges", expExtR4, "externalIPv6Ranges", expExtR6, "privateTGWIPCIDRs", expPriv4, "privateTGWIPv6CIDRs", expPriv6, "privateTGWIPRanges", expPrivR4, "privateTGWIPv6Ranges", expPrivR6)
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 120*time.Second, false, func(ctx context.Context) (done bool, err error) {
 		res, err := testData.crdClientset.CrdV1alpha1().IPBlocksInfos().Get(context.TODO(), ipBlocksInfoCRDName, metav1.GetOptions{})
 		if err != nil {
@@ -249,11 +254,18 @@ func assertIPBlocksInfo(t *testing.T, privateTGWIPCIDRs []string, externalIPCIDR
 			log.Error(err, "Error fetching IPBlocksInfo", "IPBlocksInfo", res, "Name", ipBlocksInfoCRDName)
 			return false, fmt.Errorf("error when waiting for IPBlocksInfo")
 		}
-		log.Trace("IPBlocksInfo cidrs", "externalIPCIDRs", res.ExternalIPCIDRs, "privateTGWIPCIDRs", res.PrivateTGWIPCIDRs, "externalIPRanges", res.ExternalIPRanges, "privateTGWIPRanges", res.PrivateTGWIPRanges)
-		if nsxutil.CompareArraysWithoutOrder(res.ExternalIPCIDRs, externalIPCIDRs) && nsxutil.CompareArraysWithoutOrder(res.PrivateTGWIPCIDRs, privateTGWIPCIDRs) && nsxutil.CompareArraysWithoutOrder(res.ExternalIPRanges, externalRanges) && nsxutil.CompareArraysWithoutOrder(res.PrivateTGWIPRanges, privateRanges) {
+		log.Trace("IPBlocksInfo cidrs", "externalIPCIDRs", res.ExternalIPCIDRs, "externalIPv6CIDRs", res.ExternalIPv6CIDRs, "privateTGWIPCIDRs", res.PrivateTGWIPCIDRs, "privateTGWIPv6CIDRs", res.PrivateTGWIPv6CIDRs, "externalIPRanges", res.ExternalIPRanges, "externalIPv6Ranges", res.ExternalIPv6Ranges, "privateTGWIPRanges", res.PrivateTGWIPRanges, "privateTGWIPv6Ranges", res.PrivateTGWIPv6Ranges)
+		if nsxutil.CompareArraysWithoutOrder(res.ExternalIPCIDRs, expExt4) &&
+			nsxutil.CompareArraysWithoutOrder(res.ExternalIPv6CIDRs, expExt6) &&
+			nsxutil.CompareArraysWithoutOrder(res.PrivateTGWIPCIDRs, expPriv4) &&
+			nsxutil.CompareArraysWithoutOrder(res.PrivateTGWIPv6CIDRs, expPriv6) &&
+			nsxutil.CompareArraysWithoutOrder(res.ExternalIPRanges, expExtR4) &&
+			nsxutil.CompareArraysWithoutOrder(res.ExternalIPv6Ranges, expExtR6) &&
+			nsxutil.CompareArraysWithoutOrder(res.PrivateTGWIPRanges, expPrivR4) &&
+			nsxutil.CompareArraysWithoutOrder(res.PrivateTGWIPv6Ranges, expPrivR6) {
 			return true, nil
 		}
-		log.Trace("IPBlocksInfo cidrs", "externalIPCIDRs", res.ExternalIPCIDRs, "externalIPRanges", res.ExternalIPRanges, "privateTGWIPCIDRs", res.PrivateTGWIPCIDRs, "privateTGWIPRanges", res.PrivateTGWIPRanges)
+		log.Trace("IPBlocksInfo cidrs", "externalIPCIDRs", res.ExternalIPCIDRs, "externalIPv6CIDRs", res.ExternalIPv6CIDRs, "externalIPRanges", res.ExternalIPRanges, "externalIPv6Ranges", res.ExternalIPv6Ranges, "privateTGWIPCIDRs", res.PrivateTGWIPCIDRs, "privateTGWIPv6CIDRs", res.PrivateTGWIPv6CIDRs, "privateTGWIPRanges", res.PrivateTGWIPRanges, "privateTGWIPv6Ranges", res.PrivateTGWIPv6Ranges)
 		return false, nil
 	})
 	require.NoError(t, err)

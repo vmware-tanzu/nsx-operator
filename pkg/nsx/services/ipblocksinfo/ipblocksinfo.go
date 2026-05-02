@@ -93,10 +93,43 @@ func (s *IPBlocksInfoService) ResetPeriodicSync() {
 	s.SyncTask.resetChan <- struct{}{}
 }
 
+// SplitCIDRsByIPFamily splits CIDR strings into IPv4-only and IPv6-only slices based on parsed address family.
+func SplitCIDRsByIPFamily(cidrs []string) (ipv4 []string, ipv6 []string) {
+	for _, cidr := range cidrs {
+		ip, _, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Error(err, "failed to parse CIDR for IP family split", "cidr", cidr)
+			continue
+		}
+		if ip.To4() != nil {
+			ipv4 = append(ipv4, cidr)
+		} else {
+			ipv6 = append(ipv6, cidr)
+		}
+	}
+	return ipv4, ipv6
+}
+
+// SplitIPPoolRangesByFamily splits IP pool ranges into IPv4-only and IPv6-only slices using the start address family.
+func SplitIPPoolRangesByFamily(ranges []v1alpha1.IPPoolRange) (ipv4 []v1alpha1.IPPoolRange, ipv6 []v1alpha1.IPPoolRange) {
+	for _, r := range ranges {
+		ip := net.ParseIP(r.Start)
+		if ip == nil {
+			log.Info("skipping IP pool range with unparseable start", "start", r.Start, "end", r.End)
+			continue
+		}
+		if ip.To4() != nil {
+			ipv4 = append(ipv4, r)
+		} else {
+			ipv6 = append(ipv6, r)
+		}
+	}
+	return ipv4, ipv6
+}
+
 // mergeIPCidrs merges target CIDRs into source CIDRs if not already covered by source.
-// Only considers IPv4, assumes no overlaps and all CIDRs are valid.
-// Assume there were no duplicate cidr in target,
-// None of the elements in target will be a subset of another element
+// Works for both IPv4 and IPv6 when source and target use the same address family.
+// Assume there were no duplicate CIDRs in target and no element of target is a subset of another element in target.
 // consider using radix tree or sort + binary search for large scale
 func (s *IPBlocksInfoService) mergeIPCidrs(source []string, target []string) []string {
 	if len(source) == 0 {
@@ -165,15 +198,23 @@ func (s *IPBlocksInfoService) updateIPBlocksInfo(ctx context.Context, vpcConfigL
 	}
 	externalIPCIDRs = s.mergeIPCidrs(externalIPCIDRs, externalSubnetCIDRs)
 	privateTGWIPCIDRs = s.mergeIPCidrs(privateTGWIPCIDRs, privateTGWSubnetCIDRS)
+	extV4, extV6 := SplitCIDRsByIPFamily(externalIPCIDRs)
+	privV4, privV6 := SplitCIDRsByIPFamily(privateTGWIPCIDRs)
+	extRv4, extRv6 := SplitIPPoolRangesByFamily(externalIPRanges)
+	privRv4, privRv6 := SplitIPPoolRangesByFamily(privateTGWIPRanges)
 	// create or update IPBlocksInfo CR
 	ipBlocksInfo := &v1alpha1.IPBlocksInfo{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: ipBlocksInfoCRDName,
 		},
-		ExternalIPCIDRs:    externalIPCIDRs,
-		PrivateTGWIPCIDRs:  privateTGWIPCIDRs,
-		ExternalIPRanges:   externalIPRanges,
-		PrivateTGWIPRanges: privateTGWIPRanges,
+		ExternalIPCIDRs:       extV4,
+		ExternalIPv6CIDRs:     extV6,
+		PrivateTGWIPCIDRs:     privV4,
+		PrivateTGWIPv6CIDRs:   privV6,
+		ExternalIPRanges:      extRv4,
+		ExternalIPv6Ranges:    extRv6,
+		PrivateTGWIPRanges:    privRv4,
+		PrivateTGWIPv6Ranges:  privRv6,
 	}
 	return s.createOrUpdateIPBlocksInfo(ctx, ipBlocksInfo, incremental)
 }
@@ -188,6 +229,39 @@ func (s *IPBlocksInfoService) SyncIPBlocksInfo(ctx context.Context) error {
 		return err
 	}
 	return s.updateIPBlocksInfo(ctx, crdVpcNetworkConfigurationList.Items, false)
+}
+
+// migrateLegacyIPv6IntoDedicatedFields moves IPv6 CIDRs/ranges out of the IPv4-oriented fields into
+// externalIPv6*/privateTGWIPv6* fields. Returns true if the in-memory object was changed and should be persisted.
+func (s *IPBlocksInfoService) migrateLegacyIPv6IntoDedicatedFields(info *v1alpha1.IPBlocksInfo) (changed bool) {
+	extV4, extV6 := SplitCIDRsByIPFamily(info.ExternalIPCIDRs)
+	if len(extV6) > 0 {
+		changed = true
+		info.ExternalIPv6CIDRs = s.mergeIPCidrs(extV6, info.ExternalIPv6CIDRs)
+	}
+	info.ExternalIPCIDRs = extV4
+
+	privV4, privV6 := SplitCIDRsByIPFamily(info.PrivateTGWIPCIDRs)
+	if len(privV6) > 0 {
+		changed = true
+		info.PrivateTGWIPv6CIDRs = s.mergeIPCidrs(privV6, info.PrivateTGWIPv6CIDRs)
+	}
+	info.PrivateTGWIPCIDRs = privV4
+
+	extRv4, extRv6 := SplitIPPoolRangesByFamily(info.ExternalIPRanges)
+	if len(extRv6) > 0 {
+		changed = true
+		info.ExternalIPv6Ranges = util.MergeArraysWithoutDuplicate(extRv6, info.ExternalIPv6Ranges)
+	}
+	info.ExternalIPRanges = extRv4
+
+	privRv4, privRv6 := SplitIPPoolRangesByFamily(info.PrivateTGWIPRanges)
+	if len(privRv6) > 0 {
+		changed = true
+		info.PrivateTGWIPv6Ranges = util.MergeArraysWithoutDuplicate(privRv6, info.PrivateTGWIPv6Ranges)
+	}
+	info.PrivateTGWIPRanges = privRv4
+	return changed
 }
 
 func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ipBlocksInfo *v1alpha1.IPBlocksInfo, incremental bool) error {
@@ -210,24 +284,43 @@ func (s *IPBlocksInfoService) createOrUpdateIPBlocksInfo(ctx context.Context, ip
 			return err
 		}
 	}
+	migrateNeeded := s.migrateLegacyIPv6IntoDedicatedFields(ipBlocksInfoOld)
 	if incremental {
-		ipBlocksInfo.ExternalIPCIDRs = s.mergeIPCidrs(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs)
-		ipBlocksInfo.PrivateTGWIPCIDRs = s.mergeIPCidrs(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs)
-		ipBlocksInfo.ExternalIPRanges = util.MergeArraysWithoutDuplicate(ipBlocksInfoOld.ExternalIPRanges, ipBlocksInfo.ExternalIPRanges)
-		ipBlocksInfo.PrivateTGWIPRanges = util.MergeArraysWithoutDuplicate(ipBlocksInfoOld.PrivateTGWIPRanges, ipBlocksInfo.PrivateTGWIPRanges)
+		oldExtV4, oldExtV6 := SplitCIDRsByIPFamily(ipBlocksInfoOld.ExternalIPCIDRs)
+		oldPrivV4, oldPrivV6 := SplitCIDRsByIPFamily(ipBlocksInfoOld.PrivateTGWIPCIDRs)
+		oldExtRv4, oldExtRv6 := SplitIPPoolRangesByFamily(ipBlocksInfoOld.ExternalIPRanges)
+		oldPrivRv4, oldPrivRv6 := SplitIPPoolRangesByFamily(ipBlocksInfoOld.PrivateTGWIPRanges)
+		ipBlocksInfo.ExternalIPCIDRs = s.mergeIPCidrs(oldExtV4, ipBlocksInfo.ExternalIPCIDRs)
+		ipBlocksInfo.ExternalIPv6CIDRs = s.mergeIPCidrs(s.mergeIPCidrs(oldExtV6, ipBlocksInfoOld.ExternalIPv6CIDRs), ipBlocksInfo.ExternalIPv6CIDRs)
+		ipBlocksInfo.PrivateTGWIPCIDRs = s.mergeIPCidrs(oldPrivV4, ipBlocksInfo.PrivateTGWIPCIDRs)
+		ipBlocksInfo.PrivateTGWIPv6CIDRs = s.mergeIPCidrs(s.mergeIPCidrs(oldPrivV6, ipBlocksInfoOld.PrivateTGWIPv6CIDRs), ipBlocksInfo.PrivateTGWIPv6CIDRs)
+		ipBlocksInfo.ExternalIPRanges = util.MergeArraysWithoutDuplicate(oldExtRv4, ipBlocksInfo.ExternalIPRanges)
+		ipBlocksInfo.ExternalIPv6Ranges = util.MergeArraysWithoutDuplicate(util.MergeArraysWithoutDuplicate(oldExtRv6, ipBlocksInfoOld.ExternalIPv6Ranges), ipBlocksInfo.ExternalIPv6Ranges)
+		ipBlocksInfo.PrivateTGWIPRanges = util.MergeArraysWithoutDuplicate(oldPrivRv4, ipBlocksInfo.PrivateTGWIPRanges)
+		ipBlocksInfo.PrivateTGWIPv6Ranges = util.MergeArraysWithoutDuplicate(util.MergeArraysWithoutDuplicate(oldPrivRv6, ipBlocksInfoOld.PrivateTGWIPv6Ranges), ipBlocksInfo.PrivateTGWIPv6Ranges)
 	}
 	if util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPCIDRs, ipBlocksInfo.ExternalIPCIDRs) &&
 		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPCIDRs, ipBlocksInfo.PrivateTGWIPCIDRs) &&
 		util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPRanges, ipBlocksInfo.ExternalIPRanges) &&
-		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPRanges, ipBlocksInfo.PrivateTGWIPRanges) {
-		log.Debug("IPBlocksInfo CR is up to date, no need to update", "name", ipBlocksInfoOld.Name)
-		// no need to update if all IPBlocks do not change
-		return nil
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPRanges, ipBlocksInfo.PrivateTGWIPRanges) &&
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPv6CIDRs, ipBlocksInfo.ExternalIPv6CIDRs) &&
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPv6CIDRs, ipBlocksInfo.PrivateTGWIPv6CIDRs) &&
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.ExternalIPv6Ranges, ipBlocksInfo.ExternalIPv6Ranges) &&
+		util.CompareArraysWithoutOrder(ipBlocksInfoOld.PrivateTGWIPv6Ranges, ipBlocksInfo.PrivateTGWIPv6Ranges) {
+		if !migrateNeeded {
+			log.Debug("IPBlocksInfo CR is up to date, no need to update", "name", ipBlocksInfoOld.Name)
+			// no need to update if all IPBlocks do not change
+			return nil
+		}
 	}
 	ipBlocksInfoOld.ExternalIPCIDRs = ipBlocksInfo.ExternalIPCIDRs
+	ipBlocksInfoOld.ExternalIPv6CIDRs = ipBlocksInfo.ExternalIPv6CIDRs
 	ipBlocksInfoOld.PrivateTGWIPCIDRs = ipBlocksInfo.PrivateTGWIPCIDRs
+	ipBlocksInfoOld.PrivateTGWIPv6CIDRs = ipBlocksInfo.PrivateTGWIPv6CIDRs
 	ipBlocksInfoOld.ExternalIPRanges = ipBlocksInfo.ExternalIPRanges
+	ipBlocksInfoOld.ExternalIPv6Ranges = ipBlocksInfo.ExternalIPv6Ranges
 	ipBlocksInfoOld.PrivateTGWIPRanges = ipBlocksInfo.PrivateTGWIPRanges
+	ipBlocksInfoOld.PrivateTGWIPv6Ranges = ipBlocksInfo.PrivateTGWIPv6Ranges
 
 	err = s.Client.Update(ctx, ipBlocksInfoOld)
 	if err != nil {
