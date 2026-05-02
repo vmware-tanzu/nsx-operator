@@ -28,16 +28,38 @@ spec:
             type: string
           externalIPCIDRs:
             description: |-
-              ExternalIPCIDRs is a list of CIDR strings. Each CIDR is a contiguous IP address
-              spaces represented by network address and prefix length. The visibility of the
-              IPBlocks is External.
+              ExternalIPCIDRs is a list of IPv4 CIDR strings. Each CIDR is a contiguous IP address
+              space represented by network address and prefix length. The visibility of the
+              IPBlocks is External. IPv6 CIDRs are listed in externalIPv6CIDRs.
             items:
               type: string
             type: array
           externalIPRanges:
             description: |-
-              ExternalIPRanges is an array of contiguous IP address space represented by start and end IPs.
+              ExternalIPRanges is an array of contiguous IPv4 address space represented by start and end IPs.
               The visibility of the IPBlocks is External.
+            items:
+              properties:
+                end:
+                  description: The end IP Address of the IP Range.
+                  type: string
+                start:
+                  description: The start IP Address of the IP Range.
+                  type: string
+              required:
+              - end
+              - start
+              type: object
+            type: array
+          externalIPv6CIDRs:
+            description: ExternalIPv6CIDRs is a list of IPv6 CIDR strings for external
+              IP blocks (same visibility as externalIPCIDRs).
+            items:
+              type: string
+            type: array
+          externalIPv6Ranges:
+            description: ExternalIPv6Ranges is an array of contiguous IPv6 address
+              space for external IP blocks.
             items:
               properties:
                 end:
@@ -63,16 +85,39 @@ spec:
             type: object
           privateTGWIPCIDRs:
             description: |-
-              PrivateTGWIPCIDRs is a list of CIDR strings. Each CIDR is a contiguous IP address
-              spaces represented by network address and prefix length. The visibility of the
+              PrivateTGWIPCIDRs is a list of IPv4 CIDR strings. Each CIDR is a contiguous IP address
+              space represented by network address and prefix length. The visibility of the
               IPBlocks is Private Transit Gateway. Only IPBlocks in default project will be included.
+              IPv6 CIDRs are listed in privateTGWIPv6CIDRs.
             items:
               type: string
             type: array
           privateTGWIPRanges:
             description: |-
-              PrivateTGWIPRanges is an array of contiguous IP address space represented by start and end IPs.
+              PrivateTGWIPRanges is an array of contiguous IPv4 address space represented by start and end IPs.
               The visibility of the IPBlocks is Private Transit Gateway.
+            items:
+              properties:
+                end:
+                  description: The end IP Address of the IP Range.
+                  type: string
+                start:
+                  description: The start IP Address of the IP Range.
+                  type: string
+              required:
+              - end
+              - start
+              type: object
+            type: array
+          privateTGWIPv6CIDRs:
+            description: PrivateTGWIPv6CIDRs is a list of IPv6 CIDR strings for private
+              transit gateway IP blocks.
+            items:
+              type: string
+            type: array
+          privateTGWIPv6Ranges:
+            description: PrivateTGWIPv6Ranges is an array of contiguous IPv6 address
+              space for private transit gateway IP blocks.
             items:
               properties:
                 end:
