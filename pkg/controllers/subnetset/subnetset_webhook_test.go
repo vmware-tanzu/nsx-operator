@@ -192,6 +192,130 @@ func TestSubnetSetValidator(t *testing.T) {
 			AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 		},
 	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcp-1",
+			Namespace:   "ns-dhcp",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcp-1"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcp-2",
+			Namespace:   "ns-dhcp",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcp-2"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+		},
+	})
+	trueVal := true
+	falseVal := false
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-staticip-1",
+			Namespace:   "ns-staticip",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-staticip:subnet-staticip-1"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: &trueVal,
+				},
+			},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-staticip-2",
+			Namespace:   "ns-staticip",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-staticip:subnet-staticip-2"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: &falseVal,
+				},
+			},
+		},
+	})
+
+	// Create subnets for testing race condition fix
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcp-deactivated-1",
+			Namespace:   "ns-race",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-race:subnet-dhcp-deactivated-1"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: &trueVal, // Already processed by controller
+				},
+			},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcp-deactivated-2",
+			Namespace:   "ns-race",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-race:subnet-dhcp-deactivated-2"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: nil, // Not yet processed by controller (race condition)
+				},
+			},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcp-server-1",
+			Namespace:   "ns-race",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-race:subnet-dhcp-server-1"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: &falseVal, // Already processed by controller
+				},
+			},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcp-server-2",
+			Namespace:   "ns-race",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-race:subnet-dhcp-server-2"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: nil, // Not yet processed by controller (race condition)
+				},
+			},
+		},
+	})
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.vpcService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
 		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "default", VPCID: "ns-1"}}
@@ -311,6 +435,38 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:      "fake-user",
 			isAllowed: false,
 			msg:       "Subnets in SubnetSet ns-accessmode/subnetset-accessmode must have the same AccessMode, found different AccessModes: [Public, Private]",
+		},
+		{
+			name: "Create SubnetSet with different DHCPModes",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-dhcp",
+					Namespace: "ns-dhcp",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-dhcp-1", "subnet-dhcp-2"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
+			msg:       "Subnets in SubnetSet ns-dhcp/subnetset-dhcp must have the same DHCPConfigMode, found different DHCPConfigModes: [DHCPDeactivated, DHCPServer]",
+		},
+		{
+			name: "Create SubnetSet with different StaticIPAllocations",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-staticip",
+					Namespace: "ns-staticip",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-staticip-1", "subnet-staticip-2"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
+			msg:       "Subnets in SubnetSet ns-staticip/subnetset-staticip must have the same StaticIPAllocation, found different StaticIPAllocations: [true, false]",
 		},
 		{
 			name: "Create SubnetSet with same AccessMode",
@@ -506,6 +662,54 @@ func TestSubnetSetValidator(t *testing.T) {
 			subnetSet:    newSubnetSetWithSubnets,
 			isAllowed:    false,
 			msg:          "used by SubnetPorts cannot be removed",
+		},
+		{
+			name: "Create SubnetSet with subnets in race condition - DHCP Deactivated (should pass)",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-race-deactivated",
+					Namespace: "ns-race",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-dhcp-deactivated-1", "subnet-dhcp-deactivated-2"},
+				},
+			},
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
+		},
+		{
+			name: "Create SubnetSet with subnets in race condition - DHCP Server (should pass)",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-race-server",
+					Namespace: "ns-race",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-dhcp-server-1", "subnet-dhcp-server-2"},
+				},
+			},
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
+		},
+		{
+			name: "Create SubnetSet with mixed DHCP modes in race condition (should fail on DHCP mode first)",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-race-mixed",
+					Namespace: "ns-race",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-dhcp-deactivated-1", "subnet-dhcp-server-1"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
+			msg:       "must have the same DHCPConfigMode, found different DHCPConfigModes: [DHCPDeactivated, DHCPServer]",
 		},
 	}
 	for _, testCase := range testcases {
@@ -782,6 +986,115 @@ func TestValidateRemovedSubnets(t *testing.T) {
 			}
 			mockSubnetSvc.AssertExpectations(t)
 			mockPortSvc.AssertExpectations(t)
+		})
+	}
+}
+
+func TestGetEffectiveStaticIPAllocation(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name     string
+		subnet   *v1alpha1.Subnet
+		expected bool
+	}{
+		{
+			name: "Explicitly set to true",
+			subnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: &trueVal,
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Explicitly set to false",
+			subnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: &falseVal,
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Not set, DHCP Deactivated (should default to true)",
+			subnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: nil,
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Not set, DHCP Server (should default to false)",
+			subnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: nil,
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Not set, DHCP Relay (should default to false)",
+			subnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: nil,
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Not set, empty DHCP mode (should default to true)",
+			subnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: "",
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: nil,
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getEffectiveStaticIPAllocation(tt.subnet)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
