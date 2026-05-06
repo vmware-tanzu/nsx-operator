@@ -572,6 +572,92 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		assert.Equal(t, nil, ret)
 	})
 
+	portStateNoIP := &model.SegmentPortState{
+		Attachment: &model.SegmentPortAttachmentState{
+			Id: &attachmentIDAfterRestore,
+		},
+	}
+	// Restore case without IP/MAC in state
+	t.Run("restore without IP in state", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{}
+		r.restoreMode = true
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = subnetPort.Status
+				v1sp.ObjectMeta = subnetPort.ObjectMeta
+				return nil
+			})
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, error) {
+				return true, false, "", nil, nil, nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+			return "subnet-path", nil
+		})
+		defer patchesGetSubnetByIP.Reset()
+		patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					AdvancedConfig: &model.SubnetAdvancedConfig{
+						StaticIpAllocation: &model.StaticIpAllocation{
+							Enabled: servicecommon.Bool(true),
+						},
+					},
+				}
+				return nsxSubnet, nil
+			})
+		defer patchesGetSubnetByPath.Reset()
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+				return portStateNoIP, false, nil
+			})
+		defer patchesCreateOrUpdateSubnetPort.Reset()
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = subnetPort.Status
+				v1sp.Status.Attachment.ID = attachmentIDAfterRestore
+				v1sp.ObjectMeta = subnetPort.ObjectMeta
+				return nil
+			})
+		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			})
+		defer patchesSetAddressBindingStatus.Reset()
+		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+		patchesNSXCheckVersion := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return false
+		})
+		defer patchesNSXCheckVersion.Reset()
+
+		k8sClient.EXPECT().Status().Return(fakewriter)
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = subnetPort.Status
+				v1sp.ObjectMeta = subnetPort.ObjectMeta
+				return nil
+			})
+		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+			assert.Equal(t, "cpvm", obj.GetAnnotations()[servicecommon.AnnotationReconfigureNic])
+			return nil
+		})
+		_, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+	})
+
 	dhcpSubnetPort := &v1alpha1.SubnetPort{
 		Status: v1alpha1.SubnetPortStatus{
 			Attachment: v1alpha1.PortAttachment{
