@@ -289,6 +289,17 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want: admission.Errored(http.StatusBadRequest, errors.New("failed to list SubnetSet: list failure")),
 		},
 		{
+			name:      "ListSubnetIPReservationFailure",
+			operation: admissionv1.Delete,
+			oldObject: req1,
+			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("list failure"))
+			},
+			want: admission.Errored(http.StatusBadRequest, errors.New("failed to list SubnetIPReservations: list failure")),
+		},
+		{
 			name:            "DecodeOldSubnetFailure",
 			operation:       admissionv1.Delete,
 			want:            admission.Errored(http.StatusBadRequest, errors.New("there is no content to decode")),
@@ -660,6 +671,123 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 				},
 			},
 			wantMsg: "not a valid CIDR",
+		},
+		{
+			// Exercises rangesOverlap: same-family ranges that do NOT overlap → return false.
+			// Two non-overlapping IPv4 pool ranges must be allowed.
+			name: "allow: two non-overlapping poolRanges within CIDR",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/24"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{
+								{Start: "10.0.0.2", End: "10.0.0.10"},
+								{Start: "10.0.0.20", End: "10.0.0.30"},
+							},
+						},
+					},
+				},
+			},
+			wantMsg: "",
+		},
+		{
+			// Exercises rangesOverlap: a1.Is4() != b1.Is4() → return false (no overlap).
+			// The IPv4 pool range must not overlap with the IPv6 reservedIPRange.
+			name: "allow: IPv4 poolRange does not overlap IPv6 reservedIPRange (different families)",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+						DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+							ReservedIPRanges: []string{"2001:db8::1-2001:db8::10"},
+						},
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.6"}},
+						},
+					},
+				},
+			},
+			wantMsg: "",
+		},
+		{
+			// Exercises rangeWithinAnyPrefix: the family-mismatch `continue` path.
+			// ipAddresses has an IPv6 CIDR but the pool range is IPv4; must be denied
+			// because no IPv4 prefix can contain the range.
+			name: "deny: IPv4 poolRange not contained in IPv6-only ipAddresses",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"2001:db8::/64"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.6"}},
+						},
+					},
+				},
+			},
+			wantMsg: "not contained within any spec.ipAddresses CIDR",
+		},
+		{
+			name: "allow: IPv6 poolRange within IPv6 CIDR",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"2001:db8::/64"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "2001:db8::10", End: "2001:db8::ff"}},
+						},
+					},
+				},
+			},
+			wantMsg: "",
+		},
+		{
+			name: "deny: IPv6 poolRange outside its IPv6 CIDR",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"2001:db8::/64"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{{Start: "2001:db9::10", End: "2001:db9::ff"}},
+						},
+					},
+				},
+			},
+			wantMsg: "not contained within any spec.ipAddresses CIDR",
+		},
+		{
+			// Dual-stack: one IPv4 CIDR + one IPv6 CIDR in ipAddresses, one pool range
+			// per family. Both ranges fall within their respective CIDRs.
+			name: "allow: dual-stack poolRanges within matching CIDRs",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/24", "2001:db8::/64"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: bp(true),
+							PoolRanges: []v1alpha1.IPAddressRange{
+								{Start: "10.0.0.10", End: "10.0.0.20"},
+								{Start: "2001:db8::10", End: "2001:db8::ff"},
+							},
+						},
+					},
+				},
+			},
+			wantMsg: "",
 		},
 	}
 	for _, tc := range tests {

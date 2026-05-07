@@ -498,15 +498,15 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 // CRSubnetStaticIPAllocationEnabled is the CR-side counterpart of
 // NSXSubnetStaticIPAllocationEnabled. It returns true iff the Subnet CR has
 // advancedConfig.staticIPAllocation.enabled explicitly set to true.
-// SubnetSet does not expose AdvancedConfig today, so it always returns false
-// for SubnetSet objects until that API is added.
-func CRSubnetStaticIPAllocationEnabled(obj client.Object) bool {
+// It returns an error if obj is not a *v1alpha1.Subnet, since this function
+// is not defined for other object kinds.
+func CRSubnetStaticIPAllocationEnabled(obj client.Object) (bool, error) {
 	subnet, ok := obj.(*v1alpha1.Subnet)
 	if !ok {
-		return false
+		return false, fmt.Errorf("CRSubnetStaticIPAllocationEnabled: unsupported object type %T", obj)
 	}
 	enabled := subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled
-	return enabled != nil && *enabled
+	return enabled != nil && *enabled, nil
 }
 
 // CRPoolRangesToNSX converts the structured CR form ([]IPAddressRange) to the

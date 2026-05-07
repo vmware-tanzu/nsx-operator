@@ -165,7 +165,8 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 //
 // An empty string return value means "allowed".
 func validateStaticIPAllocation(subnet *v1alpha1.Subnet) string {
-	staticEnabled := util.CRSubnetStaticIPAllocationEnabled(subnet)
+	enabled := subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled
+	staticEnabled := enabled != nil && *enabled
 	ranges := subnet.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges
 	mode := subnet.Spec.SubnetDHCPConfig.Mode
 

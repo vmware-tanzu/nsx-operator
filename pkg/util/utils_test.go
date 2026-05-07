@@ -758,18 +758,25 @@ func boolPtr(b bool) *bool { return &b }
 
 func TestCRSubnetStaticIPAllocationEnabled(t *testing.T) {
 	tests := []struct {
-		name string
-		obj  client.Object
-		want bool
+		name    string
+		obj     client.Object
+		want    bool
+		wantErr bool
 	}{
-		{"nil enabled on Subnet", &v1alpha1.Subnet{}, false},
-		{"enabled=false on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(false)}}}}, false},
-		{"enabled=true on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(true)}}}}, true},
-		{"SubnetSet never has static enabled", &v1alpha1.SubnetSet{}, false},
+		{"nil enabled on Subnet", &v1alpha1.Subnet{}, false, false},
+		{"enabled=false on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(false)}}}}, false, false},
+		{"enabled=true on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(true)}}}}, true, false},
+		{"SubnetSet returns error for unsupported type", &v1alpha1.SubnetSet{}, false, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, CRSubnetStaticIPAllocationEnabled(tc.obj))
+			got, err := CRSubnetStaticIPAllocationEnabled(tc.obj)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.want, got)
+			}
 		})
 	}
 }

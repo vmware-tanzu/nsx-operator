@@ -724,9 +724,11 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 			if nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
 				subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled
 			}
-			if len(nsxSubnet.AdvancedConfig.StaticIpAllocation.PoolRanges) > 0 {
-				subnetCR.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = util.NSXPoolRangesToCR(nsxSubnet.AdvancedConfig.StaticIpAllocation.PoolRanges)
-			}
+			// NSX API guarantees PoolRanges is non-empty only when Enabled==true,
+			// so the two inner checks are independent but never contradictory.
+			// Always assign PoolRanges (even when nil/empty) so that a CR with
+			// stale pool ranges is cleared when NSX no longer reports any.
+			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = util.NSXPoolRangesToCR(nsxSubnet.AdvancedConfig.StaticIpAllocation.PoolRanges)
 		}
 
 		// Map GatewayAddresses from NSX Subnet for shared subnets

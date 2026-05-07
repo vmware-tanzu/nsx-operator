@@ -1158,6 +1158,50 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			},
 		},
 		{
+			// Regression test: when NSX clears PoolRanges (returns nil/empty), a CR
+			// that previously had pool ranges must be updated to empty, not left stale.
+			name: "Map NSX Subnet with StaticIpAllocation enabled + PoolRanges cleared by NSX",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+							PoolRanges: []v1alpha1.IPAddressRange{
+								{Start: "192.168.1.10", End: "192.168.1.20"},
+							},
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: nil,
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "Map NSX Subnet with Private_TGW AccessMode",
 			subnetCR: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{},

@@ -228,6 +228,28 @@ func TestSubnetToComparable(t *testing.T) {
 			expectChanged: true,
 		},
 		{
+			name: "StaticIpAllocation.PoolRanges complete replacement should cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"10.0.0.16-10.0.0.24"},
+					},
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id2,
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"10.0.0.2-10.0.0.8"},
+					},
+				},
+			},
+			expectChanged: true,
+		},
+		{
 			name: "StaticIpAllocation equal should not cause change",
 			nsxSubnet: &model.VpcSubnet{
 				Id: &id1,
