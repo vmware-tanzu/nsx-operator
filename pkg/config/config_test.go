@@ -197,6 +197,16 @@ func TestNsxConfig_VpcWcpEnhanceEnabled(t *testing.T) {
 	assert.False(t, (&NsxConfig{VpcWcpEnhance: &f}).VpcWcpEnhanceEnabled())
 }
 
+func TestNsxConfig_RestoreVifEnabled(t *testing.T) {
+	f := false
+	tr := true
+	assert.False(t, (*NsxConfig)(nil).RestoreVifEnabled())
+	assert.False(t, (&NsxConfig{}).RestoreVifEnabled())
+	assert.False(t, (&NsxConfig{RestoreVif: nil}).RestoreVifEnabled())
+	assert.True(t, (&NsxConfig{RestoreVif: &tr}).RestoreVifEnabled())
+	assert.False(t, (&NsxConfig{RestoreVif: &f}).RestoreVifEnabled())
+}
+
 func TestNsxConfig_GetServiceSize(t *testing.T) {
 	type fields struct {
 		ServiceSize string

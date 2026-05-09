@@ -129,6 +129,8 @@ type NsxConfig struct {
 	// VpcWcpEnhance controls StatefulSet pod SubnetPort behavior together with NSX version.
 	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
 	VpcWcpEnhance *bool `ini:"vpc_wcp_enhance"`
+	// RestoreVif controls whether SubnetPort vif should be restored during restore mode.
+	RestoreVif *bool `ini:"restore_vif"`
 }
 
 type K8sConfig struct {
@@ -410,6 +412,15 @@ func (nsxConfig *NsxConfig) VpcWcpEnhanceEnabled() bool {
 		return false
 	}
 	return *nsxConfig.VpcWcpEnhance
+}
+
+// RestoreVifEnabled reports whether restoring SubnetPort vif is supported by config.
+// Missing or nil key defaults to false; only an explicit true enables.
+func (nsxConfig *NsxConfig) RestoreVifEnabled() bool {
+	if nsxConfig == nil || nsxConfig.RestoreVif == nil {
+		return false
+	}
+	return *nsxConfig.RestoreVif
 }
 
 func (nsxConfig *NsxConfig) validate(enableVPC bool) error {

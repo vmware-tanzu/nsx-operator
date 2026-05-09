@@ -130,7 +130,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
-		if r.restoreMode && !r.SubnetPortService.NSXClient.NSXCheckVersion(nsx.RestoreVIF) {
+		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 			// Update restore status on Pod to notify Spherelet for NSX version < 9.2
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
 				log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)

@@ -42,3 +42,33 @@ func TestStatefulSetPodSubnetPortFeatureEnabled(t *testing.T) {
 		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
 	})
 }
+
+func TestRestoreVifFeatureEnabled(t *testing.T) {
+	f := false
+	tr := true
+	nsxClient := &Client{}
+
+	t.Run("nil client", func(t *testing.T) {
+		assert.False(t, RestoreVifFeatureEnabled(nil, &config.NSXOperatorConfig{}))
+	})
+
+	t.Run("version supports and restore_vif opt-in", func(t *testing.T) {
+		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			return feature == RestoreVIF
+		})
+		defer p.Reset()
+		assert.False(t, RestoreVifFeatureEnabled(nsxClient, nil))
+		assert.False(t, RestoreVifFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: nil}))
+		assert.False(t, RestoreVifFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
+		assert.True(t, RestoreVifFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{RestoreVif: &tr}}))
+		assert.False(t, RestoreVifFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{RestoreVif: &f}}))
+	})
+
+	t.Run("version does not support", func(t *testing.T) {
+		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			return false
+		})
+		defer p.Reset()
+		assert.False(t, RestoreVifFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
+	})
+}

@@ -377,10 +377,6 @@ func (client *Client) resetNSXVersionFeatureCache() {
 }
 
 func (client *Client) NSXCheckVersion(feature int) bool {
-	// TODO: Remove this once NSX implementation for SubnetPort VIF restore is merged
-	if feature == RestoreVIF {
-		return false
-	}
 	if client.NSXVerChecker.featureSupported[feature] {
 		return true
 	}

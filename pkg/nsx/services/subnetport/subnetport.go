@@ -161,7 +161,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
 	}
 	// In restore mode, restore attachment id in k8s CR when NSX >= 9.2
-	if restoreMode && service.NSXClient.NSXCheckVersion(nsx.RestoreVIF) && attachmentID != "" {
+	if restoreMode && nsx.RestoreVifFeatureEnabled(service.NSXClient, service.NSXConfig) && attachmentID != "" {
 		nsxSubnetPort.Attachment.Id = &attachmentID
 	}
 	subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)

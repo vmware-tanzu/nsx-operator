@@ -220,7 +220,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			subnetPort.Status.Conditions = nil
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService)
-		if r.restoreMode && !r.SubnetPortService.NSXClient.NSXCheckVersion(nsx.RestoreVIF) {
+		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 			// UpdateSuccess may fail due to k8s connection or update conflicts.
 			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
 			// Otherwise VM operator will fail to get the new attachment ID.
