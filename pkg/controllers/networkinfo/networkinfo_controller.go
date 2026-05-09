@@ -469,6 +469,7 @@ func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfigurat
 func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.NetworkInfo{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),

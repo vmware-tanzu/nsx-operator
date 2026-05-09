@@ -18,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -138,9 +137,6 @@ func TestEnqueueRequestForNamespace_Update(t *testing.T) {
 		q workqueue.TypedRateLimitingInterface[reconcile.Request],
 	) error {
 		return nil
-	})
-	patches.ApplyFunc(securitypolicy.IsVPCEnabled, func(_ interface{}) bool {
-		return false
 	})
 	patches.ApplyFunc(util.CheckPodHasNamedPort, func(pod v1.Pod, reason string) bool {
 		return true

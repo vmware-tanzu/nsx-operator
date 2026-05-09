@@ -56,6 +56,7 @@ type SecurityPolicyReconciler struct {
 	Service       *securitypolicy.SecurityPolicyService
 	Recorder      record.EventRecorder
 	StatusUpdater common.StatusUpdater
+	isVPCMode     bool
 }
 
 func k8sClient(mgr ctrl.Manager) client.Client {
@@ -109,7 +110,7 @@ func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1a
 
 func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var obj client.Object
-	if securitypolicy.IsVPCEnabled(r.Service) {
+	if r.isVPCMode {
 		obj = &crdv1alpha1.SecurityPolicy{}
 	} else {
 		obj = &v1alpha1.SecurityPolicy{}
@@ -161,7 +162,7 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if isZero {
 		r.StatusUpdater.IncreaseUpdateTotal()
 
-		vpcMode := securitypolicy.IsVPCEnabled(r.Service)
+		vpcMode := r.isVPCMode
 		if isCRInSysNs, err := util.IsSystemNamespace(r.Client, req.Namespace, nil, vpcMode); err != nil {
 			err = errors.New("fetch namespace associated with security policy CR failed")
 			r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
@@ -175,20 +176,20 @@ func (r *SecurityPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		log.Info("Reconciling CR to create or update securitypolicy", "securitypolicy", req.NamespacedName)
 		if err := r.Service.CreateOrUpdateSecurityPolicy(realObj); err != nil {
 			if errors.As(err, &nsxutil.RestrictionError{}) {
-				setSecurityPolicyErrorAnnotation(ctx, realObj, securitypolicy.IsVPCEnabled(r.Service), r.Client, common.ErrorNoDFWLicense)
+				setSecurityPolicyErrorAnnotation(ctx, realObj, r.isVPCMode, r.Client, common.ErrorNoDFWLicense)
 				r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
 				return ResultNormal, nil
 			}
 			if nsxutil.IsInvalidLicense(err) {
 				log.Error(err, err.Error(), "securitypolicy", req.NamespacedName)
-				setSecurityPolicyErrorAnnotation(ctx, realObj, securitypolicy.IsVPCEnabled(r.Service), r.Client, common.ErrorNoDFWLicense)
+				setSecurityPolicyErrorAnnotation(ctx, realObj, r.isVPCMode, r.Client, common.ErrorNoDFWLicense)
 				os.Exit(1)
 			}
 			r.StatusUpdater.UpdateFail(ctx, realObj, err, "", setSecurityPolicyReadyStatusFalse, r.Service)
 			return ResultRequeue, err
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, realObj, setSecurityPolicyReadyStatusTrue, r.Service)
-		cleanSecurityPolicyErrorAnnotation(ctx, realObj, securitypolicy.IsVPCEnabled(r.Service), r.Client)
+		cleanSecurityPolicyErrorAnnotation(ctx, realObj, r.isVPCMode, r.Client)
 	} else {
 		log.Info("Reconciling CR to delete securitypolicy", "securitypolicy", req.NamespacedName)
 		r.StatusUpdater.IncreaseDeleteTotal()
@@ -262,7 +263,7 @@ func updateSecurityPolicyStatusConditions(client client.Client, ctx context.Cont
 		}
 	}
 	if conditionsUpdated {
-		if securitypolicy.IsVPCEnabled(service) {
+		if service.VPCMode {
 			finalObj := securitypolicy.T1ToVPC(secPolicy)
 			err := client.Status().Update(ctx, finalObj)
 			if err != nil {
@@ -308,10 +309,14 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 
 func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 	var blr *builder.Builder
-	if securitypolicy.IsVPCEnabled(r.Service) {
-		blr = ctrl.NewControllerManagedBy(mgr).For(&crdv1alpha1.SecurityPolicy{})
+	if r.isVPCMode {
+		blr = ctrl.NewControllerManagedBy(mgr).
+			For(&crdv1alpha1.SecurityPolicy{}).
+			WithEventFilter(common.VPCNamespacePredicate(r.Client))
 	} else {
-		blr = ctrl.NewControllerManagedBy(mgr).For(&v1alpha1.SecurityPolicy{})
+		blr = ctrl.NewControllerManagedBy(mgr).
+			For(&v1alpha1.SecurityPolicy{}).
+			WithEventFilter(common.T1NamespacePredicate(r.Client))
 	}
 	return blr.
 		WithOptions(
@@ -389,7 +394,7 @@ func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) e
 
 func (r *SecurityPolicyReconciler) listSecurityPolicyCRIDs() (sets.Set[string], error) {
 	var objectList client.ObjectList
-	if securitypolicy.IsVPCEnabled(r.Service) {
+	if r.isVPCMode {
 		objectList = &crdv1alpha1.SecurityPolicyList{}
 	} else {
 		objectList = &v1alpha1.SecurityPolicyList{}
@@ -420,7 +425,7 @@ func reconcileSecurityPolicy(r *SecurityPolicyReconciler, pkgclient client.Clien
 	podPortNames := getAllPodPortNames(pods)
 	log.Debug("POD named port", "podPortNames", podPortNames)
 	var spList client.ObjectList
-	if securitypolicy.IsVPCEnabled(r.Service) {
+	if r.isVPCMode {
 		spList = &crdv1alpha1.SecurityPolicyList{}
 	} else {
 		spList = &v1alpha1.SecurityPolicyList{}
@@ -486,13 +491,14 @@ func (r *SecurityPolicyReconciler) StartController(mgr ctrl.Manager, _ webhook.S
 	return nil
 }
 
-func NewSecurityPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider) *SecurityPolicyReconciler {
+func NewSecurityPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.Service, vpcService servicecommon.VPCServiceProvider, vpcMode bool) *SecurityPolicyReconciler {
 	securityPolicyReconcile := &SecurityPolicyReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("securitypolicy-controller"),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Recorder:  mgr.GetEventRecorderFor("securitypolicy-controller"),
+		isVPCMode: vpcMode,
 	}
-	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
+	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService, vpcMode)
 	securityPolicyReconcile.StatusUpdater = common.NewStatusUpdater(securityPolicyReconcile.Client, securityPolicyReconcile.Service.NSXConfig, securityPolicyReconcile.Recorder, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy")
 	return securityPolicyReconcile
 }

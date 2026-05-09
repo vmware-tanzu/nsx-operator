@@ -523,6 +523,7 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Subnet{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),

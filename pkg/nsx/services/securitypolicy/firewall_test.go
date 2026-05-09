@@ -508,39 +508,40 @@ var (
 )
 
 func Test_GetSecurityService(t *testing.T) {
+	ResetSecurityServiceForTest()
+	config.SetMixedModeStateForTest(false, true)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 	commonService := fakeService.Service
 
 	vpcService := &vpc.VPCService{}
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
-		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
-	) {
-		wg.Done()
+	patch := gomonkey.ApplyFunc(InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanUp bool) (*SecurityPolicyService, error) {
+		return &SecurityPolicyService{Service: service, VPCMode: vpcMode}, nil
 	})
 	defer patch.Reset()
 
-	spSvc := GetSecurityService(commonService, vpcService)
+	spSvc := GetSecurityService(commonService, vpcService, true)
 	assert.Equal(t, clusterName, spSvc.NSXConfig.CoeConfig.Cluster)
 	assert.Equal(t, true, spSvc.NSXConfig.EnableVPCNetwork)
 }
 
 func Test_InitializeSecurityPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 	commonService := fakeService.Service
 
 	vpcService := &vpc.VPCService{}
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
-		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeCommonStore", func(_ *common.Service, wg *sync.WaitGroup,
+		fatalErrors chan error, org string, project string, resourceTypeValue string, tags []model.Tag, store common.Store,
 	) {
 		wg.Done()
 	})
 	defer patch.Reset()
 
-	_, err := InitializeSecurityPolicy(commonService, vpcService, true)
+	_, err := InitializeSecurityPolicy(commonService, vpcService, true, true)
 	if err != nil {
 		t.Error(err)
 	}
@@ -699,6 +700,7 @@ func Test_createOrUpdateGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			config.SetMixedModeStateForTest(false, true)
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
@@ -2389,6 +2391,7 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 }
 
 func Test_createOrUpdateT1SecurityPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(true, false)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = false
 
@@ -2533,6 +2536,7 @@ func Test_createOrUpdateT1SecurityPolicy(t *testing.T) {
 }
 
 func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"
@@ -2704,6 +2708,7 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 }
 
 func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "default"
@@ -2884,6 +2889,7 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 }
 
 func Test_GetFinalSecurityPolicyResourceForT1(t *testing.T) {
+	config.SetMixedModeStateForTest(true, false)
 	fakeService := fakeSecurityPolicyService()
 
 	type args struct {
@@ -2973,6 +2979,7 @@ func Test_GetFinalSecurityPolicyResourceForT1(t *testing.T) {
 }
 
 func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"
@@ -3228,6 +3235,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 }
 
 func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"

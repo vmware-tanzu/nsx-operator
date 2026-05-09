@@ -121,6 +121,7 @@ func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService 
 func (r *ServiceLbReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Service{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),

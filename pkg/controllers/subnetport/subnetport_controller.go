@@ -403,6 +403,7 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetPort{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),

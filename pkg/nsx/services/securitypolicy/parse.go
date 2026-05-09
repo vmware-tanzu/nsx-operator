@@ -62,8 +62,9 @@ func getDefaultProjectDomain() string {
 	return "default"
 }
 
+// IsVPCEnabled returns whether the given service instance operates in VPC mode.
 func IsVPCEnabled(service *SecurityPolicyService) bool {
-	return service.NSXConfig.EnableVPCNetwork
+	return service.VPCMode
 }
 
 func getScopeCluserTag(service *SecurityPolicyService) string {
