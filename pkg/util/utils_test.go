@@ -781,56 +781,6 @@ func TestCRSubnetStaticIPAllocationEnabled(t *testing.T) {
 	}
 }
 
-func TestCRPoolRangesToNSX(t *testing.T) {
-	tests := []struct {
-		name string
-		in   []v1alpha1.IPAddressRange
-		want []string
-	}{
-		{"nil -> nil", nil, nil},
-		{"empty -> nil", []v1alpha1.IPAddressRange{}, nil},
-		{"single IP collapses", []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.4"}}, []string{"1.2.3.4"}},
-		{"range", []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.10"}}, []string{"1.2.3.4-1.2.3.10"}},
-		{"mixed", []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.10"}, {Start: "2001:db8::1", End: "2001:db8::1"}}, []string{"1.2.3.4-1.2.3.10", "2001:db8::1"}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := CRPoolRangesToNSX(tc.in)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestNSXPoolRangesToCR(t *testing.T) {
-	tests := []struct {
-		name string
-		in   []string
-		want []v1alpha1.IPAddressRange
-	}{
-		{"nil -> nil", nil, nil},
-		{"empty -> nil", []string{}, nil},
-		{"single IP", []string{"1.2.3.4"}, []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.4"}}},
-		{"range", []string{"1.2.3.4-1.2.3.10"}, []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.10"}}},
-		{"IPv6 range", []string{"2001:db8::1-2001:db8::ff"}, []v1alpha1.IPAddressRange{{Start: "2001:db8::1", End: "2001:db8::ff"}}},
-		{"malformed skipped", []string{"garbage", "1.2.3.4"}, []v1alpha1.IPAddressRange{{Start: "1.2.3.4", End: "1.2.3.4"}}},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := NSXPoolRangesToCR(tc.in)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-func TestCRPoolRangesRoundTrip(t *testing.T) {
-	orig := []v1alpha1.IPAddressRange{
-		{Start: "1.2.3.4", End: "1.2.3.10"},
-		{Start: "2001:db8::1", End: "2001:db8::1"},
-	}
-	round := NSXPoolRangesToCR(CRPoolRangesToNSX(orig))
-	assert.Equal(t, orig, round)
-}
-
 func TestParseIPRange(t *testing.T) {
 	tests := []struct {
 		name      string

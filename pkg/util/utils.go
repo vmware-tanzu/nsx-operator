@@ -509,46 +509,6 @@ func CRSubnetStaticIPAllocationEnabled(obj client.Object) (bool, error) {
 	return enabled != nil && *enabled, nil
 }
 
-// CRPoolRangesToNSX converts the structured CR form ([]IPAddressRange) to the
-// flat string form ("start-end", or a single IP when start==end) that the
-// NSX policy API expects on StaticIpAllocation.PoolRanges.
-func CRPoolRangesToNSX(ranges []v1alpha1.IPAddressRange) []string {
-	if len(ranges) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(ranges))
-	for _, r := range ranges {
-		if r.Start == r.End {
-			out = append(out, r.Start)
-		} else {
-			out = append(out, fmt.Sprintf("%s-%s", r.Start, r.End))
-		}
-	}
-	return out
-}
-
-// NSXPoolRangesToCR converts the NSX string form ("start-end" or a single IP)
-// back to the structured CR form. Malformed entries are silently skipped so a
-// partial NSX state does not block reconciliation; callers that need strict
-// validation should use ParseIPRange directly.
-func NSXPoolRangesToCR(ranges []string) []v1alpha1.IPAddressRange {
-	if len(ranges) == 0 {
-		return nil
-	}
-	out := make([]v1alpha1.IPAddressRange, 0, len(ranges))
-	for _, s := range ranges {
-		start, end, err := ParseIPRange(s)
-		if err != nil {
-			continue
-		}
-		out = append(out, v1alpha1.IPAddressRange{
-			Start: start.String(),
-			End:   end.String(),
-		})
-	}
-	return out
-}
-
 // ParseIPRange parses the NSX pool-range string form and returns the Start and
 // End addresses. Accepted forms: "1.2.3.4", "1.2.3.4-1.2.3.10",
 // "2001:db8::1", "2001:db8::1-2001:db8::ff" (whitespace around the dash is

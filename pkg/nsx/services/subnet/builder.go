@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,6 +108,16 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if o.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
 			staticIpAllocation = *o.Spec.AdvancedConfig.StaticIPAllocation.Enabled
 		}
+		// Trim whitespace from each poolRange entry before forwarding to NSX.
+		// The webhook accepts entries with surrounding whitespace (ParseIPRange
+		// trims internally), but NSX may reject raw strings that have leading
+		// or trailing spaces.
+		var poolRanges []string
+		for _, r := range o.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges {
+			if t := strings.TrimSpace(r); t != "" {
+				poolRanges = append(poolRanges, t)
+			}
+		}
 		nsxSubnet = &model.VpcSubnet{
 			Id:          String(service.BuildSubnetID(objForIdGeneration)),
 			AccessMode:  String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
@@ -115,7 +126,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 			AdvancedConfig: &model.SubnetAdvancedConfig{
 				StaticIpAllocation: &model.StaticIpAllocation{
 					Enabled:    &staticIpAllocation,
-					PoolRanges: util.CRPoolRangesToNSX(o.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges),
+					PoolRanges: poolRanges,
 				},
 			},
 		}

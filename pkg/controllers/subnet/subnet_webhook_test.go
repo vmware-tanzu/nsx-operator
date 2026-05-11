@@ -546,7 +546,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "172.26.2.2", End: "172.26.2.8"}},
+							PoolRanges: []string{"172.26.2.2-172.26.2.8"},
 						},
 					},
 				},
@@ -562,7 +562,23 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(false),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.4"}},
+							PoolRanges: []string{"10.0.0.2-10.0.0.4"},
+						},
+					},
+				},
+			},
+			wantMsg: "staticIPAllocation.poolRanges can only be set when staticIPAllocation.enabled is true",
+		},
+		{
+			// enabled is nil (omitted) — staticEnabled evaluates to false.
+			name: "deny: poolRanges but enabled=nil (not set)",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							PoolRanges: []string{"10.0.0.2-10.0.0.4"},
 						},
 					},
 				},
@@ -578,7 +594,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.100", End: "10.0.0.200"}},
+							PoolRanges: []string{"10.0.0.100-10.0.0.200"},
 						},
 					},
 				},
@@ -593,11 +609,8 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					IPAddresses: []string{"10.0.0.0/28"},
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enabled: bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{
-								{Start: "10.0.0.2", End: "10.0.0.6"},
-								{Start: "10.0.0.5", End: "10.0.0.8"},
-							},
+							Enabled:    bp(true),
+							PoolRanges: []string{"10.0.0.2-10.0.0.6", "10.0.0.5-10.0.0.8"},
 						},
 					},
 				},
@@ -619,7 +632,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.5", End: "10.0.0.8"}},
+							PoolRanges: []string{"10.0.0.5-10.0.0.8"},
 						},
 					},
 				},
@@ -649,7 +662,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "2001:db8::1"}},
+							PoolRanges: []string{"10.0.0.2-2001:db8::1"},
 						},
 					},
 				},
@@ -665,12 +678,34 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.4"}},
+							PoolRanges: []string{"10.0.0.2-10.0.0.4"},
 						},
 					},
 				},
 			},
 			wantMsg: "not a valid CIDR",
+		},
+		{
+			name: "deny: invalid reservedIPRanges entry",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddresses: []string{"10.0.0.0/28"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+						DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+							ReservedIPRanges: []string{"not-a-range"},
+						},
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    bp(true),
+							PoolRanges: []string{"10.0.0.2-10.0.0.4"},
+						},
+					},
+				},
+			},
+			wantMsg: "reservedIPRanges[0]",
 		},
 		{
 			// Exercises rangesOverlap: same-family ranges that do NOT overlap → return false.
@@ -682,11 +717,8 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					IPAddresses: []string{"10.0.0.0/24"},
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enabled: bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{
-								{Start: "10.0.0.2", End: "10.0.0.10"},
-								{Start: "10.0.0.20", End: "10.0.0.30"},
-							},
+							Enabled:    bp(true),
+							PoolRanges: []string{"10.0.0.2-10.0.0.10", "10.0.0.20-10.0.0.30"},
 						},
 					},
 				},
@@ -710,7 +742,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.6"}},
+							PoolRanges: []string{"10.0.0.2-10.0.0.6"},
 						},
 					},
 				},
@@ -729,7 +761,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "10.0.0.2", End: "10.0.0.6"}},
+							PoolRanges: []string{"10.0.0.2-10.0.0.6"},
 						},
 					},
 				},
@@ -745,7 +777,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "2001:db8::10", End: "2001:db8::ff"}},
+							PoolRanges: []string{"2001:db8::10-2001:db8::ff"},
 						},
 					},
 				},
@@ -761,7 +793,7 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{{Start: "2001:db9::10", End: "2001:db9::ff"}},
+							PoolRanges: []string{"2001:db9::10-2001:db9::ff"},
 						},
 					},
 				},
@@ -778,11 +810,8 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 					IPAddresses: []string{"10.0.0.0/24", "2001:db8::/64"},
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enabled: bp(true),
-							PoolRanges: []v1alpha1.IPAddressRange{
-								{Start: "10.0.0.10", End: "10.0.0.20"},
-								{Start: "2001:db8::10", End: "2001:db8::ff"},
-							},
+							Enabled:    bp(true),
+							PoolRanges: []string{"10.0.0.10-10.0.0.20", "2001:db8::10-2001:db8::ff"},
 						},
 					},
 				},

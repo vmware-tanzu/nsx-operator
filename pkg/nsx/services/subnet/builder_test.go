@@ -704,11 +704,8 @@ func TestBuildSubnetMixedModeIPAM(t *testing.T) {
 				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 					DHCPServerAddresses: []string{"172.26.2.3"},
 					StaticIPAllocation: v1alpha1.StaticIPAllocation{
-						Enabled: common.Bool(true),
-						PoolRanges: []v1alpha1.IPAddressRange{
-							{Start: "172.26.2.2", End: "172.26.2.8"},
-							{Start: "172.26.2.10", End: "172.26.2.10"},
-						},
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"172.26.2.2-172.26.2.8", "172.26.2.10"},
 					},
 				},
 			},
@@ -729,10 +726,8 @@ func TestBuildSubnetMixedModeIPAM(t *testing.T) {
 				IPAddresses: []string{"2001:db8::/64"},
 				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 					StaticIPAllocation: v1alpha1.StaticIPAllocation{
-						Enabled: common.Bool(true),
-						PoolRanges: []v1alpha1.IPAddressRange{
-							{Start: "2001:db8::1", End: "2001:db8::ff"},
-						},
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"2001:db8::1-2001:db8::ff"},
 					},
 				},
 			},

@@ -189,11 +189,7 @@ func validateStaticIPAllocation(subnet *v1alpha1.Subnet) string {
 	}
 	parsed := make([]parsedRange, 0, len(ranges))
 	for i, r := range ranges {
-		raw := r.Start
-		if r.End != "" && r.End != r.Start {
-			raw = fmt.Sprintf("%s-%s", r.Start, r.End)
-		}
-		start, end, err := util.ParseIPRange(raw)
+		start, end, err := util.ParseIPRange(r)
 		if err != nil {
 			return fmt.Sprintf("Subnet %s/%s: staticIPAllocation.poolRanges[%d] invalid: %v", subnet.Namespace, subnet.Name, i, err)
 		}

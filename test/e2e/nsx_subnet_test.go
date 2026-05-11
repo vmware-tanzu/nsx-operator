@@ -975,10 +975,8 @@ func SubnetMixedMode(t *testing.T) {
 			},
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 				StaticIPAllocation: v1alpha1.StaticIPAllocation{
-					Enabled: common.Bool(true),
-					PoolRanges: []v1alpha1.IPAddressRange{
-						{Start: staticStart.String(), End: staticEnd.String()},
-					},
+					Enabled:    common.Bool(true),
+					PoolRanges: []string{fmt.Sprintf("%s-%s", staticStart.String(), staticEnd.String())},
 				},
 			},
 		},
@@ -1012,7 +1010,7 @@ func SubnetMixedMode(t *testing.T) {
 	// Case 2: day-2 add a second poolRange; expect drift to reconcile.
 	mixedCreated.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = append(
 		mixedCreated.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges,
-		v1alpha1.IPAddressRange{Start: secondRangeStart.String(), End: secondRangeEnd.String()},
+		fmt.Sprintf("%s-%s", secondRangeStart.String(), secondRangeEnd.String()),
 	)
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedCreated, v1.UpdateOptions{})
 	require.NoError(t, err, "day-2 add of poolRanges should be allowed")
@@ -1040,16 +1038,68 @@ func SubnetMixedMode(t *testing.T) {
 			},
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 				StaticIPAllocation: v1alpha1.StaticIPAllocation{
-					Enabled: common.Bool(true),
-					PoolRanges: []v1alpha1.IPAddressRange{
-						{Start: reservedStart.String(), End: reservedEnd.String()},
-					},
+					Enabled:    common.Bool(true),
+					PoolRanges: []string{fmt.Sprintf("%s-%s", reservedStart.String(), reservedEnd.String())},
 				},
 			},
 		},
 	}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), overlap, v1.CreateOptions{})
 	require.Error(t, err, "poolRanges overlapping reservedIPRanges must be rejected by webhook")
+
+	// Case 5: single-IP string form — "X.X.X.X" (no dash) is the canonical NSX
+	// format for a one-address range. Previously only representable as
+	// {Start: X, End: X} in the old struct form.
+	// Use .10 which is outside all ranges already allocated in this test.
+	singleIP := make(net.IP, len(ip))
+	copy(singleIP, ip)
+	singleIP[3] += 10
+	singleIPSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-singleip", Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{subnetCIDRStr},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled:    common.Bool(true),
+					PoolRanges: []string{singleIP.String()},
+				},
+			},
+		},
+	}
+	singleIPCreated, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), singleIPSubnet, v1.CreateOptions{})
+	require.NoError(t, err, "single-IP pool range string must be accepted by webhook")
+	require.Len(t, singleIPCreated.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges, 1)
+	// Wait for the subnet to be realized, then confirm the pool range round-trips
+	// back from NSX containing the original single IP.
+	singleIPRealized := assureSubnet(t, subnetTestNamespace, singleIPSubnet.Name, "")
+	require.Len(t, singleIPRealized.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges, 1,
+		"single-IP poolRange must survive NSX round-trip as a one-element list")
+	require.Contains(t, singleIPRealized.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges[0], singleIP.String(),
+		"single-IP poolRange must contain the original IP after NSX round-trip")
+
+	// Case 6: malformed poolRange string must be rejected by the webhook before
+	// reaching NSX. This was structurally impossible with the old {Start, End}
+	// struct but is a real user-facing concern with the flat []string API.
+	malformed := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-malformed", Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{subnetCIDRStr},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled:    common.Bool(true),
+					PoolRanges: []string{"not-an-ip"},
+				},
+			},
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), malformed, v1.CreateOptions{})
+	require.Error(t, err, "malformed poolRange string must be rejected by webhook")
 }
 
 func randomIPv4() (net.IP, error) {

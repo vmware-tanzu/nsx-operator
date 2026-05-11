@@ -155,26 +155,16 @@ type StaticIPAllocation struct {
 	// The value cannot be set to true when the DHCP mode is DHCPRelay.
 	Enabled *bool `json:"enabled,omitempty"`
 	// PoolRanges specifies the IP address ranges for static IP allocation.
-	// Supports both IPv4 and IPv6 ranges in a single list; the address family
-	// is determined by inspecting the Start IP of each range.
+	// Each entry is either a single IP address (e.g. "192.168.1.5") or a
+	// dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and
+	// IPv6 entries may appear in a single list.
 	// When specified with DHCPServer mode, enables mixed mode where the DHCP
 	// pool is derived from the Subnet CIDR minus poolRanges, reservedIPRanges
 	// and system-reserved IPs (gateway, network, broadcast, DHCP server IP).
+	// Supported formats: ["192.168.1.1", "192.168.1.3-192.168.1.100"]
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
-	PoolRanges []IPAddressRange `json:"poolRanges,omitempty"`
-}
-
-// IPAddressRange represents an inclusive IP address range.
-// Supports both IPv4 (e.g. "192.168.1.51") and IPv6 (e.g. "2001:db8::51").
-// For a single IP, set Start and End to the same value.
-type IPAddressRange struct {
-	// Start IP address of the range (inclusive).
-	// Must be a valid IPv4 or IPv6 address.
-	Start string `json:"start"`
-	// End IP address of the range (inclusive).
-	// Must be of the same address family as Start and >= Start.
-	End string `json:"end"`
+	PoolRanges []string `json:"poolRanges,omitempty"`
 }
 
 // Additional DHCP server config for a VPC Subnet.
