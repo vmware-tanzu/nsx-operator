@@ -108,3 +108,32 @@ func (service *RealizeStateService) GetPolicyInterfaceIP(realizedPath string) (s
 
 	return "", fmt.Errorf("%s LB SNAT IP not found", realizedPath)
 }
+
+// GetPolicyInterfaceIPs returns all bare IPs (with CIDR prefix stripped) from the
+// IpAddresses extended attribute on the realized entity. For dual-stack interfaces both
+// the IPv4 and IPv6 entries are returned.
+func (service *RealizeStateService) GetPolicyInterfaceIPs(realizedPath string) ([]string, error) {
+	result, err := service.NSXClient.RealizedEntityClient.Get(realizedPath)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		return nil, err
+	}
+
+	var ips []string
+	for i := range result.ExtendedAttributes {
+		if result.ExtendedAttributes[i].Key != nil && *result.ExtendedAttributes[i].Key == "IpAddresses" {
+			for _, ip := range result.ExtendedAttributes[i].Values {
+				parts := strings.Split(ip, "/")
+				if len(parts) != 2 {
+					continue
+				}
+				ips = append(ips, parts[0])
+			}
+		}
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("%s LB SNAT IP not found", realizedPath)
+	}
+	return ips, nil
+}

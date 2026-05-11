@@ -413,6 +413,48 @@ func TestGetNSNetworkCondition(t *testing.T) {
 	require.True(t, nsConditionEquals(vpcNotReadyCondition, *nsMsgVPCCreateUpdateError.getNSNetworkCondition(msgErr)))
 }
 
+// TestSetNetworkInfoVPCStatusIdempotency verifies that reordered LoadBalancerBackendIPs do
+// not trigger a spurious CR update because setNetworkInfoVPCStatus sorts both slices before
+// reflect.DeepEqual.
+func TestSetNetworkInfoVPCStatusIdempotency(t *testing.T) {
+	ctx := context.TODO()
+	scheme := clientgoscheme.Scheme
+	v1alpha1.AddToScheme(scheme)
+
+	// Build a NetworkInfo CR that already has a VPC state with LoadBalancerBackendIPs.
+	existingNetworkInfo := &v1alpha1.NetworkInfo{
+		ObjectMeta: metav1.ObjectMeta{Name: "ni", Namespace: "default"},
+		VPCs: []v1alpha1.VPCState{
+			{
+				Name:                    "vpc1",
+				LoadBalancerIPAddresses: "100.64.0.1",
+				LoadBalancerBackendIPs:  []string{"100.64.0.1", "2001:db8::1"},
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existingNetworkInfo).Build()
+
+	// The reconcile produces the same state but with IPs in reverse order.
+	reorderedVPC := &v1alpha1.VPCState{
+		Name:                    "vpc1",
+		LoadBalancerIPAddresses: "100.64.0.1",
+		LoadBalancerBackendIPs:  []string{"2001:db8::1", "100.64.0.1"},
+	}
+
+	// setNetworkInfoVPCStatus must NOT call fakeClient.Update because the states are equal
+	// after sorting. We capture any update by reading the CR back; ResourceVersion should
+	// be unchanged (fake client does not increment it on no-op, but the Update itself should
+	// not be called when the sorted slices are equal).
+	originalRV := existingNetworkInfo.ResourceVersion
+
+	setNetworkInfoVPCStatus(fakeClient, ctx, existingNetworkInfo, metav1.Time{}, reorderedVPC)
+
+	// Reload the CR and confirm no actual write occurred.
+	refreshed := &v1alpha1.NetworkInfo{}
+	require.NoError(t, fakeClient.Get(ctx, apitypes.NamespacedName{Name: "ni", Namespace: "default"}, refreshed))
+	assert.Equal(t, originalRV, refreshed.ResourceVersion, "CR should not be updated when only IP order differs")
+}
+
 func TestHasPodOrVMDefaultSubnets(t *testing.T) {
 	subnets := []v1alpha1.SharedSubnet{
 		{

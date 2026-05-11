@@ -40,6 +40,8 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	}
 	slices.Sort(existingVPC.PrivateIPs)
 	slices.Sort(createdVPC.PrivateIPs)
+	slices.Sort(existingVPC.LoadBalancerBackendIPs)
+	slices.Sort(createdVPC.LoadBalancerBackendIPs)
 	if reflect.DeepEqual(*existingVPC, *createdVPC) {
 		return
 	}

@@ -217,8 +217,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
@@ -289,8 +289,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
@@ -362,8 +362,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
@@ -469,8 +469,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -500,8 +500,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
@@ -561,8 +561,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -643,8 +643,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -729,8 +729,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -757,8 +757,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
 					return "snat-ip", nil
@@ -816,8 +816,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "100.64.0.3", nil
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
 					return &model.Vpc{
@@ -987,9 +987,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, nil},
 					Times: 2,
 				}})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, interfaceID string) (string, error) {
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, interfaceID string) ([]string, error) {
 					assert.Equal(t, "gateway-interface", interfaceID)
-					return "100.64.0.3", nil
+					return []string{"100.64.0.3"}, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
@@ -1111,9 +1111,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, nil
 				})
 				// GetAVISubnetInfo should be called even without connectivity profile
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetAVISubnetInfo", func(_ *vpc.VPCService, _ model.Vpc) (string, string, error) {
-					return "/orgs/default/projects/project-quality/vpcs/fake-vpc/subnets/avi-subnet", "100.64.0.0/24", nil
-				})
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetAVISubnetInfo", func(_ *vpc.VPCService, _ model.Vpc) (string, []string, error) {
+				return "/orgs/default/projects/project-quality/vpcs/fake-vpc/subnets/avi-subnet", []string{"100.64.0.0/24"}, nil
+			})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
@@ -1183,10 +1183,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "", nil
 				})
 				// This should NOT be called when vpcConnectivityProfilePath is empty
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					assert.FailNow(t, "GetNSXLBSNATIP should not be called when vpcConnectivityProfilePath is empty")
-					return "", nil
-				})
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+				assert.FailNow(t, "GetNSXLBSNATIP should not be called when vpcConnectivityProfilePath is empty")
+				return nil, nil
+			})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
@@ -1275,9 +1275,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
 						}
 					})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) (string, error) {
-					return "", fmt.Errorf("tier1 uplink port IP not found")
-				})
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+				return nil, fmt.Errorf("tier1 uplink port IP not found")
+			})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
@@ -2297,4 +2297,63 @@ func (m *MockManager) Add(runnable manager.Runnable) error {
 
 func (m *MockManager) Start(context.Context) error {
 	return nil
+}
+
+func TestPrimaryLBIP(t *testing.T) {
+	tests := []struct {
+		name string
+		ips  []string
+		want string
+	}{
+		{
+			name: "nil slice returns empty string",
+			ips:  nil,
+			want: "",
+		},
+		{
+			name: "empty slice returns empty string",
+			ips:  []string{},
+			want: "",
+		},
+		{
+			name: "single IPv4 bare IP",
+			ips:  []string{"100.64.0.1"},
+			want: "100.64.0.1",
+		},
+		{
+			name: "single IPv6 bare IP falls back to first",
+			ips:  []string{"2001:db8::1"},
+			want: "2001:db8::1",
+		},
+		{
+			name: "dual-stack: IPv4 preferred (bare IPs)",
+			ips:  []string{"100.64.0.1", "2001:db8::1"},
+			want: "100.64.0.1",
+		},
+		{
+			name: "dual-stack: IPv4 preferred even when IPv6 is first",
+			ips:  []string{"2001:db8::1", "100.64.0.1"},
+			want: "100.64.0.1",
+		},
+		{
+			name: "single IPv4 CIDR (AVI format)",
+			ips:  []string{"100.64.0.0/24"},
+			want: "100.64.0.0/24",
+		},
+		{
+			name: "single IPv6 CIDR falls back to first",
+			ips:  []string{"2001:db8::/64"},
+			want: "2001:db8::/64",
+		},
+		{
+			name: "dual-stack CIDR: IPv4 preferred",
+			ips:  []string{"100.64.0.0/24", "2001:db8::/64"},
+			want: "100.64.0.0/24",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, primaryLBIP(tt.ips))
+		})
+	}
 }

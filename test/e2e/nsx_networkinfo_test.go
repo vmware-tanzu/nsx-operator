@@ -3,6 +3,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +59,18 @@ func TestNetworkInfo(t *testing.T) {
 		RunSubtest(t, "testDefaultNetworkInfo", func(t *testing.T) {
 			StartParallel(t)
 			testDefaultNetworkInfo(t)
+		})
+		RunSubtest(t, "testLBBackendIPsPopulated", func(t *testing.T) {
+			StartParallel(t)
+			testLBBackendIPsPopulated(t)
+		})
+		RunSubtest(t, "testDualStackLBBackendIPs", func(t *testing.T) {
+			StartParallel(t)
+			testDualStackLBBackendIPs(t)
+		})
+		RunSubtest(t, "testLBBackendIPsIdempotent", func(t *testing.T) {
+			StartParallel(t)
+			testLBBackendIPsIdempotent(t)
 		})
 	})
 
@@ -455,4 +469,115 @@ func deleteVPCNetworkConfiguration(t *testing.T, ncName string) {
 		return false, nil
 	})
 	require.NoError(t, err)
+}
+
+// testLBBackendIPsPopulated verifies that LoadBalancerBackendIPs is populated for a
+// VPC with LB configured, and that every entry is a valid IP or CIDR. It also confirms
+// that LoadBalancerIPAddresses (the primary field) appears in the backend list.
+func testLBBackendIPsPopulated(t *testing.T) {
+	assureNamespace(t, infraVPCNamespace)
+
+	networkInfo := getNetworkInfoWithCondition(t, infraVPCNamespace, infraVPCNamespace,
+		func(ni *v1alpha1.NetworkInfo) (bool, error) {
+			if len(ni.VPCs) == 0 {
+				return false, nil
+			}
+			return len(ni.VPCs[0].LoadBalancerBackendIPs) > 0, nil
+		})
+
+	require.NotNil(t, networkInfo)
+	require.NotEmpty(t, networkInfo.VPCs)
+	vpc := networkInfo.VPCs[0]
+
+	if vpc.LoadBalancerIPAddresses != "" {
+		assert.Contains(t, vpc.LoadBalancerBackendIPs, vpc.LoadBalancerIPAddresses,
+			"LoadBalancerIPAddresses must appear in LoadBalancerBackendIPs")
+	}
+
+	for _, entry := range vpc.LoadBalancerBackendIPs {
+		raw := entry
+		if i := strings.Index(entry, "/"); i >= 0 {
+			raw = entry[:i]
+		}
+		assert.NotNil(t, net.ParseIP(raw),
+			"LoadBalancerBackendIPs entry %q is not a valid IP or CIDR", entry)
+	}
+}
+
+// testDualStackLBBackendIPs verifies that on a dual-stack cluster the backend list
+// contains at least one IPv4 and one IPv6 entry, and that LoadBalancerIPAddresses
+// (the primary field) is the IPv4 entry per the k8s convention.
+func testDualStackLBBackendIPs(t *testing.T) {
+	if clusterInfo.podV6NetworkCIDR == "" {
+		t.Skip("cluster does not support IPv6; skipping dual-stack LB backend IPs test")
+	}
+
+	assureNamespace(t, infraVPCNamespace)
+
+	networkInfo := getNetworkInfoWithCondition(t, infraVPCNamespace, infraVPCNamespace,
+		func(ni *v1alpha1.NetworkInfo) (bool, error) {
+			if len(ni.VPCs) == 0 {
+				return false, nil
+			}
+			return len(ni.VPCs[0].LoadBalancerBackendIPs) >= 2, nil
+		})
+
+	require.NotNil(t, networkInfo)
+	require.NotEmpty(t, networkInfo.VPCs)
+	vpc := networkInfo.VPCs[0]
+
+	var hasIPv4, hasIPv6 bool
+	for _, entry := range vpc.LoadBalancerBackendIPs {
+		raw := entry
+		if i := strings.Index(entry, "/"); i >= 0 {
+			raw = entry[:i]
+		}
+		ip := net.ParseIP(raw)
+		require.NotNil(t, ip, "invalid IP/CIDR in LoadBalancerBackendIPs: %q", entry)
+		if ip.To4() != nil {
+			hasIPv4 = true
+		} else {
+			hasIPv6 = true
+		}
+	}
+	assert.True(t, hasIPv4, "expected at least one IPv4 entry in LoadBalancerBackendIPs")
+	assert.True(t, hasIPv6, "expected at least one IPv6 entry in LoadBalancerBackendIPs")
+
+	if vpc.LoadBalancerIPAddresses != "" {
+		raw := vpc.LoadBalancerIPAddresses
+		if i := strings.Index(raw, "/"); i >= 0 {
+			raw = raw[:i]
+		}
+		ip := net.ParseIP(raw)
+		require.NotNil(t, ip, "LoadBalancerIPAddresses is not a valid IP/CIDR: %q", vpc.LoadBalancerIPAddresses)
+		assert.NotNil(t, ip.To4(),
+			"LoadBalancerIPAddresses should be IPv4 on a dual-stack cluster (k8s convention)")
+	}
+}
+
+// testLBBackendIPsIdempotent verifies that successive reconcile loops do not produce
+// spurious CR updates once LoadBalancerBackendIPs is already correctly populated.
+func testLBBackendIPsIdempotent(t *testing.T) {
+	assureNamespace(t, infraVPCNamespace)
+
+	networkInfo := getNetworkInfoWithCondition(t, infraVPCNamespace, infraVPCNamespace,
+		func(ni *v1alpha1.NetworkInfo) (bool, error) {
+			if len(ni.VPCs) == 0 {
+				return false, nil
+			}
+			return len(ni.VPCs[0].LoadBalancerBackendIPs) > 0, nil
+		})
+
+	require.NotNil(t, networkInfo)
+	baseRV := networkInfo.ResourceVersion
+	require.NotEmpty(t, baseRV, "expected non-empty ResourceVersion after initial reconcile")
+
+	// Allow time for additional reconcile loops to run
+	time.Sleep(30 * time.Second)
+
+	updated, err := testData.crdClientset.CrdV1alpha1().NetworkInfos(infraVPCNamespace).Get(
+		context.Background(), infraVPCNamespace, v1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, baseRV, updated.ResourceVersion,
+		"ResourceVersion changed after idle period — spurious update detected in LoadBalancerBackendIPs reconcile")
 }
