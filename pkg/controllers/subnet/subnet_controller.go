@@ -205,8 +205,11 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		var nsxErr *nsxutil.NSXApiError
 		if errors.As(err, &nsxErr) {
-			if *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOverlappedErrorCode || *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode {
-				// No need to requeue for invalid reservedIPRanges
+			switch *(nsxErr.ApiError.ErrorCode) {
+			case nsxutil.ReservedIPRangesOverlappedErrorCode,
+				nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode,
+				nsxutil.PoolRangesOutOfSubnetRangeErrorCode:
+				// User configuration error — no benefit in requeuing until the spec is fixed.
 				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
 				return ResultNormal, err
 			}

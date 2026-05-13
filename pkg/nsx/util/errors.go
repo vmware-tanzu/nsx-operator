@@ -15,6 +15,9 @@ const (
 	IPAllocationErrorCode                     = 8212
 	ReservedIPRangesOverlappedErrorCode       = 508134
 	ReservedIPRangesOutOfSubnetRangeErrorCode = 508135
+	// PoolRangesOutOfSubnetRangeErrorCode is returned by NSX when
+	// staticIPAllocation.poolRanges contains addresses outside the subnet CIDR.
+	PoolRangesOutOfSubnetRangeErrorCode = 660005
 )
 
 type NsxError interface {
