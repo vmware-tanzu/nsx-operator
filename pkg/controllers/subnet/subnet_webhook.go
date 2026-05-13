@@ -158,23 +158,18 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 // validateStaticIPAllocation enforces the semantic rules for
 // spec.advancedConfig.staticIPAllocation.poolRanges that CEL cannot express:
 //   - each range parses; start and end share an address family; start <= end
-//   - each range is contained within some spec.ipAddresses CIDR of matching family
 //   - ranges do not overlap each other
 //   - ranges do not overlap reservedIPRanges
-//   - DHCPRelay rejects both enabled=true and non-empty poolRanges
+//
+// CIDR containment and DHCPRelay conflicts are already enforced by CRD CEL
+// rules; out-of-CIDR ranges are additionally caught by the NSX API, which
+// surfaces a clear error through the Subnet CR status.
 //
 // An empty string return value means "allowed".
 func validateStaticIPAllocation(subnet *v1alpha1.Subnet) string {
 	enabled := subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled
 	staticEnabled := enabled != nil && *enabled
 	ranges := subnet.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges
-	mode := subnet.Spec.SubnetDHCPConfig.Mode
-
-	// CEL already rejects these, but re-check so the user sees a precise message
-	// that names both fields (enabled + poolRanges) when DHCPRelay is configured.
-	if mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) && (staticEnabled || len(ranges) > 0) {
-		return fmt.Sprintf("Subnet %s/%s: staticIPAllocation (enabled and poolRanges) is not supported when subnetDHCPConfig.mode is DHCPRelay", subnet.Namespace, subnet.Name)
-	}
 
 	if len(ranges) == 0 {
 		return ""
@@ -194,21 +189,6 @@ func validateStaticIPAllocation(subnet *v1alpha1.Subnet) string {
 			return fmt.Sprintf("Subnet %s/%s: staticIPAllocation.poolRanges[%d] invalid: %v", subnet.Namespace, subnet.Name, i, err)
 		}
 		parsed = append(parsed, parsedRange{start: start, end: end})
-	}
-
-	// Each range must be contained in some spec.ipAddresses CIDR of matching family.
-	prefixes := make([]netip.Prefix, 0, len(subnet.Spec.IPAddresses))
-	for i, cidr := range subnet.Spec.IPAddresses {
-		p, err := netip.ParsePrefix(cidr)
-		if err != nil {
-			return fmt.Sprintf("Subnet %s/%s: spec.ipAddresses[%d]=%q is not a valid CIDR: %v", subnet.Namespace, subnet.Name, i, cidr, err)
-		}
-		prefixes = append(prefixes, p.Masked())
-	}
-	for i, p := range parsed {
-		if !rangeWithinAnyPrefix(p.start, p.end, prefixes) {
-			return fmt.Sprintf("Subnet %s/%s: staticIPAllocation.poolRanges[%d] (%s-%s) is not contained within any spec.ipAddresses CIDR", subnet.Namespace, subnet.Name, i, p.start, p.end)
-		}
 	}
 
 	// No pairwise overlap among poolRanges.
@@ -233,18 +213,6 @@ func validateStaticIPAllocation(subnet *v1alpha1.Subnet) string {
 		}
 	}
 	return ""
-}
-
-func rangeWithinAnyPrefix(start, end netip.Addr, prefixes []netip.Prefix) bool {
-	for _, p := range prefixes {
-		if start.Is4() != p.Addr().Is4() {
-			continue
-		}
-		if p.Contains(start) && p.Contains(end) {
-			return true
-		}
-	}
-	return false
 }
 
 // rangesOverlap returns true if [a1, a2] and [b1, b2] share any IP. Callers

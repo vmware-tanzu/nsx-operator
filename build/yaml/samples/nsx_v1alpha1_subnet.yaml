@@ -38,8 +38,7 @@ spec:
     staticIPAllocation:
       enabled: true
       poolRanges:
-      - start: 172.26.2.2
-        end: 172.26.2.8
+      - "172.26.2.2-172.26.2.8"
 ---
 # Subnet CR sample for assigned VLAN extension Subnet
 apiVersion: crd.nsx.vmware.com/v1alpha1

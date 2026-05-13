@@ -664,7 +664,8 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		switch dhcpMode {
 		case "DHCP_SERVER":
 			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
-			if len(nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges) > 0 {
+			if nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig != nil &&
+				len(nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges) > 0 {
 				subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges = nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges
 			}
 

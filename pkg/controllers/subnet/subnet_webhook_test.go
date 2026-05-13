@@ -586,22 +586,6 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 			wantMsg: "staticIPAllocation.poolRanges can only be set when staticIPAllocation.enabled is true",
 		},
 		{
-			name: "deny: range outside CIDR",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
-				Spec: v1alpha1.SubnetSpec{
-					IPAddresses: []string{"10.0.0.0/28"},
-					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enabled:    bp(true),
-							PoolRanges: []string{"10.0.0.100-10.0.0.200"},
-						},
-					},
-				},
-			},
-			wantMsg: "not contained within any spec.ipAddresses CIDR",
-		},
-		{
 			name: "deny: pairwise overlap",
 			subnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
@@ -640,20 +624,6 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 			wantMsg: "overlaps reservedIPRanges",
 		},
 		{
-			name: "deny: DHCPRelay + enabled",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
-				Spec: v1alpha1.SubnetSpec{
-					IPAddresses:      []string{"10.0.0.0/28"},
-					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay)},
-					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-						StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: bp(true)},
-					},
-				},
-			},
-			wantMsg: "DHCPRelay",
-		},
-		{
 			name: "deny: mixed-family range",
 			subnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
@@ -668,22 +638,6 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 				},
 			},
 			wantMsg: "invalid",
-		},
-		{
-			name: "deny: invalid CIDR",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
-				Spec: v1alpha1.SubnetSpec{
-					IPAddresses: []string{"not-a-cidr"},
-					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enabled:    bp(true),
-							PoolRanges: []string{"10.0.0.2-10.0.0.4"},
-						},
-					},
-				},
-			},
-			wantMsg: "not a valid CIDR",
 		},
 		{
 			name: "deny: invalid reservedIPRanges entry",
@@ -750,25 +704,6 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 			wantMsg: "",
 		},
 		{
-			// Exercises rangeWithinAnyPrefix: the family-mismatch `continue` path.
-			// ipAddresses has an IPv6 CIDR but the pool range is IPv4; must be denied
-			// because no IPv4 prefix can contain the range.
-			name: "deny: IPv4 poolRange not contained in IPv6-only ipAddresses",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
-				Spec: v1alpha1.SubnetSpec{
-					IPAddresses: []string{"2001:db8::/64"},
-					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enabled:    bp(true),
-							PoolRanges: []string{"10.0.0.2-10.0.0.6"},
-						},
-					},
-				},
-			},
-			wantMsg: "not contained within any spec.ipAddresses CIDR",
-		},
-		{
 			name: "allow: IPv6 poolRange within IPv6 CIDR",
 			subnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
@@ -783,22 +718,6 @@ func TestValidateStaticIPAllocation(t *testing.T) {
 				},
 			},
 			wantMsg: "",
-		},
-		{
-			name: "deny: IPv6 poolRange outside its IPv6 CIDR",
-			subnet: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "s"},
-				Spec: v1alpha1.SubnetSpec{
-					IPAddresses: []string{"2001:db8::/64"},
-					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-						StaticIPAllocation: v1alpha1.StaticIPAllocation{
-							Enabled:    bp(true),
-							PoolRanges: []string{"2001:db9::10-2001:db9::ff"},
-						},
-					},
-				},
-			},
-			wantMsg: "not contained within any spec.ipAddresses CIDR",
 		},
 		{
 			// Dual-stack: one IPv4 CIDR + one IPv6 CIDR in ipAddresses, one pool range
