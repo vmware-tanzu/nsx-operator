@@ -6,17 +6,20 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func (s *IPReservationService) buildDynamicIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) *model.DynamicIpAddressReservation {
 	tags := util.BuildBasicTags(getCluster(s), ipReservation, "")
+	ipAddressType := controllerscommon.ConvertCRIPAddressTypeToNSX(ipReservation.Spec.IPAddressType)
 	nsxIPReservation := &model.DynamicIpAddressReservation{
-		NumberOfIps: common.Int64(int64(ipReservation.Spec.NumberOfIPs)),
-		Tags:        tags,
-		Id:          common.String(s.buildIPReservationID(ipReservation, subnetPath)),
-		DisplayName: common.String(ipReservation.Name),
+		NumberOfIps:   common.Int64(int64(ipReservation.Spec.NumberOfIPs)),
+		Tags:          tags,
+		Id:            common.String(s.buildIPReservationID(ipReservation, subnetPath)),
+		DisplayName:   common.String(ipReservation.Name),
+		IpAddressType: &ipAddressType,
 	}
 	return nsxIPReservation
 }

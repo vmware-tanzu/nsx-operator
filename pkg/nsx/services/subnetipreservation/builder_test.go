@@ -9,51 +9,12 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-func TestBuildDynamicIPReservation(t *testing.T) {
-	ipReservationCR := &v1alpha1.SubnetIPReservation{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "ipr-1",
-			Namespace: "ns-1",
-			UID:       "ipr-uid-1",
-		},
-		Spec: v1alpha1.SubnetIPReservationSpec{
-			Subnet:      "subnet-1",
-			NumberOfIPs: 10,
-		},
-	}
-
-	expectedNSXIPReservation := &model.DynamicIpAddressReservation{
-		Id:          common.String("ipr-1_3yw4m"),
-		DisplayName: common.String("ipr-1"),
-		NumberOfIps: common.Int64(10),
-		Tags: []model.Tag{
-			{
-				Scope: common.String(common.TagScopeCluster),
-				Tag:   common.String("fake_cluster"),
-			},
-			{
-				Scope: common.String(common.TagScopeVersion),
-				Tag:   common.String("1.0.0"),
-			},
-			{
-				Scope: common.String(common.TagScopeNamespace),
-				Tag:   common.String("ns-1"),
-			},
-			{
-				Scope: common.String(common.TagScopeSubnetIPReservationCRName),
-				Tag:   common.String("ipr-1"),
-			},
-			{
-				Scope: common.String(common.TagScopeSubnetIPReservationCRUID),
-				Tag:   common.String("ipr-uid-1"),
-			},
-		},
-	}
-
-	service := &IPReservationService{
+func newTestService() *IPReservationService {
+	return &IPReservationService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
@@ -64,8 +25,89 @@ func TestBuildDynamicIPReservation(t *testing.T) {
 		DynamicIPReservationStore: SetupDynamicIPReservationStore(),
 		StaticIPReservationStore:  SetupStaticIPReservationStore(),
 	}
-	nsxIPReservation := service.buildDynamicIPReservation(ipReservationCR, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1")
-	require.Equal(t, expectedNSXIPReservation, nsxIPReservation)
+}
+
+func baseTags(namespace, name, uid string) []model.Tag {
+	return []model.Tag{
+		{Scope: common.String(common.TagScopeCluster), Tag: common.String("fake_cluster")},
+		{Scope: common.String(common.TagScopeVersion), Tag: common.String("1.0.0")},
+		{Scope: common.String(common.TagScopeNamespace), Tag: common.String(namespace)},
+		{Scope: common.String(common.TagScopeSubnetIPReservationCRName), Tag: common.String(name)},
+		{Scope: common.String(common.TagScopeSubnetIPReservationCRUID), Tag: common.String(uid)},
+	}
+}
+
+func TestBuildDynamicIPReservation(t *testing.T) {
+	subnetPath := "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"
+	// Covers both the current mixed-case CRD enum values ("IPv4"/"IPv6"/"IPv4IPv6") and
+	// legacy all-caps values ("IPV4"/"IPV6"/"IPV4IPV6") that may exist in older Subnet CRs,
+	// as well as the empty / unset case.
+	strPtr := func(s string) *string { return &s }
+	tests := []struct {
+		name              string
+		ipAddressType     v1alpha1.IPAddressType
+		expectedNSXFamily *string
+	}{
+		// Feature supported: IpAddressType is set in the NSX request.
+		{
+			name:              "Supported_DefaultIPv4WhenUnset",
+			ipAddressType:     "",
+			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)),
+		},
+		{
+			name:              "Supported_MixedCase_IPv4",
+			ipAddressType:     "IPv4",
+			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)),
+		},
+		{
+			name:              "Supported_MixedCase_IPv6",
+			ipAddressType:     "IPv6",
+			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv6)),
+		},
+		{
+			name:              "Supported_MixedCase_DualStack",
+			ipAddressType:     "IPv4IPv6",
+			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4IPv6)),
+		},
+		{
+			name:              "Supported_AllCaps_IPV4",
+			ipAddressType:     "IPV4",
+			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressType("IPV4"))),
+		},
+		{
+			name:              "Supported_AllCaps_IPV6",
+			ipAddressType:     "IPV6",
+			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressType("IPV6"))),
+		},
+		{
+			name:              "Supported_AllCaps_DualStack",
+			ipAddressType:     "IPV4IPV6",
+			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressType("IPV4IPV6"))),
+		},
+	}
+
+	service := newTestService()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ipReservationCR := &v1alpha1.SubnetIPReservation{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "ipr-1",
+					Namespace: "ns-1",
+					UID:       "ipr-uid-1",
+				},
+				Spec: v1alpha1.SubnetIPReservationSpec{
+					Subnet:        "subnet-1",
+					NumberOfIPs:   10,
+					IPAddressType: tt.ipAddressType,
+				},
+			}
+			nsxIPReservation := service.buildDynamicIPReservation(ipReservationCR, subnetPath)
+			require.Equal(t, tt.expectedNSXFamily, nsxIPReservation.IpAddressType)
+			require.Equal(t, int64(10), *nsxIPReservation.NumberOfIps)
+			require.Equal(t, "ipr-1", *nsxIPReservation.DisplayName)
+			require.Equal(t, baseTags("ns-1", "ipr-1", "ipr-uid-1"), nsxIPReservation.Tags)
+		})
+	}
 }
 
 func TestBuildStaticIPReservation(t *testing.T) {
