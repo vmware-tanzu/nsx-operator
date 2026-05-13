@@ -398,6 +398,32 @@ func TestReconciler_Reconcile(t *testing.T) {
 			},
 			expectedResult: common.ResultNormal,
 		},
+		{
+			name: "IPAddressType incompatible with Subnet",
+			objects: []client.Object{&v1alpha1.SubnetIPReservation{
+				ObjectMeta: metav1.ObjectMeta{Name: "ipr-1", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetIPReservationSpec{
+					Subnet:      "subnet-1",
+					NumberOfIPs: 5,
+					// Use the CRD enum value ("IPV6") that Kubernetes actually stores,
+					// not the Go constant IPAddressTypeIPv6 = "IPv6".
+					IPAddressType: "IPV6",
+				},
+			}},
+			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateSubnet", func(_ *Reconciler, ctx context.Context, ns string, name string) (*v1alpha1.Subnet, *errorWithRetry) {
+					return &v1alpha1.Subnet{
+						// Use the CRD enum value ("IPV4") that Kubernetes actually stores.
+						Spec: v1alpha1.SubnetSpec{IPAddressType: "IPV4"},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
+				})
+				return patches
+			},
+			expectedResult: common.ResultNormal,
+		},
 	}
 	for _, tc := range tests {
 		r := createFakeReconciler(tc.objects...)
@@ -505,6 +531,87 @@ func TestReconcile_validateSubnet(t *testing.T) {
 		if patches != nil {
 			patches.Reset()
 		}
+	}
+}
+
+func TestValidateIPAddressTypeCompatibility(t *testing.T) {
+	tests := []struct {
+		name              string
+		subnetType        v1alpha1.IPAddressType
+		reservationType   v1alpha1.IPAddressType
+		expectedErrSubstr string
+	}{
+		{
+			name:            "IPv4 subnet with IPv4 reservation",
+			subnetType:      "IPv4",
+			reservationType: "IPv4",
+		},
+		{
+			name:            "IPv4 subnet with empty reservation defaults to IPv4",
+			subnetType:      "IPv4",
+			reservationType: "",
+		},
+		{
+			name:              "IPv4 subnet with IPv6 reservation - incompatible",
+			subnetType:        "IPv4",
+			reservationType:   "IPv6",
+			expectedErrSubstr: "incompatible",
+		},
+		{
+			name:              "IPv4 subnet with dual-stack reservation - incompatible",
+			subnetType:        "IPv4",
+			reservationType:   "IPv4IPv6",
+			expectedErrSubstr: "incompatible",
+		},
+		{
+			name:            "IPv6 subnet with IPv6 reservation",
+			subnetType:      "IPv6",
+			reservationType: "IPv6",
+		},
+		{
+			name:              "IPv6 subnet with IPv4 reservation - incompatible",
+			subnetType:        "IPv6",
+			reservationType:   "IPv4",
+			expectedErrSubstr: "incompatible",
+		},
+		{
+			name:            "Dual-stack subnet with IPv4 reservation",
+			subnetType:      "IPv4IPv6",
+			reservationType: "IPv4",
+		},
+		{
+			name:            "Dual-stack subnet with IPv6 reservation",
+			subnetType:      "IPv4IPv6",
+			reservationType: "IPv6",
+		},
+		{
+			name:            "Dual-stack subnet with dual-stack reservation",
+			subnetType:      "IPv4IPv6",
+			reservationType: "IPv4IPv6",
+		},
+		{
+			name:            "Empty subnet type defaults to IPv4, IPv4 reservation",
+			subnetType:      "",
+			reservationType: "IPv4",
+		},
+		{
+			name:              "Empty subnet type defaults to IPv4, IPv6 reservation - incompatible",
+			subnetType:        "",
+			reservationType:   "IPv6",
+			expectedErrSubstr: "incompatible",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateIPAddressTypeCompatibility(tc.subnetType, tc.reservationType)
+			if tc.expectedErrSubstr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErrSubstr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
 
