@@ -163,7 +163,6 @@ type StaticIPAllocation struct {
 	// and system-reserved IPs (gateway, network, broadcast, DHCP server IP).
 	// Supported formats: ["192.168.1.1", "192.168.1.3-192.168.1.100"]
 	// +optional
-	// +kubebuilder:validation:MaxItems=20
 	PoolRanges []string `json:"poolRanges,omitempty"`
 }
 
