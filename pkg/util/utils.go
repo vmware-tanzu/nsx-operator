@@ -495,20 +495,6 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
 }
 
-// CRSubnetStaticIPAllocationEnabled is the CR-side counterpart of
-// NSXSubnetStaticIPAllocationEnabled. It returns true iff the Subnet CR has
-// advancedConfig.staticIPAllocation.enabled explicitly set to true.
-// It returns an error if obj is not a *v1alpha1.Subnet, since this function
-// is not defined for other object kinds.
-func CRSubnetStaticIPAllocationEnabled(obj client.Object) (bool, error) {
-	subnet, ok := obj.(*v1alpha1.Subnet)
-	if !ok {
-		return false, fmt.Errorf("CRSubnetStaticIPAllocationEnabled: unsupported object type %T", obj)
-	}
-	enabled := subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled
-	return enabled != nil && *enabled, nil
-}
-
 // ParseIPRange parses the NSX pool-range string form and returns the Start and
 // End addresses. Accepted forms: "1.2.3.4", "1.2.3.4-1.2.3.10",
 // "2001:db8::1", "2001:db8::1-2001:db8::ff" (whitespace around the dash is

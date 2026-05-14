@@ -21,10 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -752,33 +750,6 @@ func TestBuildBasicTagsWithStatefulSetPod(t *testing.T) {
 	assert.True(t, foundPodUID, "should have pod uid tag")
 	assert.True(t, foundStsName, "should have statefulset name tag")
 	assert.True(t, foundStsUID, "should have statefulset uid tag")
-}
-
-func boolPtr(b bool) *bool { return &b }
-
-func TestCRSubnetStaticIPAllocationEnabled(t *testing.T) {
-	tests := []struct {
-		name    string
-		obj     client.Object
-		want    bool
-		wantErr bool
-	}{
-		{"nil enabled on Subnet", &v1alpha1.Subnet{}, false, false},
-		{"enabled=false on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(false)}}}}, false, false},
-		{"enabled=true on Subnet", &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{AdvancedConfig: v1alpha1.SubnetAdvancedConfig{StaticIPAllocation: v1alpha1.StaticIPAllocation{Enabled: boolPtr(true)}}}}, true, false},
-		{"SubnetSet returns error for unsupported type", &v1alpha1.SubnetSet{}, false, true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := CRSubnetStaticIPAllocationEnabled(tc.obj)
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tc.want, got)
-			}
-		})
-	}
 }
 
 func TestParseIPRange(t *testing.T) {
