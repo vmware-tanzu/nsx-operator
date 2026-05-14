@@ -183,7 +183,7 @@ func (r *IPAddressAllocationReconciler) RestoreReconcile() error {
 	r.restoreMode = true
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if result.Requeue || err != nil {
+		if err != nil || common.IsReconcileResultRequeue(result) {
 			errorList = append(errorList, fmt.Errorf("failed to restore IPAddressAllocation %s, error: %w", key, err))
 		}
 	}
@@ -234,7 +234,7 @@ func NewIPAddressAllocationReconciler(mgr ctrl.Manager, ipAddressAllocationServi
 		Scheme:     mgr.GetScheme(),
 		Service:    ipAddressAllocationService,
 		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"),
+		Recorder:   mgr.GetEventRecorderFor("ipaddressallocation-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	ipAddressAllocationReconciler.StatusUpdater = common.NewStatusUpdater(ipAddressAllocationReconciler.Client, ipAddressAllocationReconciler.Service.NSXConfig, ipAddressAllocationReconciler.Recorder, common.MetricResTypeNetworkInfo, "IPAddressAllocation", "IPAddressAllocation")
 	return ipAddressAllocationReconciler

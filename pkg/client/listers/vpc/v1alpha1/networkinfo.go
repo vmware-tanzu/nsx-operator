@@ -6,10 +6,10 @@
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 )
 
 // NetworkInfoLister helps list NetworkInfos.
@@ -17,7 +17,7 @@ import (
 type NetworkInfoLister interface {
 	// List lists all NetworkInfos in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.NetworkInfo, err error)
+	List(selector labels.Selector) (ret []*vpcv1alpha1.NetworkInfo, err error)
 	// NetworkInfos returns an object that can list and get NetworkInfos.
 	NetworkInfos(namespace string) NetworkInfoNamespaceLister
 	NetworkInfoListerExpansion
@@ -25,25 +25,17 @@ type NetworkInfoLister interface {
 
 // networkInfoLister implements the NetworkInfoLister interface.
 type networkInfoLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*vpcv1alpha1.NetworkInfo]
 }
 
 // NewNetworkInfoLister returns a new NetworkInfoLister.
 func NewNetworkInfoLister(indexer cache.Indexer) NetworkInfoLister {
-	return &networkInfoLister{indexer: indexer}
-}
-
-// List lists all NetworkInfos in the indexer.
-func (s *networkInfoLister) List(selector labels.Selector) (ret []*v1alpha1.NetworkInfo, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.NetworkInfo))
-	})
-	return ret, err
+	return &networkInfoLister{listers.New[*vpcv1alpha1.NetworkInfo](indexer, vpcv1alpha1.Resource("networkinfo"))}
 }
 
 // NetworkInfos returns an object that can list and get NetworkInfos.
 func (s *networkInfoLister) NetworkInfos(namespace string) NetworkInfoNamespaceLister {
-	return networkInfoNamespaceLister{indexer: s.indexer, namespace: namespace}
+	return networkInfoNamespaceLister{listers.NewNamespaced[*vpcv1alpha1.NetworkInfo](s.ResourceIndexer, namespace)}
 }
 
 // NetworkInfoNamespaceLister helps list and get NetworkInfos.
@@ -51,36 +43,15 @@ func (s *networkInfoLister) NetworkInfos(namespace string) NetworkInfoNamespaceL
 type NetworkInfoNamespaceLister interface {
 	// List lists all NetworkInfos in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.NetworkInfo, err error)
+	List(selector labels.Selector) (ret []*vpcv1alpha1.NetworkInfo, err error)
 	// Get retrieves the NetworkInfo from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.NetworkInfo, error)
+	Get(name string) (*vpcv1alpha1.NetworkInfo, error)
 	NetworkInfoNamespaceListerExpansion
 }
 
 // networkInfoNamespaceLister implements the NetworkInfoNamespaceLister
 // interface.
 type networkInfoNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all NetworkInfos in the indexer for a given namespace.
-func (s networkInfoNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.NetworkInfo, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.NetworkInfo))
-	})
-	return ret, err
-}
-
-// Get retrieves the NetworkInfo from the indexer for a given namespace and name.
-func (s networkInfoNamespaceLister) Get(name string) (*v1alpha1.NetworkInfo, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("networkinfo"), name)
-	}
-	return obj.(*v1alpha1.NetworkInfo), nil
+	listers.ResourceIndexer[*vpcv1alpha1.NetworkInfo]
 }

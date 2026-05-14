@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.openly.dev/pointy"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 

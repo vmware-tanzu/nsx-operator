@@ -69,7 +69,7 @@ func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
 }
 
 func NewReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnetBindingService *subnetbinding.BindingService) *Reconciler {
-	recorder := mgr.GetEventRecorderFor("subnetconnectionbindingmap-controller")
+	recorder := mgr.GetEventRecorderFor("subnetconnectionbindingmap-controller") //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	// Create the SubnetConnectionBindingMap Reconciler with the necessary services and configuration
 	return &Reconciler{
 		Client:               mgr.GetClient(),

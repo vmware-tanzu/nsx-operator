@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.openly.dev/pointy"
 )
 
 func TestService_WrapAttachment(t *testing.T) {

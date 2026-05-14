@@ -158,7 +158,7 @@ kustomize: ## Download kustomize locally if necessary.
 
 .PHONY: code-generator
 code-generator: ## Download code-generator locally if necessary.
-	go mod download k8s.io/code-generator@v0.27.1
+	go mod download k8s.io/code-generator@v0.35.1
 
 generated: code-generator
 	./hack/update-codegen.sh

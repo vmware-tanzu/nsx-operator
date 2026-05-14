@@ -21,12 +21,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.openly.dev/pointy"
 )
 
 func TestHttpErrortoNSXError(t *testing.T) {

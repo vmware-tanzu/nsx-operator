@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openlyinc/pointy"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
+	"go.openly.dev/pointy"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"

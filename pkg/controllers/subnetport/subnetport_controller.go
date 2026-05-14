@@ -488,7 +488,7 @@ func (r *SubnetPortReconciler) RestoreReconcile() error {
 	r.restoreMode = true
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if result.Requeue || err != nil {
+		if err != nil || common.IsReconcileResultRequeue(result) {
 			errorList = append(errorList, fmt.Errorf("failed to restore SubnetPort %s, error: %w", key, err))
 		}
 	}
@@ -587,7 +587,7 @@ func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.Sub
 		SubnetPortService:          subnetPortService,
 		VPCService:                 vpcService,
 		IpAddressAllocationService: ipAddressAllocationService,
-		Recorder:                   mgr.GetEventRecorderFor("subnetport-controller"),
+		Recorder:                   mgr.GetEventRecorderFor("subnetport-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	err := subnetPortReconciler.SetupFieldIndexers(mgr)
 	if err != nil {

@@ -259,7 +259,7 @@ func (r *PodReconciler) RestoreReconcile() error {
 	r.restoreMode = true
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if result.Requeue || err != nil {
+		if err != nil || common.IsReconcileResultRequeue(result) {
 			errorList = append(errorList, fmt.Errorf("failed to restore Pod %s, error: %w", key, err))
 		}
 	}
@@ -304,7 +304,7 @@ func NewPodReconciler(mgr ctrl.Manager, subnetPortService *subnetport.SubnetPort
 		SubnetPortService: subnetPortService,
 		VPCService:        vpcService,
 		NodeServiceReader: nodeService,
-		Recorder:          mgr.GetEventRecorderFor("pod-controller"),
+		Recorder:          mgr.GetEventRecorderFor("pod-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	podPortReconciler.StatusUpdater = common.NewStatusUpdater(podPortReconciler.Client, podPortReconciler.SubnetPortService.NSXConfig, podPortReconciler.Recorder, MetricResTypePod, "SubnetPort", "Pod")
 	return podPortReconciler

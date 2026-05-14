@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // SubnetConnectionBindingMaps.
 type SubnetConnectionBindingMapInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.SubnetConnectionBindingMapLister
+	Lister() vpcv1alpha1.SubnetConnectionBindingMapLister
 }
 
 type subnetConnectionBindingMapInformer struct {
@@ -44,21 +44,33 @@ func NewSubnetConnectionBindingMapInformer(client versioned.Interface, namespace
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredSubnetConnectionBindingMapInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.SubnetConnectionBindingMap{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.SubnetConnectionBindingMap{},
 		resyncPeriod,
 		indexers,
 	)
@@ -69,9 +81,9 @@ func (f *subnetConnectionBindingMapInformer) defaultInformer(client versioned.In
 }
 
 func (f *subnetConnectionBindingMapInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.SubnetConnectionBindingMap{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.SubnetConnectionBindingMap{}, f.defaultInformer)
 }
 
-func (f *subnetConnectionBindingMapInformer) Lister() v1alpha1.SubnetConnectionBindingMapLister {
-	return v1alpha1.NewSubnetConnectionBindingMapLister(f.Informer().GetIndexer())
+func (f *subnetConnectionBindingMapInformer) Lister() vpcv1alpha1.SubnetConnectionBindingMapLister {
+	return vpcv1alpha1.NewSubnetConnectionBindingMapLister(f.Informer().GetIndexer())
 }

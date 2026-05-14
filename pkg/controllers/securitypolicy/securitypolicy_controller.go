@@ -490,7 +490,7 @@ func NewSecurityPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.S
 	securityPolicyReconcile := &SecurityPolicyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("securitypolicy-controller"),
+		Recorder: mgr.GetEventRecorderFor("securitypolicy-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	securityPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	securityPolicyReconcile.StatusUpdater = common.NewStatusUpdater(securityPolicyReconcile.Client, securityPolicyReconcile.Service.NSXConfig, securityPolicyReconcile.Recorder, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy")

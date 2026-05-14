@@ -733,7 +733,7 @@ func (r *NetworkInfoReconciler) RestoreReconcile() error {
 	r.restoreMode = true
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if result.Requeue || err != nil {
+		if err != nil || common.IsReconcileResultRequeue(result) {
 			errorList = append(errorList, fmt.Errorf("failed to restore NetworkInfo %s, error: %w", key, err))
 		}
 	}
@@ -809,7 +809,7 @@ func NewNetworkInfoReconciler(mgr ctrl.Manager, vpcService *vpc.VPCService, ipbl
 	networkInfoReconciler := &NetworkInfoReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"),
+		Recorder: mgr.GetEventRecorderFor("networkinfo-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	networkInfoReconciler.Service = vpcService
 	networkInfoReconciler.IPBlocksInfoService = ipblocksInfoService
