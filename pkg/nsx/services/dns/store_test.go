@@ -78,11 +78,11 @@ func TestDNSRecordFQDNLower_table(t *testing.T) {
 	}{
 		{"nil record", nil, ""},
 		{"nil fqdn field", &model.ProjectDnsRecord{}, ""},
-		{"valid fqdn lowercased", &model.ProjectDnsRecord{Fqdn: &fqdn}, "a.example.com"},
+		{"valid fqdn lowercased", &model.ProjectDnsRecord{RecordName: &fqdn}, "a.example.com"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, dnsRecordFQDNLower(tc.rec))
+			require.Equal(t, tc.want, dnsRecordRecordNameLower(tc.rec))
 		})
 	}
 }
@@ -128,7 +128,7 @@ func TestIndexFunctions_unsupported_type(t *testing.T) {
 	}{
 		{"indexDNSRecordByOwnerTypeNN", indexDNSRecordByOwnerTypeNN},
 		{"indexDNSRecordByGatewayNamespacedName", indexDNSRecordByGatewayNamespacedName},
-		{"indexDNSRecordByZonePathFQDN", indexDNSRecordByZonePathFQDN},
+		{"indexDNSRecordByZonePathRecordName", indexDNSRecordByZonePathRecordName},
 		{"indexDNSRecordByZonePath", indexDNSRecordByZonePath},
 		{"indexDNSRecordByContributingOwner", indexDNSRecordByContributingOwner},
 	}
@@ -151,12 +151,12 @@ func TestIndexDNSRecordByZonePathFQDN_earlyReturn_table(t *testing.T) {
 	}{
 		{
 			name:    "nil ZonePath returns empty",
-			rec:     &model.ProjectDnsRecord{RecordType: &rt, Fqdn: &fqdn},
+			rec:     &model.ProjectDnsRecord{RecordType: &rt, RecordName: &fqdn},
 			wantLen: 0,
 		},
 		{
 			name:    "nil RecordType returns empty",
-			rec:     &model.ProjectDnsRecord{ZonePath: &zp, Fqdn: &fqdn},
+			rec:     &model.ProjectDnsRecord{ZonePath: &zp, RecordName: &fqdn},
 			wantLen: 0,
 		},
 		{
@@ -166,13 +166,13 @@ func TestIndexDNSRecordByZonePathFQDN_earlyReturn_table(t *testing.T) {
 		},
 		{
 			name:    "valid record returns one index key",
-			rec:     &model.ProjectDnsRecord{ZonePath: &zp, RecordType: &rt, Fqdn: &fqdn},
+			rec:     &model.ProjectDnsRecord{ZonePath: &zp, RecordType: &rt, RecordName: &fqdn},
 			wantLen: 1,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			keys, err := indexDNSRecordByZonePathFQDN(tc.rec)
+			keys, err := indexDNSRecordByZonePathRecordName(tc.rec)
 			require.NoError(t, err)
 			require.Len(t, keys, tc.wantLen)
 		})

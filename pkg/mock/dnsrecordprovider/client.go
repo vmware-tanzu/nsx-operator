@@ -83,21 +83,6 @@ func (mr *MockDNSRecordProviderMockRecorder) ValidateEndpointsByZone(namespace, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateEndpointsByZone", reflect.TypeOf((*MockDNSRecordProvider)(nil).ValidateEndpointsByZone), namespace, owner, eps)
 }
 
-// DeleteRecordsForOwnerOutsideAllowedZones mocks base method.
-func (m *MockDNSRecordProvider) DeleteRecordsForOwnerOutsideAllowedZones(ctx context.Context, kind, namespace, name string, allowedZonePaths sets.Set[string]) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteRecordsForOwnerOutsideAllowedZones", ctx, kind, namespace, name, allowedZonePaths)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DeleteRecordsForOwnerOutsideAllowedZones indicates an expected call of DeleteRecordsForOwnerOutsideAllowedZones.
-func (mr *MockDNSRecordProviderMockRecorder) DeleteRecordsForOwnerOutsideAllowedZones(ctx, kind, namespace, name, allowedZonePaths interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordsForOwnerOutsideAllowedZones", reflect.TypeOf((*MockDNSRecordProvider)(nil).DeleteRecordsForOwnerOutsideAllowedZones), ctx, kind, namespace, name, allowedZonePaths)
-}
-
 // ListReferredGatewayNN mocks base method.
 func (m *MockDNSRecordProvider) ListReferredGatewayNN() sets.Set[types.NamespacedName] {
 	m.ctrl.T.Helper()

@@ -17,7 +17,7 @@ import (
 	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
+
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -629,34 +629,6 @@ func Test_CreateOrUpdateRecords_Service_DeleteByOwnerNN(t *testing.T) {
 	assert.Empty(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindService, "ns1", "lbsvc"))
 }
 
-func TestDeleteRecordsForOwnerOutsideAllowedZones(t *testing.T) {
-	ctx := context.Background()
-	env := newTestDNSRecordService(t, BuildDNSRecordStore())
-	owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "gw", UID: types.UID("u1")}}
-	zOld := testDNSZonePathOld
-	zKeep := testDNSZonePathKeep
-	ep1 := extdns.NewEndpoint("a.example.com", extdns.RecordTypeA, "10.0.0.1")
-	ep1.WithLabel(EndpointLabelParentGateway, "ns/gw")
-	rowOut := EndpointRow{Endpoint: ep1, zonePath: zOld, nsxRecordName: "a"}
-	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{rowOut}))
-
-	allowed := sets.New(zKeep)
-	mut, err := env.DeleteRecordsForOwnerOutsideAllowedZones(ctx, ResourceKindGateway, "ns", "gw", allowed)
-	require.NoError(t, err)
-	require.True(t, mut)
-	assert.Empty(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindGateway, "ns", "gw"))
-
-	// Add a row in the allowed zone; deleting with a disjoint allow-list should not remove it.
-	ep2 := extdns.NewEndpoint("b.example.com", extdns.RecordTypeA, "10.0.0.2")
-	ep2.WithLabel(EndpointLabelParentGateway, "ns/gw")
-	rowKeep := EndpointRow{Endpoint: ep2, zonePath: zKeep, nsxRecordName: "b"}
-	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{rowKeep}))
-	mut2, err2 := env.DeleteRecordsForOwnerOutsideAllowedZones(ctx, ResourceKindGateway, "ns", "gw", sets.New(testDNSZonePathOther))
-	require.NoError(t, err2)
-	require.True(t, mut2)
-	require.Len(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindGateway, "ns", "gw"), 0)
-}
-
 func TestParseProjectDNSRecordPolicyPath_table(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1135,6 +1107,7 @@ func TestValidateEndpointRowConflict_table(t *testing.T) {
 			Path:         servicecommon.String(path),
 			ZonePath:     servicecommon.String(zonePath),
 			RecordType:   servicecommon.String(model.ProjectDnsRecord_RECORD_TYPE_A),
+			RecordName:   servicecommon.String("svc"),
 			Fqdn:         servicecommon.String(fqdn),
 			RecordValues: values,
 			Tags: []model.Tag{
@@ -1181,6 +1154,7 @@ func TestValidateEndpointRowConflict_table(t *testing.T) {
 				Path:         servicecommon.String("/orgs/org1/projects/proj1/dns-records/r-noowner"),
 				ZonePath:     servicecommon.String(zonePath),
 				RecordType:   servicecommon.String(model.ProjectDnsRecord_RECORD_TYPE_A),
+				RecordName:   servicecommon.String("svc"),
 				Fqdn:         servicecommon.String(fqdn),
 				RecordValues: []string{"10.0.0.1"},
 				Tags:         []model.Tag{},
@@ -1246,30 +1220,6 @@ func TestDeleteRecordByOwnerNN_noRecords_noOp(t *testing.T) {
 	ctx := context.Background()
 	env := newTestDNSRecordService(t, BuildDNSRecordStore())
 	mut, err := env.DeleteRecordByOwnerNN(ctx, ResourceKindService, "ns", "svc")
-	require.NoError(t, err)
-	require.False(t, mut)
-}
-
-func TestDeleteRecordsForOwnerOutsideAllowedZones_nilAllowedZones(t *testing.T) {
-	ctx := context.Background()
-	env := newTestDNSRecordService(t, BuildDNSRecordStore())
-	owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "gw", UID: types.UID("u1")}}
-	ep := extdns.NewEndpoint("a.example.com", extdns.RecordTypeA, "10.0.0.1")
-	ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
-	row := EndpointRow{Endpoint: ep, zonePath: testDNSZonePathOld, nsxRecordName: "a"}
-	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
-
-	// nil allowedZones treated as empty set → all owned records are outside and deleted.
-	mut, err := env.DeleteRecordsForOwnerOutsideAllowedZones(ctx, ResourceKindGateway, "ns", "gw", nil)
-	require.NoError(t, err)
-	require.True(t, mut)
-	require.Empty(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindGateway, "ns", "gw"))
-}
-
-func TestDeleteRecordsForOwnerOutsideAllowedZones_noOwnedRecords(t *testing.T) {
-	ctx := context.Background()
-	env := newTestDNSRecordService(t, BuildDNSRecordStore())
-	mut, err := env.DeleteRecordsForOwnerOutsideAllowedZones(ctx, ResourceKindGateway, "ns", "gw", nil)
 	require.NoError(t, err)
 	require.False(t, mut)
 }

@@ -118,6 +118,9 @@ const (
 	TagValueDNSRecordForGRPCRoute       string = "grpcroute"
 	TagValueDNSRecordForTLSRoute        string = "tlsroute"
 	TagValueDNSRecordForService         string = "service"
+	AnnotationDNSHostnameKey            string = "nsx.vmware.com/hostname"
+	AnnotationDNSHostnameSourceKey      string = "nsx.vmware.com/gateway-hostname-source"
+	AnnotationsDNSSkip                  string = "nsx.vmware.com/skip"
 
 	// TagScopePodIndex is the NSX tag scope for Pod label apps.kubernetes.io/pod-index when synced onto the port (not set in BuildBasicTags).
 	TagScopePodIndex   string = "apps.kubernetes.io/pod-index"

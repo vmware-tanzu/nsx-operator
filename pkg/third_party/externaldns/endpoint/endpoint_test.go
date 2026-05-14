@@ -284,3 +284,8 @@ func TestNewEndpointWithTTL_table(t *testing.T) {
 		})
 	}
 }
+
+func TestTTLIsConfigured(t *testing.T) {
+	assert.False(t, TTL(0).IsConfigured())
+	assert.True(t, TTL(1).IsConfigured())
+}

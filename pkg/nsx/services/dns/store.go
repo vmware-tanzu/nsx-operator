@@ -139,21 +139,21 @@ func parseGateways(raw string) []string {
 	return sets.List(seen)
 }
 
-func dnsRecordZonePathFQDNIndexKey(zonePath, fqdnLower, recordType string) string {
+func dnsRecordZonePathRecordNameIndexKey(zonePath, recordNameLower, recordType string) string {
 	zp := strings.TrimSpace(zonePath)
-	fq := strings.TrimSpace(strings.ToLower(fqdnLower))
+	rn := strings.TrimSpace(strings.ToLower(recordNameLower))
 	rt := strings.ToLower(strings.TrimSpace(recordType))
-	return zp + "|" + fq + "|" + rt
+	return zp + "|" + rn + "|" + rt
 }
 
-func dnsRecordFQDNLower(rec *model.ProjectDnsRecord) string {
-	if rec == nil || rec.Fqdn == nil {
+func dnsRecordRecordNameLower(rec *model.ProjectDnsRecord) string {
+	if rec == nil || rec.RecordName == nil {
 		return ""
 	}
-	return strings.TrimSpace(strings.ToLower(*rec.Fqdn))
+	return strings.TrimSpace(strings.ToLower(*rec.RecordName))
 }
 
-func indexDNSRecordByZonePathFQDN(obj interface{}) ([]string, error) {
+func indexDNSRecordByZonePathRecordName(obj interface{}) ([]string, error) {
 	switch v := obj.(type) {
 	case *model.ProjectDnsRecord:
 		dnsZone := v.ZonePath
@@ -164,14 +164,14 @@ func indexDNSRecordByZonePathFQDN(obj interface{}) ([]string, error) {
 		if v.RecordType == nil {
 			return []string{}, nil
 		}
-		fq := dnsRecordFQDNLower(v)
+		rn := dnsRecordRecordNameLower(v)
 		rt := strings.TrimSpace(*v.RecordType)
-		if fq == "" || rt == "" { // This is for security purpose, should not happen in the runtime
+		if rn == "" || rt == "" { // This is for security purpose, should not happen in the runtime
 			return []string{}, nil
 		}
-		return []string{dnsRecordZonePathFQDNIndexKey(zp, fq, rt)}, nil
+		return []string{dnsRecordZonePathRecordNameIndexKey(zp, rn, rt)}, nil
 	default:
-		return nil, errors.New("indexDNSRecordByZonePathFQDN doesn't support unknown type")
+		return nil, errors.New("indexDNSRecordByZonePathRecordName doesn't support unknown type")
 	}
 }
 
@@ -209,11 +209,11 @@ func dnsRecordOwnerNamespacedNameKey(namespace, name string) string {
 }
 
 const (
-	indexKeyDNSRecordOwnerTypeNN       = "ownerNamespacedName"
-	indexKeyDNSRecordGatewayNN         = "gatewayNamespacedName"
-	indexKeyDNSRecordZonePathFQDN      = "dnsZonePathFqdn"
-	indexKeyDNSRecordZonePath          = "dnsZonePath"
-	indexKeyDNSRecordContributingOwner = "contributingOwner"
+	indexKeyDNSRecordOwnerTypeNN        = "ownerNamespacedName"
+	indexKeyDNSRecordGatewayNN          = "gatewayNamespacedName"
+	indexKeyDNSRecordZonePathRecordName = "dnsZonePathRecordName"
+	indexKeyDNSRecordZonePath           = "dnsZonePath"
+	indexKeyDNSRecordContributingOwner  = "contributingOwner"
 )
 
 func (s *RecordStore) Apply(i interface{}) error {
@@ -370,11 +370,11 @@ func BuildDNSRecordStore() *RecordStore {
 	return &RecordStore{
 		ResourceStore: common.ResourceStore{
 			Indexer: cache.NewIndexer(dnsRecordKeyFunc, cache.Indexers{
-				indexKeyDNSRecordOwnerTypeNN:       indexDNSRecordByOwnerTypeNN,
-				indexKeyDNSRecordGatewayNN:         indexDNSRecordByGatewayNamespacedName,
-				indexKeyDNSRecordZonePathFQDN:      indexDNSRecordByZonePathFQDN,
-				indexKeyDNSRecordZonePath:          indexDNSRecordByZonePath,
-				indexKeyDNSRecordContributingOwner: indexDNSRecordByContributingOwner,
+				indexKeyDNSRecordOwnerTypeNN:        indexDNSRecordByOwnerTypeNN,
+				indexKeyDNSRecordGatewayNN:          indexDNSRecordByGatewayNamespacedName,
+				indexKeyDNSRecordZonePathRecordName: indexDNSRecordByZonePathRecordName,
+				indexKeyDNSRecordZonePath:           indexDNSRecordByZonePath,
+				indexKeyDNSRecordContributingOwner:  indexDNSRecordByContributingOwner,
 			}),
 			BindingType: model.ProjectDnsRecordBindingType(),
 		},
