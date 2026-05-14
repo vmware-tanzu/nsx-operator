@@ -94,10 +94,11 @@ func (s *IPBlocksInfoService) ResetPeriodicSync() {
 }
 
 // mergeIPCidrs merges target CIDRs into source CIDRs if not already covered by source.
-// Only considers IPv4, assumes no overlaps and all CIDRs are valid.
-// Assume there were no duplicate cidr in target,
-// None of the elements in target will be a subset of another element
-// consider using radix tree or sort + binary search for large scale
+// Supports both IPv4 and IPv6 CIDRs. IPv4 and IPv6 CIDRs are treated as disjoint address
+// spaces and will never be considered to cover each other.
+// Assumes no overlaps within source and all CIDRs are valid.
+// Assumes there are no duplicate CIDRs in target, and no element in target is a subset of another.
+// Consider using a radix tree or sort + binary search for large-scale inputs.
 func (s *IPBlocksInfoService) mergeIPCidrs(source []string, target []string) []string {
 	if len(source) == 0 {
 		return target
@@ -369,6 +370,11 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		// save external_ip_blocks path in set for all profile
 		for _, externalIPBlock := range vpcConnectivityProfile.ExternalIpBlocks {
 			externalIPBlockPaths.Insert(externalIPBlock)
+		}
+		// Ipv6Blocks are external-visibility IPv6 blocks; merge them into the external set so their
+		// CIDRs/ranges appear in ExternalIPCIDRs/ExternalIPRanges without any CRD schema change.
+		for _, ipv6Block := range vpcConnectivityProfile.Ipv6Blocks {
+			externalIPBlockPaths.Insert(ipv6Block)
 		}
 		// save private_tgw_ip_blocks path in set for profile associated with default project
 		if isDefault {

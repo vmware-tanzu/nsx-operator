@@ -193,7 +193,7 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 	detail := true
 	if piObj != nil {
 		pi = piObj.(*mpmodel.PrincipalIdentity)
-		certificate, _ = s.NSXClient.CertificatesClient.Get(*(pi.CertificateId), &detail)
+		certificate, _ = s.NSXClient.CertificatesClient.Get(*(pi.CertificateId), &detail, nil)
 	}
 	// read Secret
 	secretName := obj.Status.Secrets[0].Name
