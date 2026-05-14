@@ -1195,12 +1195,12 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
 					},
-				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-					StaticIPAllocation: v1alpha1.StaticIPAllocation{
-						Enabled:    common.Bool(true),
-						PoolRanges: []string{"192.168.1.10-192.168.1.20", "192.168.1.30"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: []string{"192.168.1.10-192.168.1.20", "192.168.1.30"},
+						},
 					},
-				},
 				},
 			},
 		},
