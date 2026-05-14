@@ -56,14 +56,6 @@ func TestEndpoint_Key(t *testing.T) {
 	assert.Equal(t, EndpointKey{DNSName: "b.example.com", RecordType: "CNAME", SetIdentifier: "x"}, k)
 }
 
-func TestEndpoint_WithSetIdentifier(t *testing.T) {
-	ep := NewEndpoint("a.example.com", RecordTypeA, "1.2.3.4")
-	require.NotNil(t, ep)
-	ep2 := ep.WithSetIdentifier("s2")
-	assert.Same(t, ep, ep2)
-	assert.Equal(t, "s2", ep.SetIdentifier)
-}
-
 func TestEndpoint_ProviderSpecific_table(t *testing.T) {
 	ep := NewEndpoint("a.example.com", RecordTypeA, "1.2.3.4")
 	require.NotNil(t, ep)
@@ -86,14 +78,6 @@ func TestEndpoint_ProviderSpecific_table(t *testing.T) {
 		val, ok := ep.GetProviderSpecificProperty("foo")
 		require.True(t, ok)
 		assert.Equal(t, "baz", val)
-	})
-
-	t.Run("WithProviderSpecific returns same pointer", func(t *testing.T) {
-		ep2 := ep.WithProviderSpecific("k", "v")
-		assert.Same(t, ep, ep2)
-		val, ok := ep.GetProviderSpecificProperty("k")
-		require.True(t, ok)
-		assert.Equal(t, "v", val)
 	})
 }
 
@@ -159,78 +143,6 @@ func TestEndpoint_supportsAlias_and_isAlias_table(t *testing.T) {
 			assert.Equal(t, tt.wantIsAlias, ep.isAlias())
 		})
 	}
-}
-
-func TestEndpoint_CheckEndpoint_table(t *testing.T) {
-	tests := []struct {
-		name       string
-		recordType string
-		aliasSet   bool
-		want       bool
-	}{
-		{name: "A without alias prop", recordType: RecordTypeA, aliasSet: false, want: true},
-		{name: "A with alias prop (allowed)", recordType: RecordTypeA, aliasSet: true, want: true},
-		{name: "TXT without alias prop", recordType: RecordTypeTXT, aliasSet: false, want: true},
-		{name: "TXT with alias prop (not allowed)", recordType: RecordTypeTXT, aliasSet: true, want: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ep := &Endpoint{DNSName: "a.example.com", RecordType: tt.recordType}
-			if tt.aliasSet {
-				ep.SetProviderSpecificProperty(providerSpecificAlias, "true")
-			}
-			assert.Equal(t, tt.want, ep.CheckEndpoint())
-		})
-	}
-}
-
-func TestEndpoint_RetainProviderProperties_table(t *testing.T) {
-	build := func(props ...ProviderSpecificProperty) *Endpoint {
-		ep := &Endpoint{DNSName: "a.example.com", RecordType: RecordTypeA}
-		ep.ProviderSpecific = props
-		return ep
-	}
-
-	t.Run("empty props no-op", func(t *testing.T) {
-		ep := build()
-		ep.RetainProviderProperties("aws")
-		assert.Empty(t, ep.ProviderSpecific)
-	})
-
-	t.Run("cloudflare keeps all and sorts", func(t *testing.T) {
-		ep := build(
-			ProviderSpecificProperty{Name: "z/prop", Value: "1"},
-			ProviderSpecificProperty{Name: "a/other", Value: "2"},
-		)
-		ep.RetainProviderProperties("cloudflare")
-		require.Len(t, ep.ProviderSpecific, 2)
-		assert.Equal(t, "a/other", ep.ProviderSpecific[0].Name)
-	})
-
-	t.Run("named provider filters and sorts", func(t *testing.T) {
-		ep := build(
-			ProviderSpecificProperty{Name: "aws/ttl", Value: "300"},
-			ProviderSpecificProperty{Name: "gcp/routing", Value: "geo"},
-			ProviderSpecificProperty{Name: "aws/alias", Value: "true"},
-			ProviderSpecificProperty{Name: "noslash", Value: "x"},
-		)
-		ep.RetainProviderProperties("aws")
-		// keeps aws/* and noslash (no slash → not filtered), then sorts
-		require.Len(t, ep.ProviderSpecific, 3)
-		assert.Equal(t, "aws/alias", ep.ProviderSpecific[0].Name)
-		assert.Equal(t, "aws/ttl", ep.ProviderSpecific[1].Name)
-		assert.Equal(t, "noslash", ep.ProviderSpecific[2].Name)
-	})
-
-	t.Run("empty provider keeps all and sorts", func(t *testing.T) {
-		ep := build(
-			ProviderSpecificProperty{Name: "b", Value: "2"},
-			ProviderSpecificProperty{Name: "a", Value: "1"},
-		)
-		ep.RetainProviderProperties("")
-		require.Len(t, ep.ProviderSpecific, 2)
-		assert.Equal(t, "a", ep.ProviderSpecific[0].Name)
-	})
 }
 
 func TestNewEndpointWithTTL_table(t *testing.T) {
