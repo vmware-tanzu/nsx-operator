@@ -8,10 +8,11 @@ import (
 	context "context"
 	reflect "reflect"
 
-	common "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	gomock "go.uber.org/mock/gomock"
 	types "k8s.io/apimachinery/pkg/types"
 	client "sigs.k8s.io/controller-runtime/pkg/client"
+
+	common "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 )
 
 // MockStatusUpdater is a mock of StatusUpdater interface.
