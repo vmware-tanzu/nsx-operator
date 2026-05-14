@@ -114,6 +114,11 @@ const (
 	SubnetPortGCInterval = 60 * time.Second
 	DefaultSNATID        = "DEFAULT"
 	AVISubnetLBID        = "_services"
+	// LBServiceIPAllocationID is the fixed NSX resource ID for the VPC-level LB service IP allocation used in tepless mode.
+	// It's only used for backup/restore
+	LBServiceIPAllocationID = "_DEFAULT--VPC_SERVICE_IP"
+	TagScopeVPCService      = "services/vpc_service"
+	TagValueUserSpecifiedIP = "__DEFAULT--VPC_SERVICE_IP__"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"

@@ -120,6 +120,27 @@ func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSiz
 	return lbs, nil
 }
 
+// buildNSXLBServiceIPAllocation builds the VpcIpAddressAllocation used to pin the LB service IP in tepless (VLANBackedVPC)
+// restore mode. The allocation uses the fixed well-known ID "_DEFAULT--VPC_SERVICE_IP" and carries the IP that was
+// previously reported in NetworkInfo.VPCs[0].LoadBalancerIPAddresses so that NSX re-uses the same address.
+func buildNSXLBServiceIPAllocation(lbIP string) *model.VpcIpAddressAllocation {
+	visibility := model.VpcIpAddressAllocation_IP_ADDRESS_BLOCK_VISIBILITY_EXTERNAL
+	ipType := model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
+	return &model.VpcIpAddressAllocation{
+		Id:                       common.String(common.LBServiceIPAllocationID),
+		DisplayName:              common.String(common.LBServiceIPAllocationID),
+		AllocationIp:             common.String(lbIP),
+		IpAddressBlockVisibility: &visibility,
+		IpAddressType:            &ipType,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeVPCService),
+				Tag:   common.String(common.TagValueUserSpecifiedIP),
+			},
+		},
+	}
+}
+
 func buildVpcAttachment(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster string, vpcconnectiveprofile string, restoreMode bool) (*model.VpcAttachment, error) {
 	attachment := &model.VpcAttachment{}
 	attachment.VpcConnectivityProfile = &vpcconnectiveprofile

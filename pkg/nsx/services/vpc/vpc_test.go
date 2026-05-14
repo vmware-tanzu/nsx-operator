@@ -3217,3 +3217,129 @@ func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing
 		})
 	}
 }
+
+func TestVPCService_buildLBServiceIPAllocForRestore(t *testing.T) {
+	tests := []struct {
+		name        string
+		obj         *v1alpha1.NetworkInfo
+		nc          *v1alpha1.VPCNetworkConfiguration
+		lbProvider  LBProvider
+		mockStack   func() *gomonkey.Patches
+		wantNil     bool
+		wantErrLike string
+		wantIP      string
+	}{
+		{
+			name:       "non-NSXLB provider returns nil without calling GetNetworkStackFromNC",
+			lbProvider: AVILB,
+			obj:        &v1alpha1.NetworkInfo{},
+			nc:         &v1alpha1.VPCNetworkConfiguration{},
+			mockStack:  func() *gomonkey.Patches { return nil },
+			wantNil:    true,
+		},
+		{
+			name:       "NSXLB + FullStackVPC returns nil",
+			lbProvider: NSXLB,
+			obj:        &v1alpha1.NetworkInfo{},
+			nc:         &v1alpha1.VPCNetworkConfiguration{},
+			mockStack: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetNetworkStackFromNC",
+					func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+						return v1alpha1.FullStackVPC, nil
+					})
+			},
+			wantNil: true,
+		},
+		{
+			name:       "NSXLB + VLANBackedVPC + empty VPCs returns error",
+			lbProvider: NSXLB,
+			obj:        &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "ni-test"}, VPCs: nil},
+			nc:         &v1alpha1.VPCNetworkConfiguration{},
+			mockStack: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetNetworkStackFromNC",
+					func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+						return v1alpha1.VLANBackedVPC, nil
+					})
+			},
+			wantErrLike: "LoadBalancerIPAddresses is not set in NetworkInfo ni-test",
+		},
+		{
+			name:       "NSXLB + VLANBackedVPC + empty LoadBalancerIPAddresses returns error",
+			lbProvider: NSXLB,
+			obj: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: "ni-test"},
+				VPCs:       []v1alpha1.VPCState{{LoadBalancerIPAddresses: ""}},
+			},
+			nc: &v1alpha1.VPCNetworkConfiguration{},
+			mockStack: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetNetworkStackFromNC",
+					func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+						return v1alpha1.VLANBackedVPC, nil
+					})
+			},
+			wantErrLike: "LoadBalancerIPAddresses is not set in NetworkInfo ni-test",
+		},
+		{
+			name:       "NSXLB + VLANBackedVPC + valid IP returns correct allocation",
+			lbProvider: NSXLB,
+			obj: &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{Name: "ni-test"},
+				VPCs:       []v1alpha1.VPCState{{LoadBalancerIPAddresses: "10.1.2.3"}},
+			},
+			nc: &v1alpha1.VPCNetworkConfiguration{},
+			mockStack: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetNetworkStackFromNC",
+					func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+						return v1alpha1.VLANBackedVPC, nil
+					})
+			},
+			wantNil: false,
+			wantIP:  "10.1.2.3",
+		},
+		{
+			name:       "GetNetworkStackFromNC error is propagated",
+			lbProvider: NSXLB,
+			obj:        &v1alpha1.NetworkInfo{},
+			nc:         &v1alpha1.VPCNetworkConfiguration{},
+			mockStack: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetNetworkStackFromNC",
+					func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+						return v1alpha1.FullStackVPC, fmt.Errorf("nsx backend failure")
+					})
+			},
+			wantErrLike: "nsx backend failure",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := createFakeVPCService(t, []client.Object{})
+			patches := tt.mockStack()
+			if patches != nil {
+				defer patches.Reset()
+			}
+
+			alloc, err := service.buildLBServiceIPAllocForRestore(tt.obj, tt.nc, tt.lbProvider)
+
+			if tt.wantErrLike != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrLike)
+				assert.Nil(t, alloc)
+				return
+			}
+			require.NoError(t, err)
+			if tt.wantNil {
+				assert.Nil(t, alloc)
+				return
+			}
+			require.NotNil(t, alloc)
+			assert.Equal(t, common.LBServiceIPAllocationID, *alloc.Id)
+			assert.Equal(t, tt.wantIP, *alloc.AllocationIp)
+			assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_BLOCK_VISIBILITY_EXTERNAL, *alloc.IpAddressBlockVisibility)
+			assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, *alloc.IpAddressType)
+			require.Len(t, alloc.Tags, 1)
+			assert.Equal(t, common.TagScopeVPCService, *alloc.Tags[0].Scope)
+			assert.Equal(t, common.TagValueUserSpecifiedIP, *alloc.Tags[0].Tag)
+		})
+	}
+}

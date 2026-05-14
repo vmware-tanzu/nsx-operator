@@ -411,7 +411,7 @@ func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []str
 		}
 	}
 	svc := &vpc.VPCService{}
-	orgRoot, err := svc.WrapHierarchyVPC(orgID, projectID, createdVPC, createdLBS, attachment)
+	orgRoot, err := svc.WrapHierarchyVPC(orgID, projectID, createdVPC, nil, createdLBS, attachment)
 	if err != nil {
 		log.Error(err, "Failed to build HAPI request for VPC related resources")
 		return err
