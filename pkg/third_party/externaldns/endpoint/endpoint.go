@@ -9,7 +9,6 @@
 package endpoint
 
 import (
-	"cmp"
 	"slices"
 	"strings"
 )
@@ -131,18 +130,6 @@ func (e *Endpoint) Key() EndpointKey {
 	}
 }
 
-// WithSetIdentifier sets the set identifier.
-func (e *Endpoint) WithSetIdentifier(setIdentifier string) *Endpoint {
-	e.SetIdentifier = setIdentifier
-	return e
-}
-
-// WithProviderSpecific attaches a provider-specific property.
-func (e *Endpoint) WithProviderSpecific(key, value string) *Endpoint {
-	e.SetProviderSpecificProperty(key, value)
-	return e
-}
-
 // GetProviderSpecificProperty returns a provider-specific value by name.
 func (e *Endpoint) GetProviderSpecificProperty(key string) (string, bool) {
 	for _, p := range e.ProviderSpecific {
@@ -201,30 +188,4 @@ func (e *Endpoint) supportsAlias() bool {
 func (e *Endpoint) isAlias() bool {
 	val, ok := e.GetBoolProviderSpecificProperty(providerSpecificAlias)
 	return ok && val
-}
-
-// CheckEndpoint validates basic alias / IP constraints (subset of upstream).
-func (e *Endpoint) CheckEndpoint() bool {
-	if !e.supportsAlias() {
-		if _, ok := e.GetBoolProviderSpecificProperty(providerSpecificAlias); ok {
-			return false
-		}
-	}
-	return true
-}
-
-// RetainProviderProperties sorts provider-specific entries (upstream subset).
-func (e *Endpoint) RetainProviderProperties(provider string) {
-	if len(e.ProviderSpecific) == 0 {
-		return
-	}
-	if provider != "" && provider != "cloudflare" {
-		prefix := provider + "/"
-		e.ProviderSpecific = slices.DeleteFunc(e.ProviderSpecific, func(prop ProviderSpecificProperty) bool {
-			return strings.Contains(prop.Name, "/") && !strings.HasPrefix(prop.Name, prefix)
-		})
-	}
-	slices.SortFunc(e.ProviderSpecific, func(a, b ProviderSpecificProperty) int {
-		return cmp.Compare(a.Name, b.Name)
-	})
 }
