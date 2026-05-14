@@ -106,6 +106,19 @@ const (
 	TagScopePodUID                     string = "nsx-op/pod_uid"
 	TagScopeStatefulSetName            string = "nsx-op/sts_name"
 	TagScopeStatefulSetUID             string = "nsx-op/sts_uid"
+
+	// Tags and annotations for DNS record use case.
+	TagScopeDNSRecordFor                string = "nsx-op/dns_for" // value: gateway, service, xxroutes
+	TagScopeDNSRecordGatewayIndexList   string = "nsx-op/dns_gateway_index_list"
+	TagScopeDNSRecordOwnerNamespace     string = "nsx-op/dns_owner_namespace"
+	TagScopeDNSRecordOwnerName          string = "nsx-op/dns_owner_name"
+	TagScopeDNSRecordContributingOwners string = "nsx-op/dns_contributing_owners"
+	TagValueDNSRecordForGateway         string = "gateway"
+	TagValueDNSRecordForHTTPRoute       string = "httproute"
+	TagValueDNSRecordForGRPCRoute       string = "grpcroute"
+	TagValueDNSRecordForTLSRoute        string = "tlsroute"
+	TagValueDNSRecordForService         string = "service"
+
 	// TagScopePodIndex is the NSX tag scope for Pod label apps.kubernetes.io/pod-index when synced onto the port (not set in BuildBasicTags).
 	TagScopePodIndex   string = "apps.kubernetes.io/pod-index"
 	ValueMajorVersion  string = "1"
@@ -155,6 +168,10 @@ const (
 
 	GatewayInterfaceId = "gateway-interface"
 	VPCKey             = "/orgs/%s/projects/%s/vpcs/%s"
+
+	// PathSegmentProjectDnsRecords is the NSX Policy URL path segment for project-scoped DNS records
+	// (full path: /orgs/{org}/projects/{project}/dns-records/{id}). Must match PolicyResourceProjectDnsRecord.PathKey.
+	PathSegmentProjectDnsRecords = "dns-records"
 )
 
 var (
@@ -196,6 +213,7 @@ var (
 	ResourceTypeChildSubnetConnectionBindingMap  = "ChildSubnetConnectionBindingMap"
 	ResourceTypeChildVpcAttachment               = "ChildVpcAttachment"
 	ResourceTypeChildVpcIPAddressAllocation      = "ChildVpcIpAddressAllocation"
+	ResourceTypeChildProjectDnsRecord            = "ChildProjectDnsRecord"
 	ResourceTypeChildVpcSubnet                   = "ChildVpcSubnet"
 	ResourceTypeChildVpcSubnetPort               = "ChildVpcSubnetPort"
 	ResourceTypeChildDynamicIpAddressReservation = "ChildDynamicIpAddressReservation"
@@ -214,6 +232,7 @@ var (
 	ResourceTypeSubnetConnectionBindingMap       = "SubnetConnectionBindingMap"
 	ResourceTypeDynamicIpAddressReservation      = "DynamicIpAddressReservation"
 	ResourceTypeStaticIpAddressReservation       = "StaticIpAddressReservation"
+	ResourceTypeProjectDnsRecord                 = "ProjectDnsRecord"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"

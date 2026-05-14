@@ -38,8 +38,11 @@ func (m *MockVPCServiceProvider) ValidateNetworkConfig(nc *v1alpha1.VPCNetworkCo
 }
 
 func (m *MockVPCServiceProvider) GetVPCNetworkConfigByNamespace(ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
-	m.Called()
-	return nil, nil
+	args := m.Called(ns)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*v1alpha1.VPCNetworkConfiguration), args.Error(1)
 }
 
 func (m *MockVPCServiceProvider) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {

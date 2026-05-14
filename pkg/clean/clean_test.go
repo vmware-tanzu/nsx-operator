@@ -14,6 +14,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
@@ -187,6 +188,9 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	patches.ApplyFunc(ipaddressallocation.InitializeIPAddressAllocation, func(service common.Service, vpcService common.VPCServiceProvider, flag bool) (*ipaddressallocation.IPAddressAllocationService, error) {
 		return &ipaddressallocation.IPAddressAllocationService{}, nil
 	})
+	patches.ApplyFunc(dns.InitializeDNSRecordService, func(service common.Service, vpcService common.VPCServiceProvider) (*dns.DNSRecordService, error) {
+		return &dns.DNSRecordService{}, nil
+	})
 	patches.ApplyFunc(subnetbinding.InitializeService, func(service common.Service) (*subnetbinding.BindingService, error) {
 		return &subnetbinding.BindingService{}, nil
 	})
@@ -216,7 +220,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, Inventory, SecurityPolicy, LBInfraCleaner, NSXServiceAccount, HealthCleaner = 8
 	assert.Len(t, cleanupService.vpcPreCleaners, 7)
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
-	assert.Len(t, cleanupService.infraCleaners, 2)
+	assert.Len(t, cleanupService.infraCleaners, 3)
 }
 
 func TestInitializeCleanupService_VPCError(t *testing.T) {
@@ -244,6 +248,9 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	})
 	patches.ApplyFunc(ipaddressallocation.InitializeIPAddressAllocation, func(service common.Service, vpcService common.VPCServiceProvider, flag bool) (*ipaddressallocation.IPAddressAllocationService, error) {
 		return &ipaddressallocation.IPAddressAllocationService{}, nil
+	})
+	patches.ApplyFunc(dns.InitializeDNSRecordService, func(service common.Service, vpcService common.VPCServiceProvider) (*dns.DNSRecordService, error) {
+		return &dns.DNSRecordService{}, nil
 	})
 	patches.ApplyFunc(subnetbinding.InitializeService, func(service common.Service) (*subnetbinding.BindingService, error) {
 		return &subnetbinding.BindingService{}, nil

@@ -1,6 +1,8 @@
 package common
 
 import (
+	"fmt"
+
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
@@ -81,6 +83,27 @@ func (service *Service) WrapAttachment(attachment *model.VpcAttachment) ([]*data
 		return nil, errs[0]
 	}
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
+}
+
+func WrapProjectDnsRecord(rec *model.ProjectDnsRecord) (*data.StructValue, error) {
+	if rec == nil {
+		return nil, fmt.Errorf("nil ProjectDnsRecord")
+	}
+	// Fqdn may be server-populated / read-only on PATCH; send payload without it (operator may set it on in-memory copies for indexing).
+	send := *rec
+	send.Fqdn = nil
+	send.ResourceType = &ResourceTypeProjectDnsRecord
+	child := model.ChildProjectDnsRecord{
+		Id:               send.Id,
+		MarkedForDelete:  send.MarkedForDelete,
+		ResourceType:     ResourceTypeChildProjectDnsRecord,
+		ProjectDnsRecord: &send,
+	}
+	dataValue, errors := NewConverter().ConvertToVapi(child, child.GetType__())
+	if len(errors) > 0 {
+		return nil, errors[0]
+	}
+	return dataValue.(*data.StructValue), nil
 }
 
 func WrapVpcIpAddressAllocation(allocation *model.VpcIpAddressAllocation) (*data.StructValue, error) {

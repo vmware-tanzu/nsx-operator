@@ -348,7 +348,7 @@ func GenerateTruncName(limit int, resName string, prefix, suffix, project, clust
 	return generateDisplayName(common.ConnectorUnderline, resName, prefix, suffix, project, cluster)
 }
 
-func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []model.Tag {
+func BuildClusterTags(cluster string) []model.Tag {
 	tags := []model.Tag{
 		{
 			Scope: String(common.TagScopeCluster),
@@ -359,6 +359,11 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 			Tag:   String(strings.Join(common.TagValueVersion, ".")),
 		},
 	}
+	return tags
+}
+
+func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []model.Tag {
+	tags := BuildClusterTags(cluster)
 	switch i := obj.(type) {
 	case *v1alpha1.StaticRoute:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})

@@ -24,6 +24,8 @@ type GetId[T any] func(obj T) *string
 
 func getNSXResourcePath[T any](obj T) *string {
 	switch v := any(obj).(type) {
+	case *model.ProjectDnsRecord:
+		return v.Path
 	case *model.VpcIpAddressAllocation:
 		return v.Path
 	case *model.VpcSubnet:
@@ -68,6 +70,8 @@ func getNSXResourcePath[T any](obj T) *string {
 
 func getNSXResourceId[T any](obj T) *string {
 	switch v := any(obj).(type) {
+	case *model.ProjectDnsRecord:
+		return v.Id
 	case *model.VpcIpAddressAllocation:
 		return v.Id
 	case *model.VpcSubnet:
@@ -112,6 +116,8 @@ func getNSXResourceId[T any](obj T) *string {
 
 func getNSXResourceName[T any](obj T) *string {
 	switch v := any(obj).(type) {
+	case *model.ProjectDnsRecord:
+		return v.DisplayName
 	case *model.VpcIpAddressAllocation:
 		return v.DisplayName
 	case *model.VpcSubnet:
@@ -156,6 +162,8 @@ func getNSXResourceName[T any](obj T) *string {
 
 func leafWrapper[T any](obj T) (*data.StructValue, error) {
 	switch v := any(obj).(type) {
+	case *model.ProjectDnsRecord:
+		return WrapProjectDnsRecord(v)
 	case *model.VpcIpAddressAllocation:
 		return WrapVpcIpAddressAllocation(v)
 	case *model.VpcSubnet:
@@ -270,6 +278,7 @@ var (
 	PolicyResourceInfraLBPool                                                                          = PolicyResourceType{ModelKey: ResourceTypeLBPool, PathKey: "lb-pools"}
 	PolicyResourceInfraLBVirtualServer                                                                 = PolicyResourceType{ModelKey: ResourceTypeLBVirtualServer, PathKey: "lb-virtual-servers"}
 	PolicyResourceVpcIPAddressAllocation                                                               = PolicyResourceType{ModelKey: ResourceTypeIPAddressAllocation, PathKey: "ip-address-allocations"}
+	PolicyResourceProjectDnsRecord                                                                     = PolicyResourceType{ModelKey: ResourceTypeProjectDnsRecord, PathKey: PathSegmentProjectDnsRecords}
 	PolicyResourceDomain                                                                               = PolicyResourceType{ModelKey: ResourceTypeDomain, PathKey: "domains"}
 	PolicyResourceShare                                                                                = PolicyResourceType{ModelKey: ResourceTypeShare, PathKey: "shares"}
 	PolicyResourceSharedResource                                                                       = PolicyResourceType{ModelKey: ResourceTypeSharedResource, PathKey: "resources"}
@@ -302,6 +311,9 @@ var (
 	PolicyPathInfraDomain                       PolicyResourcePath[*model.Domain]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain}
 	PolicyPathVpcSubnetDynamicIPReservation     PolicyResourcePath[*model.DynamicIpAddressReservation] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcDynamicIPReservation}
 	PolicyPathVpcSubnetStaticIPReservation      PolicyResourcePath[*model.StaticIpAddressReservation]  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcStaticIPReservation}
+	// PolicyPathProjectDnsRecord is the OrgRoot hierarchy for *model.ProjectDnsRecord under a project.
+	// Path pattern: /orgs/{org}/projects/{project}/dns-records/{record-id}.
+	PolicyPathProjectDnsRecord PolicyResourcePath[*model.ProjectDnsRecord] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceProjectDnsRecord}
 )
 
 type hNodeKey struct {
@@ -662,18 +674,18 @@ func (builder *PolicyTreeBuilder[T]) PagingUpdateResources(ctx context.Context, 
 			log.Info("Batch deletion interrupted by context", "resourceType", builder.leafType, "processedBatches", currentBatch-1, "totalBatches", totalBatches, "successCount", successCount, "failedCount", failedCount)
 			return errors.Join(util.TimeoutFailed, ctx.Err())
 		default:
-			delErr := builder.UpdateMultipleResourcesOnNSX(partialObjs, nsxClient)
-			if delErr == nil {
+			updateErr := builder.UpdateMultipleResourcesOnNSX(partialObjs, nsxClient)
+			if updateErr == nil {
 				successCount += len(partialObjs)
-				log.Info("Batch deletion succeeded", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeSuccess", successCount)
+				log.Info("Batch update succeeded", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeSuccess", successCount)
 				if updateObjectsFromStoreFn != nil {
 					updateObjectsFromStoreFn(partialObjs)
 				}
 				continue
 			}
 			failedCount += len(partialObjs)
-			log.Error(delErr, "Batch deletion failed", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeFailed", failedCount)
-			nsxErr = delErr
+			log.Error(updateErr, "Batch update failed", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeFailed", failedCount)
+			nsxErr = updateErr
 		}
 	}
 
