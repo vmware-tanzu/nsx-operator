@@ -1111,9 +1111,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					}, nil
 				})
 				// GetAVISubnetInfo should be called even without connectivity profile
-			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetAVISubnetInfo", func(_ *vpc.VPCService, _ model.Vpc) (string, []string, error) {
-				return "/orgs/default/projects/project-quality/vpcs/fake-vpc/subnets/avi-subnet", []string{"100.64.0.0/24"}, nil
-			})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetAVISubnetInfo", func(_ *vpc.VPCService, _ model.Vpc) (string, []string, error) {
+					return "/orgs/default/projects/project-quality/vpcs/fake-vpc/subnets/avi-subnet", []string{"100.64.0.0/24"}, nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
@@ -1183,10 +1183,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return "", nil
 				})
 				// This should NOT be called when vpcConnectivityProfilePath is empty
-			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
-				assert.FailNow(t, "GetNSXLBSNATIP should not be called when vpcConnectivityProfilePath is empty")
-				return nil, nil
-			})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					assert.FailNow(t, "GetNSXLBSNATIP should not be called when vpcConnectivityProfilePath is empty")
+					return nil, nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
@@ -1275,9 +1275,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
 						}
 					})
-			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
-				return nil, fmt.Errorf("tier1 uplink port IP not found")
-			})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+					return nil, fmt.Errorf("tier1 uplink port IP not found")
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})

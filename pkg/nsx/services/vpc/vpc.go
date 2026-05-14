@@ -31,8 +31,8 @@ const (
 	NSXLB           = LBProvider("nsx-lb")
 	AVILB           = LBProvider("avi")
 	NoneLB          = LBProvider("none")
-	NSXLBEIPID   = "_DEFAULT--VPC_SERVICE_IP"
-	NSXLBEIPIDV6 = "_DEFAULT--VPC_SERVICE_IP_V6"
+	NSXLBEIPID      = "_DEFAULT--VPC_SERVICE_IP"
+	NSXLBEIPIDV6    = "_DEFAULT--VPC_SERVICE_IP_V6"
 
 	nsxVpcNameIndexKey = "nsxVpcNameIndex"
 
