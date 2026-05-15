@@ -252,12 +252,14 @@ func GetCIDRRangesWithExcept(cidr string, excepts []string) ([]string, error) {
 	return resultRanges, nil
 }
 
-// SubnetFamilyUsesIPv6 reports whether the Subnet(Set) allocates IPv6 addresses.
-func SubnetFamilyUsesIPv6(ipType v1alpha1.IPAddressType) bool {
+// IPAddressTypeIncludesIPv6 reports whether the given IPAddressType allocates IPv6 addresses
+// (i.e. IPv6-only or dual-stack).
+func IPAddressTypeIncludesIPv6(ipType v1alpha1.IPAddressType) bool {
 	return ipType == v1alpha1.IPAddressTypeIPv6 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
 }
 
-// SubnetFamilyUsesIPv4 reports whether the Subnet(Set) allocates IPv4 addresses.
-func SubnetFamilyUsesIPv4(ipType v1alpha1.IPAddressType) bool {
+// IPAddressTypeIncludesIPv4 reports whether the given IPAddressType allocates IPv4 addresses
+// (i.e. IPv4-only, dual-stack, or unset — which defaults to IPv4).
+func IPAddressTypeIncludesIPv4(ipType v1alpha1.IPAddressType) bool {
 	return ipType == v1alpha1.IPAddressTypeIPv4 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
 }

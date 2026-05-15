@@ -170,13 +170,13 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns str
 				accessMode = getDefaultAccessMode(name)
 			}
 			spec := v1alpha1.SubnetSetSpec{AccessMode: accessMode}
-			if util.SubnetFamilyUsesIPv4(ipFamily) {
+			if util.IPAddressTypeIncludesIPv4(ipFamily) {
 				spec.IPv4SubnetSize = nc.Spec.DefaultSubnetSize
 				if namespaceType == common.SystemNs {
 					spec.IPv4SubnetSize = r.getSystemNsDefaultSize()
 				}
 			}
-			if util.SubnetFamilyUsesIPv6(ipFamily) {
+			if util.IPAddressTypeIncludesIPv6(ipFamily) {
 				spec.IPv6PrefixLength = nc.Spec.DefaultIPv6PrefixLength
 			}
 			spec.IPAddressType = ipFamily

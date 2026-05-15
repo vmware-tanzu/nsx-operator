@@ -161,7 +161,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		specChanged = true
 	}
 
-	if util.SubnetFamilyUsesIPv4(subnetCR.Spec.IPAddressType) && subnetCR.Spec.IPv4SubnetSize == 0 && !util.ContainsIPv4CIDR(subnetCR.Spec.IPAddresses) {
+	if util.IPAddressTypeIncludesIPv4(subnetCR.Spec.IPAddressType) && subnetCR.Spec.IPv4SubnetSize == 0 && !util.ContainsIPv4CIDR(subnetCR.Spec.IPAddresses) {
 		err = r.setDefaultIPv4SubnetSizeValue(ctx, subnetCR, vpcNetworkConfig)
 		if err != nil {
 			return ResultNormal, err
@@ -169,7 +169,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		specChanged = true
 	}
 
-	if util.SubnetFamilyUsesIPv6(subnetCR.Spec.IPAddressType) && subnetCR.Spec.IPv6PrefixLength == 0 && !util.ContainsIPv6CIDR(subnetCR.Spec.IPAddresses) {
+	if util.IPAddressTypeIncludesIPv6(subnetCR.Spec.IPAddressType) && subnetCR.Spec.IPv6PrefixLength == 0 && !util.ContainsIPv6CIDR(subnetCR.Spec.IPAddresses) {
 		err = r.setDefaultIPv6PrefixLengthValue(ctx, subnetCR, vpcNetworkConfig)
 		if err != nil {
 			return ResultNormal, err

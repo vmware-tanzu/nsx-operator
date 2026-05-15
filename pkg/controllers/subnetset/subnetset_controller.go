@@ -193,7 +193,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		specChanged = true
 	}
-	if subnetsetCR.Spec.IPv4SubnetSize == 0 && util.SubnetFamilyUsesIPv4(subnetsetCR.Spec.IPAddressType) {
+	if subnetsetCR.Spec.IPv4SubnetSize == 0 && util.IPAddressTypeIncludesIPv4(subnetsetCR.Spec.IPAddressType) {
 		if vpcNetworkConfig == nil {
 			vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetsetCR.Namespace)
 			if err != nil {
@@ -204,7 +204,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		subnetsetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
 		specChanged = true
 	}
-	if subnetsetCR.Spec.IPv6PrefixLength == 0 && util.SubnetFamilyUsesIPv6(subnetsetCR.Spec.IPAddressType) {
+	if subnetsetCR.Spec.IPv6PrefixLength == 0 && util.IPAddressTypeIncludesIPv6(subnetsetCR.Spec.IPAddressType) {
 		if vpcNetworkConfig == nil {
 			vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetsetCR.Namespace)
 			if err != nil {

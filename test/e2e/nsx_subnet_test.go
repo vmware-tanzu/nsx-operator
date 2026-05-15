@@ -58,7 +58,7 @@ func verifySubnetSetCR(subnetSet string) bool {
 	}
 	// IPv6PrefixLength is only set on SubnetSets for IPv6 or dual-stack clusters.
 	// Skip this check when the SubnetSet IP address type is IPv4-only (or unset).
-	if util.SubnetFamilyUsesIPv6(subnetSetCR.Spec.IPAddressType) {
+	if util.IPAddressTypeIncludesIPv6(subnetSetCR.Spec.IPAddressType) {
 		wantIPv6 := vpcNetworkConfig.Spec.DefaultIPv6PrefixLength
 		if subnetSetCR.Spec.IPv6PrefixLength != wantIPv6 {
 			log.Error(nil, "IPv6PrefixLength mismatch", "IPv6PrefixLength", subnetSetCR.Spec.IPv6PrefixLength, "expected", wantIPv6)
