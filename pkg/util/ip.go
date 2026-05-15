@@ -262,5 +262,5 @@ func IPAddressTypeIncludesIPv6(ipType v1alpha1.IPAddressType) bool {
 // IPAddressTypeIncludesIPv4 reports whether the given IPAddressType allocates IPv4 addresses
 // (i.e. IPv4-only or dual-stack).
 func IPAddressTypeIncludesIPv4(ipType v1alpha1.IPAddressType) bool {
-	return ipType == v1alpha1.IPAddressTypeIPv4 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
+	return ipType != v1alpha1.IPAddressTypeIPv6
 }
