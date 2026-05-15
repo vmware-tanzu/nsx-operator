@@ -127,7 +127,7 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 		accessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
 	}
 
-	ipFamily := r.Service.NSXConfig.K8sConfig.IPFamily
+	ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
 
 	if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 		return err != nil

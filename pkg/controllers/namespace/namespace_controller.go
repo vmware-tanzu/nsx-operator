@@ -152,7 +152,7 @@ func getDefaultSubnetsets(namespaceType common.NameSpaceType) map[string]string 
 // createDefaultSubnetSet only create default subnetset for system Namespace or SVService Namespace
 func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, nc *v1alpha1.VPCNetworkConfiguration, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
 	defaultSubnetSets := getDefaultSubnetsets(namespaceType)
-	ipFamily := r.NSXConfig.K8sConfig.IPFamily
+	ipFamily := r.NSXConfig.K8sConfig.GetIPAddressType()
 	for name, subnetSetType := range defaultSubnetSets {
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 			return err != nil

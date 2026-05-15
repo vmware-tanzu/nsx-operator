@@ -351,7 +351,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 		defaultSubnetSize       int
 		defaultIPv6PrefixLength int
 		existingResources       []client.Object
-		ipFamily                v1alpha1.IPAddressType
+		ipFamily                string
 		expectedError           bool
 		networkStack            v1alpha1.NetworkStackType
 		nameSpaceType           ctlcommon.NameSpaceType
@@ -375,7 +375,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			defaultSubnetSize:       8,
 			defaultIPv6PrefixLength: 72,
 			existingResources:       []client.Object{},
-			ipFamily:                v1alpha1.IPAddressTypeIPv4IPv6,
+			ipFamily:                "DualStack",
 			expectedError:           false,
 			expectedSubnetSets:      1, // VM
 			networkStack:            v1alpha1.FullStackVPC,
@@ -393,7 +393,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 			namespace:             "test-ns",
 			defaultSubnetSize:     24,
 			existingResources:     []client.Object{},
-			ipFamily:              v1alpha1.IPAddressTypeIPv4,
+			ipFamily:              "IPv4",
 			expectedError:         false,
 			expectedSubnetSets:    1, // Pod
 			networkStack:          v1alpha1.FullStackVPC,

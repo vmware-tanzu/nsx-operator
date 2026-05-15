@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/zap"
@@ -143,11 +144,32 @@ type K8sConfig struct {
 	KubeConfigFile     string `ini:"kubeconfig"`
 	// Controlled by FSS
 	EnableAntreaNSXInterworking bool `ini:"enable_antrea_nsx_interworking"`
-	// IPFamily holds the cluster-wide IP address family read from the [k8s]
-	// ip_family key. Expected values: v1alpha1.IPAddressTypeIPv4 ("IPV4"),
-	// v1alpha1.IPAddressTypeIPv6 ("IPV6"), or v1alpha1.IPAddressTypeIPv4IPv6
-	// ("IPV4IPV6").  An empty value means IPv4-only (default).
-	IPFamily v1alpha1.IPAddressType `ini:"ip_family"`
+	// IPFamily is the raw ip_family value from the [k8s] ini section.
+	// Expected values: "IPv4" (default), "IPv6", or "DualStack".
+	// Use GetIPAddressType() to obtain the canonical v1alpha1.IPAddressType.
+	IPFamily string `ini:"ip_family"`
+}
+
+// GetIPAddressType parses the raw IPFamily string and returns the canonical
+// v1alpha1.IPAddressType value. "IPv4" → IPV4, "IPv6" → IPV6,
+// "DualStack" → IPV4IPV6. Empty or unrecognised values default to IPv4.
+func (k *K8sConfig) GetIPAddressType() v1alpha1.IPAddressType {
+	return ParseIPFamily(k.IPFamily)
+}
+
+// ParseIPFamily converts a raw ip_family config value to the canonical
+// v1alpha1.IPAddressType constant. Recognised values (case-insensitive):
+// "IPv4" / "ipv4", "IPv6" / "ipv6", "DualStack" / "dualstack".
+// Empty string and any unrecognised value default to IPv4-only.
+func ParseIPFamily(s string) v1alpha1.IPAddressType {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "ipv6":
+		return v1alpha1.IPAddressTypeIPv6
+	case "dualstack":
+		return v1alpha1.IPAddressTypeIPv4IPv6
+	default:
+		return v1alpha1.IPAddressTypeIPv4
+	}
 }
 
 type VCConfig struct {
