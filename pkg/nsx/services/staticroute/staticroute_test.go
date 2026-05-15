@@ -8,13 +8,12 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -174,7 +173,7 @@ func TestGetUID(t *testing.T) {
 	// Test case: Static route with tags but no matching scope
 	staticRouteNoMatchingScope := &model.StaticRoutes{
 		Tags: []model.Tag{
-			{Scope: pointy.String("other-scope"), Tag: pointy.String("some-tag")},
+			{Scope: util.Ptr("other-scope"), Tag: util.Ptr("some-tag")},
 		},
 	}
 	assert.Nil(t, service.GetUID(staticRouteNoMatchingScope))
@@ -182,10 +181,10 @@ func TestGetUID(t *testing.T) {
 	// Test case: Static route with matching scope
 	staticRouteMatchingScope := &model.StaticRoutes{
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("expected-uid")},
+			{Scope: util.Ptr(common.TagScopeStaticRouteCRUID), Tag: util.Ptr("expected-uid")},
 		},
 	}
-	assert.Equal(t, pointy.String("expected-uid"), service.GetUID(staticRouteMatchingScope))
+	assert.Equal(t, util.Ptr("expected-uid"), service.GetUID(staticRouteMatchingScope))
 }
 
 func TestListStaticRouteByName(t *testing.T) {
@@ -203,16 +202,16 @@ func TestListStaticRouteByName(t *testing.T) {
 	sr1 := &model.StaticRoutes{
 		Id: &id1,
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route1")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagScopeStaticRouteCRName), Tag: util.Ptr("route1")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 		ParentPath: String("vpc1"),
 	}
 	sr2 := &model.StaticRoutes{
 		Id: &id2,
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route2")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagScopeStaticRouteCRName), Tag: util.Ptr("route2")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 		ParentPath: String("vpc1"),
 	}
@@ -248,16 +247,16 @@ func TestListStaticRoute(t *testing.T) {
 	sr1 := &model.StaticRoutes{
 		Id: &id1,
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route1")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagScopeStaticRouteCRName), Tag: util.Ptr("route1")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 		ParentPath: String("vpc1"),
 	}
 	sr2 := &model.StaticRoutes{
 		Id: &id2,
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagScopeStaticRouteCRName), Tag: pointy.String("route2")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagScopeStaticRouteCRName), Tag: util.Ptr("route2")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 		ParentPath: String("vpc1"),
 	}
@@ -287,12 +286,12 @@ func TestStaticRouteService_Cleanup(t *testing.T) {
 	staticRoutePath1 := "/orgs/org1/projects/project1/vpcs/vpc1/staticroutes/staticroute1"
 	staticRoutePath2 := "/orgs/org2/projects/project2/vpcs/vpc2/staticroutes/staticroute2"
 	staticRoute1 := &model.StaticRoutes{
-		Id:         pointy.String("staticroute1"),
+		Id:         util.Ptr("staticroute1"),
 		Path:       &staticRoutePath1,
 		ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1"),
 	}
 	staticRoute2 := &model.StaticRoutes{
-		Id:         pointy.String("staticroute2"),
+		Id:         util.Ptr("staticroute2"),
 		Path:       &staticRoutePath2,
 		ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc2"),
 	}

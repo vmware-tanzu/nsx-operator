@@ -3,7 +3,6 @@ package common
 import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
 )
 
 // WrapInfra TODO(gran) refactor existing code in other package
@@ -55,7 +54,7 @@ func (service *Service) WrapVPC(vpc *model.Vpc) ([]*data.StructValue, error) {
 }
 
 func (service *Service) WrapLBS(lbs *model.LBService) ([]*data.StructValue, error) {
-	lbs.ResourceType = pointy.String(ResourceTypeLBService)
+	lbs.ResourceType = String(ResourceTypeLBService)
 	childLBService := model.ChildLBService{
 		Id:              lbs.Id,
 		MarkedForDelete: lbs.MarkedForDelete,
@@ -70,7 +69,7 @@ func (service *Service) WrapLBS(lbs *model.LBService) ([]*data.StructValue, erro
 }
 
 func (service *Service) WrapAttachment(attachment *model.VpcAttachment) ([]*data.StructValue, error) {
-	attachment.ResourceType = pointy.String(ResourceTypeVpcAttachment)
+	attachment.ResourceType = String(ResourceTypeVpcAttachment)
 	childVpcAttachment := model.ChildVpcAttachment{
 		Id:              attachment.Id,
 		MarkedForDelete: attachment.MarkedForDelete,

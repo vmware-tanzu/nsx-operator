@@ -10,6 +10,7 @@ import (
 	"go.openly.dev/pointy"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func TestVPCService_WrapHierarchyVPC(t *testing.T) {
@@ -84,7 +85,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 				lbs:              nil,
 				attachment:       nil,
 			},
-			want:            &model.OrgRoot{ResourceType: pointy.String("OrgRoot")},
+			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
 			wantVPCChildren: 1, // only IPAlloc
 			wantErr:         assert.NoError,

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,7 +32,7 @@ func keyFunc(obj interface{}) (string, error) {
 		if v.ExternalId != nil && *v.ExternalId != "" {
 			externalID = *v.ExternalId
 		}
-		uid := fmt.Sprintf("%s-%s", externalID, uuid.New().String())
+		uid := fmt.Sprintf("%s-%s", externalID, uuid.Must(uuid.NewV4()).String())
 		return uid, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")

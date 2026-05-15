@@ -21,8 +21,7 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/zerologr v1.2.3
 	github.com/golang-jwt/jwt/v4 v4.5.2
-	github.com/golang/mock v1.6.0
-	github.com/google/uuid v1.6.0
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/kevinburke/ssh_config v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.35.1
@@ -37,7 +36,6 @@ require (
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.8.0
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.0.0-20260310075027-d32fca6a7b22
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20260310075027-d32fca6a7b22
-	go.openly.dev/pointy v1.3.0
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.50.0
@@ -51,6 +49,12 @@ require (
 	k8s.io/code-generator v0.35.1
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2
 	sigs.k8s.io/controller-runtime v0.23.3
+)
+
+require (
+	github.com/gofrs/uuid v4.4.0+incompatible
+	go.openly.dev/pointy v1.3.0
+	go.uber.org/mock v0.6.0
 )
 
 require (

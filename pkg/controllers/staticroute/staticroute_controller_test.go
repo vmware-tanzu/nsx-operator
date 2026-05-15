@@ -11,10 +11,9 @@ import (
 	"time"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -25,6 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 
@@ -268,10 +269,10 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 		a := []*model.StaticRoutes{}
 		id1 := "2345"
 		path := "/orgs/org123/projects/pro123/vpcs/vpc123/static-routes/123"
-		tag1 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("2345")}}
+		tag1 := []model.Tag{{Scope: util.Ptr(common.TagScopeStaticRouteCRUID), Tag: util.Ptr("2345")}}
 		a = append(a, &model.StaticRoutes{Id: &id1, Path: &path, Tags: tag1})
 		id2 := "1234"
-		tag2 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("1234")}}
+		tag2 := []model.Tag{{Scope: util.Ptr(common.TagScopeStaticRouteCRUID), Tag: util.Ptr("1234")}}
 		a = append(a, &model.StaticRoutes{Id: &id2, Path: &path, Tags: tag2})
 		return a
 	})
@@ -304,7 +305,7 @@ func TestStaticRouteReconciler_GarbageCollector(t *testing.T) {
 	patch.ApplyMethod(reflect.TypeOf(service), "ListStaticRoute", func(_ *staticroute.StaticRouteService) []*model.StaticRoutes {
 		a := []*model.StaticRoutes{}
 		id := "1234"
-		tag2 := []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String(id)}}
+		tag2 := []model.Tag{{Scope: util.Ptr(common.TagScopeStaticRouteCRUID), Tag: util.Ptr(id)}}
 		a = append(a, &model.StaticRoutes{Id: &id, Tags: tag2})
 		return a
 	})
@@ -449,14 +450,14 @@ func TestStaticRouteReconciler_deleteStaticRouteByName(t *testing.T) {
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListStaticRouteByName", func(_ *staticroute.StaticRouteService, _ string, _ string) []*model.StaticRoutes {
 		return []*model.StaticRoutes{
 			{
-				Id:   pointy.String("route-id-1"),
-				Path: pointy.String("/orgs/org123/projects/pro123/vpcs/vpc123/static-routes/route-id-1"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("uid1")}},
+				Id:   util.Ptr("route-id-1"),
+				Path: util.Ptr("/orgs/org123/projects/pro123/vpcs/vpc123/static-routes/route-id-1"),
+				Tags: []model.Tag{{Scope: util.Ptr(common.TagScopeStaticRouteCRUID), Tag: util.Ptr("uid1")}},
 			},
 			{
-				Id:   pointy.String("route-id-2"),
-				Path: pointy.String("/orgs/org123/projects/pro123/vpcs/vpc123/static-routes/route-id-2"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagScopeStaticRouteCRUID), Tag: pointy.String("uid2")}},
+				Id:   util.Ptr("route-id-2"),
+				Path: util.Ptr("/orgs/org123/projects/pro123/vpcs/vpc123/static-routes/route-id-2"),
+				Tags: []model.Tag{{Scope: util.Ptr(common.TagScopeStaticRouteCRUID), Tag: util.Ptr("uid2")}},
 			},
 		}
 	})

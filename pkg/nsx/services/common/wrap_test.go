@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
 )
 
 func TestService_WrapAttachment(t *testing.T) {
@@ -147,7 +146,7 @@ func TestService_WrapInfra(t *testing.T) {
 			children: children,
 			want: &model.Infra{
 				Children:     children,
-				ResourceType: pointy.String(ResourceTypeInfra),
+				ResourceType: String(ResourceTypeInfra),
 			},
 			wantErr: assert.NoError,
 		},
@@ -156,7 +155,7 @@ func TestService_WrapInfra(t *testing.T) {
 			children: nil,
 			want: &model.Infra{
 				Children:     nil,
-				ResourceType: pointy.String(ResourceTypeInfra),
+				ResourceType: String(ResourceTypeInfra),
 			},
 			wantErr: assert.NoError,
 		},
@@ -191,7 +190,7 @@ func TestService_WrapOrgRoot(t *testing.T) {
 			children: children,
 			want: &model.OrgRoot{
 				Children:     children,
-				ResourceType: pointy.String(ResourceTypeOrgRoot),
+				ResourceType: String(ResourceTypeOrgRoot),
 			},
 			wantErr: assert.NoError,
 		},
@@ -200,7 +199,7 @@ func TestService_WrapOrgRoot(t *testing.T) {
 			children: nil,
 			want: &model.OrgRoot{
 				Children:     nil,
-				ResourceType: pointy.String(ResourceTypeOrgRoot),
+				ResourceType: String(ResourceTypeOrgRoot),
 			},
 			wantErr: assert.NoError,
 		},

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	mapset "github.com/deckarep/golang-set"
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -426,7 +426,7 @@ func Capitalize(s string) string {
 }
 
 func GetRandomIndexString() string {
-	uuidStr := uuid.NewString()
+	uuidStr := uuid.Must(uuid.NewV4()).String()
 	return Sha1(uuidStr)[:common.HashLength]
 }
 
@@ -451,7 +451,7 @@ func GetClusterUUID(clusterID string) uuid.UUID {
 	clusterMu.RUnlock()
 
 	// Create new UUID
-	newUUID := uuid.NewSHA1(uuid.NameSpaceX500, []byte(clusterID))
+	newUUID := uuid.NewV5(uuid.NamespaceX500, clusterID)
 
 	// Write lock and double-check
 	clusterMu.Lock()

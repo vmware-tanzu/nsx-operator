@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -111,13 +111,13 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		// to make sure hostd will not ignore the vm network reconfigure
 		salt := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 		var parsedUUID uuid.UUID
-		if parsedUUID, err = uuid.Parse(string(objMeta.UID)); err != nil {
+		if parsedUUID, err = uuid.FromString(string(objMeta.UID)); err != nil {
 			return nil, err
 		}
-		nsxCIFID = uuid.NewSHA1(parsedUUID, salt)
+		nsxCIFID = uuid.NewV5(parsedUUID, string(salt))
 	} else {
 		// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
-		if nsxCIFID, err = uuid.NewRandomFromReader(bytes.NewReader([]byte(string(objMeta.UID)))); err != nil {
+		if nsxCIFID, err = uuid.NewGenWithOptions(uuid.WithRandomReader(bytes.NewReader([]byte(string(objMeta.UID))))).NewV4(); err != nil {
 			return nil, err
 		}
 	}

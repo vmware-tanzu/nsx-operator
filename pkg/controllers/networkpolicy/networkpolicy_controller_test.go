@@ -12,12 +12,11 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +43,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type fakeRecorder struct{}
@@ -168,9 +168,9 @@ func Test_clarifyAndSetNetworkPolicyErrorAnnotation(t *testing.T) {
 	errTypeInternalServer := apierrors.ErrorTypeEnum("INTERNAL_SERVER_ERROR")
 	errTypeInvalidRequest := apierrors.ErrorTypeEnum("INVALID_REQUEST")
 	intrnalServerErr := &model.ApiError{
-		ErrorCode:    pointy.Int64(123),
-		ErrorMessage: pointy.String("Test error message"),
-		Details:      pointy.String("Test details"),
+		ErrorCode:    pkgutil.Ptr(int64(123)),
+		ErrorMessage: pkgutil.Ptr("Test error message"),
+		Details:      pkgutil.Ptr("Test details"),
 	}
 	internalServerErr := util.NewNSXApiError(intrnalServerErr, errTypeInternalServer)
 	invalidRequestErr := util.NewNSXApiError(intrnalServerErr, errTypeInvalidRequest)
@@ -511,12 +511,12 @@ func TestNetworkPolicyReconciler_deleteNetworkPolicyByName(t *testing.T) {
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "ListNetworkPolicyByName", func(_ *securitypolicy.SecurityPolicyService, _ string, _ string) []*model.SecurityPolicy {
 		return []*model.SecurityPolicy{
 			{
-				Id:   pointy.String("sp-id-1"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagScopeNetworkPolicyUID), Tag: pointy.String("uid1")}},
+				Id:   pkgutil.Ptr("sp-id-1"),
+				Tags: []model.Tag{{Scope: pkgutil.Ptr(common.TagScopeNetworkPolicyUID), Tag: pkgutil.Ptr("uid1")}},
 			},
 			{
-				Id:   pointy.String("sp-id-2"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagScopeNetworkPolicyUID), Tag: pointy.String("uid2")}},
+				Id:   pkgutil.Ptr("sp-id-2"),
+				Tags: []model.Tag{{Scope: pkgutil.Ptr(common.TagScopeNetworkPolicyUID), Tag: pkgutil.Ptr("uid2")}},
 			},
 		}
 	})

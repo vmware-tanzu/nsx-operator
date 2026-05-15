@@ -26,8 +26,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
 )
+
+func Ptr[T any](v T) *T {
+	return &v
+}
 
 func TestHttpErrortoNSXError(t *testing.T) {
 	assert := assert.New(t)
@@ -932,16 +935,16 @@ func TestNewNSXApiError(t *testing.T) {
 			name:       "ValidApiError",
 			errTypeNum: apierrors.ErrorType_NOT_FOUND,
 			apiError: &model.ApiError{
-				ErrorCode:    pointy.Int64(123),
-				ErrorMessage: pointy.String("Test error message"),
-				Details:      pointy.String("Test details"),
+				ErrorCode:    Ptr(int64(123)),
+				ErrorMessage: Ptr("Test error message"),
+				Details:      Ptr("Test details"),
 			},
 			wantError: &NSXApiError{
 				ErrorTypeEnum: apierrors.ErrorType_NOT_FOUND,
 				ApiError: &model.ApiError{
-					ErrorCode:    pointy.Int64(123),
-					ErrorMessage: pointy.String("Test error message"),
-					Details:      pointy.String("Test details"),
+					ErrorCode:    Ptr(int64(123)),
+					ErrorMessage: Ptr("Test error message"),
+					Details:      Ptr("Test details"),
 				},
 			},
 			wantErrorMessage: "nsx error code: 123, message: Test error message, details: Test details",
@@ -950,26 +953,26 @@ func TestNewNSXApiError(t *testing.T) {
 			name:       "ApiErrorWithoutDetails",
 			errTypeNum: apierrors.ErrorType_NOT_FOUND,
 			apiError: &model.ApiError{
-				ErrorCode:    pointy.Int64(500157),
-				ErrorMessage: pointy.String("Error while creating objects of type:Project"),
+				ErrorCode:    Ptr(int64(500157)),
+				ErrorMessage: Ptr("Error while creating objects of type:Project"),
 				RelatedErrors: []model.RelatedApiError{
 					{
-						ErrorCode:    pointy.Int64(612853),
-						ErrorMessage: pointy.String("Tgw external connection /infra/gateway-connections/GwConn2 is already used in another project."),
-						ModuleName:   pointy.String("Policy"),
+						ErrorCode:    Ptr(int64(612853)),
+						ErrorMessage: Ptr("Tgw external connection /infra/gateway-connections/GwConn2 is already used in another project."),
+						ModuleName:   Ptr("Policy"),
 					},
 				},
 			},
 			wantError: &NSXApiError{
 				ErrorTypeEnum: apierrors.ErrorType_NOT_FOUND,
 				ApiError: &model.ApiError{
-					ErrorCode:    pointy.Int64(500157),
-					ErrorMessage: pointy.String("Error while creating objects of type:Project"),
+					ErrorCode:    Ptr(int64(500157)),
+					ErrorMessage: Ptr("Error while creating objects of type:Project"),
 					RelatedErrors: []model.RelatedApiError{
 						{
-							ErrorCode:    pointy.Int64(612853),
-							ErrorMessage: pointy.String("Tgw external connection /infra/gateway-connections/GwConn2 is already used in another project."),
-							ModuleName:   pointy.String("Policy"),
+							ErrorCode:    Ptr(int64(612853)),
+							ErrorMessage: Ptr("Tgw external connection /infra/gateway-connections/GwConn2 is already used in another project."),
+							ModuleName:   Ptr("Policy"),
 						},
 					},
 				},
@@ -1002,13 +1005,13 @@ func TestNSXApiError_Error(t *testing.T) {
 		{
 			name: "ValidApiError",
 			apiError: &model.ApiError{
-				ErrorCode:    pointy.Int64(123),
-				ErrorMessage: pointy.String("Test error message"),
-				Details:      pointy.String("Test details"),
+				ErrorCode:    Ptr(int64(123)),
+				ErrorMessage: Ptr("Test error message"),
+				Details:      Ptr("Test details"),
 				RelatedErrors: []model.RelatedApiError{
 					{
-						ErrorCode:    pointy.Int64(456),
-						ErrorMessage: pointy.String("Related error message"),
+						ErrorCode:    Ptr(int64(456)),
+						ErrorMessage: Ptr("Related error message"),
 					},
 				},
 			},
@@ -1376,10 +1379,10 @@ func TestRelatedErrorToString(t *testing.T) {
 		{
 			name: "ValidError",
 			err: &model.RelatedApiError{
-				Details:      pointy.String("Some details"),
-				ErrorCode:    pointy.Int64(123),
-				ErrorMessage: pointy.String("Some error message"),
-				ModuleName:   pointy.String("Some module"),
+				Details:      Ptr("Some details"),
+				ErrorCode:    Ptr(int64(123)),
+				ErrorMessage: Ptr("Some error message"),
+				ModuleName:   Ptr("Some module"),
 			},
 			expected: "{Details: Some details, ErrorCode: 123, ErrorMessage: Some error message, ModuleName: Some module}",
 		},
@@ -1422,10 +1425,10 @@ func TestRelatedErrorsToString(t *testing.T) {
 			name: "SingleError",
 			errors: []model.RelatedApiError{
 				{
-					Details:      pointy.String("Some details"),
-					ErrorCode:    pointy.Int64(123),
-					ErrorMessage: pointy.String("Some error message"),
-					ModuleName:   pointy.String("Some module"),
+					Details:      Ptr("Some details"),
+					ErrorCode:    Ptr(int64(123)),
+					ErrorMessage: Ptr("Some error message"),
+					ModuleName:   Ptr("Some module"),
 				},
 			},
 			expected: "[{Details: Some details, ErrorCode: 123, ErrorMessage: Some error message, ModuleName: Some module}]",
@@ -1434,16 +1437,16 @@ func TestRelatedErrorsToString(t *testing.T) {
 			name: "MultipleErrors",
 			errors: []model.RelatedApiError{
 				{
-					Details:      pointy.String("First details"),
-					ErrorCode:    pointy.Int64(123),
-					ErrorMessage: pointy.String("First error message"),
-					ModuleName:   pointy.String("First module"),
+					Details:      Ptr("First details"),
+					ErrorCode:    Ptr(int64(123)),
+					ErrorMessage: Ptr("First error message"),
+					ModuleName:   Ptr("First module"),
 				},
 				{
-					Details:      pointy.String("Second details"),
-					ErrorCode:    pointy.Int64(456),
-					ErrorMessage: pointy.String("Second error message"),
-					ModuleName:   pointy.String("Second module"),
+					Details:      Ptr("Second details"),
+					ErrorCode:    Ptr(int64(456)),
+					ErrorMessage: Ptr("Second error message"),
+					ModuleName:   Ptr("Second module"),
 				},
 			},
 			expected: "[{Details: First details, ErrorCode: 123, ErrorMessage: First error message, ModuleName: First module}, {Details: Second details, ErrorCode: 456, ErrorMessage: Second error message, ModuleName: Second module}]",
@@ -1471,7 +1474,7 @@ func TestSafeString(t *testing.T) {
 		},
 		{
 			name:     "NonNilPointer",
-			input:    pointy.String("test string"),
+			input:    Ptr("test string"),
 			expected: "test string",
 		},
 	}
@@ -1497,7 +1500,7 @@ func TestSafeInt(t *testing.T) {
 		},
 		{
 			name:     "NonNilPointer",
-			input:    pointy.Int64(123),
+			input:    Ptr(int64(123)),
 			expected: 123,
 		},
 	}
@@ -1523,22 +1526,22 @@ func TestIsEmptyAPIError(t *testing.T) {
 		{
 			name: "NonEmptyApiErrorWithErrorCode",
 			apiError: model.ApiError{
-				ErrorCode: pointy.Int64(123),
+				ErrorCode: Ptr(int64(123)),
 			},
 			expected: false,
 		},
 		{
 			name: "NonEmptyApiErrorWithErrorMessage",
 			apiError: model.ApiError{
-				ErrorMessage: pointy.String("Some error message"),
+				ErrorMessage: Ptr("Some error message"),
 			},
 			expected: false,
 		},
 		{
 			name: "NonEmptyApiErrorWithBothFields",
 			apiError: model.ApiError{
-				ErrorCode:    pointy.Int64(123),
-				ErrorMessage: pointy.String("Some error message"),
+				ErrorCode:    Ptr(int64(123)),
+				ErrorMessage: Ptr("Some error message"),
 			},
 			expected: false,
 		},
@@ -1571,8 +1574,8 @@ func TestCastApiError(t *testing.T) {
 				"error_message": data.NewStringValue("Test error message"),
 			}),
 			expectedApiError: &model.ApiError{
-				ErrorCode:    pointy.Int64(123),
-				ErrorMessage: pointy.String("Test error message"),
+				ErrorCode:    Ptr(int64(123)),
+				ErrorMessage: Ptr("Test error message"),
 			},
 			expectedLogMessage: "",
 		},
@@ -1595,8 +1598,8 @@ func TestFindTag(t *testing.T) {
 		{
 			name: "TagFound",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1"), Tag: pointy.String("tag1")},
-				{Scope: pointy.String("scope2"), Tag: pointy.String("tag2")},
+				{Scope: Ptr("scope1"), Tag: Ptr("tag1")},
+				{Scope: Ptr("scope2"), Tag: Ptr("tag2")},
 			},
 			tagScope: "scope1",
 			expected: "tag1",
@@ -1604,8 +1607,8 @@ func TestFindTag(t *testing.T) {
 		{
 			name: "TagNotFound",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1"), Tag: pointy.String("tag1")},
-				{Scope: pointy.String("scope2"), Tag: pointy.String("tag2")},
+				{Scope: Ptr("scope1"), Tag: Ptr("tag1")},
+				{Scope: Ptr("scope2"), Tag: Ptr("tag2")},
 			},
 			tagScope: "scope3",
 			expected: "",

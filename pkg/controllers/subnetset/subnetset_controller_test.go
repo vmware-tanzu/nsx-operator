@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 	v12 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1014,7 +1014,7 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 
 	// fake SubnetSetLocks
 	lock := sync.Mutex{}
-	subnetSetId := types.UID(uuid.NewString())
+	subnetSetId := types.UID(uuid.Must(uuid.NewV4()).String())
 	ctlcommon.SubnetSetLocks.LoadOrStore(subnetSetId, &lock)
 
 	r.CollectGarbage(ctx)
