@@ -151,10 +151,10 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 		// Only create the auto-created SubnetSet if there is no pre-created Subnet for default network
 		if !hasPrecreatedSubnet && hasCIDR {
 			spec := v1alpha1.SubnetSetSpec{AccessMode: accessMode}
-			if util.IPv4SubnetSizeApplicable(ipFamily) {
+			if util.SubnetFamilyUsesIPv4(ipFamily) {
 				spec.IPv4SubnetSize = nc.Spec.DefaultSubnetSize
 			}
-			if util.IPv6PrefixLengthApplicable(ipFamily) {
+			if util.SubnetFamilyUsesIPv6(ipFamily) {
 				spec.IPv6PrefixLength = nc.Spec.DefaultIPv6PrefixLength
 			}
 			obj := &v1alpha1.SubnetSet{

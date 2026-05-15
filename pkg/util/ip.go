@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/apparentlymart/go-cidr/cidr"
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 // RemoveIPPrefix remove the prefix from an IP address, e.g.
@@ -249,4 +250,14 @@ func GetCIDRRangesWithExcept(cidr string, excepts []string) ([]string, error) {
 		resultRanges = append(resultRanges, fmt.Sprintf("%s-%s", rng[0], rng[1]))
 	}
 	return resultRanges, nil
+}
+
+// SubnetFamilyUsesIPv6 reports whether the Subnet(Set) allocates IPv6 addresses.
+func SubnetFamilyUsesIPv6(ipType v1alpha1.IPAddressType) bool {
+	return ipType == v1alpha1.IPAddressTypeIPv6 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
+}
+
+// SubnetFamilyUsesIPv4 reports whether the Subnet(Set) allocates IPv4 addresses.
+func SubnetFamilyUsesIPv4(ipType v1alpha1.IPAddressType) bool {
+	return ipType == v1alpha1.IPAddressTypeIPv4 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
 }
