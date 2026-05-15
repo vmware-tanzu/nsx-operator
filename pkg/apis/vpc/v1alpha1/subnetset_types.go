@@ -17,8 +17,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode) || self.subnetDHCPv6Config.mode!='DHCPRelay'", message="DHCPRelay is not supported in SubnetSet"
 type SubnetSetSpec struct {
 	// IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet.
-	// +kubebuilder:validation:Enum=IPV4;IPV6;IPV4IPV6
-	// +kubebuilder:default=IPV4
+	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
 	IPAddressType IPAddressType `json:"ipAddressType,omitempty"`
 	// Size of IPv4 Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536

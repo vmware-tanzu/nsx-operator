@@ -258,9 +258,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW. | Private | Enum: [External Private PrivateTGW] <br /> |
-| `allocationSize` _integer_ | AllocationSize specifies the size of allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
+| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. | Private | Enum: [External Private PrivateTGW] <br /> |
+| `allocationSize` _integer_ | AllocationSize specifies the size of IPv4 allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
+| `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses. |  | Maximum: 128 <br />Minimum: 64 <br /> |
+| `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation. | IPv4 | Enum: [IPv4 IPv6] <br /> |
 
 
 #### IPAddressAllocationStatus
@@ -289,17 +291,32 @@ _Underlying type:_ _string_
 
 
 _Appears in:_
+- [SubnetIPReservationSpec](#subnetipreservationspec)
+- [SubnetPortSpec](#subnetportspec)
 - [SubnetSetSpec](#subnetsetspec)
 - [SubnetSpec](#subnetspec)
 
 | Field | Description |
 | --- | --- |
-| `IPV4` |  |
-| `IPV6` |  |
-| `IPV4IPV6` |  |
+| `IPv4` |  |
+| `IPv6` |  |
+| `IPv4IPv6` |  |
 
 
 #### IPAddressVisibility
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [IPAddressAllocationSpec](#ipaddressallocationspec)
+
+
+
+#### IPAllocationAddressType
 
 _Underlying type:_ _string_
 
@@ -692,6 +709,25 @@ _Appears in:_
 | `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer or DHCPRelay, its default value is false.<br />The value cannot be set to true when the DHCP mode is DHCPServer or DHCPRelay. |  |  |
 
 
+#### StaticIPAllocationType
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [SubnetPortSpec](#subnetportspec)
+
+| Field | Description |
+| --- | --- |
+| `IPv4` |  |
+| `IPv6` |  |
+| `IPv4IPv6` |  |
+| `None` |  |
+
+
 #### StaticRoute
 
 
@@ -928,7 +964,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from.<br />The Subnet needs to have static IP allocation activated. |  | Required: \{\} <br /> |
 | `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br /> |
-| `reservedIPs` _string array_ | ReservedIPs represents array of Reserved IPs. It can can contain IP addresses,<br />IP Address range and CIDRs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"] |  | MinItems: 1 <br /> |
+| `reservedIPs` _string array_ | ReservedIPs represents array of Reserved IPs. It can contain IP addresses,<br />IP Address range and CIDRs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28",<br />"2001:db8::1", "2001:db8::1-2001:db8::ff", "2001:db8::1/64"] |  | MinItems: 1 <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type of the SubnetIPReservation. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 
 
 #### SubnetIPReservationStatus
@@ -1001,6 +1038,8 @@ _Appears in:_
 | `subnet` _string_ | Subnet defines the parent Subnet name of the SubnetPort. |  |  |
 | `subnetSet` _string_ | SubnetSet defines the parent SubnetSet name of the SubnetPort. |  |  |
 | `addressBindings` _[PortAddressBinding](#portaddressbinding) array_ | AddressBindings defines static address bindings used for the SubnetPort. |  |  |
+| `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. It will be ignored when<br />StaticIPAllocationType is set. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
+| `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. This field is only valid<br />when static allocation is enabled on the Subnet. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
 
 
 #### SubnetPortStatus
@@ -1053,7 +1092,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet. | IPV4 | Enum: [IPV4 IPV6 IPV4IPV6] <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 | `ipv4SubnetSize` _integer_ | Size of IPv4 Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
 | `ipv6PrefixLength` _integer_ | IPv6 prefix length for subnets in the SubnetSet (e.g. 64 means /64). |  | Maximum: 127 <br />Minimum: 2 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
@@ -1093,7 +1132,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `vpcName` _string_ | VPC name of the Subnet. |  |  |
-| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for the Subnet. | IPV4 | Enum: [IPV4 IPV6 IPV4IPV6] <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for the Subnet. | IPv4 | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 | `ipv4SubnetSize` _integer_ | Size of IPv4 Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
 | `ipv6PrefixLength` _integer_ | IPv6 prefix length for the Subnet (e.g. 64 means /64). |  | Maximum: 127 <br />Minimum: 2 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW L2Only] <br /> |

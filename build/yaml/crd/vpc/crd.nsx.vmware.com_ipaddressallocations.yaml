@@ -23,6 +23,10 @@ spec:
       jsonPath: .status.allocationIPs
       name: AllocationIPs
       type: string
+    - description: IPv6 allocation prefix length of the IPAddressAllocation.
+      jsonPath: .spec.ipv6AllocationPrefixLength
+      name: IPv6AllocationPrefixLength
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -57,7 +61,7 @@ spec:
                   rule: self == oldSelf
               allocationSize:
                 description: |-
-                  AllocationSize specifies the size of allocationIPs to be allocated.
+                  AllocationSize specifies the size of IPv4 allocationIPs to be allocated.
                   It should be a power of 2.
                 minimum: 1
                 type: integer
@@ -66,9 +70,9 @@ spec:
                   rule: self == oldSelf
               ipAddressBlockVisibility:
                 default: Private
-                description: IPAddressBlockVisibility specifies the visibility of
-                  the IPBlocks to allocate IP addresses. Can be External, Private
-                  or PrivateTGW.
+                description: |-
+                  IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
+                  This field is not applicable if ipAddressType is IPv6.
                 enum:
                 - External
                 - Private
@@ -77,14 +81,45 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              ipAddressType:
+                default: IPv4
+                description: IPAddressType specifies the IP address type of the IPAddressAllocation.
+                enum:
+                - IPv4
+                - IPv6
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
+              ipv6AllocationPrefixLength:
+                description: IPv6AllocationPrefixLength specifies the prefix length
+                  of IPv6 addresses.
+                maximum: 128
+                minimum: 64
+                type: integer
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             type: object
             x-kubernetes-validations:
             - message: Only one of allocationSize or allocationIPs can be specified
               rule: '!has(self.allocationSize) || !has(self.allocationIPs)'
+            - message: Only one of ipv6AllocationPrefixLength or allocationIPs can
+                be specified
+              rule: '!has(self.ipv6AllocationPrefixLength) || !has(self.allocationIPs)'
             - message: allocationSize is required once set
               rule: '!has(oldSelf.allocationSize) || has(self.allocationSize)'
             - message: allocationIPs is required once set
               rule: '!has(oldSelf.allocationIPs) || has(self.allocationIPs)'
+            - message: ipv6AllocationPrefixLength is required once set
+              rule: '!has(oldSelf.ipv6AllocationPrefixLength) || has(self.ipv6AllocationPrefixLength)'
+            - message: allocationSize can only be set when ipAddressType is IPv4
+              rule: '!has(self.allocationSize) || !has(self.ipAddressType) || self.ipAddressType
+                == ''IPv4'''
+            - message: ipv6AllocationPrefixLength can only be set when ipAddressType
+                is IPv6
+              rule: '!has(self.ipv6AllocationPrefixLength) || self.ipAddressType ==
+                ''IPv6'''
           status:
             description: IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
             properties:

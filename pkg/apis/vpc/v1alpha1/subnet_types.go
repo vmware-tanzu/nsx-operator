@@ -26,9 +26,9 @@ const (
 	DHCPv6ConfigModeRelay         DHCPv6ConfigMode  = "DHCPRelay"
 	ConnectivityStateConnected    ConnectivityState = "Connected"
 	ConnectivityStateDisconnected ConnectivityState = "Disconnected"
-	IPAddressTypeIPv4             IPAddressType     = "IPV4"
-	IPAddressTypeIPv6             IPAddressType     = "IPV6"
-	IPAddressTypeIPv4IPv6         IPAddressType     = "IPV4IPV6"
+	IPAddressTypeIPv4             IPAddressType     = "IPv4"
+	IPAddressTypeIPv6             IPAddressType     = "IPv6"
+	IPAddressTypeIPv4IPv6         IPAddressType     = "IPv4IPv6"
 )
 
 // SubnetSpec defines the desired state of Subnet.
@@ -47,8 +47,8 @@ type SubnetSpec struct {
 	// VPC name of the Subnet.
 	VPCName string `json:"vpcName,omitempty"`
 	// IPAddressType defines the IP address type that will be allocated for the Subnet.
-	// +kubebuilder:validation:Enum=IPV4;IPV6;IPV4IPV6
-	// +kubebuilder:default=IPV4
+	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
+	// +kubebuilder:default=IPv4
 	IPAddressType IPAddressType `json:"ipAddressType,omitempty"`
 	// Size of IPv4 Subnet based upon estimated workload count.
 	// +kubebuilder:validation:Maximum:=65536
