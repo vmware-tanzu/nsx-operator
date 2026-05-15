@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
@@ -506,14 +508,14 @@ func TestCalculateIPFromCIDRs_IPv6(t *testing.T) {
 }
 
 func TestIPAddressTypeIncludesIPv4(t *testing.T) {
-	assert.True(t, IPAddressTypeIncludesIPv4(""))                             // unset → IPv4-only
+	assert.False(t, IPAddressTypeIncludesIPv4(""))                            // empty is not a valid IPAddressType
 	assert.True(t, IPAddressTypeIncludesIPv4(v1alpha1.IPAddressTypeIPv4))     // explicit IPv4
 	assert.True(t, IPAddressTypeIncludesIPv4(v1alpha1.IPAddressTypeIPv4IPv6)) // dual-stack
 	assert.False(t, IPAddressTypeIncludesIPv4(v1alpha1.IPAddressTypeIPv6))    // IPv6-only
 }
 
 func TestIPAddressTypeIncludesIPv6(t *testing.T) {
-	assert.False(t, IPAddressTypeIncludesIPv6(""))                            // unset → IPv4-only
+	assert.False(t, IPAddressTypeIncludesIPv6(""))                            // empty is not a valid IPAddressType
 	assert.False(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv4))    // IPv4-only
 	assert.True(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv4IPv6)) // dual-stack
 	assert.True(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv6))     // IPv6-only

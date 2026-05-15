@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/apparentlymart/go-cidr/cidr"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
@@ -259,7 +260,7 @@ func IPAddressTypeIncludesIPv6(ipType v1alpha1.IPAddressType) bool {
 }
 
 // IPAddressTypeIncludesIPv4 reports whether the given IPAddressType allocates IPv4 addresses
-// (i.e. IPv4-only, dual-stack, or unset — which defaults to IPv4).
+// (i.e. IPv4-only or dual-stack).
 func IPAddressTypeIncludesIPv4(ipType v1alpha1.IPAddressType) bool {
 	return ipType == v1alpha1.IPAddressTypeIPv4 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
 }

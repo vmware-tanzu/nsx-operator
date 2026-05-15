@@ -14,7 +14,7 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/zap"
-	ini "gopkg.in/ini.v1"
+	"gopkg.in/ini.v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
@@ -485,4 +485,3 @@ func (nsxConfig *NsxConfig) GetNSXLBSize() string {
 	}
 	return lbsSize
 }
-
