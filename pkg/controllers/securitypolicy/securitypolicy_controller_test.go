@@ -18,11 +18,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -45,7 +45,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func fakeService() *securitypolicy.SecurityPolicyService {
@@ -699,12 +698,12 @@ func TestSecurityPolicyReconciler_deleteSecuritypolicyByName(t *testing.T) {
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyByName", func(_ *securitypolicy.SecurityPolicyService, _ string, _ string) []*model.SecurityPolicy {
 		return []*model.SecurityPolicy{
 			{
-				Id:   pointy.String("sp-id-1"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagValueScopeSecurityPolicyUID), Tag: pointy.String("uid1")}},
+				Id:   util.Ptr("sp-id-1"),
+				Tags: []model.Tag{{Scope: util.Ptr(common.TagValueScopeSecurityPolicyUID), Tag: util.Ptr("uid1")}},
 			},
 			{
-				Id:   pointy.String("sp-id-2"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagValueScopeSecurityPolicyUID), Tag: pointy.String("uid2")}},
+				Id:   util.Ptr("sp-id-2"),
+				Tags: []model.Tag{{Scope: util.Ptr(common.TagValueScopeSecurityPolicyUID), Tag: util.Ptr("uid2")}},
 			},
 		}
 	})

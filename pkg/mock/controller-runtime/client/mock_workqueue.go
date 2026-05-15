@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/golang/mock/gomock"
+	"go.uber.org/mock/gomock"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 

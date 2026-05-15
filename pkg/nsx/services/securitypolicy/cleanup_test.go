@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"

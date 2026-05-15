@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -3407,9 +3407,9 @@ func Test_ListSecurityPolicyByName(t *testing.T) {
 		DisplayName: &spName,
 		Id:          common.String(spID),
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagValueScopeSecurityPolicyName), Tag: pointy.String("sp1")},
-			{Scope: pointy.String(common.TagValueScopeSecurityPolicyUID), Tag: pointy.String("uid1")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagValueScopeSecurityPolicyName), Tag: util.Ptr("sp1")},
+			{Scope: util.Ptr(common.TagValueScopeSecurityPolicyUID), Tag: util.Ptr("uid1")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 	}
 
@@ -3417,9 +3417,9 @@ func Test_ListSecurityPolicyByName(t *testing.T) {
 		DisplayName: &spName1,
 		Id:          common.String(spID2),
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagValueScopeSecurityPolicyName), Tag: pointy.String("sp2")},
-			{Scope: pointy.String(common.TagValueScopeSecurityPolicyUID), Tag: pointy.String("uid2")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagValueScopeSecurityPolicyName), Tag: util.Ptr("sp2")},
+			{Scope: util.Ptr(common.TagValueScopeSecurityPolicyUID), Tag: util.Ptr("uid2")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 	}
 
@@ -3449,9 +3449,9 @@ func Test_ListNetworkPolicyByName(t *testing.T) {
 		DisplayName: &spName,
 		Id:          common.String(spID),
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagScopeNetworkPolicyName), Tag: pointy.String("np1")},
-			{Scope: pointy.String(common.TagScopeNetworkPolicyUID), Tag: pointy.String("uid1_allow")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagScopeNetworkPolicyName), Tag: util.Ptr("np1")},
+			{Scope: util.Ptr(common.TagScopeNetworkPolicyUID), Tag: util.Ptr("uid1_allow")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 	}
 
@@ -3459,9 +3459,9 @@ func Test_ListNetworkPolicyByName(t *testing.T) {
 		DisplayName: &spName1,
 		Id:          common.String(spID2),
 		Tags: []model.Tag{
-			{Scope: pointy.String(common.TagScopeNetworkPolicyName), Tag: pointy.String("np1")},
-			{Scope: pointy.String(common.TagScopeNetworkPolicyUID), Tag: pointy.String("uid1_isolation")},
-			{Scope: pointy.String(common.TagScopeNamespace), Tag: pointy.String("namespace1")},
+			{Scope: util.Ptr(common.TagScopeNetworkPolicyName), Tag: util.Ptr("np1")},
+			{Scope: util.Ptr(common.TagScopeNetworkPolicyUID), Tag: util.Ptr("uid1_isolation")},
+			{Scope: util.Ptr(common.TagScopeNamespace), Tag: util.Ptr("namespace1")},
 		},
 	}
 

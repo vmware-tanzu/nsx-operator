@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -160,7 +160,7 @@ func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func
 	for idExistsFn(resId) {
 		newObj := &metav1.ObjectMeta{
 			Name: initialObject.GetName(),
-			UID:  types.UID(uuid.New().String()),
+			UID:  types.UID(uuid.Must(uuid.NewV4()).String()),
 		}
 		resId = idGeneratorFn(newObj)
 	}

@@ -13,7 +13,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mp_model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
@@ -291,8 +290,8 @@ func Test_containsTagScope(t *testing.T) {
 		{
 			name: "Tag with matching scope",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1")},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope1")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{"scope1"},
 			want:   true,
@@ -300,8 +299,8 @@ func Test_containsTagScope(t *testing.T) {
 		{
 			name: "Tag without matching scope",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1")},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope1")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{"scope3"},
 			want:   false,
@@ -315,8 +314,8 @@ func Test_containsTagScope(t *testing.T) {
 		{
 			name: "Empty scopes",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1")},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope1")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{},
 			want:   false,
@@ -325,7 +324,7 @@ func Test_containsTagScope(t *testing.T) {
 			name: "Nil scope in tag",
 			tags: []model.Tag{
 				{Scope: nil},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{"scope1"},
 			want:   false,
