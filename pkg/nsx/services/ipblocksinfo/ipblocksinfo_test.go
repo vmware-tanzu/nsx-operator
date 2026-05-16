@@ -727,7 +727,7 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	assert.ElementsMatch(t, []string{"192.168.20.0/24", "2001:db8::/48"}, external)
 	assert.Empty(t, private)
 
-	// Test: dual-stack Private_TGW subnet with both IPv4 and IPv6 addresses
+	// Test: dual-stack Private_TGW subnet – IPv6 always goes to external, only IPv4 respects access mode
 	dualStackPrivateTgwPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/dualstack-private-tgw"
 	getSubnetPatch.Reset()
 	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
@@ -749,8 +749,58 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	}
 	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
 	assert.NoError(t, err)
-	assert.Empty(t, external)
-	assert.ElementsMatch(t, []string{"10.20.0.0/16", "fd00::/48"}, private)
+	assert.ElementsMatch(t, []string{"fd00::/48"}, external)
+	assert.ElementsMatch(t, []string{"10.20.0.0/16"}, private)
+
+	// Test: IPv6-only Private_TGW subnet – all CIDRs go to external (no access mode applied to IPv6)
+	ipv6OnlyPrivateTgwPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/ipv6-only-private-tgw"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		privateTgw := "Private_TGW"
+		return &model.VpcSubnet{
+			Path:        &ipv6OnlyPrivateTgwPath,
+			AccessMode:  &privateTgw,
+			IpAddresses: []string{"2001:db8::/32", "fd00::/48"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: ipv6OnlyPrivateTgwPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"2001:db8::/32", "fd00::/48"}, external)
+	assert.Empty(t, private)
+
+	// Test: subnet with an invalid CIDR entry – invalid entries are skipped, valid ones processed
+	invalidCIDRSubnetPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/invalid-cidr-subnet"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		public := "Public"
+		return &model.VpcSubnet{
+			Path:        &invalidCIDRSubnetPath,
+			AccessMode:  &public,
+			IpAddresses: []string{"not-a-cidr", "10.30.0.0/24", "2001:db8:1::/48"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: invalidCIDRSubnetPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"10.30.0.0/24", "2001:db8:1::/48"}, external)
+	assert.Empty(t, private)
 
 	// Test: SearchResource returns error
 	getSubnetPatch.Reset()

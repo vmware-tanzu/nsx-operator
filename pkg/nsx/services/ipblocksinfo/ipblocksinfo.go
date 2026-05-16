@@ -259,14 +259,26 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 			continue
 		}
 
-		switch *subnet.AccessMode {
-		case model.VpcSubnet_ACCESS_MODE_PUBLIC:
-			externalIPCIDRs = append(externalIPCIDRs, subnet.IpAddresses...)
-
-		case model.VpcSubnet_ACCESS_MODE_PRIVATE_TGW:
-			project := fmt.Sprintf("/orgs/%s/projects/%s", vpcInfo.OrgID, vpcInfo.ProjectID)
-			if project == s.defaultProject {
-				privateTGWIPCIDRs = append(privateTGWIPCIDRs, subnet.IpAddresses...)
+		for _, cidr := range subnet.IpAddresses {
+			ip, _, parseErr := net.ParseCIDR(cidr)
+			if parseErr != nil {
+				log.Warn("failed to parse subnet CIDR", "cidr", cidr, "err", parseErr)
+				continue
+			}
+			if ip.To4() == nil {
+				// IPv6 CIDRs are always public with no access mode
+				externalIPCIDRs = append(externalIPCIDRs, cidr)
+				continue
+			}
+			// IPv4: apply access mode check
+			switch *subnet.AccessMode {
+			case model.VpcSubnet_ACCESS_MODE_PUBLIC:
+				externalIPCIDRs = append(externalIPCIDRs, cidr)
+			case model.VpcSubnet_ACCESS_MODE_PRIVATE_TGW:
+				project := fmt.Sprintf("/orgs/%s/projects/%s", vpcInfo.OrgID, vpcInfo.ProjectID)
+				if project == s.defaultProject {
+					privateTGWIPCIDRs = append(privateTGWIPCIDRs, cidr)
+				}
 			}
 		}
 	}
