@@ -300,6 +300,9 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNamespaced
 }
 
 func (service *IPAddressAllocationService) ListIPAddressAllocationID() sets.Set[string] {
+	if service == nil || service.ipAddressAllocationStore == nil {
+		return sets.New[string]()
+	}
 	ipAddressAllocationSet := service.ipAddressAllocationStore.ListIndexFuncValues(common.TagScopeIPAddressAllocationCRUID)
 	return ipAddressAllocationSet
 }

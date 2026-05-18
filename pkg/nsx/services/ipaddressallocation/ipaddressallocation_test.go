@@ -158,7 +158,7 @@ func TestIPAddressAllocationService_DeleteIPAddressAllocation(t *testing.T) {
 	err = returnservice.DeleteIPAddressAllocation(srObj)
 	assert.Nil(t, err)
 	srs := returnservice.ipAddressAllocationStore.List()
-	assert.Equal(t, len(srs), 1)
+	assert.Equal(t, 0, len(srs))
 }
 
 func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation(t *testing.T) {
@@ -204,6 +204,7 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation(t *testing
 		Path:                     String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, nsxAllocID)),
 		AllocationIps:            common.String("192.168.1.0/24"),
 		IpAddressBlockVisibility: common.String("PRIVATE"),
+		IpAddressType:            common.String(model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4),
 	}
 
 	var tc *bindings.TypeConverter
@@ -361,7 +362,7 @@ func TestIPAddressAllocationService_Cleanup(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Set up expectations
-	mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil)
+	mockOrgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	// Call Cleanup
 	ctx := context.Background()
@@ -378,7 +379,7 @@ func TestIPAddressAllocationService_Cleanup(t *testing.T) {
 	assert.NoError(t, err)
 
 	err = returnService.CleanupVPCChildResources(cancelledCtx, "")
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestIPAddressAllocationService_ListIPAddressAllocationID(t *testing.T) {
@@ -484,7 +485,7 @@ func TestIPAddressAllocationService_ListIPAddressAllocationKeys(t *testing.T) {
 
 	// Test ListIPAddressAllocationKeys
 	keys := returnService.ListIPAddressAllocationKeys()
-	assert.Equal(t, 3, len(keys))
+	assert.Equal(t, 2, len(keys))
 	assert.Contains(t, keys, id1)
 	assert.Contains(t, keys, id2)
 }

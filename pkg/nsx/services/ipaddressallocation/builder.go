@@ -22,16 +22,33 @@ const (
 )
 
 func convertIpAddressBlockVisibility(visibility v1alpha1.IPAddressVisibility) v1alpha1.IPAddressVisibility {
+	if visibility == "" {
+		return v1alpha1.IPAddressVisibilityPrivate
+	}
 	if visibility == v1alpha1.IPAddressVisibilityPrivateTGW {
 		return "PRIVATE_TGW"
 	}
 	return visibility
 }
 
+func ipAddressTypeToNSX(ipAddressType v1alpha1.IPAllocationAddressType) string {
+	switch ipAddressType {
+	case v1alpha1.IPAllocationIPAddressTypeIPv6:
+		return model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
+	case v1alpha1.IPAllocationIPAddressTypeIPv4:
+		fallthrough
+	default:
+		return model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
+	}
+}
+
 func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.Object, subnetPortCR *v1alpha1.SubnetPort, restoreMode bool) (*model.VpcIpAddressAllocation, error) {
-	ipAddressBlockVisibility := v1alpha1.IPAddressVisibilityExternal
+	ipAddressBlockVisibility := v1alpha1.IPAddressVisibilityPrivate
 	var allocationIps *string
 	var allocationSize *int64
+	var ipAddressType string
+	var ipv6AllocationPrefixLength *int64
+	ipAddressType = model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
 	switch o := obj.(type) {
 	case *v1alpha1.IPAddressAllocation:
 		VPCInfo := service.VPCService.ListVPCInfo(o.Namespace)
@@ -40,6 +57,12 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 			return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in Namespace %s", o.Name, o.Namespace)
 		}
 		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
+		ipAddressType = ipAddressTypeToNSX(o.Spec.IPAddressType)
+		if ipAddressType == model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
+			if o.Spec.IPv6AllocationPrefixLength > 0 {
+				ipv6AllocationPrefixLength = Int64(int64(o.Spec.IPv6AllocationPrefixLength))
+			}
+		}
 		if len(o.Spec.AllocationIPs) > 0 {
 			allocationIps = String(o.Spec.AllocationIPs)
 		} else if restoreMode && len(o.Status.AllocationIPs) > 0 {
@@ -52,6 +75,7 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		if !restoreMode || subnetPortCR == nil || o.Spec.IPAddressAllocationName != "" {
 			return nil, nil
 		}
+		ipAddressBlockVisibility = v1alpha1.IPAddressVisibilityExternal
 		allocationIps = &o.Status.IPAddress
 	}
 	tags := service.buildIPAddressAllocationTags(obj)
@@ -76,12 +100,16 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 	}
 	ipAddressAllocationId := service.BuildIPAddressAllocationID(objForIdGeneration)
 	vpcIpAddressAllocation := &model.VpcIpAddressAllocation{
-		Id:                       String(ipAddressAllocationId),
-		DisplayName:              String(service.buildIPAddressAllocationName(obj)),
-		Tags:                     tags,
-		IpAddressBlockVisibility: &ipAddressBlockVisibilityStr,
-		AllocationIps:            allocationIps,
-		AllocationSize:           allocationSize,
+		Id:                         String(ipAddressAllocationId),
+		DisplayName:                String(service.buildIPAddressAllocationName(obj)),
+		Tags:                       tags,
+		IpAddressType:              &ipAddressType,
+		AllocationIps:              allocationIps,
+		AllocationSize:             allocationSize,
+		Ipv6AllocationPrefixLength: ipv6AllocationPrefixLength,
+	}
+	if ipAddressType != model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
+		vpcIpAddressAllocation.IpAddressBlockVisibility = &ipAddressBlockVisibilityStr
 	}
 
 	return vpcIpAddressAllocation, nil

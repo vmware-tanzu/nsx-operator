@@ -46,13 +46,23 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	if req.Operation != admissionv1.Delete {
-		err := common.CheckAccessModeOrVisibility(v.Client, ctx, ipAddressAllocation.Namespace, string(ipAddressAllocation.Spec.IPAddressBlockVisibility), servicecommon.ResourceTypeIPAddressAllocation)
-		if err != nil {
-			log.Error(err, "IPAddressVisibility not supported", "IPAddressVisibility", ipAddressAllocation.Spec.IPAddressBlockVisibility, "namespace", ipAddressAllocation.Namespace)
-			if errors.Is(err, common.ErrFailedToListNetworkInfo) {
-				return admission.Errored(http.StatusServiceUnavailable, err)
+		// For IPv6 allocations, ipAddressBlockVisibility is not applicable and should be omitted.
+		// For IPv4 allocations, if ipAddressBlockVisibility is omitted, default to Private for validation.
+		visibility := string(ipAddressAllocation.Spec.IPAddressBlockVisibility)
+		if ipAddressAllocation.Spec.IPAddressType == v1alpha1.IPAllocationIPAddressTypeIPv6 {
+			visibility = ""
+		} else if visibility == "" {
+			visibility = string(v1alpha1.IPAddressVisibilityPrivate)
+		}
+		if visibility != "" {
+			err := common.CheckAccessModeOrVisibility(v.Client, ctx, ipAddressAllocation.Namespace, visibility, servicecommon.ResourceTypeIPAddressAllocation)
+			if err != nil {
+				log.Error(err, "IPAddressVisibility not supported", "IPAddressVisibility", visibility, "namespace", ipAddressAllocation.Namespace)
+				if errors.Is(err, common.ErrFailedToListNetworkInfo) {
+					return admission.Errored(http.StatusServiceUnavailable, err)
+				}
+				return admission.Denied(err.Error())
 			}
-			return admission.Denied(err.Error())
 		}
 	}
 	switch req.Operation {

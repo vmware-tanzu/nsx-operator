@@ -69,7 +69,6 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipAddressBlockVisibility:
-                default: Private
                 description: |-
                   IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
                   This field is not applicable if ipAddressType is IPv6.
@@ -92,6 +91,7 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipv6AllocationPrefixLength:
+                default: 64
                 description: IPv6AllocationPrefixLength specifies the prefix length
                   of IPv6 addresses.
                 maximum: 128
@@ -120,6 +120,9 @@ spec:
                 is IPv6
               rule: '!has(self.ipv6AllocationPrefixLength) || self.ipAddressType ==
                 ''IPv6'''
+            - message: ipAddressBlockVisibility cannot be set when ipAddressType is IPv6
+              rule: '!has(self.ipAddressBlockVisibility) || !has(self.ipAddressType) || self.ipAddressType
+                != ''IPv6'''
           status:
             description: IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
             properties:
