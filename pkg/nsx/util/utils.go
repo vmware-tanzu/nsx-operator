@@ -29,6 +29,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
@@ -770,12 +771,17 @@ func IsInvalidLicense(err error) bool {
 }
 
 func ParseDHCPMode(mode string) string {
-	// Transfer DHCPDeactivated to DHCP_DEACTIVATED
-	nsxMode := strings.ToUpper(mode)
-	if len(nsxMode) <= 4 {
+	switch mode {
+	case v1alpha1.DHCPConfigModeDeactivated:
+		return "DHCP_DEACTIVATED"
+	case v1alpha1.DHCPConfigModeServer:
+		return "DHCP_SERVER"
+	case v1alpha1.DHCPConfigModeRelay:
+		return "DHCP_RELAY"
+	case string(v1alpha1.DHCPv6ConfigModeServerStateless):
+		return "DHCP_SERVER_STATELESS"
+	default:
 		log.Error(nil, "Failed to parse DHCP mode", "mode", mode)
 		return ""
 	}
-	nsxMode = nsxMode[:4] + "_" + nsxMode[4:]
-	return nsxMode
 }

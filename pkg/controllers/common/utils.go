@@ -25,6 +25,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
+const (
+	// NSX API IP Address Types
+	NSXIPAddressTypeIPv4     = "IPV4"
+	NSXIPAddressTypeIPv6     = "IPV6"
+	NSXIPAddressTypeIPv4IPv6 = "IPV4_IPV6"
+)
+
 var (
 	log                     = logger.Log
 	SubnetSetLocks          sync.Map
@@ -615,4 +622,68 @@ func PodIsDeleted(pod *v1.Pod) bool {
 	}
 	return pod.Status.Phase == v1.PodSucceeded ||
 		pod.Status.Phase == v1.PodFailed
+}
+
+// ConvertCRIPAddressTypeToNSX converts CR IPAddressType to NSX API format
+// v1alpha1 format: IPv4, IPv6, IPv4IPv6
+// NSX format: IPV4, IPV6, IPV4_IPV6
+func ConvertCRIPAddressTypeToNSX(crType v1alpha1.IPAddressType) string {
+	switch crType {
+	case v1alpha1.IPAddressTypeIPv4:
+		return NSXIPAddressTypeIPv4
+	case v1alpha1.IPAddressTypeIPv6:
+		return NSXIPAddressTypeIPv6
+	case v1alpha1.IPAddressTypeIPv4IPv6:
+		return NSXIPAddressTypeIPv4IPv6
+	default:
+		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(crType))
+		return NSXIPAddressTypeIPv4
+	}
+}
+
+// ConvertNSXIPAddressTypeToCR converts NSX API IPAddressType to CR format
+// NSX format: IPV4, IPV6, IPV4_IPV6
+// v1alpha1 format: IPV4, IPV6, IPV4IPV6
+func ConvertNSXIPAddressTypeToCR(nsxType string) v1alpha1.IPAddressType {
+	switch nsxType {
+	case NSXIPAddressTypeIPv4:
+		return v1alpha1.IPAddressTypeIPv4
+	case NSXIPAddressTypeIPv6:
+		return v1alpha1.IPAddressTypeIPv6
+	case NSXIPAddressTypeIPv4IPv6:
+		return v1alpha1.IPAddressTypeIPv4IPv6
+	default:
+		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(nsxType))
+		return v1alpha1.IPAddressTypeIPv4
+	}
+}
+
+// IntersectIPAddressTypes computes the intersection of multiple IP address types
+// Returns the most restrictive common type, or error if no intersection
+// Example:
+// intersection of [IPv4IPv6, IPv6] should equal IPv6
+// intersection of [IPv4IPv6, IPv4] should equal IPv4
+func IntersectIPAddressTypes(types []v1alpha1.IPAddressType) (v1alpha1.IPAddressType, error) {
+	if len(types) == 0 {
+		return "", fmt.Errorf("no IP address types provided")
+	}
+
+	result := types[0]
+
+	for _, t := range types[1:] {
+		if result == t {
+			continue
+		}
+
+		if result == v1alpha1.IPAddressTypeIPv4IPv6 {
+			result = t // Dual-stack intersects to the more specific type
+		} else if t == v1alpha1.IPAddressTypeIPv4IPv6 {
+			// Dual-stack with single-stack: keep single-stack (more restrictive)
+			continue
+		} else {
+			return "", fmt.Errorf("no intersection between IP address types %s and %s", result, t)
+		}
+	}
+
+	return result, nil
 }

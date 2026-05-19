@@ -206,6 +206,75 @@ func TestSubnetToComparable(t *testing.T) {
 			},
 			expectChanged: true,
 		},
+		{
+			name: "SubnetDhcpv6Config added",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+					Mode: common.String("DHCP_SERVER"),
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id1,
+			},
+			expectChanged: true,
+		},
+		{
+			name: "SubnetDhcpv6Config mode changed",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+					Mode: common.String("DHCP_SERVER_STATELESS"),
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+					Mode: common.String("DHCP_SERVER"),
+				},
+			},
+			expectChanged: true,
+		},
+		{
+			name: "SubnetDhcpv6Config same",
+			nsxSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+					Mode: common.String("DHCP_RELAY"),
+				},
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id: &id1,
+				SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+					Mode: common.String("DHCP_RELAY"),
+				},
+			},
+			expectChanged: false,
+		},
+		{
+			name: "IPAddressType changed",
+			nsxSubnet: &model.VpcSubnet{
+				Id:            &id1,
+				IpAddressType: common.String("IPV6"),
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id:            &id1,
+				IpAddressType: common.String("IPV4"),
+			},
+			expectChanged: true,
+		},
+		{
+			name: "IPAddressType same IPv4IPv6",
+			nsxSubnet: &model.VpcSubnet{
+				Id:            &id1,
+				IpAddressType: common.String("IPV4_IPV6"),
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id:            &id1,
+				IpAddressType: common.String("IPV4_IPV6"),
+			},
+			expectChanged: false,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

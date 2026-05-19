@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -113,6 +114,8 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 					updatedSubnet := *existingSubnet
 					updatedSubnet.Tags = nsxSubnet.Tags
 					updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
+					updatedSubnet.SubnetDhcpv6Config = nsxSubnet.SubnetDhcpv6Config
+					updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
 					nsxSubnet = &updatedSubnet
 				} else {
 					changed = false
@@ -163,16 +166,27 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			nsxSubnet.Id = common.String(*existingSubnet.Id)
 			nsxSubnet.DisplayName = common.String(*existingSubnet.DisplayName)
 
-			// TODO: In some cases, the existingSubnet has GatewayAddresses and DhcpServerAddresses and the built nsxSubnet doesn't, but they are actually should be recognized as not changed.
+			// In some cases, the existingSubnet has GatewayAddresses and DhcpServerAddresses and the built nsxSubnet doesn't, but they are actually should be recognized as not changed.
+			// If gateway_addresses / dhcp_server_address is not explicitly specified, keep the original value
+			if nsxSubnet.AdvancedConfig != nil && existingSubnet.AdvancedConfig != nil {
+				if len(nsxSubnet.AdvancedConfig.GatewayAddresses) == 0 {
+					nsxSubnet.AdvancedConfig.GatewayAddresses = existingSubnet.AdvancedConfig.GatewayAddresses
+				}
+				if len(nsxSubnet.AdvancedConfig.DhcpServerAddresses) == 0 {
+					nsxSubnet.AdvancedConfig.DhcpServerAddresses = existingSubnet.AdvancedConfig.DhcpServerAddresses
+				}
+			}
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
 			if changed {
-				// Only tags, dhcp and specific advancedConfig fields are expected to be updated
+				// Only ipAddressType, tags, dhcp and specific advancedConfig fields are expected to be updated
 				// inherit other fields from the existing Subnet
 				// Avoid modification on existingSubnet to ensure
 				// Subnet store is only updated after the updating succeeds.
 				updatedSubnet := *existingSubnet
 				updatedSubnet.Tags = nsxSubnet.Tags
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
+				updatedSubnet.SubnetDhcpv6Config = nsxSubnet.SubnetDhcpv6Config
+				updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
 				// Only update gateway_addresses, dhcp_server_address, and connectivity_state from AdvancedConfig
 				if nsxSubnet.AdvancedConfig != nil {
 					updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
@@ -488,10 +502,16 @@ func (service *SubnetService) GenerateSubnetNSTags(obj client.Object) []model.Ta
 	return tags
 }
 
-func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
-	if dhcpMode == "" {
+func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, subnetsetCR *v1alpha1.SubnetSet) error {
+	dhcpMode := string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)
+	dhcpv6Mode := string(subnetsetCR.Spec.SubnetDHCPv6Config.Mode)
+	if subnetsetCR.Spec.SubnetDHCPConfig.Mode == "" {
 		dhcpMode = v1alpha1.DHCPConfigModeDeactivated
 	}
+	if subnetsetCR.Spec.SubnetDHCPv6Config.Mode == "" {
+		dhcpv6Mode = string(v1alpha1.DHCPv6ConfigModeDeactivated)
+	}
+
 	for i, vpcSubnet := range vpcSubnets {
 		subnetSet := &v1alpha1.SubnetSet{}
 		var name string
@@ -528,11 +548,21 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		// is only updated after the updating succeeds.
 		updatedSubnet := *vpcSubnets[i] // #nosec G602
 		updatedSubnet.Tags = newTags
+		updatedSubnet.IpAddressType = String(controllercommon.ConvertCRIPAddressTypeToNSX(subnetsetCR.Spec.IPAddressType))
 		// Update the SubnetSet DHCP Config
 		if updatedSubnet.SubnetDhcpConfig != nil {
 			// Generate a new SubnetDhcpConfig for updatedSubnet to
 			// avoid changing vpcSubnets[i].SubnetDhcpConfig
 			updatedSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, updatedSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig)
+		} else if util.IPAddressTypeIncludesIPv4(subnetsetCR.Spec.IPAddressType) {
+			// When IPAddressType contains IPv4, generate a new SubnetDhcpConfig for updatedSubnet even if SubnetDhcpConfig is nil
+			updatedSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
+		}
+		if updatedSubnet.SubnetDhcpv6Config != nil {
+			updatedSubnet.SubnetDhcpv6Config = service.buildSubnetDHCPv6Config(dhcpv6Mode, updatedSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig)
+		} else if util.IPAddressTypeIncludesIPv6(subnetsetCR.Spec.IPAddressType) {
+			// When IPAddressType contains IPv6, generate a new SubnetDhcpv6Config for updatedSubnet even if SubnetDhcpv6Config is nil
+			updatedSubnet.SubnetDhcpv6Config = service.buildSubnetDHCPv6Config(dhcpv6Mode, nil)
 		}
 		changed := common.CompareResource(SubnetToComparable(vpcSubnets[i]), SubnetToComparable(&updatedSubnet)) // #nosec G602
 		if !changed {
@@ -596,13 +626,24 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		default:
 			subnetCR.Spec.AccessMode = v1alpha1.AccessMode(accessMode)
 		}
-	} else {
-		subnetCR.Spec.AccessMode = v1alpha1.AccessMode(v1alpha1.AccessModePublic)
 	}
 
 	// Map IPv4SubnetSize
 	if nsxSubnet.Ipv4SubnetSize != nil {
 		subnetCR.Spec.IPv4SubnetSize = int(*nsxSubnet.Ipv4SubnetSize)
+	}
+
+	// Map IPv6PrefixLength
+	if nsxSubnet.Ipv6PrefixLength != nil {
+		subnetCR.Spec.IPv6PrefixLength = int(*nsxSubnet.Ipv6PrefixLength)
+	}
+
+	// Map IpAddressType
+	if nsxSubnet.IpAddressType != nil {
+		subnetCR.Spec.IPAddressType = controllercommon.ConvertNSXIPAddressTypeToCR(*nsxSubnet.IpAddressType)
+	} else {
+		// Default to IPv4 if not specified
+		subnetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4
 	}
 
 	// Map IPAddresses
@@ -624,8 +665,29 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		default:
 			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
 		}
-	} else {
+	} else if util.IPAddressTypeIncludesIPv4(subnetCR.Spec.IPAddressType) {
 		subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	}
+
+	// Map SubnetDHCPv6Config
+	if nsxSubnet.SubnetDhcpv6Config != nil && nsxSubnet.SubnetDhcpv6Config.Mode != nil {
+		dhcpv6Mode := *nsxSubnet.SubnetDhcpv6Config.Mode
+		// Convert from NSX format to v1alpha1 format
+		switch dhcpv6Mode {
+		case "DHCP_SERVER":
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer)
+			if nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig != nil && len(nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges) > 0 {
+				subnetCR.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges = nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges
+			}
+		case "DHCP_RELAY":
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay)
+		case "DHCP_SERVER_STATELESS":
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless)
+		default:
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated)
+		}
+	} else if util.IPAddressTypeIncludesIPv6(subnetCR.Spec.IPAddressType) {
+		subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated)
 	}
 
 	// Map VlanConnectionName from NSX Subnet

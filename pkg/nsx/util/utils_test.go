@@ -1082,17 +1082,44 @@ func TestTransNSXApiError(t *testing.T) {
 }
 
 func TestParseDHCPMode(t *testing.T) {
-	nsxMode := ParseDHCPMode("DHCPDeactivated")
-	assert.Equal(t, "DHCP_DEACTIVATED", nsxMode)
+	tests := []struct {
+		name     string
+		mode     string
+		expected string
+	}{
+		{
+			name:     "DHCPDeactivated conversion",
+			mode:     "DHCPDeactivated",
+			expected: "DHCP_DEACTIVATED",
+		},
+		{
+			name:     "DHCPServer conversion",
+			mode:     "DHCPServer",
+			expected: "DHCP_SERVER",
+		},
+		{
+			name:     "DHCPRelay conversion",
+			mode:     "DHCPRelay",
+			expected: "DHCP_RELAY",
+		},
+		{
+			name:     "DHCPServerStateless conversion",
+			mode:     "DHCPServerStateless",
+			expected: "DHCP_SERVER_STATELESS",
+		},
+		{
+			name:     "unknown mode returns empty",
+			mode:     "UnknownMode",
+			expected: "",
+		},
+	}
 
-	nsxMode = ParseDHCPMode("DHCPServer")
-	assert.Equal(t, "DHCP_SERVER", nsxMode)
-
-	nsxMode = ParseDHCPMode("DHCPRelay")
-	assert.Equal(t, "DHCP_RELAY", nsxMode)
-
-	nsxMode = ParseDHCPMode("None")
-	assert.Equal(t, "", nsxMode)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseDHCPMode(tt.mode)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 func TestUpdateURL(t *testing.T) {

@@ -372,6 +372,7 @@ func TestSubnetService_GetSubnetByCR(t *testing.T) {
 	service := &SubnetService{
 		Service: common.Service{},
 	}
+
 	testCases := []struct {
 		name           string
 		prepareFunc    func() *gomonkey.Patches
@@ -566,7 +567,7 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 	})
 
 	patchesCreateOrUpdateSubnet := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet,
-		func(r *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+		func(r *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
 			return &model.VpcSubnet{Path: &fakeSubnetPath}, nil
 		})
 	defer patchesCreateOrUpdateSubnet.Reset()
@@ -574,7 +575,7 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
-	err := service.UpdateSubnetSet("ns-1", vpcSubnets, tags, "")
+	err := service.UpdateSubnetSet("ns-1", vpcSubnets, tags, &v1alpha1.SubnetSet{})
 	assert.Nil(t, err)
 }
 
@@ -853,7 +854,7 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 					}
 					return []*model.VpcSubnet{}
 				})
-				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
 					return nil, nil
 				})
 				return patches
@@ -884,7 +885,7 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 					}
 					return []*model.VpcSubnet{}
 				})
-				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
 					return nil, nil
 				})
 				return patches
@@ -912,7 +913,7 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 					}
 					return []*model.VpcSubnet{}
 				})
-				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
 					return nil, fmt.Errorf("mocked error")
 				})
 				return patches
@@ -968,6 +969,7 @@ func TestBuildSubnetCR(t *testing.T) {
 					VPCName:        "proj-1:vpc-1",
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeProject),
 					IPv4SubnetSize: 24,
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
 					},
@@ -1003,6 +1005,7 @@ func TestBuildSubnetCR(t *testing.T) {
 					VPCName:        "proj-1:vpc-1",
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
 					IPv4SubnetSize: 16,
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPAddresses:    []string{"192.168.0.80/28"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
@@ -1067,6 +1070,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 24,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
@@ -1097,6 +1101,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 24,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
@@ -1123,6 +1128,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeProject),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 24,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
@@ -1142,7 +1148,8 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			},
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
-					AccessMode: v1alpha1.AccessMode(v1alpha1.AccessModeL2Only),
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModeL2Only),
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
 					},
@@ -1161,7 +1168,8 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			},
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
-					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					AccessMode:     v1alpha1.AccessMode(""),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 24,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
@@ -1182,6 +1190,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 0,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
@@ -1208,6 +1217,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 0,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
@@ -1241,8 +1251,9 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			},
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
-					AccessMode:  v1alpha1.AccessMode(v1alpha1.AccessModePublic),
-					IPAddresses: []string{"10.0.1.3/24"},
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					IPAddresses:   []string{"10.0.1.3/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
 					},
@@ -1251,6 +1262,133 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 							Enabled: common.Bool(false),
 						},
 						GatewayAddresses: []string{"10.0.1.1/24"},
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with IPv6PrefixLength",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:       common.String("Public"),
+				Ipv6PrefixLength: common.Int64(80),
+				IpAddresses:      []string{"fd00:1234:5678:9abc::/80"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv4,
+					IPv6PrefixLength: 80,
+					IPAddresses:      []string{"fd00:1234:5678:9abc::/80"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with IPAddressType IPv4",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				IpAddressType:  common.String("IPV4"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with IPAddressType IPv4IPv6",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:       common.String("Public"),
+				IpAddressType:    common.String("IPV4_IPV6"),
+				Ipv4SubnetSize:   common.Int64(25),
+				Ipv6PrefixLength: common.Int64(64),
+				IpAddresses:      []string{"192.168.1.0/25", "fd00:1234:5678:9abc::/64"},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+					IPv4SubnetSize:   25,
+					IPv6PrefixLength: 64,
+					IPAddresses:      []string{"192.168.1.0/25", "fd00:1234:5678:9abc::/64"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated),
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with DHCPv6 DHCP_SERVER mode",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:       common.String("Public"),
+				IpAddressType:    common.String("IPV6"),
+				Ipv6PrefixLength: common.Int64(64),
+				SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+					Mode: common.String("DHCP_SERVER"),
+					Dhcpv6ServerAdditionalConfig: &model.DhcpV6ServerAdditionalConfig{
+						ReservedIpRanges: []string{"fd00:1234:5678:9abc::1-fd00:1234:5678:9abc::10"},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
+					IPv6PrefixLength: 64,
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+						DHCPv6ServerAdditionalConfig: v1alpha1.DHCPv6ServerAdditionalConfig{
+							ReservedIPRanges: []string{"fd00:1234:5678:9abc::1-fd00:1234:5678:9abc::10"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with DHCPv6 DHCP_SERVER_STATELESS mode",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:       common.String("Public"),
+				IpAddressType:    common.String("IPV6"),
+				Ipv6PrefixLength: common.Int64(64),
+				SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+					Mode: common.String("DHCP_SERVER_STATELESS"),
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
+					IPv6PrefixLength: 64,
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
 					},
 				},
 			},
@@ -1269,8 +1407,13 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			// Check the result
 			assert.Equal(t, tt.expectedSubnet.Spec.AccessMode, subnetCR.Spec.AccessMode)
 			assert.Equal(t, tt.expectedSubnet.Spec.IPv4SubnetSize, subnetCR.Spec.IPv4SubnetSize)
+			assert.Equal(t, tt.expectedSubnet.Spec.IPv6PrefixLength, subnetCR.Spec.IPv6PrefixLength)
+			assert.Equal(t, tt.expectedSubnet.Spec.IPAddressType, subnetCR.Spec.IPAddressType)
 			assert.Equal(t, tt.expectedSubnet.Spec.IPAddresses, subnetCR.Spec.IPAddresses)
 			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.Mode, subnetCR.Spec.SubnetDHCPConfig.Mode)
+			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPv6Config.Mode, subnetCR.Spec.SubnetDHCPv6Config.Mode)
+			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges,
+				subnetCR.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges)
 
 			// Check StaticIPAllocation if expected
 			if tt.expectedSubnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
@@ -2170,7 +2313,7 @@ func TestSubnetService_CreateOrUpdateSubnet_ConnectivityState(t *testing.T) {
 			}
 
 			updateCalled := false
-			patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+			patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
 				updateCalled = true
 				// Verify the connectivity state is correctly set
 				if tc.expectedConnectivityState != nil {
@@ -2306,7 +2449,7 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 				require.NoError(t, service.SubnetStore.Apply(tc.existingSubnet))
 			}
 
-			patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo) (*model.VpcSubnet, error) {
+			patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
 				for _, tags := range nsxSubnet.Tags {
 					fmt.Printf("tags scope %s tag %s\n", *tags.Scope, *tags.Tag)
 				}

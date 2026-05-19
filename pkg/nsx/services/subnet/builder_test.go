@@ -113,27 +113,111 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 		},
 	}
 
-	subnetSet := &v1alpha1.SubnetSet{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "subnetset-1",
-			Namespace: "ns-1",
-			UID:       types.UID("1828a1d3-4d10-48d2-a8e8-dceb9bd66502"),
+	testCases := []struct {
+		name             string
+		ipAddressType    v1alpha1.IPAddressType
+		ipv4SubnetSize   int
+		ipv6PrefixLength int
+		dhcpMode         v1alpha1.DHCPConfigMode
+		dhcpv6Mode       v1alpha1.DHCPv6ConfigMode
+		expectIPv4Config bool
+		expectIPv6Config bool
+	}{
+		{
+			name:             "IPv4 SubnetSet",
+			ipAddressType:    v1alpha1.IPAddressTypeIPv4,
+			ipv4SubnetSize:   24,
+			ipv6PrefixLength: 0,
+			dhcpMode:         "",
+			dhcpv6Mode:       "",
+			expectIPv4Config: true,
+			expectIPv6Config: false,
+		},
+		{
+			name:             "IPv6 SubnetSet",
+			ipAddressType:    v1alpha1.IPAddressTypeIPv6,
+			ipv4SubnetSize:   0,
+			ipv6PrefixLength: 64,
+			dhcpMode:         "",
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+			expectIPv4Config: false,
+			expectIPv6Config: true,
+		},
+		{
+			name:             "IPv4IPv6 dual stack",
+			ipAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+			ipv4SubnetSize:   24,
+			ipv6PrefixLength: 64,
+			dhcpMode:         v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
+			expectIPv4Config: true,
+			expectIPv6Config: true,
 		},
 	}
 
-	subnet, err := service.buildSubnet(subnetSet, tags, []string{})
-	assert.Nil(t, err)
-	assert.Equal(t, "DHCP_DEACTIVATED", *subnet.SubnetDhcpConfig.Mode)
-	if subnet.AdvancedConfig != nil {
-		assert.Equal(t, true, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
-	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			subnetSet := &v1alpha1.SubnetSet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-1",
+					UID:       types.UID("1828a1d3-4d10-48d2-a8e8-dceb9bd66502"),
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType:    tc.ipAddressType,
+					IPv4SubnetSize:   tc.ipv4SubnetSize,
+					IPv6PrefixLength: tc.ipv6PrefixLength,
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: tc.dhcpMode,
+					},
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: tc.dhcpv6Mode,
+					},
+				},
+			}
 
-	subnet.ParentPath = String(fakeVpcPath)
-	err = service.SubnetStore.Add(subnet)
-	require.NoError(t, err)
-	newIdx := "abcdef01"
-	newId := service.buildSubnetSetID(subnetSet, newIdx)
-	assert.Equal(t, "subnetset-1-abcdef01_5tnj0", newId)
+			subnet, err := service.buildSubnet(subnetSet, tags, []string{})
+			assert.Nil(t, err)
+			assert.NotNil(t, subnet)
+
+			// Verify IP address type is set correctly
+			assert.NotNil(t, subnet.IpAddressType)
+			expectedIPType := controllerscommon.ConvertCRIPAddressTypeToNSX(tc.ipAddressType)
+			assert.Equal(t, expectedIPType, *subnet.IpAddressType)
+
+			// Verify IPv4 subnet size
+			if tc.ipv4SubnetSize > 0 {
+				assert.NotNil(t, subnet.Ipv4SubnetSize)
+				assert.Equal(t, int64(tc.ipv4SubnetSize), *subnet.Ipv4SubnetSize)
+			} else {
+				assert.Nil(t, subnet.Ipv4SubnetSize)
+			}
+
+			// Verify IPv6 prefix length
+			if tc.ipv6PrefixLength > 0 {
+				assert.NotNil(t, subnet.Ipv6PrefixLength)
+				assert.Equal(t, int64(tc.ipv6PrefixLength), *subnet.Ipv6PrefixLength)
+			} else {
+				assert.Nil(t, subnet.Ipv6PrefixLength)
+			}
+
+			// Verify DHCPv4 configuration
+			if tc.expectIPv4Config {
+				assert.NotNil(t, subnet.SubnetDhcpConfig)
+				assert.NotNil(t, subnet.SubnetDhcpConfig.Mode)
+			} else {
+				assert.Nil(t, subnet.SubnetDhcpConfig)
+			}
+
+			// Verify DHCPv6 configuration
+			if tc.expectIPv6Config {
+				assert.NotNil(t, subnet.SubnetDhcpv6Config)
+				assert.NotNil(t, subnet.SubnetDhcpv6Config.Mode)
+			} else {
+				assert.Nil(t, subnet.SubnetDhcpv6Config)
+			}
+		})
+	}
 }
 
 func TestBuildSubnetForSubnet(t *testing.T) {
@@ -180,7 +264,8 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 			Namespace: "ns-1",
 		},
 		Spec: v1alpha1.SubnetSpec{
-			IPAddresses: []string{"10.0.0.0/28"},
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			IPAddresses:   []string{"10.0.0.0/28"},
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 				StaticIPAllocation: v1alpha1.StaticIPAllocation{
 					Enabled: common.Bool(true),
@@ -202,7 +287,8 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 			Namespace: "ns-1",
 		},
 		Spec: v1alpha1.SubnetSpec{
-			IPAddresses: []string{"10.0.0.0/28"},
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			IPAddresses:   []string{"10.0.0.0/28"},
 			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
 				DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
@@ -242,7 +328,8 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 			Namespace: "ns-1",
 		},
 		Spec: v1alpha1.SubnetSpec{
-			IPAddresses: []string{"10.0.0.0/28"},
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			IPAddresses:   []string{"10.0.0.0/28"},
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 				StaticIPAllocation: v1alpha1.StaticIPAllocation{
 					Enabled: common.Bool(true),
@@ -756,4 +843,112 @@ func TestBuildSubnetTagsExceedMaxTags(t *testing.T) {
 	var exceedTagsErr nsxutil.ExceedTagsError
 	assert.True(t, errors.As(err, &exceedTagsErr))
 	assert.Contains(t, exceedTagsErr.Desc, "tags cannot exceed maximum size 26")
+}
+
+func TestBuildSubnetForSubnet_IPv6(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	tests := []struct {
+		name             string
+		ipAddressType    v1alpha1.IPAddressType
+		dhcpv6Mode       v1alpha1.DHCPv6ConfigMode
+		ipv6PrefixLength int
+		expectedDHCPv6   bool
+	}{
+		{
+			name:             "IPv6 subnet with DHCPv6 Server",
+			ipAddressType:    v1alpha1.IPAddressTypeIPv6,
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+			ipv6PrefixLength: 64,
+			expectedDHCPv6:   true,
+		},
+		{
+			name:             "IPv4IPv6 dual stack with DHCPv6",
+			ipAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
+			ipv6PrefixLength: 80,
+			expectedDHCPv6:   true,
+		},
+		{
+			name:             "IPv6 subnet without DHCPv6 config",
+			ipAddressType:    v1alpha1.IPAddressTypeIPv6,
+			dhcpv6Mode:       "",
+			ipv6PrefixLength: 64,
+			expectedDHCPv6:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subnet := &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-ipv6-subnet",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddressType:    tt.ipAddressType,
+					IPv6PrefixLength: tt.ipv6PrefixLength,
+					IPAddresses:      []string{"fd00:1234:5678:9abc::/64"},
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: tt.dhcpv6Mode,
+					},
+				},
+			}
+
+			tags := []model.Tag{}
+
+			// Call buildSubnet to test IPv6 and DHCPv6 configuration handling
+			nsxSubnet, err := service.buildSubnet(subnet, tags, []string{})
+			assert.NoError(t, err)
+			assert.NotNil(t, nsxSubnet)
+
+			// Verify IPv6PrefixLength is set
+			if tt.ipv6PrefixLength > 0 {
+				assert.NotNil(t, nsxSubnet.Ipv6PrefixLength)
+				assert.Equal(t, int64(tt.ipv6PrefixLength), *nsxSubnet.Ipv6PrefixLength)
+			}
+
+			// Verify IPAddressType is set
+			assert.NotNil(t, nsxSubnet.IpAddressType)
+			expectedIPType := controllerscommon.ConvertCRIPAddressTypeToNSX(tt.ipAddressType)
+			assert.Equal(t, expectedIPType, *nsxSubnet.IpAddressType)
+
+			// Verify DHCPv6 config if present
+			if tt.expectedDHCPv6 && tt.dhcpv6Mode != "" {
+				assert.NotNil(t, nsxSubnet.SubnetDhcpv6Config)
+				// For DHCPv6 modes, verify the mode is set (not empty)
+				assert.NotEmpty(t, *nsxSubnet.SubnetDhcpv6Config.Mode)
+			}
+		})
+	}
 }

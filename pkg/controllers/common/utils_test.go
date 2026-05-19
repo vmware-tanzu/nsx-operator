@@ -1174,3 +1174,154 @@ func TestPodIsDeleted(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertCRIPAddressTypeToNSX(t *testing.T) {
+	tests := []struct {
+		name     string
+		crType   v1alpha1.IPAddressType
+		expected string
+	}{
+		{
+			name:     "IPv4 conversion",
+			crType:   v1alpha1.IPAddressTypeIPv4,
+			expected: "IPV4",
+		},
+		{
+			name:     "IPv6 conversion",
+			crType:   v1alpha1.IPAddressTypeIPv6,
+			expected: "IPV6",
+		},
+		{
+			name:     "IPv4IPv6 conversion",
+			crType:   v1alpha1.IPAddressTypeIPv4IPv6,
+			expected: "IPV4_IPV6",
+		},
+		{
+			name:     "empty type defaults to IPv4",
+			crType:   v1alpha1.IPAddressType(""),
+			expected: "IPV4",
+		},
+		{
+			name:     "unknown type defaults to IPv4",
+			crType:   v1alpha1.IPAddressType("Unknown"),
+			expected: "IPV4",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertCRIPAddressTypeToNSX(tt.crType)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestConvertNSXIPAddressTypeToCR(t *testing.T) {
+	tests := []struct {
+		name     string
+		nsxType  string
+		expected v1alpha1.IPAddressType
+	}{
+		{
+			name:     "IPV4 conversion",
+			nsxType:  "IPV4",
+			expected: v1alpha1.IPAddressTypeIPv4,
+		},
+		{
+			name:     "IPV6 conversion",
+			nsxType:  "IPV6",
+			expected: v1alpha1.IPAddressTypeIPv6,
+		},
+		{
+			name:     "IPV4_IPV6 conversion",
+			nsxType:  "IPV4_IPV6",
+			expected: v1alpha1.IPAddressTypeIPv4IPv6,
+		},
+		{
+			name:     "empty type defaults to IPv4",
+			nsxType:  "",
+			expected: v1alpha1.IPAddressTypeIPv4,
+		},
+		{
+			name:     "unknown type defaults to IPv4",
+			nsxType:  "UNKNOWN",
+			expected: v1alpha1.IPAddressTypeIPv4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ConvertNSXIPAddressTypeToCR(tt.nsxType)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestIntersectIPAddressTypes(t *testing.T) {
+	tests := []struct {
+		name        string
+		types       []v1alpha1.IPAddressType
+		expected    v1alpha1.IPAddressType
+		expectedErr bool
+		errMsg      string
+	}{
+		{
+			name:        "single IPv4 type",
+			types:       []v1alpha1.IPAddressType{v1alpha1.IPAddressTypeIPv4},
+			expected:    v1alpha1.IPAddressTypeIPv4,
+			expectedErr: false,
+		},
+		{
+			name:        "IPv4IPv6 with IPv4 returns IPv4",
+			types:       []v1alpha1.IPAddressType{v1alpha1.IPAddressTypeIPv4IPv6, v1alpha1.IPAddressTypeIPv4},
+			expected:    v1alpha1.IPAddressTypeIPv4,
+			expectedErr: false,
+		},
+		{
+			name:        "IPv4IPv6 with IPv6 returns IPv6",
+			types:       []v1alpha1.IPAddressType{v1alpha1.IPAddressTypeIPv4IPv6, v1alpha1.IPAddressTypeIPv6},
+			expected:    v1alpha1.IPAddressTypeIPv6,
+			expectedErr: false,
+		},
+		{
+			name:        "IPv4 with IPv4 same type",
+			types:       []v1alpha1.IPAddressType{v1alpha1.IPAddressTypeIPv4, v1alpha1.IPAddressTypeIPv4},
+			expected:    v1alpha1.IPAddressTypeIPv4,
+			expectedErr: false,
+		},
+		{
+			name:        "IPv4 with IPv6 no intersection",
+			types:       []v1alpha1.IPAddressType{v1alpha1.IPAddressTypeIPv4, v1alpha1.IPAddressTypeIPv6},
+			expected:    "",
+			expectedErr: true,
+			errMsg:      "no intersection",
+		},
+		{
+			name:        "IPv4 with IPv6 with IPv4IPv6 returns IPv4",
+			types:       []v1alpha1.IPAddressType{v1alpha1.IPAddressTypeIPv4, v1alpha1.IPAddressTypeIPv6, v1alpha1.IPAddressTypeIPv4IPv6},
+			expected:    "",
+			expectedErr: true,
+			errMsg:      "no intersection",
+		},
+		{
+			name:        "empty slice",
+			types:       []v1alpha1.IPAddressType{},
+			expected:    "",
+			expectedErr: true,
+			errMsg:      "no IP address types provided",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := IntersectIPAddressTypes(tt.types)
+			if tt.expectedErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}

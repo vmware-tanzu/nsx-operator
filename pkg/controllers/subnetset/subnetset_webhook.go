@@ -60,14 +60,14 @@ func defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet *v1alpha1.SubnetSet) b
 }
 
 func hasExclusiveFields(s *v1alpha1.SubnetSet) bool {
-	return s.Spec.SubnetNames != nil && (s.Spec.IPv4SubnetSize != 0 || s.Spec.IPv6PrefixLength != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "")
+	return s.Spec.SubnetNames != nil && (s.Spec.IPv4SubnetSize != 0 || s.Spec.IPv6PrefixLength != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "" || s.Spec.SubnetDHCPv6Config.Mode != "")
 }
 
 func subnetSetType(s *v1alpha1.SubnetSet) SubnetSetType {
 	if s.Spec.SubnetNames != nil {
 		return SubnetSetTypePreCreated
 	}
-	if s.Spec.IPv4SubnetSize != 0 || s.Spec.IPv6PrefixLength != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "" {
+	if s.Spec.IPv4SubnetSize != 0 || s.Spec.IPv6PrefixLength != 0 || s.Spec.AccessMode != "" || s.Spec.SubnetDHCPConfig.Mode != "" || s.Spec.SubnetDHCPv6Config.Mode != "" {
 		return SubnetSetTypeAutoCreated
 	}
 	return SubnetSetTypeNone
@@ -113,6 +113,9 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if controllercommon.IsDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
+		if subnetSet.Spec.SubnetNames != nil && subnetSet.Spec.IPAddressType != "" && req.UserInfo.Username != NSXOperatorSA {
+			return admission.Denied("Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator")
+		}
 		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
 			if deny {
@@ -133,6 +136,10 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if defaultSubnetSetLabelChanged(oldSubnetSet, subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			log.Debug("Default SubnetSet label change detected", "oldLabels", oldSubnetSet.ObjectMeta.Labels, "newLabels", subnetSet.ObjectMeta.Labels, "username", req.UserInfo.Username)
 			return admission.Denied(fmt.Sprintf("SubnetSet label %s can only be updated by NSX Operator", common.LabelDefaultNetwork))
+		}
+		if subnetSet.Spec.SubnetNames != nil && subnetSet.Spec.IPAddressType != oldSubnetSet.Spec.IPAddressType && req.UserInfo.Username != NSXOperatorSA {
+			log.Debug("Pre-created SubnetSet spec.ipAddressType is updated by user", "oldIPAddressType", oldSubnetSet.Spec.IPAddressType, "newIPAddressType", subnetSet.Spec.IPAddressType, "username", req.UserInfo.Username)
+			return admission.Denied("Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator")
 		}
 		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
@@ -327,6 +334,7 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 	var existingVPC string
 	firstAccessMode := ""
 	firstDHCPMode := ""
+	firstDHCPv6Mode := ""
 	var firstEffectiveStaticIPAllocation bool
 	isFirstSubnet := true
 	if subnetNames == nil {
@@ -341,9 +349,13 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
+		if crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay) {
+			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
+		}
 		if isFirstSubnet {
 			firstAccessMode = string(crdSubnet.Spec.AccessMode)
 			firstDHCPMode = string(crdSubnet.Spec.SubnetDHCPConfig.Mode)
+			firstDHCPv6Mode = string(crdSubnet.Spec.SubnetDHCPv6Config.Mode)
 			firstEffectiveStaticIPAllocation = getEffectiveStaticIPAllocation(crdSubnet)
 			isFirstSubnet = false
 		} else {
@@ -352,6 +364,9 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 			}
 			if firstDHCPMode != string(crdSubnet.Spec.SubnetDHCPConfig.Mode) {
 				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPConfigMode, found different DHCPConfigModes: [%s, %s]", ns, subnetSet, firstDHCPMode, crdSubnet.Spec.SubnetDHCPConfig.Mode)
+			}
+			if firstDHCPv6Mode != string(crdSubnet.Spec.SubnetDHCPv6Config.Mode) {
+				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPv6ConfigMode, found different DHCPv6ConfigModes: [%s, %s]", ns, subnetSet, firstDHCPv6Mode, crdSubnet.Spec.SubnetDHCPv6Config.Mode)
 			}
 			currentEffectiveStaticIPAllocation := getEffectiveStaticIPAllocation(crdSubnet)
 			if firstEffectiveStaticIPAllocation != currentEffectiveStaticIPAllocation {

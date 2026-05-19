@@ -146,6 +146,7 @@ spec:
                     - DHCPServer
                     - DHCPRelay
                     - DHCPDeactivated
+                    - DHCPServerStateless
                     type: string
                 type: object
                 x-kubernetes-validations:
