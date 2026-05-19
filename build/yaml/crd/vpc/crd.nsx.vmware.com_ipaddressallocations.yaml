@@ -91,9 +91,9 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipv6AllocationPrefixLength:
-                default: 64
                 description: IPv6AllocationPrefixLength specifies the prefix length
-                  of IPv6 addresses.
+                  of IPv6 addresses. Defaults to 64 when ipAddressType is IPv6 and
+                  this field is not specified.
                 maximum: 128
                 minimum: 64
                 type: integer

@@ -59,9 +59,11 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
 		ipAddressType = ipAddressTypeToNSX(o.Spec.IPAddressType)
 		if ipAddressType == model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
-			if o.Spec.IPv6AllocationPrefixLength > 0 {
-				ipv6AllocationPrefixLength = Int64(int64(o.Spec.IPv6AllocationPrefixLength))
+			prefixLen := o.Spec.IPv6AllocationPrefixLength
+			if prefixLen == 0 {
+				prefixLen = 64
 			}
+			ipv6AllocationPrefixLength = Int64(int64(prefixLen))
 		}
 		if len(o.Spec.AllocationIPs) > 0 {
 			allocationIps = String(o.Spec.AllocationIPs)
