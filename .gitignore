@@ -7,4 +7,3 @@ go.work.sum
 .scannerwork/
 .coverage/
 .golangci-bin/
-vendor
