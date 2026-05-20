@@ -231,7 +231,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, obj *v1alpha1.StaticRoute) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateStaticRoute", func(_ *staticroute.StaticRouteService, ctx context.Context, namespace string, obj *v1alpha1.StaticRoute) error {
 		return errors.New("create failed")
 	})
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
@@ -246,7 +246,7 @@ func TestStaticRouteReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateStaticRoute", func(_ *staticroute.StaticRouteService, namespace string, obj *v1alpha1.StaticRoute) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateStaticRoute", func(_ *staticroute.StaticRouteService, ctx context.Context, namespace string, obj *v1alpha1.StaticRoute) error {
 		return nil
 	})
 	_, ret = r.Reconcile(ctx, req)
@@ -367,6 +367,9 @@ func TestStaticRouteReconciler_StartController(t *testing.T) {
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 	})
+	patches.ApplyFunc((*StaticRouteReconciler).SetupFieldIndexers, func(r *StaticRouteReconciler, mgr manager.Manager) error {
+		return nil
+	})
 	r := NewStaticRouteReconciler(mockMgr, staticRouteService)
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
@@ -378,6 +381,9 @@ func TestStaticRouteReconciler_StartController(t *testing.T) {
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 	})
+	patches.ApplyFunc((*StaticRouteReconciler).SetupFieldIndexers, func(r *StaticRouteReconciler, mgr manager.Manager) error {
+		return nil
+	})
 	defer patches.Reset()
 	r = NewStaticRouteReconciler(mockMgr, staticRouteService)
 	err = r.StartController(mockMgr, nil)
@@ -388,6 +394,9 @@ func TestStaticRouteReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+	})
+	patches.ApplyFunc((*StaticRouteReconciler).SetupFieldIndexers, func(r *StaticRouteReconciler, mgr manager.Manager) error {
+		return nil
 	})
 	defer patches.Reset()
 	hookServer := webhook.NewServer(webhook.Options{})
@@ -472,4 +481,145 @@ func TestStaticRouteReconciler_deleteStaticRouteByName(t *testing.T) {
 	err := r.deleteStaticRouteByName("dummy-name", "dummy-ns")
 	assert.Error(t, err)
 	patch.Reset()
+}
+
+func Test_staticrouteAssociatedResourceIndexFunc(t *testing.T) {
+	tests := []struct {
+		name string
+		obj  client.Object
+		want []string
+	}{
+		{
+			name: "Valid StaticRoute with NetworkIPAllocation",
+			obj: &v1alpha1.StaticRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.StaticRouteSpec{
+					NetworkIPAllocation: "/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/ipa-1",
+				},
+			},
+			want: []string{"/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/ipa-1"},
+		},
+		{
+			name: "StaticRoute with empty NetworkIPAllocation",
+			obj: &v1alpha1.StaticRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-route-empty",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.StaticRouteSpec{
+					NetworkIPAllocation: "",
+				},
+			},
+			want: []string{},
+		},
+		{
+			name: "Invalid object type passed to indexer",
+			obj: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "not-a-static-route",
+					Namespace: "default",
+				},
+			},
+			want: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := staticrouteAssociatedResourceIndexFunc(tt.obj)
+
+			// DeepEqual checks slice contents accurately even if empty
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("staticrouteAssociatedResourceIndexFunc() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// 1. Define a Mock for the FieldIndexer to intercept the registration
+type mockFieldIndexer struct {
+	client.FieldIndexer // Embed interface to implicitly satisfy unused methods
+	capturedObj         client.Object
+	capturedField       string
+	capturedFunc        client.IndexerFunc
+	returnErr           error
+}
+
+func (m *mockFieldIndexer) IndexField(ctx context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
+	m.capturedObj = obj
+	m.capturedField = field
+	m.capturedFunc = extractValue
+	return m.returnErr
+}
+
+// 2. Define a Mock for the Manager that returns our mock FieldIndexer
+type mockManager struct {
+	manager.Manager // Embed interface
+	indexer         client.FieldIndexer
+}
+
+func (m *mockManager) GetFieldIndexer() client.FieldIndexer {
+	return m.indexer
+}
+
+// 3. The Unit Test implementation
+func TestStaticRouteReconciler_SetupFieldIndexers(t *testing.T) {
+	tests := []struct {
+		name       string
+		mockErr    error
+		wantErr    bool
+		verifyArgs bool
+	}{
+		{
+			name:       "Successful index registration",
+			mockErr:    nil,
+			wantErr:    false,
+			verifyArgs: true,
+		},
+		{
+			name:       "Registration fails on internal FieldIndexer error",
+			mockErr:    errors.New("failed to register index"),
+			wantErr:    true,
+			verifyArgs: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Initialize the mock indexer and manager wrapper
+			indexerMock := &mockFieldIndexer{returnErr: tt.mockErr}
+			mgrMock := &mockManager{indexer: indexerMock}
+
+			r := &StaticRouteReconciler{}
+			err := r.SetupFieldIndexers(mgrMock)
+
+			// Verify error behavior
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SetupFieldIndexers() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			// Verify exact arguments were forwarded correctly to controller-runtime cache layer
+			if tt.verifyArgs {
+				// Verify object type registration target
+				if _, ok := indexerMock.capturedObj.(*v1alpha1.StaticRoute); !ok {
+					t.Errorf("SetupFieldIndexers() registered wrong object type. Expected *v1alpha1.StaticRoute")
+				}
+
+				// Verify index key string integrity
+				if indexerMock.capturedField != util.StaticRouteIPAddressAllocationNameIndexKey {
+					t.Errorf("SetupFieldIndexers() field string mismatch = %v, want %v",
+						indexerMock.capturedField, util.StaticRouteIPAddressAllocationNameIndexKey)
+				}
+
+				// Verify function pointer maps to the target calculation method
+				if indexerMock.capturedFunc == nil {
+					t.Errorf("SetupFieldIndexers() did not pass an index function")
+				}
+			}
+		})
+	}
 }

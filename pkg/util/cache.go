@@ -6,3 +6,5 @@ const AddressBindingNamespaceVMIndexKey = "index/AddressBinding/NamespaceVM"
 const AddressBindingIPAddressAllocationNameIndexKey = "spec.ipAddressAllocationName"
 const SubnetPortMACInNeed = "index/subnetport/macInNeed"
 const SubnetAssociatedResource = "index/subnet/associatedResource"
+
+const StaticRouteIPAddressAllocationNameIndexKey = "spec.networkIpAllocation"

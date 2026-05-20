@@ -1,11 +1,14 @@
 package staticroute
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -17,9 +20,10 @@ import (
 
 type StaticRouteService struct {
 	common.Service
-	StaticRouteStore *StaticRouteStore
-	VPCService       common.VPCServiceProvider
-	builder          *common.PolicyTreeBuilder[*model.StaticRoutes]
+	StaticRouteStore    *StaticRouteStore
+	VPCService          common.VPCServiceProvider
+	IPAllocationService common.IPAddressAllocationServiceProvider
+	builder             *common.PolicyTreeBuilder[*model.StaticRoutes]
 }
 
 var (
@@ -28,7 +32,7 @@ var (
 )
 
 // InitializeStaticRoute sync NSX resources
-func InitializeStaticRoute(commonService common.Service, vpcService common.VPCServiceProvider) (*StaticRouteService, error) {
+func InitializeStaticRoute(commonService common.Service, vpcService common.VPCServiceProvider, ipAllocationService common.IPAddressAllocationServiceProvider) (*StaticRouteService, error) {
 	builder, _ := common.PolicyPathVpcStaticRoutes.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
@@ -40,6 +44,7 @@ func InitializeStaticRoute(commonService common.Service, vpcService common.VPCSe
 	staticRouteService.StaticRouteStore = buildStaticRouteStore()
 	staticRouteService.NSXConfig = commonService.NSXConfig
 	staticRouteService.VPCService = vpcService
+	staticRouteService.IPAllocationService = ipAllocationService
 
 	go staticRouteService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeStaticRoutes, nil, staticRouteService.StaticRouteStore)
 
@@ -67,8 +72,44 @@ func isStaticRouteReady(staticRoute *v1alpha1.StaticRoute) bool {
 	return false
 }
 
-func (service *StaticRouteService) CreateOrUpdateStaticRoute(namespace string, obj *v1alpha1.StaticRoute) error {
-	nsxStaticRoute, err := service.buildStaticRoute(obj)
+// resolveNetworkIPAllocationPath fetches the IPAddressAllocation CR by name and looks up
+// the corresponding NSX VpcIpAddressAllocation from the local store to obtain its policy path.
+// The path is used as the network field on the NSX static route (network_ip_allocation_path).
+func (service *StaticRouteService) resolveNetworkIPAllocationPath(ctx context.Context, namespace, ipAllocCRName string) (string, error) {
+	ipAllocCR := &v1alpha1.IPAddressAllocation{}
+	if err := service.Client.Get(ctx, k8sclient.ObjectKey{Namespace: namespace, Name: ipAllocCRName}, ipAllocCR); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", fmt.Errorf("IPAddressAllocation CR %s/%s not found", namespace, ipAllocCRName)
+		}
+		return "", fmt.Errorf("failed to get IPAddressAllocation CR %s/%s: %w", namespace, ipAllocCRName, err)
+	}
+
+	nsxAllocation, err := service.IPAllocationService.GetIPAddressAllocationByOwner(ipAllocCR)
+	if err != nil {
+		return "", fmt.Errorf("failed to look up NSX allocation for IPAddressAllocation CR %s/%s: %w", namespace, ipAllocCRName, err)
+	}
+	if nsxAllocation == nil {
+		return "", fmt.Errorf("NSX allocation for IPAddressAllocation CR %s/%s not found in store", namespace, ipAllocCRName)
+	}
+	if nsxAllocation.Path == nil || *nsxAllocation.Path == "" {
+		return "", fmt.Errorf("NSX allocation for IPAddressAllocation CR %s/%s has no policy path", namespace, ipAllocCRName)
+	}
+	return *nsxAllocation.Path, nil
+}
+
+func (service *StaticRouteService) CreateOrUpdateStaticRoute(ctx context.Context, namespace string, obj *v1alpha1.StaticRoute) error {
+	// Resolve the network: either a static CIDR (spec.network) or a reference to an
+	// IPAddressAllocation CR whose NSX policy path becomes the network_ip_allocation_path.
+	var networkIPAllocationPath string
+	if obj.Spec.NetworkIPAllocation != "" {
+		var err error
+		networkIPAllocationPath, err = service.resolveNetworkIPAllocationPath(ctx, namespace, obj.Spec.NetworkIPAllocation)
+		if err != nil {
+			return err
+		}
+	}
+
+	nsxStaticRoute, err := service.buildStaticRoute(obj, networkIPAllocationPath)
 	if err != nil {
 		return err
 	}

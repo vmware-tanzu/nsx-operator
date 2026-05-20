@@ -6,6 +6,7 @@ package staticroute
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 
 	v1 "k8s.io/api/core/v1"
@@ -28,6 +29,7 @@ import (
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	pkgUtil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -80,7 +82,7 @@ func (r *StaticRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.StatusUpdater.IncreaseUpdateTotal()
-		if err := r.Service.CreateOrUpdateStaticRoute(req.Namespace, obj); err != nil {
+		if err := r.Service.CreateOrUpdateStaticRoute(ctx, req.Namespace, obj); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, obj, err, "", setStaticRouteReadyStatusFalse)
 			// TODO: if error is not retriable, not requeue
 			apierror, errortype := util.DumpAPIError(err)
@@ -266,6 +268,30 @@ func NewStaticRouteReconciler(mgr ctrl.Manager, staticRouteService *staticroute.
 		Recorder: mgr.GetEventRecorderFor("staticroute-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	staticRouteReconcile.Service = staticRouteService
+	err := staticRouteReconcile.SetupFieldIndexers(mgr)
+	if err != nil {
+		log.Error(err, "Failed to setup field indexers for the staticRouteReconcile controller")
+		os.Exit(1)
+	}
 	staticRouteReconcile.StatusUpdater = common.NewStatusUpdater(staticRouteReconcile.Client, staticRouteReconcile.Service.NSXConfig, staticRouteReconcile.Recorder, MetricResTypeStaticRoute, "StaticRoute", "StaticRoute")
 	return staticRouteReconcile
+}
+
+func staticrouteAssociatedResourceIndexFunc(obj client.Object) []string {
+	if staticRoute, ok := obj.(*v1alpha1.StaticRoute); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if staticRoute.Spec.NetworkIPAllocation == "" {
+			return []string{}
+		}
+		return []string{staticRoute.Spec.NetworkIPAllocation}
+	}
+}
+
+func (r *StaticRouteReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.StaticRoute{}, pkgUtil.StaticRouteIPAddressAllocationNameIndexKey, staticrouteAssociatedResourceIndexFunc); err != nil {
+		return err
+	}
+	return nil
 }

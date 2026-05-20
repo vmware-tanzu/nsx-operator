@@ -14,6 +14,43 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+// TestBuildStaticRoute_NetworkIPAllocationPath verifies that buildStaticRoute sets
+// NetworkIpAllocationPath (not Network) when a non-empty networkIPAllocationPath is
+// provided, and sets Network (not NetworkIpAllocationPath) when it is empty.
+func TestBuildStaticRoute_NetworkIPAllocationPath(t *testing.T) {
+	service := &StaticRouteService{Service: common.Service{}, StaticRouteStore: buildStaticRouteStore()}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&service.Service), "GetNamespaceUID",
+		func(_ *common.Service, _ string) types.UID { return types.UID("nsUUID") })
+	defer patches.Reset()
+
+	service.NSXConfig = &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "test_1"}}
+
+	obj := &v1alpha1.StaticRoute{}
+	obj.Name = "testroute"
+	obj.Namespace = "ns1"
+	obj.UID = "uid-abc"
+	obj.Spec.NextHops = []v1alpha1.NextHop{{IPAddress: "192.168.1.1"}}
+
+	allocPath := "/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/alloc-1"
+
+	t.Run("networkIPAllocationPath sets NetworkIpAllocationPath only", func(t *testing.T) {
+		sr, err := service.buildStaticRoute(obj, allocPath)
+		assert.NoError(t, err)
+		assert.NotNil(t, sr.NetworkIpAllocationPath)
+		assert.Equal(t, allocPath, *sr.NetworkIpAllocationPath)
+		assert.Nil(t, sr.Network, "Network must be nil when NetworkIpAllocationPath is used")
+	})
+
+	t.Run("empty path falls back to spec.network", func(t *testing.T) {
+		obj.Spec.Network = "10.0.0.0/24"
+		sr, err := service.buildStaticRoute(obj, "")
+		assert.NoError(t, err)
+		assert.NotNil(t, sr.Network)
+		assert.Equal(t, "10.0.0.0/24", *sr.Network)
+		assert.Nil(t, sr.NetworkIpAllocationPath, "NetworkIpAllocationPath must be nil when Network CIDR is used")
+	})
+}
+
 func TestValidateStaticRoute(t *testing.T) {
 	obj := &v1alpha1.StaticRoute{}
 	err := validateStaticRoute(obj)
@@ -49,7 +86,7 @@ func TestBuildStaticRoute(t *testing.T) {
 	service.NSXConfig = &config.NSXOperatorConfig{}
 	service.NSXConfig.CoeConfig = &config.CoeConfig{}
 	service.NSXConfig.Cluster = "test_1"
-	staticroutes, err := service.buildStaticRoute(obj)
+	staticroutes, err := service.buildStaticRoute(obj, "")
 	assert.Equal(t, err, nil)
 	assert.Equal(t, len(staticroutes.NextHops), 2)
 	expName := "teststaticroute"
