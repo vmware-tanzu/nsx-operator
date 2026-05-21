@@ -271,7 +271,11 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 				continue
 			}
 			// IPv4: apply access mode check
-			switch *subnet.AccessMode {
+			accessMode := model.VpcSubnet_ACCESS_MODE_PUBLIC
+			if subnet.AccessMode != nil {
+				accessMode = *subnet.AccessMode
+			}
+			switch accessMode {
 			case model.VpcSubnet_ACCESS_MODE_PUBLIC:
 				externalIPCIDRs = append(externalIPCIDRs, cidr)
 			case model.VpcSubnet_ACCESS_MODE_PRIVATE_TGW:

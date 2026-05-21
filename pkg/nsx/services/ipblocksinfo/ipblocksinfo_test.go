@@ -802,6 +802,29 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	assert.ElementsMatch(t, []string{"10.30.0.0/24", "2001:db8:1::/48"}, external)
 	assert.Empty(t, private)
 
+	// Test: nil AccessMode defaults to Public for IPv4 (consistent with MapNSXSubnetToSubnetCR)
+	nilAccessModeSubnetPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/nil-access-mode"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		return &model.VpcSubnet{
+			Path:        &nilAccessModeSubnetPath,
+			IpAddresses: []string{"172.16.0.0/16"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: nilAccessModeSubnetPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"172.16.0.0/16"}, external)
+	assert.Empty(t, private)
+
 	// Test: SearchResource returns error
 	getSubnetPatch.Reset()
 	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
