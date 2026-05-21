@@ -30,12 +30,14 @@ var (
 	ipBlocksPath2 = "/infra/ip-blocks/ipblock2"
 	ipBlocksPath3 = "/infra/ip-blocks/ipblock3"
 	ipBlocksPath4 = "/infra/ip-blocks/ipblock4"
+	ipBlocksPath5 = "/infra/ip-blocks/ipblock5"
 
 	ipBlocksMap = map[string]string{
 		ipBlocksPath1: "192.168.0.0/16",
 		ipBlocksPath2: "10.172.0.0/16",
 		ipBlocksPath3: "10.173.0.0/16",
 		ipBlocksPath4: "2002::1234:abcd:ffff:c0a8:101/64",
+		ipBlocksPath5: "2001:db8::/32",
 	}
 	vpcConnectivityProfilePath1 = "/orgs/default/projects/default/vpc-connectivity-profiles/vpc-connectivity-profile-1"
 	vpcConnectivityProfilePath2 = "/orgs/default/projects/default/vpc-connectivity-profiles/vpc-connectivity-profile-2"
@@ -79,6 +81,7 @@ func fakeSearchResource(_ *common.Service, resourceTypeValue string, _ string, s
 			Path:               &vpcConnectivityProfilePath1,
 			ExternalIpBlocks:   []string{ipBlocksPath1},
 			PrivateTgwIpBlocks: []string{ipBlocksPath2},
+			Ipv6Blocks:         []string{ipBlocksPath5},
 		}
 		vpcConnectivityProfile2 := &model.VpcConnectivityProfile{
 			Path:               &vpcConnectivityProfilePath2,
@@ -121,7 +124,8 @@ func TestIPBlocksInfoService_UpdateIPBlocksInfo(t *testing.T) {
 	mockK8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 		actualUpdated, ok := obj.(*v1alpha1.IPBlocksInfo)
 		assert.True(t, ok, "expected *v1alpha1.IPBlocksInfo when updating CR, got %T")
-		assert.True(t, util.CompareArraysWithoutOrder(actualUpdated.ExternalIPCIDRs, []string{ipBlocksMap[ipBlocksPath4], ipBlocksMap[ipBlocksPath1]}))
+		// IPv6 CIDRs from Ipv6Blocks (ipBlocksPath5) are merged into ExternalIPCIDRs alongside IPv4 externals
+		assert.True(t, util.CompareArraysWithoutOrder(actualUpdated.ExternalIPCIDRs, []string{ipBlocksMap[ipBlocksPath4], ipBlocksMap[ipBlocksPath1], ipBlocksMap[ipBlocksPath5]}))
 		assert.Equal(t, actualUpdated.PrivateTGWIPCIDRs, []string{ipBlocksMap[ipBlocksPath2]})
 		return nil
 	})
@@ -294,6 +298,54 @@ func TestIPBlocksInfoService_mergeIPCidrs(t *testing.T) {
 			source:   []string{"10.0.0.0/8", "192.168.1.0/24/24"},
 			target:   []string{"10.0.0.1", "192.168.1.0/-1"},
 			expected: []string{"10.0.0.0/8"},
+		},
+		// IPv6 cases
+		{
+			name:     "IPv6: target is subnet of source, should not add",
+			source:   []string{"2001:db8::/32"},
+			target:   []string{"2001:db8:1::/48"},
+			expected: []string{"2001:db8::/32"},
+		},
+		{
+			name:     "IPv6: target is not covered by source, should add",
+			source:   []string{"2001:db8::/32"},
+			target:   []string{"2001:db9::/32"},
+			expected: []string{"2001:db8::/32", "2001:db9::/32"},
+		},
+		{
+			name:     "IPv6: identical CIDRs in source and target, no duplicates",
+			source:   []string{"2001:db8::/32"},
+			target:   []string{"2001:db8::/32"},
+			expected: []string{"2001:db8::/32"},
+		},
+		{
+			name:     "IPv6: empty source, all targets added",
+			source:   []string{},
+			target:   []string{"2001:db8::/32", "2001:db9::/32"},
+			expected: []string{"2001:db8::/32", "2001:db9::/32"},
+		},
+		{
+			name:     "mixed IPv4 and IPv6: IPv6 source does not block IPv4 target",
+			source:   []string{"2001:db8::/32"},
+			target:   []string{"192.168.0.0/16"},
+			expected: []string{"2001:db8::/32", "192.168.0.0/16"},
+		},
+		{
+			name:     "mixed IPv4 and IPv6: IPv4 source does not block IPv6 target",
+			source:   []string{"192.168.0.0/16"},
+			target:   []string{"2001:db8::/32"},
+			expected: []string{"192.168.0.0/16", "2001:db8::/32"},
+		},
+		{
+			name:   "mixed IPv4 and IPv6: source has both families, correctly covers subnets",
+			source: []string{"192.168.0.0/16", "2001:db8::/32"},
+			target: []string{
+				"192.168.1.0/24",  // subset of IPv4 source
+				"2001:db8:1::/48", // subset of IPv6 source
+				"10.0.0.0/8",      // new IPv4
+				"2001:db9::/32",   // new IPv6
+			},
+			expected: []string{"192.168.0.0/16", "2001:db8::/32", "10.0.0.0/8", "2001:db9::/32"},
 		},
 	}
 
@@ -496,6 +548,76 @@ func TestIPBlocksInfoService_getCIDRsRangesFromStore(t *testing.T) {
 	ipBlockStore.Delete("block2")
 	ipBlockStore.Delete("block3")
 	ipBlockStore.Delete("block4")
+
+	// Case: IPv6 CIDR in external IPBlock
+	addBlock("ipv6-ext", nil, []string{"2001:db8::/32"}, nil)
+	pathSet = sets.New[string]()
+	pathSet.Insert("ipv6-ext")
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"2001:db8::/32"}, extCIDRs)
+	assert.Empty(t, privCIDRs)
+	assert.Empty(t, extRanges)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("ipv6-ext")
+
+	// Case: IPv6 range in external IPBlock
+	addBlock("ipv6-range-ext", nil, nil, []model.IpPoolRange{
+		{Start: stringPtr("2001:db8::1"), End: stringPtr("2001:db8::ff")},
+	})
+	pathSet = sets.New[string]()
+	pathSet.Insert("ipv6-range-ext")
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.Empty(t, extCIDRs)
+	assert.Empty(t, privCIDRs)
+	assert.Equal(t, []v1alpha1.IPPoolRange{{Start: "2001:db8::1", End: "2001:db8::ff"}}, extRanges)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("ipv6-range-ext")
+
+	// Case: IPv6 CIDR in privateTGW IPBlock
+	addBlock("ipv6-priv", nil, []string{"fd00::/48"}, nil)
+	privSet = sets.New[string]()
+	privSet.Insert("ipv6-priv")
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(sets.New[string](), privSet, ipBlockStore)
+	assert.NoError(t, err)
+	assert.Empty(t, extCIDRs)
+	assert.Equal(t, []string{"fd00::/48"}, privCIDRs)
+	assert.Empty(t, extRanges)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("ipv6-priv")
+
+	// Case: mixed IPv4 and IPv6 CIDRs in the same IPBlock
+	addBlock("mixed", nil, []string{"192.168.0.0/16", "2001:db8::/32"}, []model.IpPoolRange{
+		{Start: stringPtr("10.0.0.1"), End: stringPtr("10.0.0.10")},
+		{Start: stringPtr("2001:db8::1"), End: stringPtr("2001:db8::ff")},
+	})
+	pathSet = sets.New[string]()
+	pathSet.Insert("mixed")
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(pathSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.True(t, util.CompareArraysWithoutOrder([]string{"192.168.0.0/16", "2001:db8::/32"}, extCIDRs))
+	assert.Empty(t, privCIDRs)
+	assert.True(t, util.CompareArraysWithoutOrder([]v1alpha1.IPPoolRange{
+		{Start: "10.0.0.1", End: "10.0.0.10"},
+		{Start: "2001:db8::1", End: "2001:db8::ff"},
+	}, extRanges))
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("mixed")
+
+	// Case: Ipv6Blocks paths in externalIPBlockPaths (IPv6 from VpcConnectivityProfile.Ipv6Blocks)
+	addBlock("ipv6-block", nil, []string{"2001:db8::/32"}, []model.IpPoolRange{
+		{Start: stringPtr("2001:db8::1"), End: stringPtr("2001:db8::ff")},
+	})
+	ipv6AsExtSet := sets.New[string]()
+	ipv6AsExtSet.Insert("ipv6-block")
+	extCIDRs, privCIDRs, extRanges, privRanges, err = service.getCIDRsRangesFromStore(ipv6AsExtSet, sets.New[string](), ipBlockStore)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"2001:db8::/32"}, extCIDRs)
+	assert.Empty(t, privCIDRs)
+	assert.Equal(t, []v1alpha1.IPPoolRange{{Start: "2001:db8::1", End: "2001:db8::ff"}}, extRanges)
+	assert.Empty(t, privRanges)
+	ipBlockStore.Delete("ipv6-block")
 }
 
 func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
@@ -578,6 +700,129 @@ func TestIPBlocksInfoService_getSharedSubnetsCIDRs(t *testing.T) {
 	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
 	assert.NoError(t, err)
 	assert.Empty(t, external)
+	assert.Empty(t, private)
+
+	// Test: dual-stack subnet with both IPv4 and IPv6 addresses (Public access mode)
+	dualStackSubnetPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/dualstack-subnet"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		public := "Public"
+		return &model.VpcSubnet{
+			Path:        &dualStackSubnetPath,
+			AccessMode:  &public,
+			IpAddresses: []string{"192.168.20.0/24", "2001:db8::/48"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: dualStackSubnetPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"192.168.20.0/24", "2001:db8::/48"}, external)
+	assert.Empty(t, private)
+
+	// Test: dual-stack Private_TGW subnet – IPv6 always goes to external, only IPv4 respects access mode
+	dualStackPrivateTgwPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/dualstack-private-tgw"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		privateTgw := "Private_TGW"
+		return &model.VpcSubnet{
+			Path:        &dualStackPrivateTgwPath,
+			AccessMode:  &privateTgw,
+			IpAddresses: []string{"10.20.0.0/16", "fd00::/48"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: dualStackPrivateTgwPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"fd00::/48"}, external)
+	assert.ElementsMatch(t, []string{"10.20.0.0/16"}, private)
+
+	// Test: IPv6-only Private_TGW subnet – all CIDRs go to external (no access mode applied to IPv6)
+	ipv6OnlyPrivateTgwPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/ipv6-only-private-tgw"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		privateTgw := "Private_TGW"
+		return &model.VpcSubnet{
+			Path:        &ipv6OnlyPrivateTgwPath,
+			AccessMode:  &privateTgw,
+			IpAddresses: []string{"2001:db8::/32", "fd00::/48"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: ipv6OnlyPrivateTgwPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"2001:db8::/32", "fd00::/48"}, external)
+	assert.Empty(t, private)
+
+	// Test: subnet with an invalid CIDR entry – invalid entries are skipped, valid ones processed
+	invalidCIDRSubnetPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/invalid-cidr-subnet"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		public := "Public"
+		return &model.VpcSubnet{
+			Path:        &invalidCIDRSubnetPath,
+			AccessMode:  &public,
+			IpAddresses: []string{"not-a-cidr", "10.30.0.0/24", "2001:db8:1::/48"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: invalidCIDRSubnetPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"10.30.0.0/24", "2001:db8:1::/48"}, external)
+	assert.Empty(t, private)
+
+	// Test: nil AccessMode defaults to Public for IPv4 (consistent with MapNSXSubnetToSubnetCR)
+	nilAccessModeSubnetPath := "/orgs/default/projects/default/vpcs/vpc1/vpc-subnets/nil-access-mode"
+	getSubnetPatch.Reset()
+	getSubnetPatch = gomonkey.ApplyMethod(reflect.TypeOf(service.subnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associate string, forceAPI bool) (*model.VpcSubnet, error) {
+		return &model.VpcSubnet{
+			Path:        &nilAccessModeSubnetPath,
+			IpAddresses: []string{"172.16.0.0/16"},
+		}, nil
+	})
+	vpcConfigList = []v1alpha1.VPCNetworkConfiguration{
+		{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				Subnets: []v1alpha1.SharedSubnet{{
+					Path: nilAccessModeSubnetPath,
+				}},
+			},
+		},
+	}
+	external, private, err = service.getSharedSubnetsCIDRs(vpcConfigList)
+	assert.NoError(t, err)
+	assert.ElementsMatch(t, []string{"172.16.0.0/16"}, external)
 	assert.Empty(t, private)
 
 	// Test: SearchResource returns error

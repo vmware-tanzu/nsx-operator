@@ -113,7 +113,7 @@ func (c *fakeCertificatesClient) Fetchpeercertificatechain(tlsServiceEndpointPar
 	return mpmodel.PeerCertificateChain{}, nil
 }
 
-func (c *fakeCertificatesClient) Get(certIdParam string, detailsParam *bool) (mpmodel.Certificate, error) {
+func (c *fakeCertificatesClient) Get(certIdParam string, detailsParam *bool, fmtParam *string) (mpmodel.Certificate, error) {
 	return mpmodel.Certificate{}, nil
 }
 
@@ -125,7 +125,7 @@ func (c *fakeCertificatesClient) Importtrustedca(aliasParam string, trustObjectD
 	return nil
 }
 
-func (c *fakeCertificatesClient) List(cursorParam *string, detailsParam *bool, includedFieldsParam *string, nodeIdParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string, type_Param *string) (mpmodel.CertificateList, error) {
+func (c *fakeCertificatesClient) List(cursorParam *string, detailsParam *bool, fmtParam *string, includedFieldsParam *string, nodeIdParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string, type_Param *string) (mpmodel.CertificateList, error) {
 	return mpmodel.CertificateList{}, nil
 }
 

@@ -94,10 +94,11 @@ func (s *IPBlocksInfoService) ResetPeriodicSync() {
 }
 
 // mergeIPCidrs merges target CIDRs into source CIDRs if not already covered by source.
-// Only considers IPv4, assumes no overlaps and all CIDRs are valid.
-// Assume there were no duplicate cidr in target,
-// None of the elements in target will be a subset of another element
-// consider using radix tree or sort + binary search for large scale
+// Supports both IPv4 and IPv6 CIDRs. IPv4 and IPv6 CIDRs are treated as disjoint address
+// spaces and will never be considered to cover each other.
+// Assumes no overlaps within source and all CIDRs are valid.
+// Assumes there are no duplicate CIDRs in target, and no element in target is a subset of another.
+// Consider using a radix tree or sort + binary search for large-scale inputs.
 func (s *IPBlocksInfoService) mergeIPCidrs(source []string, target []string) []string {
 	if len(source) == 0 {
 		return target
@@ -258,14 +259,30 @@ func (s *IPBlocksInfoService) getSharedSubnetsCIDRs(vpcConfigList []v1alpha1.VPC
 			continue
 		}
 
-		switch *subnet.AccessMode {
-		case model.VpcSubnet_ACCESS_MODE_PUBLIC:
-			externalIPCIDRs = append(externalIPCIDRs, subnet.IpAddresses...)
-
-		case model.VpcSubnet_ACCESS_MODE_PRIVATE_TGW:
-			project := fmt.Sprintf("/orgs/%s/projects/%s", vpcInfo.OrgID, vpcInfo.ProjectID)
-			if project == s.defaultProject {
-				privateTGWIPCIDRs = append(privateTGWIPCIDRs, subnet.IpAddresses...)
+		for _, cidr := range subnet.IpAddresses {
+			ip, _, parseErr := net.ParseCIDR(cidr)
+			if parseErr != nil {
+				log.Warn("failed to parse subnet CIDR", "cidr", cidr, "err", parseErr)
+				continue
+			}
+			if ip.To4() == nil {
+				// IPv6 CIDRs are always public with no access mode
+				externalIPCIDRs = append(externalIPCIDRs, cidr)
+				continue
+			}
+			// IPv4: apply access mode check
+			accessMode := model.VpcSubnet_ACCESS_MODE_PUBLIC
+			if subnet.AccessMode != nil {
+				accessMode = *subnet.AccessMode
+			}
+			switch accessMode {
+			case model.VpcSubnet_ACCESS_MODE_PUBLIC:
+				externalIPCIDRs = append(externalIPCIDRs, cidr)
+			case model.VpcSubnet_ACCESS_MODE_PRIVATE_TGW:
+				project := fmt.Sprintf("/orgs/%s/projects/%s", vpcInfo.OrgID, vpcInfo.ProjectID)
+				if project == s.defaultProject {
+					privateTGWIPCIDRs = append(privateTGWIPCIDRs, cidr)
+				}
 			}
 		}
 	}
@@ -369,6 +386,11 @@ func (s *IPBlocksInfoService) getIPBlockCIDRsByVPCConfig(vpcConfigList []v1alpha
 		// save external_ip_blocks path in set for all profile
 		for _, externalIPBlock := range vpcConnectivityProfile.ExternalIpBlocks {
 			externalIPBlockPaths.Insert(externalIPBlock)
+		}
+		// Ipv6Blocks are external-visibility IPv6 blocks; merge them into the external set so their
+		// CIDRs/ranges appear in ExternalIPCIDRs/ExternalIPRanges without any CRD schema change.
+		for _, ipv6Block := range vpcConnectivityProfile.Ipv6Blocks {
+			externalIPBlockPaths.Insert(ipv6Block)
 		}
 		// save private_tgw_ip_blocks path in set for profile associated with default project
 		if isDefault {
