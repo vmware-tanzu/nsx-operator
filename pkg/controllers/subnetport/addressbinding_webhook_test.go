@@ -398,6 +398,54 @@ func TestAddressBindingValidator_Handle(t *testing.T) {
 			want: admission.Denied("IPAddressAllocation must be a single IP"),
 		},
 		{
+			name: "create with IPv6 allocation /128 no visibility set (single IP)",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckNetworkStack,
+					func(_ client.Client, _ context.Context, _ string, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec: v1alpha1.IPAddressAllocationSpec{
+						IPAddressType:              v1alpha1.IPAllocationIPAddressTypeIPv6,
+						IPv6AllocationPrefixLength: 128,
+					},
+				})
+				return patches
+			},
+			want: admission.Allowed(""),
+		},
+		{
+			name: "create with IPv6 allocation /64 no visibility set (not a single IP)",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
+			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckNetworkStack,
+					func(_ client.Client, _ context.Context, _ string, _ string) error {
+						return nil
+					})
+				patches.ApplyMethodSeq(c, "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{nil},
+					Times:  1,
+				}})
+				c.Create(context.TODO(), &v1alpha1.IPAddressAllocation{
+					TypeMeta:   v1.TypeMeta{},
+					ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "ip1"},
+					Spec: v1alpha1.IPAddressAllocationSpec{
+						IPAddressType:              v1alpha1.IPAllocationIPAddressTypeIPv6,
+						IPv6AllocationPrefixLength: 64,
+					},
+				})
+				return patches
+			},
+			want: admission.Denied("IPAddressAllocation must be a single IP"),
+		},
+		{
 			name: "create with networkStack VLANBackedVPC",
 			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create, Object: runtime.RawExtension{Raw: req3}}}},
 			prepareFunc: func(t *testing.T, c client.Client, v *AddressBindingValidator, ctx context.Context) *gomonkey.Patches {

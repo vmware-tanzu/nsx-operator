@@ -64,6 +64,25 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 			AllocationIPs:            "10.0.0.10",
 		},
 	})
+	reqCreateIPv6, _ := json.Marshal(&v1alpha1.IPAddressAllocation{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns1",
+			Name:      "ip-ipv6",
+		},
+		Spec: v1alpha1.IPAddressAllocationSpec{
+			IPAddressType:              v1alpha1.IPAllocationIPAddressTypeIPv6,
+			IPv6AllocationPrefixLength: 64,
+		},
+	})
+	reqCreateIPv4NoVis, _ := json.Marshal(&v1alpha1.IPAddressAllocation{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns1",
+			Name:      "ip-ipv4-novis",
+		},
+		Spec: v1alpha1.IPAddressAllocationSpec{
+			AllocationSize: 16,
+		},
+	})
 	type args struct {
 		req admission.Request
 	}
@@ -178,6 +197,39 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 				Operation: admissionv1.Update,
 				Object:    runtime.RawExtension{Raw: reqUpdate},
 				OldObject: runtime.RawExtension{Raw: reqDelete},
+			}}},
+			want: admission.Allowed(""),
+		},
+		{
+			name: "create IPv6 - visibility check skipped",
+			prepareFunc: func(t *testing.T, k8sClient client.Client, ctx context.Context) *gomonkey.Patches {
+				// CheckAccessModeOrVisibility returns an error, but for IPv6 it must never be called.
+				patches := gomonkey.ApplyFunc(common.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+					t.Errorf("CheckAccessModeOrVisibility must not be called for IPv6 allocations")
+					return errors.New("unexpected call")
+				})
+				return patches
+			},
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: reqCreateIPv6},
+			}}},
+			want: admission.Allowed(""),
+		},
+		{
+			name: "create IPv4 no visibility - defaults to Private",
+			prepareFunc: func(t *testing.T, k8sClient client.Client, ctx context.Context) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc(common.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
+					if accessMode != string(v1alpha1.IPAddressVisibilityPrivate) {
+						t.Errorf("expected accessMode %q, got %q", v1alpha1.IPAddressVisibilityPrivate, accessMode)
+					}
+					return nil
+				})
+				return patches
+			},
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: reqCreateIPv4NoVis},
 			}}},
 			want: admission.Allowed(""),
 		},
