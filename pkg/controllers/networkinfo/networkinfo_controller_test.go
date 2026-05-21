@@ -2350,6 +2350,16 @@ func TestPrimaryLBIP(t *testing.T) {
 			ips:  []string{"100.64.0.0/24", "2001:db8::/64"},
 			want: "100.64.0.0/24",
 		},
+		{
+			name: "invalid IP before valid IPv6 is skipped in fallback",
+			ips:  []string{"not-an-ip", "2001:db8::1"},
+			want: "2001:db8::1",
+		},
+		{
+			name: "all invalid IPs returns empty string",
+			ips:  []string{"not-an-ip", "also-invalid"},
+			want: "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

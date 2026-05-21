@@ -476,21 +476,26 @@ func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfigurat
 
 // primaryLBIP selects the canonical single IP/CIDR for LoadBalancerIPAddresses following
 // the Kubernetes dual-stack convention: prefer IPv4 for dual-stack, fall back to the first
-// entry for IPv6-only, and return "" for an empty slice.
+// valid IPv6 entry, and return "" when no valid IP is present.
 func primaryLBIP(ips []string) string {
+	var firstValid string
 	for _, ip := range ips {
 		raw := ip
 		if idx := strings.Index(ip, "/"); idx != -1 {
 			raw = ip[:idx]
 		}
-		if net.ParseIP(raw) != nil && net.ParseIP(raw).To4() != nil {
+		parsed := net.ParseIP(raw)
+		if parsed == nil {
+			continue
+		}
+		if parsed.To4() != nil {
 			return ip
 		}
+		if firstValid == "" {
+			firstValid = ip
+		}
 	}
-	if len(ips) > 0 {
-		return ips[0]
-	}
-	return ""
+	return firstValid
 }
 
 func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
