@@ -85,6 +85,7 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 			// "nsx error code: 612866, message: Properties IP block, allocation IPs, allocation IP, IP block visibility, allocation size and IPAddressType of existing Vpc IP address allocation: <VPC IP address allocation path> can not be modified."
 			// For this kind of cases, we manually populate the allocation_size and allocation_ips before the comparison.
 			nsxIPAddressAllocation.AllocationSize = nil
+			nsxIPAddressAllocation.Ipv6AllocationPrefixLength = nil
 			nsxIPAddressAllocation.AllocationIps = existingIPAddressAllocation.AllocationIps
 		}
 		// Use the existing NSX resource's id and display_name.
@@ -300,9 +301,6 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNamespaced
 }
 
 func (service *IPAddressAllocationService) ListIPAddressAllocationID() sets.Set[string] {
-	if service == nil || service.ipAddressAllocationStore == nil {
-		return sets.New[string]()
-	}
 	ipAddressAllocationSet := service.ipAddressAllocationStore.ListIndexFuncValues(common.TagScopeIPAddressAllocationCRUID)
 	return ipAddressAllocationSet
 }

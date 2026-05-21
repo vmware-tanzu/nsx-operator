@@ -58,20 +58,21 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		}
 		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
 		ipAddressType = ipAddressTypeToNSX(o.Spec.IPAddressType)
-		if ipAddressType == model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
-			prefixLen := o.Spec.IPv6AllocationPrefixLength
-			if prefixLen == 0 {
-				prefixLen = 64
-			}
-			ipv6AllocationPrefixLength = Int64(int64(prefixLen))
-		}
 		if len(o.Spec.AllocationIPs) > 0 {
 			allocationIps = String(o.Spec.AllocationIPs)
 		} else if restoreMode && len(o.Status.AllocationIPs) > 0 {
 			allocationIps = String(o.Status.AllocationIPs)
 		} else {
-			// Field AllocationIPs and AllocationSize cannot be provided together for VPC IP allocation.
-			allocationSize = Int64(int64(o.Spec.AllocationSize))
+			// Field AllocationIPs and AllocationSize/Ipv6AllocationPrefixLength cannot be provided together for VPC IP allocation.
+			if ipAddressType == model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
+				prefixLen := o.Spec.IPv6AllocationPrefixLength
+				if prefixLen == 0 {
+					prefixLen = 64
+				}
+				ipv6AllocationPrefixLength = Int64(int64(prefixLen))
+			} else {
+				allocationSize = Int64(int64(o.Spec.AllocationSize))
+			}
 		}
 	case *v1alpha1.AddressBinding:
 		if !restoreMode || subnetPortCR == nil || o.Spec.IPAddressAllocationName != "" {
@@ -79,6 +80,9 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		}
 		ipAddressBlockVisibility = v1alpha1.IPAddressVisibilityExternal
 		allocationIps = &o.Status.IPAddress
+		if util.IsIPv6(o.Status.IPAddress) {
+			ipAddressType = model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
+		}
 	}
 	tags := service.buildIPAddressAllocationTags(obj)
 	if restoreMode && subnetPortCR != nil {

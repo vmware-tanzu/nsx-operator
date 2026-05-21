@@ -14,12 +14,12 @@ func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.VpcIpAddressAllocation:
 		if v == nil || v.Id == nil {
-			return "", nil
+			return "", errors.New("VpcIpAddressAllocation is nil or has nil Id")
 		}
 		return *v.Id, nil
 	case *model.GenericPolicyRealizedResource:
 		if v == nil || v.Id == nil {
-			return "", nil
+			return "", errors.New("GenericPolicyRealizedResource is nil or has nil Id")
 		}
 		return *v.Id, nil
 	default:
