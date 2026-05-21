@@ -114,7 +114,7 @@ func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath s
 	return r.Service.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
 }
 
-func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subnetSetType string, ns string, defaultSubnetSize int, hasCIDR bool, hasPrecreatedSubnet bool) error {
+func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subnetSetType string, ns string, nc *v1alpha1.VPCNetworkConfiguration, hasCIDR bool, hasPrecreatedSubnet bool) error {
 	var name string
 	var accessMode v1alpha1.AccessMode
 	// TODO: remove this old Label when all other dependencies consume the new label
@@ -126,6 +126,8 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 		name = commonservice.DefaultVMSubnetSet
 		accessMode = v1alpha1.AccessMode(v1alpha1.AccessModePrivate)
 	}
+
+	ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
 
 	if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 		return err != nil
@@ -140,13 +142,21 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 				log.Debug("Delete default SubnetSet", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns)
 				return r.Client.Delete(ctx, subnetSetCR)
 			}
-			// Do nothing if the default SubnetSet uses the pre-created Subnets
-			// or there is CIDR for auto-created SubnetSet
+			// Do nothing if the default SubnetSet already exists. IPv6PrefixLength is immutable in NSX
+			// once subnets are created, so changes in VPCNetworkConfiguration must not be propagated
+			// to existing SubnetSets.
 			log.Debug("Default SubnetSet already exists", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "auto-created", subnetSetCR.Spec.SubnetNames == nil)
 			return nil
 		}
 		// Only create the auto-created SubnetSet if there is no pre-created Subnet for default network
 		if !hasPrecreatedSubnet && hasCIDR {
+			spec := v1alpha1.SubnetSetSpec{AccessMode: accessMode}
+			if util.IPAddressTypeIncludesIPv4(ipFamily) {
+				spec.IPv4SubnetSize = nc.Spec.DefaultSubnetSize
+			}
+			if util.IPAddressTypeIncludesIPv6(ipFamily) {
+				spec.IPv6PrefixLength = nc.Spec.DefaultIPv6PrefixLength
+			}
 			obj := &v1alpha1.SubnetSet{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: ns,
@@ -157,10 +167,7 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 						commonservice.LabelDefaultSubnetSet: common.NetworkSubnetSetNameMap[subnetSetType],
 					},
 				},
-				Spec: v1alpha1.SubnetSetSpec{
-					AccessMode:     accessMode,
-					IPv4SubnetSize: defaultSubnetSize,
-				},
+				Spec: spec,
 			}
 			log.Debug("Create default SubnetSet with auto-created Subnet", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns)
 			return r.Client.Create(ctx, obj)
@@ -312,7 +319,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Check private cidr to determine if create default SubnetSet for VM
 	if namespaceType == common.NormalNs {
 		hasPrivateCidr := len(privateIPs) > 0
-		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultVMNetwork, req.Namespace, nc.Spec.DefaultSubnetSize, hasPrivateCidr, hasVMDefaultSubnets(nc.Spec.Subnets)); err != nil {
+		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultVMNetwork, req.Namespace, nc, hasPrivateCidr, hasVMDefaultSubnets(nc.Spec.Subnets)); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update default SubnetSet for VM", setNetworkInfoVPCStatusWithError, nil)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 			return common.ResultNormal, err
@@ -339,7 +346,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// Check privatetgw IP blocks to determine if create default SubnetSet for Pod
 		if namespaceType == common.NormalNs {
 			hasPrivateTgwCidr := len(vpcConnectivityProfile.PrivateTgwIpBlocks) > 0
-			if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultPodNetwork, req.Namespace, nc.Spec.DefaultSubnetSize, hasPrivateTgwCidr, hasPodDefaultSubnets(nc.Spec.Subnets)); err != nil {
+			if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultPodNetwork, req.Namespace, nc, hasPrivateTgwCidr, hasPodDefaultSubnets(nc.Spec.Subnets)); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update default SubnetSet for Pod", setNetworkInfoVPCStatusWithError, nil)
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 				return common.ResultNormal, err

@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/apparentlymart/go-cidr/cidr"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 // RemoveIPPrefix remove the prefix from an IP address, e.g.
@@ -52,6 +54,27 @@ func IsIPv6CIDR(cidrStr string) bool {
 		return false
 	}
 	return ip.To4() == nil
+}
+
+// ContainsIPv4CIDR returns true if any CIDR in the slice is an IPv4 CIDR.
+func ContainsIPv4CIDR(cidrs []string) bool {
+	for _, c := range cidrs {
+		ip, _, err := net.ParseCIDR(c)
+		if err == nil && ip.To4() != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsIPv6CIDR returns true if any CIDR in the slice is an IPv6 CIDR.
+func ContainsIPv6CIDR(cidrs []string) bool {
+	for _, c := range cidrs {
+		if IsIPv6CIDR(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // IsIPv6 returns true if the given IP address string is IPv6.
@@ -228,4 +251,16 @@ func GetCIDRRangesWithExcept(cidr string, excepts []string) ([]string, error) {
 		resultRanges = append(resultRanges, fmt.Sprintf("%s-%s", rng[0], rng[1]))
 	}
 	return resultRanges, nil
+}
+
+// IPAddressTypeIncludesIPv6 reports whether the given IPAddressType allocates IPv6 addresses
+// (i.e. IPv6-only or dual-stack).
+func IPAddressTypeIncludesIPv6(ipType v1alpha1.IPAddressType) bool {
+	return ipType == v1alpha1.IPAddressTypeIPv6 || ipType == v1alpha1.IPAddressTypeIPv4IPv6
+}
+
+// IPAddressTypeIncludesIPv4 reports whether the given IPAddressType allocates IPv4 addresses
+// (i.e. IPv4-only or dual-stack).
+func IPAddressTypeIncludesIPv4(ipType v1alpha1.IPAddressType) bool {
+	return ipType != v1alpha1.IPAddressTypeIPv6
 }

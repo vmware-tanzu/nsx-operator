@@ -161,8 +161,16 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		specChanged = true
 	}
 
-	if subnetCR.Spec.IPv4SubnetSize == 0 && len(subnetCR.Spec.IPAddresses) == 0 {
+	if util.IPAddressTypeIncludesIPv4(subnetCR.Spec.IPAddressType) && subnetCR.Spec.IPv4SubnetSize == 0 && !util.ContainsIPv4CIDR(subnetCR.Spec.IPAddresses) {
 		err = r.setDefaultIPv4SubnetSizeValue(ctx, subnetCR, vpcNetworkConfig)
+		if err != nil {
+			return ResultNormal, err
+		}
+		specChanged = true
+	}
+
+	if util.IPAddressTypeIncludesIPv6(subnetCR.Spec.IPAddressType) && subnetCR.Spec.IPv6PrefixLength == 0 && !util.ContainsIPv6CIDR(subnetCR.Spec.IPAddresses) {
+		err = r.setDefaultIPv6PrefixLengthValue(ctx, subnetCR, vpcNetworkConfig)
 		if err != nil {
 			return ResultNormal, err
 		}
@@ -225,6 +233,20 @@ func (r *SubnetReconciler) setDefaultIPv4SubnetSizeValue(ctx context.Context, su
 		}
 	}
 	subnetCR.Spec.IPv4SubnetSize = vpcNetworkConfig.Spec.DefaultSubnetSize
+	return nil
+}
+
+func (r *SubnetReconciler) setDefaultIPv6PrefixLengthValue(ctx context.Context, subnetCR *v1alpha1.Subnet, vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration) error {
+	var err error
+	if vpcNetworkConfig == nil {
+		vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetCR.Namespace)
+		if err != nil {
+			log.Error(err, "Failed to set default IPv6 prefix length", "Namespace", subnetCR.Namespace)
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to find VPCNetworkConfig", setSubnetReadyStatusFalse)
+			return err
+		}
+	}
+	subnetCR.Spec.IPv6PrefixLength = vpcNetworkConfig.Spec.DefaultIPv6PrefixLength
 	return nil
 }
 
