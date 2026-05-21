@@ -6,6 +6,8 @@ package networkinfo
 import (
 	"context"
 	"fmt"
+	"net"
+	"strings"
 	"time"
 
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
@@ -326,7 +328,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	snatIP, aviSubnetPath, aviSECIDR, nsxLBSNATIP, lbIP := "", "", "", "", ""
+	snatIP, aviSubnetPath, lbIP := "", "", ""
+	var lbBackendIPs []string
 	var networkStack v1alpha1.NetworkStackType
 	networkStack, err = r.Service.GetNetworkStackFromNC(nc)
 	if err != nil {
@@ -397,7 +400,8 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this VPC back,
 	// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.
 	if lbProvider == vpc.AVILB && createdVpc.LoadBalancerVpcEndpoint != nil && createdVpc.LoadBalancerVpcEndpoint.Enabled != nil && *createdVpc.LoadBalancerVpcEndpoint.Enabled {
-		aviSubnetPath, aviSECIDR, err = r.Service.GetAVISubnetInfo(*createdVpc)
+		var aviCIDRs []string
+		aviSubnetPath, aviCIDRs, err = r.Service.GetAVISubnetInfo(*createdVpc)
 		if err != nil {
 			log.Error(err, "Failed to read AVI LB Subnet path and CIDR", "VPC", createdVpc.Id)
 			state := &v1alpha1.VPCState{
@@ -410,10 +414,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCAviSubnetError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
-		lbIP = aviSECIDR
+		lbIP = primaryLBIP(aviCIDRs)
+		lbBackendIPs = aviCIDRs
 	} else if lbProvider == vpc.NSXLB && len(nsxLBSPath) > 0 && len(vpcConnectivityProfilePath) > 0 {
 		// Only check SNat IP when LB capability is ready and vpcConnectivityProfile exists.
-		nsxLBSNATIP, err = r.getNSXLBSNATIP(nc, createdVpc, vpcConnectivityProfilePath, gatewayConnectionReady, serviceClusterReady, networkStack == v1alpha1.VLANBackedVPC)
+		var nsxLBSNATIPs []string
+		nsxLBSNATIPs, err = r.getNSXLBSNATIP(nc, createdVpc, vpcConnectivityProfilePath, gatewayConnectionReady, serviceClusterReady, networkStack == v1alpha1.VLANBackedVPC)
 		if err != nil {
 			log.Error(err, "Failed to read NSX LB SNAT IP", "VPC", createdVpc.Id)
 			state := &v1alpha1.VPCState{
@@ -426,13 +432,15 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNSXLBSNATIPError.getNSNetworkCondition(err))
 			return common.ResultRequeueAfter10sec, err
 		}
-		lbIP = nsxLBSNATIP
+		lbIP = primaryLBIP(nsxLBSNATIPs)
+		lbBackendIPs = nsxLBSNATIPs
 	}
 
 	state := &v1alpha1.VPCState{
 		Name:                    *createdVpc.DisplayName,
 		DefaultSNATIP:           snatIP,
 		LoadBalancerIPAddresses: lbIP,
+		LoadBalancerBackendIPs:  lbBackendIPs,
 		PrivateIPs:              privateIPs,
 		NetworkStack:            networkStack,
 	}
@@ -450,7 +458,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return common.ResultNormal, nil
 }
 
-func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfiguration, createdVpc *model.Vpc, vpcConnectivityProfilePath string, gatewayConnectionReady, serviceClusterReady bool, tepLess bool) (string, error) {
+func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfiguration, createdVpc *model.Vpc, vpcConnectivityProfilePath string, gatewayConnectionReady, serviceClusterReady bool, tepLess bool) ([]string, error) {
 	checkGatewayConnection := gatewayConnectionReady
 	checkServiceCluster := serviceClusterReady
 	// Precreated VPC uses different connectivity profile from system VPC
@@ -458,7 +466,7 @@ func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfigurat
 	if vpc.IsPreCreatedVPC(nc) {
 		connectionStatus, err := r.Service.ValidateConnectionStatus(nc, vpcConnectivityProfilePath)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		checkGatewayConnection = connectionStatus.GatewayConnectionReady
 		checkServiceCluster = connectionStatus.ServiceClusterReady
@@ -470,7 +478,31 @@ func (r *NetworkInfoReconciler) getNSXLBSNATIP(nc *v1alpha1.VPCNetworkConfigurat
 		// DTGW is used for NSX LB
 		return r.Service.GetNSXLBSNATIP(*createdVpc, "service-interface", tepLess)
 	}
-	return "", nil
+	return nil, nil
+}
+
+// primaryLBIP selects the canonical single IP/CIDR for LoadBalancerIPAddresses following
+// the Kubernetes dual-stack convention: prefer IPv4 for dual-stack, fall back to the first
+// valid IPv6 entry, and return "" when no valid IP is present.
+func primaryLBIP(ips []string) string {
+	var firstValid string
+	for _, ip := range ips {
+		raw := ip
+		if idx := strings.Index(ip, "/"); idx != -1 {
+			raw = ip[:idx]
+		}
+		parsed := net.ParseIP(raw)
+		if parsed == nil {
+			continue
+		}
+		if parsed.To4() != nil {
+			return ip
+		}
+		if firstValid == "" {
+			firstValid = ip
+		}
+	}
+	return firstValid
 }
 
 func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {

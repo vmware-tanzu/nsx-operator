@@ -1,11 +1,13 @@
 package realizestate
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -18,10 +20,27 @@ import (
 
 type fakeRealizedEntitiesClient struct{}
 
+// fakeRealizedEntityClient implements infra_realized.RealizedEntityClient.
+// The getFn callback allows each test case to control the response without gomonkey.
+type fakeRealizedEntityClient struct {
+	getFn func(realizedPathParam string) (model.GenericPolicyRealizedResource, error)
+}
+
 func (c *fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 	return model.GenericPolicyRealizedResourceListResult{
 		Results: []model.GenericPolicyRealizedResource{},
 	}, nil
+}
+
+func (c *fakeRealizedEntityClient) Get(realizedPathParam string) (model.GenericPolicyRealizedResource, error) {
+	if c.getFn != nil {
+		return c.getFn(realizedPathParam)
+	}
+	return model.GenericPolicyRealizedResource{}, nil
+}
+
+func (c *fakeRealizedEntityClient) Refresh(intentPathParam string, enforcementPointPathParam *string) error {
+	return nil
 }
 
 func TestRealizeStateService_CheckRealizeState(t *testing.T) {
@@ -302,4 +321,106 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	assert.Equal(t, "/orgs/default/projects/project-quality/vpcs/vpc realized with errors: [Found errors in the request. Please refer to the related errors for details. related error 1 related error 2]", realizeStateError.Error())
 
 	patches.Reset()
+}
+
+func TestGetPolicyInterfaceIPs(t *testing.T) {
+	realizedPath := "/orgs/default/projects/default/realized-state/enforcement-points/default/vpcs/vpc1/gateway-interface"
+
+	tests := []struct {
+		name    string
+		getFn   func(realizedPathParam string) (model.GenericPolicyRealizedResource, error)
+		wantIPs []string
+		wantErr string
+	}{
+		{
+			name: "single IPv4",
+			getFn: func(_ string) (model.GenericPolicyRealizedResource, error) {
+				key := "IpAddresses"
+				return model.GenericPolicyRealizedResource{
+					ExtendedAttributes: []model.AttributeVal{
+						{Key: &key, Values: []string{"100.64.0.1/29"}},
+					},
+				}, nil
+			},
+			wantIPs: []string{"100.64.0.1"},
+		},
+		{
+			name: "dual-stack IPv4 and IPv6",
+			getFn: func(_ string) (model.GenericPolicyRealizedResource, error) {
+				key := "IpAddresses"
+				return model.GenericPolicyRealizedResource{
+					ExtendedAttributes: []model.AttributeVal{
+						{Key: &key, Values: []string{"100.64.0.1/29", "2001:db8::1/64"}},
+					},
+				}, nil
+			},
+			wantIPs: []string{"100.64.0.1", "2001:db8::1"},
+		},
+		{
+			name: "IPv6-only",
+			getFn: func(_ string) (model.GenericPolicyRealizedResource, error) {
+				key := "IpAddresses"
+				return model.GenericPolicyRealizedResource{
+					ExtendedAttributes: []model.AttributeVal{
+						{Key: &key, Values: []string{"2001:db8::1/64"}},
+					},
+				}, nil
+			},
+			wantIPs: []string{"2001:db8::1"},
+		},
+		{
+			name: "empty Values returns error",
+			getFn: func(_ string) (model.GenericPolicyRealizedResource, error) {
+				key := "IpAddresses"
+				return model.GenericPolicyRealizedResource{
+					ExtendedAttributes: []model.AttributeVal{
+						{Key: &key, Values: []string{}},
+					},
+				}, nil
+			},
+			wantErr: "LB SNAT IP not found",
+		},
+		{
+			name: "missing IpAddresses key returns error",
+			getFn: func(_ string) (model.GenericPolicyRealizedResource, error) {
+				return model.GenericPolicyRealizedResource{}, nil
+			},
+			wantErr: "LB SNAT IP not found",
+		},
+		{
+			name: "Get returns error",
+			getFn: func(_ string) (model.GenericPolicyRealizedResource, error) {
+				return model.GenericPolicyRealizedResource{}, fmt.Errorf("connection refused")
+			},
+			wantErr: "connection refused",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeEntityClient := &fakeRealizedEntityClient{getFn: tt.getFn}
+			service := &RealizeStateService{
+				Service: common.Service{
+					NSXClient: &nsx.Client{
+						RealizedEntityClient: fakeEntityClient,
+						NsxConfig: &config.NSXOperatorConfig{
+							CoeConfig: &config.CoeConfig{Cluster: "k8scl-one:test"},
+						},
+					},
+					NSXConfig: &config.NSXOperatorConfig{
+						CoeConfig: &config.CoeConfig{Cluster: "k8scl-one:test"},
+					},
+				},
+			}
+
+			ips, err := service.GetPolicyInterfaceIPs(realizedPath)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantIPs, ips)
+		})
+	}
 }

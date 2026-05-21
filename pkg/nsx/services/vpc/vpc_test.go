@@ -11,6 +11,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
@@ -2777,50 +2778,126 @@ func TestGetNSXLBSNATIP(t *testing.T) {
 		vpc          model.Vpc
 		isTepLess    bool
 		prepareFuncs func() *gomonkey.Patches
-		wantObj      string
+		wantObj      []string
 		wantErr      string
 	}{
 		{
-			name:    "Test normal case",
+			name:    "non-TEP-less IPv4-only",
 			vpc:     vpc1,
-			wantObj: "100.64.0.3",
+			wantObj: []string{"100.64.0.3"},
 			prepareFuncs: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIP,
-					func(_ *realizestate.RealizeStateService, _ string) (string, error) {
-						return "100.64.0.3", nil
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIPs,
+					func(_ *realizestate.RealizeStateService, _ string) ([]string, error) {
+						return []string{"100.64.0.3"}, nil
 					})
 				return patches
 			},
 		},
 		{
-			name: "nsx lb uplink port IP not found error",
+			name:    "non-TEP-less dual-stack",
+			vpc:     vpc1,
+			wantObj: []string{"100.64.0.3", "2001:db8::1"},
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIPs,
+					func(_ *realizestate.RealizeStateService, _ string) ([]string, error) {
+						return []string{"100.64.0.3", "2001:db8::1"}, nil
+					})
+				return patches
+			},
+		},
+		{
+			name:    "non-TEP-less IPv6-only",
+			vpc:     vpc1,
+			wantObj: []string{"2001:db8::1"},
+			prepareFuncs: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIPs,
+					func(_ *realizestate.RealizeStateService, _ string) ([]string, error) {
+						return []string{"2001:db8::1"}, nil
+					})
+				return patches
+			},
+		},
+		{
+			name: "non-TEP-less uplink port IP not found error",
 			vpc:  vpc1,
 			prepareFuncs: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIP,
-					func(_ *realizestate.RealizeStateService, _ string) (string, error) {
-						return "", fmt.Errorf("fake-vpc tier1 uplink port IP not found")
+				patches := gomonkey.ApplyFunc((*realizestate.RealizeStateService).GetPolicyInterfaceIPs,
+					func(_ *realizestate.RealizeStateService, _ string) ([]string, error) {
+						return nil, fmt.Errorf("fake-vpc tier1 uplink port IP not found")
 					})
 				return patches
 			},
 			wantErr: "tier1 uplink port IP not found",
 		},
 		{
-			name:      "TEP-less VPC success",
+			name:      "TEP-less VPC IPv4-only (IPv6 allocation not found)",
+			vpc:       vpc1,
+			isTepLess: true,
+			wantObj:   []string{"100.64.0.5"},
+			prepareFuncs: func() *gomonkey.Patches {
+				callCount := 0
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeIPAddressAllocationClientInstance), "Get",
+					func(_ *fakeIPAddressAllocationClient, _, _, _ string) (model.VpcIpAddressAllocation, error) {
+						callCount++
+						if callCount == 1 {
+							return model.VpcIpAddressAllocation{AllocationIps: ptr.To("100.64.0.5")}, nil
+						}
+						return model.VpcIpAddressAllocation{}, nsxUtil.NewNSXApiError(nil, stderrors.ErrorType_NOT_FOUND)
+					})
+				return patches
+			},
+		},
+		{
+			name:      "TEP-less VPC dual-stack (IPv4 and IPv6)",
+			vpc:       vpc1,
+			isTepLess: true,
+			wantObj:   []string{"100.64.0.5", "2001:db8::5"},
+			prepareFuncs: func() *gomonkey.Patches {
+				callCount := 0
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeIPAddressAllocationClientInstance), "Get",
+					func(_ *fakeIPAddressAllocationClient, _, _, _ string) (model.VpcIpAddressAllocation, error) {
+						callCount++
+						if callCount == 1 {
+							return model.VpcIpAddressAllocation{AllocationIps: ptr.To("100.64.0.5")}, nil
+						}
+						return model.VpcIpAddressAllocation{AllocationIps: ptr.To("2001:db8::5")}, nil
+					})
+				return patches
+			},
+		},
+		{
+			name:      "TEP-less VPC IPv6-only (IPv4 allocation not found)",
+			vpc:       vpc1,
+			isTepLess: true,
+			wantObj:   []string{"2001:db8::5"},
+			prepareFuncs: func() *gomonkey.Patches {
+				callCount := 0
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeIPAddressAllocationClientInstance), "Get",
+					func(_ *fakeIPAddressAllocationClient, _, _, _ string) (model.VpcIpAddressAllocation, error) {
+						callCount++
+						if callCount == 1 {
+							return model.VpcIpAddressAllocation{}, nsxUtil.NewNSXApiError(nil, stderrors.ErrorType_NOT_FOUND)
+						}
+						return model.VpcIpAddressAllocation{AllocationIps: ptr.To("2001:db8::5")}, nil
+					})
+				return patches
+			},
+		},
+		{
+			name:      "TEP-less VPC both allocations not found",
 			vpc:       vpc1,
 			isTepLess: true,
 			prepareFuncs: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeIPAddressAllocationClientInstance), "Get",
 					func(_ *fakeIPAddressAllocationClient, _, _, _ string) (model.VpcIpAddressAllocation, error) {
-						return model.VpcIpAddressAllocation{
-							AllocationIps: ptr.To("100.64.0.5"),
-						}, nil
+						return model.VpcIpAddressAllocation{}, nsxUtil.NewNSXApiError(nil, stderrors.ErrorType_NOT_FOUND)
 					})
 				return patches
 			},
-			wantObj: "100.64.0.5",
+			wantErr: "no VPC service IP found for TEP-less VPC",
 		},
 		{
-			name:      "TEP-less VPC IPAddressAllocation error",
+			name:      "TEP-less VPC IPAddressAllocation hard error",
 			vpc:       vpc1,
 			isTepLess: true,
 			prepareFuncs: func() *gomonkey.Patches {

@@ -32,6 +32,7 @@ const (
 	AVILB           = LBProvider("avi")
 	NoneLB          = LBProvider("none")
 	NSXLBEIPID      = "_DEFAULT--VPC_SERVICE_IP"
+	NSXLBEIPIDV6    = "_DEFAULT--VPC_SERVICE_IP_V6"
 
 	nsxVpcNameIndexKey = "nsxVpcNameIndex"
 
@@ -363,19 +364,19 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 	return *results.Results[0].TranslatedNetwork, nil
 }
 
-func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
+func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, []string, error) {
 	subnetsClient := s.NSXClient.SubnetsClient
 	statusClient := s.NSXClient.SubnetStatusClient
 	info, err := common.ParseVPCResourcePath(*vpc.Path)
 	if err != nil {
-		return "", "", err
+		return "", nil, err
 	}
 
 	subnet, err := subnetsClient.Get(info.OrgID, info.ProjectID, info.VPCID, common.AVISubnetLBID)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read AVI subnet", "VPC", vpc.Id)
-		return "", "", err
+		return "", nil, err
 	}
 	path := *subnet.Path
 
@@ -383,61 +384,100 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read AVI subnet status", "VPC", vpc.Id)
-		return "", "", err
+		return "", nil, err
 	}
 
 	if len(statusList.Results) == 0 {
 		log.Info("AVI subnet status not found", "VPC", vpc.Id)
-		return "", "", err
+		return "", nil, fmt.Errorf("AVI subnet status not found for VPC %s", *vpc.Id)
 	}
 
-	if statusList.Results[0].NetworkAddress == nil {
-		err := fmt.Errorf("invalid status result: %+v", statusList.Results[0])
+	var cidrs []string
+	for i := range statusList.Results {
+		if statusList.Results[i].NetworkAddress == nil {
+			log.Info("Skipping AVI subnet status result with nil NetworkAddress", "Subnet", common.AVISubnetLBID, "index", i)
+			continue
+		}
+		cidrs = append(cidrs, *statusList.Results[i].NetworkAddress)
+	}
+
+	if len(cidrs) == 0 {
+		err := fmt.Errorf("no network address found in AVI subnet status for VPC %s", *vpc.Id)
 		log.Error(err, "Subnet status does not have network address", "Subnet", common.AVISubnetLBID)
-		return "", "", err
+		return "", nil, err
 	}
 
-	cidr := *statusList.Results[0].NetworkAddress
-	log.Info("Read AVI subnet properties", "Path", path, "CIDR", cidr)
-	return path, cidr, nil
+	log.Info("Read AVI subnet properties", "Path", path, "CIDRs", cidrs)
+	return path, cidrs, nil
 }
 
-func (s *VPCService) GetNSXLBSNATIPForTepLessVPC(vpcPath string) (string, error) {
+// GetNSXLBSNATIPsForTepLessVPC fetches the VPC service IPs for a TEP-less VPC.
+// IPv4 and IPv6 allocations are fetched independently (best-effort): a Not-Found response
+// for either allocation ID is silently skipped because which allocations exist depends on
+// the node type (VNA vs VNS) and the IP blocks configured in the VPC connectivity profile.
+// An error is returned only when both fetches yield no IP.
+func (s *VPCService) GetNSXLBSNATIPsForTepLessVPC(vpcPath string) ([]string, error) {
 	pathInfo, err := common.ParseVPCResourcePath(vpcPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	log.Info("Getting VPC NSX LB SNAT IP", "Path", vpcPath)
-	ipaddressallocation, err := s.NSXClient.IPAddressAllocationClient.Get(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID, NSXLBEIPID)
+	log.Info("Getting VPC NSX LB SNAT IPs for TEP-less VPC", "Path", vpcPath)
+
+	var ips []string
+
+	v4, err := s.NSXClient.IPAddressAllocationClient.Get(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID, NSXLBEIPID)
+	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "Failed to get NSX LB SNAT IP for TEP-less VPC", "VPC", pathInfo.VPCID)
-		return "", err
+		if nsxErr, ok := err.(*nsxutil.NSXApiError); !ok || nsxErr.Type() != stderrors.ErrorType_NOT_FOUND {
+			log.Error(err, "Failed to get NSX LB IPv4 SNAT IP for TEP-less VPC", "VPC", pathInfo.VPCID)
+			return nil, err
+		}
+		log.Info("NSX LB IPv4 SNAT IP allocation not found, skipping", "VPC", pathInfo.VPCID)
+	} else if v4.AllocationIps != nil {
+		ips = append(ips, *v4.AllocationIps)
+		log.Info("Got NSX LB IPv4 SNAT IP", "VPC", pathInfo.VPCID, "IP", *v4.AllocationIps)
 	}
-	log.Info("Getting VPC NSX LB SNAT IP", "VPC", pathInfo.VPCID, "SNATIP", *ipaddressallocation.AllocationIps)
-	return *ipaddressallocation.AllocationIps, nil
+
+	v6, err := s.NSXClient.IPAddressAllocationClient.Get(pathInfo.OrgID, pathInfo.ProjectID, pathInfo.VPCID, NSXLBEIPIDV6)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		if nsxErr, ok := err.(*nsxutil.NSXApiError); !ok || nsxErr.Type() != stderrors.ErrorType_NOT_FOUND {
+			log.Error(err, "Failed to get NSX LB IPv6 SNAT IP for TEP-less VPC", "VPC", pathInfo.VPCID)
+			return nil, err
+		}
+		log.Info("NSX LB IPv6 SNAT IP allocation not found, skipping", "VPC", pathInfo.VPCID)
+	} else if v6.AllocationIps != nil {
+		ips = append(ips, *v6.AllocationIps)
+		log.Info("Got NSX LB IPv6 SNAT IP", "VPC", pathInfo.VPCID, "IP", *v6.AllocationIps)
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no VPC service IP found for TEP-less VPC %s", pathInfo.VPCID)
+	}
+	return ips, nil
 }
 
-func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc, interfaceID string, tepLess bool) (string, error) {
-	log.Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id)
+func (s *VPCService) GetNSXLBSNATIP(vpc model.Vpc, interfaceID string, tepLess bool) ([]string, error) {
+	log.Info("Getting VPC NSX LB SNAT IPs", "VPC", *vpc.Id)
 	if tepLess {
-		return s.GetNSXLBSNATIPForTepLessVPC(*vpc.Path)
+		return s.GetNSXLBSNATIPsForTepLessVPC(*vpc.Path)
 	}
 	vpcInfo, err := common.ParseVPCResourcePath(*vpc.Path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	realizeService := realizestate.InitializeRealizeState(s.Service)
 	realizedPath := fmt.Sprintf("/orgs/%s/projects/%s/realized-state/enforcement-points/default/vpcs/%s/%s",
 		vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, interfaceID)
-	log.Info("Getting VPC NSX LB SNAT IP", "Path", realizedPath)
-	lbIP, err := realizeService.GetPolicyInterfaceIP(realizedPath)
+	log.Info("Getting VPC NSX LB SNAT IPs", "Path", realizedPath)
+	lbIPs, err := realizeService.GetPolicyInterfaceIPs(realizedPath)
 	if err != nil {
-		log.Error(err, "Failed to get VPC NSX LB SNAT IP", "VPC", *vpc.Id)
-		return "", err
+		log.Error(err, "Failed to get VPC NSX LB SNAT IPs", "VPC", *vpc.Id)
+		return nil, err
 	}
-	log.Info("Getting VPC NSX LB SNAT IP", "VPC", *vpc.Id, "SNATIP", lbIP)
-	return lbIP, nil
+	log.Info("Getting VPC NSX LB SNAT IPs", "VPC", *vpc.Id, "SNATIPs", lbIPs)
+	return lbIPs, nil
 }
 
 func (s *VPCService) GetVpcConnectivityProfile(nc *v1alpha1.VPCNetworkConfiguration, vpcConnectivityProfilePath string) (*model.VpcConnectivityProfile, error) {
