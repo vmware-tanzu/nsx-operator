@@ -473,6 +473,9 @@ func NSXSubnetDHCPEnabled(nsxSubnet *model.VpcSubnet) bool {
 	return nsxSubnet.SubnetDhcpConfig != nil && nsxSubnet.SubnetDhcpConfig.Mode != nil && *nsxSubnet.SubnetDhcpConfig.Mode != nsxutil.ParseDHCPMode(v1alpha1.DHCPConfigModeDeactivated)
 }
 
+func NSXSubnetDHCPv6Enabled(nsxSubnet *model.VpcSubnet) bool {
+	return nsxSubnet.SubnetDhcpv6Config != nil && nsxSubnet.SubnetDhcpv6Config.Mode != nil && *nsxSubnet.SubnetDhcpv6Config.Mode != nsxutil.ParseDHCPMode(string(v1alpha1.DHCPv6ConfigModeDeactivated))
+}
 func NSXSubnetStaticIPAllocationEnabled(nsxSubnet *model.VpcSubnet) bool {
 	if nsxSubnet.AdvancedConfig == nil || nsxSubnet.AdvancedConfig.StaticIpAllocation == nil || nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled == nil || !*nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled {
 		return false

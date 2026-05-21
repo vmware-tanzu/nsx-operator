@@ -908,71 +908,92 @@ func (service *SubnetService) RemoveSharedSubnetFromResourceMap(associatedResour
 	}
 }
 
-func (service *SubnetService) GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	gateway, prefix, errFromSubnet := service.GetGatewayPrefixFromNSXSubnet(nsxSubnet)
-	if errFromSubnet == nil && prefix > 0 {
-		return gateway, prefix, nil
+// GetAllGatewayPrefixesOfSubnet returns all gateways (IPv4 and/or IPv6) with their prefixes for the subnet
+// This is used for dual-stack subnet support where both IPv4 and IPv6 gateways may be present
+func (service *SubnetService) GetAllGatewayPrefixesOfSubnet(nsxSubnet *model.VpcSubnet) ([]common.GatewayPrefixInfo, error) {
+	var gateways []common.GatewayPrefixInfo
+
+	gateways, errFromSubnet := service.getAllGatewayPrefixesFromNSXSubnet(nsxSubnet)
+	if errFromSubnet == nil && len(gateways) > 0 {
+		return gateways, nil
 	}
+
 	// For the VLAN Extension Subnet, there's no gateway in NSX Subnet GET API. We need to get it from NSX Subnet Status.
-	gateway, prefix, errFromStatus := service.GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet)
+	gateways, errFromStatus := service.getAllGatewayPrefixesFromNSXSubnetStatus(nsxSubnet)
 	if errFromStatus == nil {
-		return gateway, prefix, nil
+		return gateways, nil
 	}
+
 	err := fmt.Errorf("errFromSubnet: %v, errFromStatus: %v", errFromSubnet, errFromStatus)
 	log.Error(err, "Failed to get gateway of Subnet", "nsxSubnet.Id", *nsxSubnet.Id)
-	return "", -1, err
+	return []common.GatewayPrefixInfo{}, err
 }
 
-func (service *SubnetService) GetGatewayPrefixFromNSXSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
+// getAllGatewayPrefixesFromNSXSubnet extracts all gateways from AdvancedConfig.GatewayAddresses
+func (service *SubnetService) getAllGatewayPrefixesFromNSXSubnet(nsxSubnet *model.VpcSubnet) ([]common.GatewayPrefixInfo, error) {
 	if nsxSubnet == nil {
-		err := fmt.Errorf("empty NSX Subnet")
-		return "", -1, err
+		return nil, fmt.Errorf("empty NSX Subnet")
 	}
 	if nsxSubnet.AdvancedConfig == nil {
 		log.Warn("Nil AdvancedConfig in NSX Subnet", "nsxSubnet.Id", *nsxSubnet.Id)
-		return "", -1, nil
+		return nil, nil
 	}
+
 	gatewayAddresses := nsxSubnet.AdvancedConfig.GatewayAddresses
 	if len(gatewayAddresses) == 0 {
 		log.Warn("Empty gateway addresses in NSX Subnet AdvancedConfig", "nsxSubnet.Id", *nsxSubnet.Id)
-		return "", -1, nil
+		return nil, nil
 	}
-	gateway, err := util.RemoveIPPrefix(gatewayAddresses[0])
-	if err != nil {
-		return "", -1, err
+
+	var results []common.GatewayPrefixInfo
+	for _, gwAddr := range gatewayAddresses {
+		gateway, err := util.RemoveIPPrefix(gwAddr)
+		if err != nil {
+			return nil, err
+		}
+		prefix, err := util.GetIPPrefix(gwAddr)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, common.GatewayPrefixInfo{Gateway: gateway, Prefix: prefix})
 	}
-	prefix, err := util.GetIPPrefix(gatewayAddresses[0])
-	if err != nil {
-		return "", -1, err
-	}
-	log.Debug("Got gateway from NSX Subnet", "nsxSubnet.Id", *nsxSubnet.Id, "gateway", gateway, "prefix", prefix)
-	return gateway, prefix, nil
+
+	log.Debug("Got gateways from NSX Subnet", "nsxSubnet.Id", *nsxSubnet.Id, "gateways", results)
+	return results, nil
 }
 
-func (service *SubnetService) GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error) {
+// getAllGatewayPrefixesFromNSXSubnetStatus extracts all gateways from Subnet Status
+func (service *SubnetService) getAllGatewayPrefixesFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) ([]common.GatewayPrefixInfo, error) {
 	statusList, err := service.GetSubnetStatus(nsxSubnet)
 	if err != nil {
-		return "", -1, err
+		return nil, err
 	}
 	if len(statusList) == 0 {
 		log.Warn("Empty status list in NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id)
-		return "", -1, nil
+		return nil, nil
 	}
-	gatewayAddress := statusList[0].GatewayAddress
-	if gatewayAddress == nil || len(*gatewayAddress) == 0 {
-		log.Warn("Nil or empty gateway address in NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id)
-		return "", -1, nil
+
+	var results []common.GatewayPrefixInfo
+	for _, status := range statusList {
+		gatewayAddress := status.GatewayAddress
+		if gatewayAddress == nil || len(*gatewayAddress) == 0 {
+			log.Warn("Nil or empty gateway address in NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id)
+			return nil, nil
+		}
+
+		gateway, err := util.RemoveIPPrefix(*gatewayAddress)
+		if err != nil {
+			return nil, err
+		}
+		prefix, err := util.GetIPPrefix(*gatewayAddress)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, common.GatewayPrefixInfo{Gateway: gateway, Prefix: prefix})
 	}
-	gateway, err := util.RemoveIPPrefix(*gatewayAddress)
-	if err != nil {
-		return "", -1, err
-	}
-	prefix, err := util.GetIPPrefix(*gatewayAddress)
-	if err != nil {
-		return "", -1, err
-	}
-	log.Debug("Got gateway from NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id, "gateway", gateway, "prefix", prefix)
-	return gateway, prefix, nil
+
+	log.Debug("Got gateways from NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id, "gateways", results)
+	return results, nil
 }
 
 func (service *SubnetService) updateSubnetSetConditionOnFail(obj client.Object, err error) {

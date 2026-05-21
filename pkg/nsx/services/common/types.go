@@ -291,3 +291,8 @@ type VPCConnectionStatus struct {
 	ServiceClusterReady     bool
 	ServiceClusterReason    string
 }
+
+type GatewayPrefixInfo struct {
+	Gateway string
+	Prefix  int
+}
