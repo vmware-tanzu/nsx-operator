@@ -50,11 +50,11 @@ type IPAddressAllocationList struct {
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv6AllocationPrefixLength) || has(self.ipv6AllocationPrefixLength)", message="ipv6AllocationPrefixLength is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.allocationSize) || !has(self.ipAddressType) || self.ipAddressType == 'IPv4'", message="allocationSize can only be set when ipAddressType is IPv4"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipv6AllocationPrefixLength) || self.ipAddressType == 'IPv6'", message="ipv6AllocationPrefixLength can only be set when ipAddressType is IPv6"
+// +kubebuilder:validation:XValidation:rule="!has(self.ipAddressBlockVisibility) || !has(self.ipAddressType) || self.ipAddressType != 'IPv6'", message="ipAddressBlockVisibility cannot be set when ipAddressType is IPv6"
 type IPAddressAllocationSpec struct {
 	// IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
 	// This field is not applicable if ipAddressType is IPv6.
 	// +kubebuilder:validation:Enum=External;Private;PrivateTGW
-	// +kubebuilder:default=Private
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddressBlockVisibility IPAddressVisibility `json:"ipAddressBlockVisibility,omitempty"`
@@ -67,6 +67,7 @@ type IPAddressAllocationSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AllocationIPs string `json:"allocationIPs,omitempty"`
 	// IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.
+	// Defaults to 64 when ipAddressType is IPv6 and this field is not specified.
 	// +kubebuilder:validation:Minimum:=64
 	// +kubebuilder:validation:Maximum:=128
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"

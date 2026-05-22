@@ -22,16 +22,33 @@ const (
 )
 
 func convertIpAddressBlockVisibility(visibility v1alpha1.IPAddressVisibility) v1alpha1.IPAddressVisibility {
+	if visibility == "" {
+		return v1alpha1.IPAddressVisibilityPrivate
+	}
 	if visibility == v1alpha1.IPAddressVisibilityPrivateTGW {
 		return "PRIVATE_TGW"
 	}
 	return visibility
 }
 
+func ipAddressTypeToNSX(ipAddressType v1alpha1.IPAllocationAddressType) string {
+	switch ipAddressType {
+	case v1alpha1.IPAllocationIPAddressTypeIPv6:
+		return model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
+	case v1alpha1.IPAllocationIPAddressTypeIPv4:
+		fallthrough
+	default:
+		return model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
+	}
+}
+
 func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.Object, subnetPortCR *v1alpha1.SubnetPort, restoreMode bool) (*model.VpcIpAddressAllocation, error) {
-	ipAddressBlockVisibility := v1alpha1.IPAddressVisibilityExternal
+	ipAddressBlockVisibility := v1alpha1.IPAddressVisibilityPrivate
 	var allocationIps *string
 	var allocationSize *int64
+	var ipAddressType string
+	var ipv6AllocationPrefixLength *int64
+	ipAddressType = model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
 	switch o := obj.(type) {
 	case *v1alpha1.IPAddressAllocation:
 		VPCInfo := service.VPCService.ListVPCInfo(o.Namespace)
@@ -40,19 +57,32 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 			return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in Namespace %s", o.Name, o.Namespace)
 		}
 		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
+		ipAddressType = ipAddressTypeToNSX(o.Spec.IPAddressType)
 		if len(o.Spec.AllocationIPs) > 0 {
 			allocationIps = String(o.Spec.AllocationIPs)
 		} else if restoreMode && len(o.Status.AllocationIPs) > 0 {
 			allocationIps = String(o.Status.AllocationIPs)
 		} else {
-			// Field AllocationIPs and AllocationSize cannot be provided together for VPC IP allocation.
-			allocationSize = Int64(int64(o.Spec.AllocationSize))
+			// Field AllocationIPs and AllocationSize/Ipv6AllocationPrefixLength cannot be provided together for VPC IP allocation.
+			if ipAddressType == model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
+				prefixLen := o.Spec.IPv6AllocationPrefixLength
+				if prefixLen == 0 {
+					prefixLen = 64
+				}
+				ipv6AllocationPrefixLength = Int64(int64(prefixLen))
+			} else {
+				allocationSize = Int64(int64(o.Spec.AllocationSize))
+			}
 		}
 	case *v1alpha1.AddressBinding:
 		if !restoreMode || subnetPortCR == nil || o.Spec.IPAddressAllocationName != "" {
 			return nil, nil
 		}
+		ipAddressBlockVisibility = v1alpha1.IPAddressVisibilityExternal
 		allocationIps = &o.Status.IPAddress
+		if util.IsIPv6(o.Status.IPAddress) {
+			ipAddressType = model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
+		}
 	}
 	tags := service.buildIPAddressAllocationTags(obj)
 	if restoreMode && subnetPortCR != nil {
@@ -76,12 +106,16 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 	}
 	ipAddressAllocationId := service.BuildIPAddressAllocationID(objForIdGeneration)
 	vpcIpAddressAllocation := &model.VpcIpAddressAllocation{
-		Id:                       String(ipAddressAllocationId),
-		DisplayName:              String(service.buildIPAddressAllocationName(obj)),
-		Tags:                     tags,
-		IpAddressBlockVisibility: &ipAddressBlockVisibilityStr,
-		AllocationIps:            allocationIps,
-		AllocationSize:           allocationSize,
+		Id:                         String(ipAddressAllocationId),
+		DisplayName:                String(service.buildIPAddressAllocationName(obj)),
+		Tags:                       tags,
+		IpAddressType:              &ipAddressType,
+		AllocationIps:              allocationIps,
+		AllocationSize:             allocationSize,
+		Ipv6AllocationPrefixLength: ipv6AllocationPrefixLength,
+	}
+	if ipAddressType != model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
+		vpcIpAddressAllocation.IpAddressBlockVisibility = &ipAddressBlockVisibilityStr
 	}
 
 	return vpcIpAddressAllocation, nil

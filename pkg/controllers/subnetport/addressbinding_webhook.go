@@ -89,11 +89,22 @@ func (v *AddressBindingValidator) Handle(ctx context.Context, req admission.Requ
 			log.Error(err, "failed to get IPAddressAllocation", "IPAddressAllocation", ab.Namespace+"/"+ab.Spec.IPAddressAllocationName)
 			return admission.Denied(fmt.Sprintf("IPAddressAllocation %s does not exist", ab.Spec.IPAddressAllocationName))
 		}
-		if ipAllocation.Spec.IPAddressBlockVisibility != v1alpha1.IPAddressVisibilityExternal {
-			return admission.Denied("IPBlock visibility of IPAddressAllocation must be \"External\"")
+		if ipAllocation.Spec.IPAddressType != v1alpha1.IPAllocationIPAddressTypeIPv6 {
+			if ipAllocation.Spec.IPAddressBlockVisibility != v1alpha1.IPAddressVisibilityExternal {
+				return admission.Denied("IPBlock visibility of IPAddressAllocation must be \"External\"")
+			}
 		}
-		if (ipAllocation.Spec.AllocationIPs != "" && net.ParseIP(ipAllocation.Spec.AllocationIPs) == nil) || (ipAllocation.Spec.AllocationIPs == "" && ipAllocation.Spec.AllocationSize != 1) {
+		if ipAllocation.Spec.AllocationIPs != "" && net.ParseIP(ipAllocation.Spec.AllocationIPs) == nil {
 			return admission.Denied("IPAddressAllocation must be a single IP")
+		}
+		if ipAllocation.Spec.AllocationIPs == "" {
+			if ipAllocation.Spec.IPAddressType == v1alpha1.IPAllocationIPAddressTypeIPv6 {
+				if ipAllocation.Spec.IPv6AllocationPrefixLength != 128 {
+					return admission.Denied("IPAddressAllocation must be a single IP")
+				}
+			} else if ipAllocation.Spec.AllocationSize != 1 {
+				return admission.Denied("IPAddressAllocation must be a single IP")
+			}
 		}
 	}
 	return admission.Allowed("")

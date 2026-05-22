@@ -182,8 +182,8 @@ func (r *Reconciler) setNotSupported(ctx context.Context, req ctrl.Request) erro
 	return nil
 }
 
-// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservation,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservation/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservations,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservations/status,verbs=get;update;patch
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	startTime := time.Now()
 	defer func() {

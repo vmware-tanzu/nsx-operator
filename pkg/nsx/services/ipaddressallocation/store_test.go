@@ -133,11 +133,35 @@ func Test_keyFunc(t *testing.T) {
 			t.Errorf("keyFunc() = %v, want %v", got, "11111")
 		}
 	})
+	t.Run("KeyFuncVpcIpAddressAllocationNil", func(t *testing.T) {
+		_, err := keyFunc((*model.VpcIpAddressAllocation)(nil))
+		if err == nil {
+			t.Errorf("err should not be nil for nil VpcIpAddressAllocation")
+		}
+	})
+	t.Run("KeyFuncVpcIpAddressAllocationNilId", func(t *testing.T) {
+		_, err := keyFunc(&model.VpcIpAddressAllocation{})
+		if err == nil {
+			t.Errorf("err should not be nil for VpcIpAddressAllocation with nil Id")
+		}
+	})
 	modelGenericPolicyRealizedResource := model.GenericPolicyRealizedResource{Id: &Id}
 	t.Run("KeyFuncGenericPolicyRealizedResource", func(t *testing.T) {
 		got, _ := keyFunc(&modelGenericPolicyRealizedResource)
 		if got != "11111" {
 			t.Errorf("keyFunc() = %v, want %v", got, "11111")
+		}
+	})
+	t.Run("KeyFuncGenericPolicyRealizedResourceNil", func(t *testing.T) {
+		_, err := keyFunc((*model.GenericPolicyRealizedResource)(nil))
+		if err == nil {
+			t.Errorf("err should not be nil for nil GenericPolicyRealizedResource")
+		}
+	})
+	t.Run("KeyFuncGenericPolicyRealizedResourceNilId", func(t *testing.T) {
+		_, err := keyFunc(&model.GenericPolicyRealizedResource{})
+		if err == nil {
+			t.Errorf("err should not be nil for GenericPolicyRealizedResource with nil Id")
 		}
 	})
 	modelUnknown := model.SecurityPolicy{Id: &Id}

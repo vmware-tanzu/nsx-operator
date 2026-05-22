@@ -26,10 +26,10 @@ import (
 type fakeQueryClient struct{}
 
 func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
-	cursor := "2"
-	resultCount := int64(2)
+	cursor := "0"
+	resultCount := int64(0)
 	return model.SearchResponse{
-		Results: []*data.StructValue{{}},
+		Results: []*data.StructValue{},
 		Cursor:  &cursor, ResultCount: &resultCount,
 	}, nil
 }
@@ -141,7 +141,9 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, (*string)(nil), result.AllocationIps)
 		assert.Equal(t, int64(10), *result.AllocationSize)
+		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, *result.IpAddressType)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
 		assert.Equal(t, 6, len(result.Tags))
 	})
 
@@ -177,7 +179,84 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, "test-ip-alloc_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, "10.0.0.0/28", *result.AllocationIps)
+		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, *result.IpAddressType)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
+		assert.Equal(t, 6, len(result.Tags))
+	})
+
+	t.Run("Success case for IPv6 IPAddressAllocation CR", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-ipv6",
+				Namespace: "default",
+				UID:       "uid1",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressType:              v1alpha1.IPAllocationIPAddressTypeIPv6,
+				IPv6AllocationPrefixLength: 64,
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, "test-ip-alloc-ipv6_p26xv", *result.Id)
+		assert.Equal(t, "test-ip-alloc-ipv6", *result.DisplayName)
+		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *result.IpAddressType)
+		assert.Equal(t, int64(64), *result.Ipv6AllocationPrefixLength)
+		assert.Equal(t, (*int64)(nil), result.AllocationSize)
+		assert.Equal(t, (*string)(nil), result.IpAddressBlockVisibility)
+		assert.Equal(t, 6, len(result.Tags))
+	})
+
+	t.Run("Success case for IPv6 IPAddressAllocation CR with allocationIPs", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-ipv6-ips",
+				Namespace: "default",
+				UID:       "uid1",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressType: v1alpha1.IPAllocationIPAddressTypeIPv6,
+				AllocationIPs: "2001:db8::/128",
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, "2001:db8::/128", *result.AllocationIps)
+		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *result.IpAddressType)
+		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
+		assert.Equal(t, (*int64)(nil), result.AllocationSize)
+		assert.Equal(t, (*string)(nil), result.IpAddressBlockVisibility)
 		assert.Equal(t, 6, len(result.Tags))
 	})
 
@@ -216,7 +295,9 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
 		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
 		assert.Equal(t, (*int64)(nil), result.AllocationSize)
+		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, *result.IpAddressType)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
 		assert.Equal(t, 6, len(result.Tags))
 	})
 
@@ -280,7 +361,46 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, "test-ab", *result.DisplayName)
 		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
 		assert.Equal(t, (*int64)(nil), result.AllocationSize)
+		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, *result.IpAddressType)
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
+		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
+		assert.Equal(t, 8, len(result.Tags))
+	})
+
+	t.Run("Restore IPv6 AllocationIPs for AddressBinding CR", func(t *testing.T) {
+		ab := &v1alpha1.AddressBinding{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ab-ipv6",
+				Namespace: "default",
+				UID:       "ab-uid2",
+			},
+			Spec: v1alpha1.AddressBindingSpec{
+				VMName:        "vm",
+				InterfaceName: "port",
+			},
+			Status: v1alpha1.AddressBindingStatus{
+				IPAddress: "2001:db8::1",
+			},
+		}
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-sp",
+				Namespace: "default",
+				UID:       "sp-uid2",
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
+		assert.Nil(t, err)
+		assert.Equal(t, "2001:db8::1", *result.AllocationIps)
+		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *result.IpAddressType)
+		assert.Equal(t, (*string)(nil), result.IpAddressBlockVisibility)
+		assert.Equal(t, (*int64)(nil), result.AllocationSize)
+		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
 		assert.Equal(t, 8, len(result.Tags))
 	})
 }
