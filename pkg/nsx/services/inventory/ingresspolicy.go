@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/antihax/optional"
 	nsxt "github.com/vmware/go-vmware-nsxt"
+	optional "github.com/vmware/go-vmware-nsxt/common/optional"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/networking/v1"
@@ -19,9 +19,9 @@ func (s *InventoryService) initContainerIngressPolicy(clusterId string) error {
 	cursor := ""
 	log.Info("Retrieving ContainerIngressPolicy for cluster", "cluster id", clusterId)
 	for {
-		opts := &nsxt.ListContainerIngressPoliciesOpts{ContainerClusterId: optional.NewString(clusterId)}
+		opts := &nsxt.ListContainerIngressPoliciesOpts{ContainerClusterId: optional.New(clusterId)}
 		if cursor != "" {
-			opts.Cursor = optional.NewString(cursor)
+			opts.Cursor = optional.New(cursor)
 		}
 		ingressPolicies, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.ListContainerIngressPolicies(context.Background(), opts)
 		if err != nil {

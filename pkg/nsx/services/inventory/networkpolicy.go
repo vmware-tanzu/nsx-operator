@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/antihax/optional"
 	nsxt "github.com/vmware/go-vmware-nsxt"
+	optional "github.com/vmware/go-vmware-nsxt/common/optional"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,9 +27,9 @@ func (s *InventoryService) initContainerNetworkPolicy(clusterId string) error {
 	cursor := ""
 	log.Info("Retrieving ContainerNetworkPolicy for cluster", "cluster id", clusterId)
 	for {
-		opts := &nsxt.ListContainerNetworkPoliciesOpts{ContainerClusterId: optional.NewString(clusterId)}
+		opts := &nsxt.ListContainerNetworkPoliciesOpts{ContainerClusterId: optional.New(clusterId)}
 		if cursor != "" {
-			opts.Cursor = optional.NewString(cursor)
+			opts.Cursor = optional.New(cursor)
 		}
 		networkPolicies, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.ListContainerNetworkPolicies(context.Background(), opts)
 		if err != nil {
