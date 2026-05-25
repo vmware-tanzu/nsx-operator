@@ -57,14 +57,14 @@ func TestLoadBalancer(t *testing.T) {
 		RunSubtest(t, "testIngress", func(t *testing.T) {
 			StartParallel(t)
 			// Each subtest gets its own unique source pod to avoid parallel conflicts
-			sourcePodName := fmt.Sprintf("test-source-pod-ingress-%s", getRandomString())
+			sourcePodName := generateUniqueID("test-source-pod-ingress")
 			createPodAndWaitingRunning(t, sourcePodName, podNs)
 			testIngress(t, lbNs, podNs, sourcePodName)
 		})
 		RunSubtest(t, "testUpdateServiceVIP", func(t *testing.T) {
 			StartParallel(t)
 			// Each subtest gets its own unique source pod to avoid parallel conflicts
-			sourcePodName := fmt.Sprintf("test-source-pod-vip-%s", getRandomString())
+			sourcePodName := generateUniqueID("test-source-pod-vip")
 			createPodAndWaitingRunning(t, sourcePodName, podNs)
 			testUpdateSvcIP(t, lbNs, podNs, sourcePodName)
 		})

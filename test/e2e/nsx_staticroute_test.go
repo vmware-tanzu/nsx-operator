@@ -4,7 +4,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -24,13 +23,13 @@ const (
 	IpAddressAllocationName = "staticroute-ipalloc"
 )
 
-var TestNamespace = fmt.Sprintf("staticroute-%s", getRandomString())
+var TestNamespace = generateUniqueID("staticroute")
 
 // TestStaticRouteBasic verifies that it could successfully realize StaticRoute.
 func TestStaticRouteBasic(t *testing.T) {
 	TrackTest(t)
 	StartParallel(t)
-	testNamespace := fmt.Sprintf("staticroute-%s", getRandomString())
+	testNamespace := generateUniqueID("staticroute")
 	setupTest(t, testNamespace)
 	defer teardownTest(t, testNamespace, defaultTimeout)
 	ips := createIpAddressAllocation(t, testNamespace, IpAddressAllocationName)

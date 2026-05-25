@@ -133,7 +133,7 @@ func TestPreCreatedVPC(t *testing.T) {
 		for _, tt := range tests {
 			RunSubtest(t, tt.name, func(t *testing.T) {
 				orgID, projectID, vpcID := setupVPC(t, tt.enableNat, tt.createLb, tt.noProfile)
-				nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
+				nsName := generateUniqueID("test-prevpc")
 				projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
 				defer func() {
 					path := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
@@ -247,7 +247,7 @@ func deleteVPCNamespace(nsName string, usingVCAPI bool) {
 		return
 	}
 
-	vpcConfigName := fmt.Sprintf("%s-vpcconfig-%s", nsName, getRandomString())
+	vpcConfigName := generateUniqueID(nsName + "-vpcconfig")
 	deleteVPCNamespaceOnK8s(nsName, vpcConfigName)
 }
 
@@ -272,7 +272,7 @@ func setupVPC(tb testing.TB, enableNat bool, createLb bool, noProfile bool) (str
 	systemVPCStatus := systemVPC.Status.VPCs[0]
 	useNSXLB := systemVPCStatus.NSXLoadBalancerPath != ""
 
-	vpcID := fmt.Sprintf("testvpc-%s", getRandomString())
+	vpcID := generateUniqueID("testvpc")
 	if err := testData.createVPC(orgID, projectID, vpcID, []string{customizedPrivateCIDR1}, useNSXLB, enableNat, createLb, noProfile); err != nil {
 		tb.Fatalf("Unable to create a VPC on NSX: %v", err)
 	}
@@ -284,7 +284,7 @@ func createVPCNamespace(nsName, projectPath, profilePath, vpcPath string, privat
 		return testData.createPreVPCNamespaceByVCenter(nsName, vpcPath)
 	}
 
-	vpcConfigName := fmt.Sprintf("%s-vpcconfig-%s", nsName, getRandomString())
+	vpcConfigName := generateUniqueID(nsName + "-vpcconfig")
 	return createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vpcPath, privateIPs)
 }
 
@@ -373,7 +373,7 @@ func (data *TestData) createVPCConnectivityProfileWithoutNat() error {
 func (data *TestData) createVPC(orgID, projectID, vpcID string, privateIPs []string, useNSXLB bool, enableNat bool, createLb bool, noProfile bool) error {
 	createdVPC := &model.Vpc{
 		Id:            common.String(vpcID),
-		DisplayName:   common.String(fmt.Sprintf("e2e-test-pre-vpc-%s", getRandomString())),
+		DisplayName:   common.String(generateUniqueID("e2e-test-pre-vpc")),
 		IpAddressType: common.String("IPV4"),
 		PrivateIps:    privateIPs,
 		ResourceType:  common.String(common.ResourceTypeVpc),
