@@ -600,5 +600,6 @@ func PodIsDeleted(pod *v1.Pod) bool {
 		return false
 	}
 	return pod.Status.Phase == v1.PodSucceeded ||
-		pod.Status.Phase == v1.PodFailed
+		pod.Status.Phase == v1.PodFailed ||
+		!pod.ObjectMeta.DeletionTimestamp.IsZero()
 }
