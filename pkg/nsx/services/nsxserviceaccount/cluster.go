@@ -169,6 +169,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 	obj.Status.NSXManagers = s.NSXConfig.NsxApiManagers
 	obj.Status.ClusterID = clusterId
 	obj.Status.ClusterName = normalizedClusterName
+	obj.Status.SupervisorClusterName = s.NSXConfig.CoeConfig.Cluster
 	obj.Status.Secrets = []v1alpha1.NSXSecret{{
 		Name:      secretName,
 		Namespace: secretNamespace,
