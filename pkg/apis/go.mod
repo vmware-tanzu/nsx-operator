@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/nsx-operator/pkg/apis
 
-go 1.26.2
+go 1.25.8
 
 require (
 	k8s.io/api v0.35.1
