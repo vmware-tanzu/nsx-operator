@@ -113,7 +113,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if controllercommon.IsDefaultSubnetSet(subnetSet) && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("default SubnetSet only can be created by nsx-operator")
 		}
-		deny, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
+		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
 			if deny {
 				return admission.Denied(err.Error())
@@ -134,7 +134,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			log.Debug("Default SubnetSet label change detected", "oldLabels", oldSubnetSet.ObjectMeta.Labels, "newLabels", subnetSet.ObjectMeta.Labels, "username", req.UserInfo.Username)
 			return admission.Denied(fmt.Sprintf("SubnetSet label %s can only be updated by NSX Operator", common.LabelDefaultNetwork))
 		}
-		deny, err := v.validateSubnetNames(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
+		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
 		if err != nil {
 			if deny {
 				return admission.Denied(err.Error())
@@ -311,10 +311,24 @@ func (v *SubnetSetValidator) getVPCPath(ns string) (string, error) {
 // If any rule is broken, return true with error message.
 // If there is error when getting resources, return false with error.
 
-func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string, subnetNames *[]string, subnetSet string) (bool, error) {
+// getEffectiveStaticIPAllocation computes the effective StaticIPAllocation value for a subnet.
+// This replicates the logic from subnet controller to avoid race conditions during validation.
+func getEffectiveStaticIPAllocation(subnet *v1alpha1.Subnet) bool {
+	// If explicitly set, use the set value
+	if subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
+		return *subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled
+	}
+	// If not set, compute default value based on DHCP config (same logic as subnet controller)
+	return !util.CRSubnetDHCPEnabled(subnet)
+}
+
+func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, subnetNames *[]string, subnetSet string) (bool, error) {
 	var namespaceVpc string
 	var existingVPC string
 	firstAccessMode := ""
+	firstDHCPMode := ""
+	var firstEffectiveStaticIPAllocation bool
+	isFirstSubnet := true
 	if subnetNames == nil {
 		return true, nil
 	}
@@ -327,10 +341,22 @@ func (v *SubnetSetValidator) validateSubnetNames(ctx context.Context, ns string,
 		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
-		if firstAccessMode == "" {
+		if isFirstSubnet {
 			firstAccessMode = string(crdSubnet.Spec.AccessMode)
-		} else if firstAccessMode != string(crdSubnet.Spec.AccessMode) {
-			return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same AccessMode, found different AccessModes: [%s, %s]", ns, subnetSet, firstAccessMode, crdSubnet.Spec.AccessMode)
+			firstDHCPMode = string(crdSubnet.Spec.SubnetDHCPConfig.Mode)
+			firstEffectiveStaticIPAllocation = getEffectiveStaticIPAllocation(crdSubnet)
+			isFirstSubnet = false
+		} else {
+			if firstAccessMode != string(crdSubnet.Spec.AccessMode) {
+				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same AccessMode, found different AccessModes: [%s, %s]", ns, subnetSet, firstAccessMode, crdSubnet.Spec.AccessMode)
+			}
+			if firstDHCPMode != string(crdSubnet.Spec.SubnetDHCPConfig.Mode) {
+				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPConfigMode, found different DHCPConfigModes: [%s, %s]", ns, subnetSet, firstDHCPMode, crdSubnet.Spec.SubnetDHCPConfig.Mode)
+			}
+			currentEffectiveStaticIPAllocation := getEffectiveStaticIPAllocation(crdSubnet)
+			if firstEffectiveStaticIPAllocation != currentEffectiveStaticIPAllocation {
+				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same StaticIPAllocation, found different StaticIPAllocations: [%t, %t]", ns, subnetSet, firstEffectiveStaticIPAllocation, currentEffectiveStaticIPAllocation)
+			}
 		}
 		var subnetVPC string
 		associatedResource, exists := crdSubnet.Annotations[common.AnnotationAssociatedResource]
