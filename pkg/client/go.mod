@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/nsx-operator/pkg/client
 
-go 1.26.2
+go 1.25.8
 
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ../apis
