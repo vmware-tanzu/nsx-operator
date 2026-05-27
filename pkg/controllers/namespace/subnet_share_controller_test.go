@@ -392,6 +392,31 @@ func TestCheckSubnetReferences(t *testing.T) {
 			expectedError:        false,
 		},
 		{
+			name: "Referenced as cross-namespace targetSubnetName",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "child-subnet",
+					Namespace: "ns-vpc-b",
+				},
+			},
+			existingResources: []client.Object{
+				&v1alpha1.SubnetConnectionBindingMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cross-binding",
+						Namespace: "ns-vpc-a",
+					},
+					Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+						SubnetName:            "parent-subnet",
+						TargetSubnetName:      "child-subnet",
+						TargetSubnetNamespace: "ns-vpc-b",
+						SubnetAssociation:     v1alpha1.SubnetAssociationBranch,
+					},
+				},
+			},
+			expectedHasReference: true,
+			expectedError:        false,
+		},
+		{
 			name: "Not referenced by any resource",
 			subnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
@@ -442,7 +467,11 @@ func TestCheckSubnetReferences(t *testing.T) {
 				// Check if there are any SubnetConnectionBindingMap CRs referencing this Subnet CR
 				for _, obj := range tt.existingResources {
 					if binding, ok := obj.(*v1alpha1.SubnetConnectionBindingMap); ok {
-						if binding.Namespace == ns && binding.Spec.TargetSubnetName == subnet.Name {
+						if binding.Spec.SubnetName == subnet.Name && binding.Namespace == ns {
+							return true, nil
+						}
+						if binding.Spec.TargetSubnetName == subnet.Name &&
+							binding.Spec.ResolveTargetSubnetNamespace(binding.Namespace) == ns {
 							return true, nil
 						}
 					}
@@ -451,7 +480,7 @@ func TestCheckSubnetReferences(t *testing.T) {
 				return false, nil
 			}
 
-			hasReferences, err := checkReferences(context.Background(), "test-ns", tt.subnet)
+			hasReferences, err := checkReferences(context.Background(), tt.subnet.Namespace, tt.subnet)
 
 			if tt.expectedError {
 				assert.Error(t, err)

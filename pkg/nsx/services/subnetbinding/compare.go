@@ -17,11 +17,12 @@ func (m *SubnetConnectionBindingMap) Key() string {
 
 func (m *SubnetConnectionBindingMap) Value() data.DataValue {
 	s := &SubnetConnectionBindingMap{
-		Id:             m.Id,
-		DisplayName:    m.DisplayName,
-		Tags:           m.Tags,
-		SubnetPath:     m.SubnetPath,
-		VlanTrafficTag: m.VlanTrafficTag,
+		Id:                m.Id,
+		DisplayName:       m.DisplayName,
+		Tags:              m.Tags,
+		SubnetPath:        m.SubnetPath,
+		SubnetAssociation: m.SubnetAssociation,
+		VlanTrafficTag:    m.VlanTrafficTag,
 	}
 	dataValue, _ := ComparableToSubnetConnectionBindingMap(s).GetDataValue__()
 	return dataValue
