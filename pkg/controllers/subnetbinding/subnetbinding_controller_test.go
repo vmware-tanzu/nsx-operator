@@ -308,8 +308,8 @@ func TestValidateDependency(t *testing.T) {
 		bindingMap *v1alpha1.SubnetConnectionBindingMap
 		expErr     string
 		expMsg     string
-		expHost  string
-		expPeers []string
+		expHost    string
+		expPeers   []string
 	}{
 		{
 			name:       "child subnet is not ready",
