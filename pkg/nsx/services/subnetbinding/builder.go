@@ -18,22 +18,31 @@ var (
 	Bool   = common.Bool
 )
 
-func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string) []*model.SubnetConnectionBindingMap {
+func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, peerSubnetPaths []string) []*model.SubnetConnectionBindingMap {
 	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
-	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(parentSubnetPaths))
-	for i := range parentSubnetPaths {
-		path := parentSubnetPaths[i]
+	var subnetAssociation *string
+	if binding.Spec.SubnetAssociation != "" {
+		sa := model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK
+		if binding.Spec.IsBranchAssociation() {
+			sa = model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH
+		}
+		subnetAssociation = String(sa)
+	}
+	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(peerSubnetPaths))
+	for i := range peerSubnetPaths {
+		path := peerSubnetPaths[i]
 		vpcSubnetInfo, err := common.ParseVPCResourcePath(path)
 		if err != nil {
-			log.Error(err, "failed to parse parent Subnet path, ignore it")
+			log.Error(err, "failed to parse peer Subnet path, ignore it")
 			continue
 		}
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{
-			Id:             String(s.buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
-			DisplayName:    String(binding.Name),
-			VlanTrafficTag: Int64(binding.Spec.VLANTrafficTag),
-			SubnetPath:     &path,
-			Tags:           tags,
+			Id:                String(s.buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
+			DisplayName:       String(binding.Name),
+			VlanTrafficTag:    Int64(binding.Spec.VLANTrafficTag),
+			SubnetPath:        &path,
+			SubnetAssociation: subnetAssociation,
+			Tags:              tags,
 		}
 	}
 	return bindingMaps

@@ -98,6 +98,29 @@ func TestBuildSubnetBindings(t *testing.T) {
 	require.ElementsMatch(t, expBindingMaps, bindingMaps)
 }
 
+func TestBuildSubnetBindingsBranch(t *testing.T) {
+	service := mockService()
+	branchBinding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "cross-vpc-binding",
+			Namespace: "ns-vpc-b",
+			UID:       "uuid-cross",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:        "parent-subnet",
+			TargetSubnetName:  "child-subnet",
+			SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+			VLANTrafficTag:    201,
+		},
+	}
+	peerPaths := []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"}
+	bindingMaps := service.buildSubnetBindings(branchBinding, peerPaths)
+	require.Len(t, bindingMaps, 1)
+	require.NotNil(t, bindingMaps[0].SubnetAssociation)
+	assert.Equal(t, model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH, *bindingMaps[0].SubnetAssociation)
+	assert.Equal(t, peerPaths[0], *bindingMaps[0].SubnetPath)
+}
+
 func TestBuildSubnetConnectionBindingMapCR(t *testing.T) {
 	expCR := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: v1.ObjectMeta{
