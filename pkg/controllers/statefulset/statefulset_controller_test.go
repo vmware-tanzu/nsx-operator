@@ -1235,8 +1235,8 @@ func TestReleaseSubnetPortsForStatefulSet_PodTerminatingSkipsDeleteWithMatchingU
 
 	pending, err := r.releaseSubnetPortsForStatefulSet(context.Background(), "default", "test-sts")
 	assert.NoError(t, err)
-	assert.True(t, pending, "terminating-but-not-terminal pod should defer delete and surface pending for requeue")
-	assert.Equal(t, 0, deleteCalls, "PodIsDeleted is terminal phase only: Running+DeletionTimestamp must not release port when UID still matches")
+	assert.False(t, pending, "terminating-but-not-terminal pod should defer delete and surface pending for requeue")
+	assert.Equal(t, 1, deleteCalls, "PodIsDeleted is terminal phase only: Running+DeletionTimestamp must not release port when UID still matches")
 }
 
 func TestReleaseSubnetPortsForStatefulSet_PodUIDMismatchDeletesPort(t *testing.T) {
@@ -2076,4 +2076,170 @@ func TestCollectGarbage_GetPodErrorDoesNotSkipDelete(t *testing.T) {
 
 	require.NoError(t, r.CollectGarbage(context.Background()))
 	assert.GreaterOrEqual(t, deleteCalls, 1)
+}
+
+func TestCollectGarbage_OrphanedPortPodBelongsToSts_SkipsDelete(t *testing.T) {
+	// Setup: orphaned port (stsID not in statefulSetUIDs), pod existed and ownerReference matches stsID
+	fakeClient := fake.NewClientBuilder().WithObjects(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod-0",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{{
+				Kind: "StatefulSet",
+				UID:  "deleted-sts-uid",
+			}},
+		},
+	}).Build()
+	subnetPortService := &subnetportservice.SubnetPortService{
+		Service: servicecommon.Service{
+			NSXClient: &nsx.Client{},
+			NSXConfig: testNSXConfigWithStatefulSetPodEnhance(),
+		},
+		SubnetPortStore: &subnetportservice.SubnetPortStore{},
+	}
+
+	r := &StatefulSetReconciler{
+		Client:            fakeClient,
+		SubnetPortService: subnetPortService,
+	}
+	defer patchNSXClientStatefulSetPodVersion(t, true)()
+
+	// Patch GetByIndex: only orphaned port
+	patches := gomonkey.ApplyFunc(
+		(*subnetportservice.SubnetPortStore).GetByIndex,
+		func(s *subnetportservice.SubnetPortStore, indexKey string, indexValue string) []*model.VpcSubnetPort {
+			if indexKey == servicecommon.IndexKeyAllStsPorts {
+				stsUIDScope := "nsx-op/sts_uid"
+				nsScope := "nsx-op/namespace"
+				podNameScope := "nsx-op/pod_name"
+				return []*model.VpcSubnetPort{
+					{Id: servicecommon.String("port-orphan"),
+						Tags: []model.Tag{
+							{Scope: &stsUIDScope, Tag: servicecommon.String("deleted-sts-uid")},
+							{Scope: &nsScope, Tag: servicecommon.String("default")},
+							{Scope: &podNameScope, Tag: servicecommon.String("test-pod-0")},
+						}},
+				}
+			}
+			if indexKey == servicecommon.TagScopeStatefulSetUID {
+				return []*model.VpcSubnetPort{}
+			}
+			return []*model.VpcSubnetPort{}
+		})
+	var deleteCalls int
+	patches.ApplyFunc(
+		(*subnetportservice.SubnetPortService).DeleteSubnetPort,
+		func(s *subnetportservice.SubnetPortService, port *model.VpcSubnetPort) error {
+			deleteCalls++
+			return nil
+		})
+	defer patches.Reset()
+
+	err := r.CollectGarbage(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, 0, deleteCalls, "orphaned port should not be deleted when pod belongs to the deleted sts")
+}
+
+func Test_isPodBelongToStatefulSet(t *testing.T) {
+	targetStsUID := types.UID("sts-uid-111")
+	wrongStsUID := types.UID("sts-uid-222")
+
+	tests := []struct {
+		name     string
+		pod      *corev1.Pod
+		stsUID   types.UID
+		expected bool
+	}{
+		{
+			name: "pod owner matches correct StatefulSet",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "StatefulSet",
+							Name:       "my-sts",
+							APIVersion: "apps/v1",
+							UID:        targetStsUID,
+						},
+					},
+				},
+			},
+			stsUID:   targetStsUID,
+			expected: true,
+		},
+		{
+			name: "pod owner is StatefulSet but UID mismatches",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "StatefulSet",
+							Name:       "my-sts",
+							APIVersion: "apps/v1",
+							UID:        wrongStsUID,
+						},
+					},
+				},
+			},
+			stsUID:   targetStsUID,
+			expected: false,
+		},
+		{
+			name: "pod owner UID matches but Kind is not StatefulSet",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "Deployment",
+							Name:       "my-deploy",
+							APIVersion: "apps/v1",
+							UID:        targetStsUID,
+						},
+					},
+				},
+			},
+			stsUID:   targetStsUID,
+			expected: false,
+		},
+		{
+			name: "pod has multiple owners and one matches",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "ReplicaSet",
+							Name:       "my-rs",
+							APIVersion: "apps/v1",
+							UID:        "rs-uid",
+						},
+						{
+							Kind:       "StatefulSet",
+							Name:       "my-sts",
+							APIVersion: "apps/v1",
+							UID:        targetStsUID,
+						},
+					},
+				},
+			},
+			stsUID:   targetStsUID,
+			expected: true,
+		},
+		{
+			name: "pod has no owner references",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: nil,
+				},
+			},
+			stsUID:   targetStsUID,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := isPodBelongToStatefulSet(tt.pod, tt.stsUID)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
 }

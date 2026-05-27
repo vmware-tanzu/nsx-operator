@@ -322,8 +322,10 @@ func (r *StatefulSetReconciler) CollectGarbage(ctx context.Context) error {
 			if podName != "" && namespace != "" {
 				pod := &corev1.Pod{}
 				if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err == nil && !common.PodIsDeleted(pod) {
-					log.Debug("GC: pod still exists, skipping orphaned port deletion", "pod", podName)
-					continue
+					if isPodBelongToStatefulSet(pod, types.UID(stsID)) {
+						log.Debug("GC: pod still exists and belongs to StatefulSet, skipping orphaned port deletion", "pod", podName)
+						continue
+					}
 				}
 			}
 			log.Debug("Found orphaned subnet port for deleted StatefulSet", "port", *port.Id, "stsUID", stsID)
@@ -337,6 +339,15 @@ func (r *StatefulSetReconciler) CollectGarbage(ctx context.Context) error {
 		return fmt.Errorf("StatefulSet GC: %d delete error(s): %v", len(errList), errList)
 	}
 	return nil
+}
+
+func isPodBelongToStatefulSet(pod *corev1.Pod, stsID types.UID) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == "StatefulSet" && owner.UID == stsID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *StatefulSetReconciler) GetOrdinalRange(sts *appsv1.StatefulSet) (int, int) {
