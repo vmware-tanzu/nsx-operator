@@ -5,8 +5,20 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+type SubnetAssociation string
+
+const (
+	// SubnetAssociationTrunk means targetSubnetName is the trunk Subnet in the binding.
+	// This is the default when subnetAssociation is unset.
+	SubnetAssociationTrunk SubnetAssociation = "Trunk"
+	// SubnetAssociationBranch means TargetSubnetName is the branch Subnet in the binding.
+	// SubnetConnectionBindingMap is created under SubnetName (trunk Subnet).
+	SubnetAssociationBranch SubnetAssociation = "Branch"
+)
+
 // +kubebuilder:validation:XValidation:rule="has(self.targetSubnetSetName) && !has(self.targetSubnetName) || !has(self.targetSubnetSetName) && has(self.targetSubnetName)",message="Only one of targetSubnetSetName or targetSubnetName can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.targetSubnetName) || (self.subnetName != self.targetSubnetName)",message="subnetName and targetSubnetName must be different"
+// +kubebuilder:validation:XValidation:rule="!(has(self.subnetAssociation) && self.subnetAssociation == 'Branch' && has(self.targetSubnetSetName))",message="targetSubnetSetName is not supported when subnetAssociation is Branch"
 type SubnetConnectionBindingMapSpec struct {
 	// SubnetName is the Subnet name which this SubnetConnectionBindingMap is associated.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="subnetName is immutable"
@@ -17,6 +29,14 @@ type SubnetConnectionBindingMapSpec struct {
 	// TargetSubnetName specifies the target Subnet which a Subnet is connected to.
 	// +kubebuilder:validation:Optional
 	TargetSubnetName string `json:"targetSubnetName,omitempty"`
+	// SubnetAssociation indicates the role of TargetSubnetName in the binding.
+	// Trunk: TargetSubnetName is the trunk Subnet (default behavior).
+	// Branch: TargetSubnetName is the branch Subnet; SubnetName is the trunk Subnet that hosts the binding map.
+	// Supported starting with VCF 9.2.0.
+	// +kubebuilder:validation:Enum=Trunk;Branch
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="subnetAssociation is immutable"
+	SubnetAssociation SubnetAssociation `json:"subnetAssociation,omitempty"`
 	// VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be
 	// unique on the target Subnet or SubnetSet. When omitted, the system automatically allocates a VLAN ID.
 	// +kubebuilder:validation:Maximum:=4094
@@ -46,6 +66,7 @@ type SubnetConnectionBindingMapStatus struct {
 // +kubebuilder:printcolumn:name="targetSubnet",type=string,JSONPath=`.spec.targetSubnetName`,description="The target Subnet which the SubnetConnectionBindingMap is connected to"
 // +kubebuilder:printcolumn:name="targetSubnetSet",type=string,JSONPath=`.spec.targetSubnetSetName`,description="The target SubnetSet which the SubnetConnectionBindingMap is connected to"
 // +kubebuilder:printcolumn:name="vlanTrafficTag",type=integer,JSONPath=`.status.vlanTrafficTag`,description="VLAN traffic tag used in the NSX SubnetConnectionBindingMap"
+// +kubebuilder:printcolumn:name="subnetAssociation",type=string,JSONPath=`.spec.subnetAssociation`,description="Trunk or Branch association for targetSubnetName"
 type SubnetConnectionBindingMap struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -74,4 +95,9 @@ func (s *SubnetConnectionBindingMapSpec) HasVlanTrafficTag() bool {
 
 func init() {
 	SchemeBuilder.Register(&SubnetConnectionBindingMap{}, &SubnetConnectionBindingMapList{})
+}
+
+// IsBranchAssociation reports whether TargetSubnetName is the branch Subnet.
+func (s SubnetConnectionBindingMapSpec) IsBranchAssociation() bool {
+	return s.SubnetAssociation == SubnetAssociationBranch
 }
