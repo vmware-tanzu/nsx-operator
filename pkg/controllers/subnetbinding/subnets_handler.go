@@ -64,21 +64,24 @@ func requeueBindingMapsBySubnetUpdate(ctx context.Context, c client.Client, _, o
 
 func requeueSubnetConnectionBindingMapsBySubnet(ctx context.Context, c client.Client, namespace string, subnet string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	bindingMapList := &v1alpha1.SubnetConnectionBindingMapList{}
-	err := c.List(ctx, bindingMapList, client.InNamespace(namespace))
+	err := c.List(ctx, bindingMapList)
 	if err != nil {
 		log.Error(err, "Failed to list SubnetConnectionBindingMaps with Subnet event", "Namespace", namespace, "Subnet", subnet)
 		return
 	}
 	for _, bm := range bindingMapList.Items {
-		if bm.Spec.SubnetName == subnet || bm.Spec.TargetSubnetName == subnet {
-			log.Info("Requeue SubnetConnectionBindingMap because the dependent Subnet realization state is changed", "Namespace", namespace, "Name", bm.Name)
-			q.Add(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      bm.Name,
-					Namespace: bm.Namespace,
-				},
-			})
+		isHost := bm.Spec.SubnetName == subnet && bm.Namespace == namespace
+		isTarget := bm.Spec.TargetSubnetName == subnet && bm.Namespace == namespace
+		if !isHost && !isTarget {
+			continue
 		}
+		log.Info("Requeue SubnetConnectionBindingMap because the dependent Subnet realization state is changed", "Namespace", namespace, "Name", bm.Name)
+		q.Add(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      bm.Name,
+				Namespace: bm.Namespace,
+			},
+		})
 	}
 }
 

@@ -26,13 +26,14 @@ func requeueSubnetBySubnetBindingUpdate(ctx context.Context, c client.Client, ob
 	}
 
 	if newBM.Spec.TargetSubnetName != "" {
-		if err := enqueue(ctx, c, newBM.Namespace, newBM.Spec.TargetSubnetName, q); err != nil {
-			log.Error(err, "Failed to enqueue the new target Subnet after SubnetConnectionBindingMap updates", "Namespace", newBM.Namespace, "Subnet", newBM.Spec.TargetSubnetName, "SubnetConnectionBindingMap", newBM.Name)
+		targetNs := newBM.Namespace
+		if err := enqueue(ctx, c, targetNs, newBM.Spec.TargetSubnetName, q); err != nil {
+			log.Error(err, "Failed to enqueue the new target Subnet after SubnetConnectionBindingMap updates", "Namespace", targetNs, "Subnet", newBM.Spec.TargetSubnetName, "SubnetConnectionBindingMap", newBM.Name)
 		}
 	}
 	if oldBM.Spec.TargetSubnetName != "" {
-		// Enqueue to ensure the finalizer can be removed from the old target Subnet if it is not used.
-		_ = enqueue(ctx, c, oldBM.Namespace, oldBM.Spec.TargetSubnetName, q)
+		targetNs := oldBM.Namespace
+		_ = enqueue(ctx, c, targetNs, oldBM.Spec.TargetSubnetName, q)
 	}
 }
 
@@ -42,7 +43,8 @@ func enqueueSubnets(ctx context.Context, c client.Client, bindingMap *v1alpha1.S
 	}
 
 	if bindingMap.Spec.TargetSubnetName != "" {
-		_ = enqueue(ctx, c, bindingMap.Namespace, bindingMap.Spec.TargetSubnetName, q)
+		targetNs := bindingMap.Namespace
+		_ = enqueue(ctx, c, targetNs, bindingMap.Spec.TargetSubnetName, q)
 	}
 }
 
@@ -89,13 +91,17 @@ func (r *SubnetReconciler) getNSXSubnetBindingsBySubnet(subnetCRUID string) []*v
 func (r *SubnetReconciler) getSubnetBindingCRsBySubnet(ctx context.Context, subnetCR *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
 	validBindings := make([]v1alpha1.SubnetConnectionBindingMap, 0)
 	bindingList := &v1alpha1.SubnetConnectionBindingMapList{}
-	err := r.Client.List(ctx, bindingList, client.InNamespace(subnetCR.Namespace))
+	err := r.Client.List(ctx, bindingList)
 	if err != nil {
-		log.Error(err, "Unable to list SubnetConnectionBindingMaps", "Namespace", subnetCR.Namespace)
+		log.Error(err, "Unable to list SubnetConnectionBindingMaps")
 		return validBindings
 	}
 	for _, bm := range bindingList.Items {
-		if bm.Spec.SubnetName == subnetCR.Name || bm.Spec.TargetSubnetName == subnetCR.Name {
+		if bm.Spec.SubnetName == subnetCR.Name && bm.Namespace == subnetCR.Namespace {
+			validBindings = append(validBindings, bm)
+			continue
+		}
+		if bm.Spec.TargetSubnetName == subnetCR.Name && bm.Namespace == subnetCR.Namespace {
 			validBindings = append(validBindings, bm)
 		}
 	}
