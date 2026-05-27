@@ -1164,7 +1164,7 @@ func TestPodIsDeleted(t *testing.T) {
 		{"terminating_running", &v1.Pod{
 			ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &now, Finalizers: []string{"x"}},
 			Status:     v1.PodStatus{Phase: v1.PodRunning},
-		}, false},
+		}, true},
 		{"succeeded", &v1.Pod{Status: v1.PodStatus{Phase: v1.PodSucceeded}}, true},
 		{"failed", &v1.Pod{Status: v1.PodStatus{Phase: v1.PodFailed}}, true},
 	}
