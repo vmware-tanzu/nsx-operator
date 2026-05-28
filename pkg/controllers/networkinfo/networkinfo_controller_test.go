@@ -782,91 +782,6 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "VPCNetworkConfigurationStatusWithNoExternalIPBlockInSystemVPC",
-			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
-				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: requestArgs.req.Namespace,
-						Name:      requestArgs.req.Name,
-					},
-				}))
-				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "system",
-					},
-				}))
-				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
-					return servicecommon.SystemVPCNetworkConfigurationName, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
-					return &v1alpha1.VPCNetworkConfiguration{
-						ObjectMeta: metav1.ObjectMeta{Name: servicecommon.SystemVPCNetworkConfigurationName},
-						Spec: v1alpha1.VPCNetworkConfigurationSpec{
-							VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
-							NSXProject:             "/orgs/default/projects/project-quality",
-						},
-					}, true, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*servicecommon.VPCConnectionStatus, error) {
-					return &servicecommon.VPCConnectionStatus{
-						GatewayConnectionReady: true,
-						ServiceClusterReady:    false,
-						ServiceClusterReason:   servicecommon.ReasonServiceClusterNotSet,
-					}, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
-					return vpc.NSXLB, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
-					return []string{"100.64.0.3"}, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, ctx context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
-					return &model.Vpc{
-						DisplayName: servicecommon.String("vpc-name"),
-						Path:        servicecommon.String("/orgs/default/projects/project-quality/vpcs/fake-vpc"),
-						Id:          servicecommon.String("vpc-id"),
-					}, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (bool, error) {
-					return false, nil
-				})
-				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcConnectivityProfile{
-						ServiceGateway: nil,
-					}, nil},
-					Times: 1,
-				}})
-				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithNoExternalIPBlock,
-					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, _ bool) {
-						t.Log("setVPCNetworkConfigurationStatusWithNoExternalIPBlock")
-					})
-
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
-					return "lbs-path"
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
-					return "snat-ip", nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
-					return v1alpha1.FullStackVPC, nil
-				})
-				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled,
-					func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
-						if autoSnatEnabled {
-							assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
-						}
-					})
-				patches.ApplyFunc(setNSNetworkReadyCondition,
-					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
-						require.True(t, nsConditionEquals(*condition, *nsMsgVPCNoExternalIPBlock.getNSNetworkCondition()))
-					})
-				return patches
-			},
-			args:    requestArgs,
-			want:    common.ResultRequeueAfter60sec,
-			wantErr: false,
-		},
-		{
 			name: "Pre-create VPC success case with AVILB",
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
@@ -1313,6 +1228,118 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Reconcile() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+func TestNetworkInfoReconciler_Reconcile_ExternalIPBlockInSystemVPC(t *testing.T) {
+	req := controllerruntime.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "name"},
+	}
+
+	tests := []struct {
+		nameSuffix string
+		ipType     v1alpha1.IPAddressType
+	}{
+		{nameSuffix: "IPv4", ipType: v1alpha1.IPAddressTypeIPv4},
+		{nameSuffix: "IPv6", ipType: v1alpha1.IPAddressTypeIPv6},
+		{nameSuffix: "IPv4IPv6", ipType: v1alpha1.IPAddressTypeIPv4IPv6},
+	}
+
+	for _, tt := range tests {
+		t.Run("VPCNetworkConfigurationStatusWithNoExternalIPBlockInSystemVPC_"+tt.nameSuffix, func(t *testing.T) {
+			ns1 := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: "ns1"},
+			}
+			r := createNetworkInfoReconciler([]client.Object{ns1})
+			v1alpha1.AddToScheme(r.Scheme)
+			ctx := context.TODO()
+
+			assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+				ObjectMeta: metav1.ObjectMeta{Namespace: req.Namespace, Name: req.Name},
+			}))
+			assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: "system"},
+			}))
+
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ context.Context, _ string) (string, error) {
+				return servicecommon.SystemVPCNetworkConfigurationName, nil
+			})
+			defer patches.Reset()
+
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+				return &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{Name: servicecommon.SystemVPCNetworkConfigurationName},
+					Spec: v1alpha1.VPCNetworkConfigurationSpec{
+						VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
+						NSXProject:             "/orgs/default/projects/project-quality",
+					},
+				}, true, nil
+			})
+
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*servicecommon.VPCConnectionStatus, error) {
+				return &servicecommon.VPCConnectionStatus{GatewayConnectionReady: true}, nil
+			})
+
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+				return vpc.NSXLB, nil
+			})
+
+			// Dynamically mock the SNAT IP based on the IP format variation
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNSXLBSNATIP", func(_ *vpc.VPCService, _ model.Vpc, _ string) ([]string, error) {
+				if tt.ipType == v1alpha1.IPAddressTypeIPv6 {
+					return []string{"2001::1"}, nil
+				}
+				return []string{"100.64.0.3"}, nil
+			})
+
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider) (*model.Vpc, error) {
+				return &model.Vpc{DisplayName: servicecommon.String("vpc-name"), Path: servicecommon.String("path"), Id: servicecommon.String("vpc-id")}, nil
+			})
+
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, _ context.Context, _ string) (bool, error) {
+				return false, nil
+			})
+
+			// Dynamically mock the cluster IP address layout structure configuration block
+			patches.ApplyMethod(reflect.TypeOf(&config.K8sConfig{}), "GetIPAddressType", func(_ *config.K8sConfig) v1alpha1.IPAddressType {
+				return tt.ipType
+			})
+
+			patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+				Values: gomonkey.Params{model.VpcConnectivityProfile{ServiceGateway: nil}, nil},
+				Times:  1,
+			}})
+
+			patches.ApplyFunc(setVPCNetworkConfigurationStatusWithNoExternalIPBlock, func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, _ bool) {
+				t.Log("setVPCNetworkConfigurationStatusWithNoExternalIPBlock called")
+			})
+
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
+				return "lbs-path"
+			})
+
+			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+				return v1alpha1.FullStackVPC, nil
+			})
+
+			patches.ApplyFunc(setVPCNetworkConfigurationStatusWithSnatEnabled, func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, autoSnatEnabled bool) {
+				if autoSnatEnabled {
+					assert.FailNow(t, "should set VPCNetworkConfiguration status with AutoSnatEnabled=false")
+				}
+			})
+
+			patches.ApplyFunc(setNSNetworkReadyCondition, func(_ context.Context, _ client.Client, _ string, condition *corev1.NamespaceCondition) {
+				require.True(t, nsConditionEquals(*condition, *nsMsgVPCNoExternalIPBlock.getNSNetworkCondition()))
+			})
+
+			got, err := r.Reconcile(ctx, req)
+			if err != nil {
+				t.Errorf("Reconcile() error = %v, wantErr false", err)
+				return
+			}
+			if !reflect.DeepEqual(got, common.ResultRequeueAfter60sec) {
+				t.Errorf("Reconcile() got = %v, want %v", got, common.ResultRequeueAfter60sec)
 			}
 		})
 	}

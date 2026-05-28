@@ -358,7 +358,14 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		// Check external IP blocks on system VPC network config.
 		if ncName == commonservice.SystemVPCNetworkConfigurationName {
-			hasExternalIPs := len(vpcConnectivityProfile.ExternalIpBlocks) > 0
+			ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
+			hasExternalIPs := true
+			if util.IPAddressTypeIncludesIPv4(ipFamily) {
+				hasExternalIPs = len(vpcConnectivityProfile.ExternalIpBlocks) > 0
+			}
+			if util.IPAddressTypeIncludesIPv6(ipFamily) {
+				hasExternalIPs = hasExternalIPs && len(vpcConnectivityProfile.Ipv6Blocks) > 0
+			}
 			setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx, r.Client, systemVpcNetCfg, hasExternalIPs)
 			if !hasExternalIPs && !retryWithSystemVPC {
 				log.Error(err, "There is no ExternalIPBlock in VPC ConnectivityProfile", "NetworkInfo", req.NamespacedName)
