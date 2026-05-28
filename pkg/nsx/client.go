@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/dns_services"
+
 	"github.com/sirupsen/logrus"
 	nsxt "github.com/vmware/go-vmware-nsxt"
 	vspherelog "github.com/vmware/vsphere-automation-sdk-go/runtime/log"
@@ -120,6 +122,8 @@ type Client struct {
 	StaticIPReservationsClient        subnets.StaticIpReservationsClient
 	NsxApiClient                      *nsxt.APIClient
 	VifsClient                        fabric.VifsClient
+	ProjectDnsZoneClient              dns_services.ZonesClient
+	DnsRecordsClient                  projects.DnsRecordsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -238,6 +242,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	vifsClient := fabric.NewVifsClient(connector)
+	projectDnsZoneClient := dns_services.NewZonesClient(connector)
+	dnsRecordsClient := projects.NewDnsRecordsClient(connector)
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -305,6 +311,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
 		NsxApiClient:                      nsxApiClient,
 		VifsClient:                        vifsClient,
+		ProjectDnsZoneClient:              projectDnsZoneClient,
+		DnsRecordsClient:                  dnsRecordsClient,
 	}
 	nsxClient.Cluster.SetOnNodeVersionChanged(func(oldVer, newVer string) {
 		nsxClient.resetNSXVersionFeatureCache()

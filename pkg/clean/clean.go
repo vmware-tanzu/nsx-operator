@@ -12,6 +12,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/nsxserviceaccount"
@@ -115,6 +116,10 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	if err != nil {
 		return nil, err
 	}
+	dnsRecordService, err := dns.InitializeDNSRecordService(commonService, vpcService)
+	if err != nil {
+		return nil, err
+	}
 	subnetPortService, err := subnetport.InitializeSubnetPort(commonService, vpcService, ipAddressAllocationService)
 	if err != nil {
 		return nil, err
@@ -153,6 +158,11 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	wrapInitializeIPAddressAllocation := func(service common.Service) cleanupFunc {
 		return func() (interface{}, error) {
 			return ipAddressAllocationService, nil
+		}
+	}
+	wrapInitializeDNSRecordService := func(service common.Service) cleanupFunc {
+		return func() (interface{}, error) {
+			return dnsRecordService, nil
 		}
 	}
 	wrapInitializeSubnetBinding := func(service common.Service) cleanupFunc {
@@ -213,6 +223,7 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	loggedAdd("StaticRoute", wrapInitializeStaticRoute(commonService))
 	loggedAdd("VPC", wrapInitializeVPC(commonService))
 	loggedAdd("IPAddressAllocation", wrapInitializeIPAddressAllocation(commonService))
+	loggedAdd("DNSRecord", wrapInitializeDNSRecordService(commonService))
 	loggedAdd("Inventory", wrapInitializeInventory(commonService))
 	loggedAdd("LBInfraCleaner", wrapInitializeLBInfraCleaner(commonService))
 	loggedAdd("HealthCleaner", wrapInitializeHealthCleaner(commonService))
