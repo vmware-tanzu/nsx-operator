@@ -110,12 +110,20 @@ func (r *StatefulSetReconciler) processDelete(ctx context.Context, namespacedNam
 	if err != nil {
 		// StatusUpdater is a struct, not a pointer/interface. So we check if its Client field is initialized.
 		if r.StatusUpdater.Client != nil {
-			r.StatusUpdater.DeleteFail(namespacedName, sts, err)
+			if sts == nil {
+				r.StatusUpdater.DeleteFail(namespacedName, nil, err)
+			} else {
+				r.StatusUpdater.DeleteFail(namespacedName, sts, err)
+			}
 		}
 		return common.ResultRequeue, err
 	}
 	if r.StatusUpdater.Client != nil {
-		r.StatusUpdater.DeleteSuccess(namespacedName, sts)
+		if sts == nil {
+			r.StatusUpdater.DeleteSuccess(namespacedName, nil)
+		} else {
+			r.StatusUpdater.DeleteSuccess(namespacedName, sts)
+		}
 	}
 	if pendingRunningPod {
 		return ctrl.Result{RequeueAfter: stsSubnetPortPendingRequeueAfter}, nil
