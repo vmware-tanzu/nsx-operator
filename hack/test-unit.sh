@@ -164,7 +164,7 @@ FAILURE_DETAILS=""
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo "Executing complete test command:"
 echo "GOARCH=amd64 KUBEBUILDER_ASSETS=${KUBEBUILDER_ASSETS} go test -race -gcflags=all=-l \\"
-echo "  -coverpkg=\"${COVERPKG}\" \\"
+echo "  -count=1 -coverpkg=\"${COVERPKG}\" \\"
 echo "  -covermode=atomic \\"
 echo "  -v -coverprofile $(pwd)/.coverage/coverage-unit.out "
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -175,7 +175,7 @@ echo ""
 
 # Execute the command and capture both output and errors
 if GOARCH=amd64 KUBEBUILDER_ASSETS="$KUBEBUILDER_ASSETS" go test -race -gcflags=all=-l \
-    -coverpkg="$COVERPKG" -covermode=atomic \
+    -count=1 -coverpkg="$COVERPKG" -covermode=atomic \
     ${PACKAGES} -v -coverprofile "$(pwd)/.coverage/coverage-unit.out" 2>&1 | \
     tee "$TEMP_OUTPUT" | \
     while IFS= read -r line; do

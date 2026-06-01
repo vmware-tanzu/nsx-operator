@@ -21,6 +21,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
+	infra_ip_blocks "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_blocks"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
@@ -29,8 +30,10 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
+	project_infra_ip_blocks "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/ip_blocks"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/transit_gateways"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
+	vpc_ip_blocks "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/ip_blocks"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/nat"
 	vpc_sp "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/security_policies"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets"
@@ -103,6 +106,10 @@ type Client struct {
 	IPPoolClient                      subnets.IpPoolsClient
 	IPAllocationClient                ip_pools.IpAllocationsClient
 	DhcpServerConfigStatsClient       dhcp_server_config.StatsClient
+	IPAddressUsageClient              vpcs.IpAddressUsageClient
+	VPCIPBlockUsageClient             vpc_ip_blocks.UsageClient
+	InfraIPBlockUsageClient           infra_ip_blocks.UsageClient
+	ProjectIPBlockUsageClient         project_infra_ip_blocks.UsageClient
 	SubnetsClient                     vpcs.SubnetsClient
 	IPAddressAllocationClient         vpcs.IpAddressAllocationsClient
 	VPCLBSClient                      vpcs.VpcLbsClient
@@ -221,6 +228,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	ipPoolClient := subnets.NewIpPoolsClient(connector)
 	ipAllocationClient := ip_pools.NewIpAllocationsClient(connector)
 	statsClient := dhcp_server_config.NewStatsClient(connector)
+	ipAddressUsageClient := vpcs.NewIpAddressUsageClient(connector)
+	vpcIpBlockUsageClient := vpc_ip_blocks.NewUsageClient(connector)
+	infraIPBlockUsageClient := infra_ip_blocks.NewUsageClient(connector)
+	projectIPBlockUsageClient := project_infra_ip_blocks.NewUsageClient(connector)
 	subnetsClient := vpcs.NewSubnetsClient(connector)
 	subnetStatusClient := subnets.NewStatusClient(connector)
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(connectorAllowOverwrite)
@@ -298,6 +309,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		IPPoolClient:                      ipPoolClient,
 		IPAllocationClient:                ipAllocationClient,
 		DhcpServerConfigStatsClient:       statsClient,
+		IPAddressUsageClient:              ipAddressUsageClient,
+		VPCIPBlockUsageClient:             vpcIpBlockUsageClient,
+		InfraIPBlockUsageClient:           infraIPBlockUsageClient,
+		ProjectIPBlockUsageClient:         projectIPBlockUsageClient,
 		SubnetsClient:                     subnetsClient,
 		IPAddressAllocationClient:         ipAddressAllocationClient,
 		TransitGatewayClient:              transitGatewayClient,

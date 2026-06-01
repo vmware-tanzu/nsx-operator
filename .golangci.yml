@@ -60,6 +60,13 @@ linters:
           - staticcheck
         # v1.EndpointSubset is deprecated in k8s v1.33+; same migration scope as above.
         text: "SA1019: v1.EndpointSubset is deprecated"
+      - linters:
+          - staticcheck
+        # kubefake.NewSimpleClientset is deprecated in favour of NewClientset, which
+        # requires generated apply configurations (--with-applyconfig). Until apply
+        # configs are generated for this project the existing test helpers cannot be
+        # migrated, so suppress the warning project-wide.
+        text: "SA1019: kubefake.NewSimpleClientset is deprecated"
 
 formatters:
   enable:

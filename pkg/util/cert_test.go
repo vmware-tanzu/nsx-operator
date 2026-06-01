@@ -3,178 +3,77 @@ package util
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
+	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	kubefake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
-	admissionregistrationv1client "k8s.io/client-go/kubernetes/typed/admissionregistration/v1"
-
-	"k8s.io/client-go/rest"
-
-	ctrl "sigs.k8s.io/controller-runtime"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
 
-// Mock types
-type mockCoreV1Interface struct {
-	typedcorev1.CoreV1Interface
-	secretInterface *mockSecretInterface
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// generateTestCertPEM returns a DER-encoded, PEM-wrapped self-signed certificate
+// whose validity window ends at notAfter.
+func generateTestCertPEM(t *testing.T, notAfter time.Time) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "test-cert"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+		IsCA:         true,
+		KeyUsage:     x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	certBytes, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, err)
+	var buf bytes.Buffer
+	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}))
+	return buf.Bytes()
 }
 
-func (m *mockCoreV1Interface) Secrets(namespace string) typedcorev1.SecretInterface {
-	return m.secretInterface
+// overrideCertDir redirects cert file writes to a temp directory for the duration
+// of the test and restores the original value in a cleanup function.
+func overrideCertDir(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	orig := certDir
+	certDir = tmpDir
+	t.Cleanup(func() { certDir = orig })
+	return tmpDir
 }
 
-type mockSecretInterface struct {
-	typedcorev1.SecretInterface
-	createCalled bool
-}
-
-func (m *mockSecretInterface) Create(ctx context.Context, secret *corev1.Secret, opts metav1.CreateOptions) (*corev1.Secret, error) {
-	m.createCalled = true
-	return secret, nil
-}
-
-func TestGenerateWebhookCerts(t *testing.T) {
-	// Mock kubernetes.NewForConfigOrDie
-	patches := gomonkey.ApplyFunc(kubernetes.NewForConfigOrDie, func(_ *rest.Config) *kubernetes.Clientset {
-		return &kubernetes.Clientset{}
-	})
-	defer patches.Reset()
-
-	// Mock ctrl.GetConfigOrDie
-	patches.ApplyFunc(ctrl.GetConfigOrDie, func() *rest.Config {
-		return &rest.Config{}
-	})
-
-	// Mock os.MkdirAll to avoid permission denied error
-	patches.ApplyFunc(os.MkdirAll, func(path string, perm os.FileMode) error {
-		// Do nothing and return nil to avoid creating actual directories
-		return nil
-	})
-
-	// Mock writeSecureFile to avoid writing actual files
-	patches.ApplyFunc(writeSecureFile, func(filename string, data []byte, perm os.FileMode) error {
-		// Do nothing and return nil to avoid writing actual files
-		return nil
-	})
-
-	// Create a mock SecretInterface
-	mockSecretInterface := &mockSecretInterface{}
-
-	// Mock the CoreV1 method to return our mock interface
-	patches.ApplyMethod(reflect.TypeOf(&kubernetes.Clientset{}), "CoreV1",
-		func(_ *kubernetes.Clientset) typedcorev1.CoreV1Interface {
-			return &mockCoreV1Interface{secretInterface: mockSecretInterface}
-		})
-
-	// Mock updateWebhookConfig to do nothing
-	patches.ApplyFunc(updateWebhookConfig, func(kubeClient *kubernetes.Clientset, caPEM *bytes.Buffer) error {
-		// Do nothing and return nil
-		return nil
-	})
-
-	// Test
-	err := GenerateWebhookCerts()
-	if err != nil {
-		t.Fatalf("GenerateWebhookCerts failed: %v", err)
-	}
-
-	if !mockSecretInterface.createCalled {
-		t.Error("Create method was not called")
-	}
-}
-
-func TestUpdateWebhookConfig(t *testing.T) {
-	// Create a mock ValidatingWebhookConfiguration
-	mockWebhookConfig := &admissionregistrationv1.ValidatingWebhookConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: validatingWebhookConfiguration,
-		},
-		Webhooks: []admissionregistrationv1.ValidatingWebhook{
-			{
-				Name: "webhook1",
-				ClientConfig: admissionregistrationv1.WebhookClientConfig{
-					CABundle: []byte("old-ca-bundle"),
-				},
-			},
-			{
-				Name: "webhook2",
-				ClientConfig: admissionregistrationv1.WebhookClientConfig{
-					CABundle: []byte("old-ca-bundle"),
-				},
-			},
-		},
-	}
-
-	// Create a mock clientset
-	mockClientset := &kubernetes.Clientset{}
-
-	// Use gomonkey to patch the necessary methods
-	patches := gomonkey.NewPatches()
-	defer patches.Reset()
-
-	// Mock the Get method
-	patches.ApplyMethod(reflect.TypeOf(mockClientset), "AdmissionregistrationV1",
-		func(_ *kubernetes.Clientset) admissionregistrationv1client.AdmissionregistrationV1Interface {
-			mockAdmissionV1 := &mockAdmissionV1Interface{}
-			patches.ApplyMethod(reflect.TypeOf(mockAdmissionV1), "ValidatingWebhookConfigurations",
-				func(_ *mockAdmissionV1Interface) admissionregistrationv1client.ValidatingWebhookConfigurationInterface {
-					mockValidatingWebhook := &mockValidatingWebhookConfigurationInterface{}
-					patches.ApplyMethod(reflect.TypeOf(mockValidatingWebhook), "Get",
-						func(_ *mockValidatingWebhookConfigurationInterface, _ context.Context, name string, _ metav1.GetOptions) (*admissionregistrationv1.ValidatingWebhookConfiguration, error) {
-							return mockWebhookConfig, nil
-						})
-					patches.ApplyMethod(reflect.TypeOf(mockValidatingWebhook), "Update",
-						func(_ *mockValidatingWebhookConfigurationInterface, _ context.Context, updatedConfig *admissionregistrationv1.ValidatingWebhookConfiguration, _ metav1.UpdateOptions) (*admissionregistrationv1.ValidatingWebhookConfiguration, error) {
-							mockWebhookConfig = updatedConfig // Update the mock config
-							return updatedConfig, nil
-						})
-					return mockValidatingWebhook
-				})
-			return mockAdmissionV1
-		})
-
-	// Test case 1: CA bundle needs update
-	newCABundle := []byte("new-ca-bundle")
-	err := updateWebhookConfig(mockClientset, bytes.NewBuffer(newCABundle))
-	if err != nil {
-		t.Errorf("updateWebhookConfig returned an error: %v", err)
-	}
-
-	// Check if the CABundle was updated
-	for _, webhook := range mockWebhookConfig.Webhooks {
-		if !bytes.Equal(webhook.ClientConfig.CABundle, newCABundle) {
-			t.Errorf("CABundle was not updated. Expected %v, got %v", newCABundle, webhook.ClientConfig.CABundle)
-		}
-	}
-
-	// Test case 2: CA bundle doesn't need update
-	err = updateWebhookConfig(mockClientset, bytes.NewBuffer(newCABundle))
-	if err != nil {
-		t.Errorf("updateWebhookConfig returned an error: %v", err)
-	}
-	// No update should occur in this case
-}
+// ---------------------------------------------------------------------------
+// writeSecureFile
+// ---------------------------------------------------------------------------
 
 func TestWriteSecureFile(t *testing.T) {
-	// Create a temporary directory for testing
 	tempDir, err := os.MkdirTemp("", "writeSecureFile_test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
+	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
 	tests := []struct {
 		name        string
-		filepath    string
 		data        []byte
 		perm        os.FileMode
 		expectError bool
@@ -182,55 +81,43 @@ func TestWriteSecureFile(t *testing.T) {
 		cleanupFunc func(string)
 	}{
 		{
-			name:        "Write file with 0644 permissions",
-			data:        []byte("test certificate data"),
-			perm:        0644,
-			expectError: false,
+			name: "Write file with 0644 permissions",
+			data: []byte("test certificate data"),
+			perm: 0644,
 			setupFunc: func() string {
 				return filepath.Join(tempDir, "test_cert.crt")
 			},
 		},
 		{
-			name:        "Write file with 0600 permissions (private key)",
-			data:        []byte("test private key data"),
-			perm:        0600,
-			expectError: false,
+			name: "Write file with 0600 permissions (private key)",
+			data: []byte("test private key data"),
+			perm: 0600,
 			setupFunc: func() string {
 				return filepath.Join(tempDir, "test_key.key")
 			},
 		},
 		{
-			name:        "Write to existing file (should overwrite)",
-			data:        []byte("new data"),
-			perm:        0644,
-			expectError: false,
+			name: "Write to existing file (should overwrite)",
+			data: []byte("new data"),
+			perm: 0644,
 			setupFunc: func() string {
 				filePath := filepath.Join(tempDir, "existing_file.txt")
-				// Pre-create the file with different content
-				err := os.WriteFile(filePath, []byte("old data"), 0600)
-				if err != nil {
-					t.Fatalf("Failed to setup existing file: %v", err)
-				}
+				require.NoError(t, os.WriteFile(filePath, []byte("old data"), 0600))
 				return filePath
 			},
 		},
 		{
-			name:        "Write with empty data",
-			data:        []byte(""),
-			perm:        0644,
-			expectError: false,
-			setupFunc: func() string {
-				return filepath.Join(tempDir, "empty_file.txt")
-			},
+			name:      "Write with empty data",
+			data:      []byte(""),
+			perm:      0644,
+			setupFunc: func() string { return filepath.Join(tempDir, "empty_file.txt") },
 		},
 		{
 			name:        "Write to invalid path (non-existent directory)",
 			data:        []byte("test data"),
 			perm:        0644,
 			expectError: true,
-			setupFunc: func() string {
-				return filepath.Join(tempDir, "nonexistent", "file.txt")
-			},
+			setupFunc:   func() string { return filepath.Join(tempDir, "nonexistent", "file.txt") },
 		},
 		{
 			name:        "Write to read-only directory",
@@ -239,84 +126,485 @@ func TestWriteSecureFile(t *testing.T) {
 			expectError: true,
 			setupFunc: func() string {
 				roDir := filepath.Join(tempDir, "readonly")
-				err := os.Mkdir(roDir, 0755)
-				if err != nil {
-					t.Fatalf("Failed to create readonly dir: %v", err)
-				}
-				// Make the directory read-only
-				err = os.Chmod(roDir, 0444)
-				if err != nil {
-					t.Fatalf("Failed to make dir readonly: %v", err)
-				}
+				require.NoError(t, os.Mkdir(roDir, 0755))
+				require.NoError(t, os.Chmod(roDir, 0444))
 				return filepath.Join(roDir, "file.txt")
 			},
 			cleanupFunc: func(path string) {
-				// Restore write permissions for cleanup
-				dir := filepath.Dir(path)
-				os.Chmod(dir, 0755)
+				os.Chmod(filepath.Dir(path), 0755)
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var filePath string
-			if tt.setupFunc != nil {
-				filePath = tt.setupFunc()
-			} else {
-				filePath = tt.filepath
-			}
-
+			filePath := tt.setupFunc()
 			if tt.cleanupFunc != nil {
 				defer tt.cleanupFunc(filePath)
 			}
 
-			// Test the function
 			err := writeSecureFile(filePath, tt.data, tt.perm)
-
 			if tt.expectError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
+				assert.Error(t, err)
 				return
 			}
+			require.NoError(t, err)
 
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
-			}
-
-			// Verify the file was created and has the correct content
 			content, err := os.ReadFile(filePath)
-			if err != nil {
-				t.Errorf("Failed to read created file: %v", err)
-				return
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.data, content)
 
-			if !bytes.Equal(content, tt.data) {
-				t.Errorf("File content mismatch. Expected: %s, Got: %s", string(tt.data), string(content))
-			}
-
-			// Verify file permissions
-			fileInfo, err := os.Stat(filePath)
-			if err != nil {
-				t.Errorf("Failed to stat file: %v", err)
-				return
-			}
-
-			actualPerm := fileInfo.Mode().Perm()
-			if actualPerm != tt.perm {
-				t.Errorf("File permission mismatch. Expected: %v, Got: %v", tt.perm, actualPerm)
-			}
+			fi, err := os.Stat(filePath)
+			require.NoError(t, err)
+			assert.Equal(t, tt.perm, fi.Mode().Perm())
 		})
 	}
 }
 
-// Mock types
-type mockAdmissionV1Interface struct {
-	admissionregistrationv1client.AdmissionregistrationV1Interface
+// ---------------------------------------------------------------------------
+// updateWebhookConfig
+// ---------------------------------------------------------------------------
+
+func TestUpdateWebhookConfig_UpdatesCABundle(t *testing.T) {
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{
+			{Name: "w1", ClientConfig: admissionregistrationv1.WebhookClientConfig{CABundle: []byte("old")}},
+			{Name: "w2", ClientConfig: admissionregistrationv1.WebhookClientConfig{CABundle: []byte("old")}},
+		},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+
+	newCA := bytes.NewBufferString("new-ca-bundle")
+	require.NoError(t, updateWebhookConfig(fakeClient, newCA))
+
+	updated, err := fakeClient.AdmissionregistrationV1().ValidatingWebhookConfigurations().
+		Get(context.TODO(), validatingWebhookConfiguration, metav1.GetOptions{})
+	require.NoError(t, err)
+	for _, wh := range updated.Webhooks {
+		assert.Equal(t, []byte("new-ca-bundle"), wh.ClientConfig.CABundle)
+	}
 }
 
-type mockValidatingWebhookConfigurationInterface struct {
-	admissionregistrationv1client.ValidatingWebhookConfigurationInterface
+func TestUpdateWebhookConfig_NoUpdateWhenSame(t *testing.T) {
+	existing := []byte("same-ca")
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{
+			{Name: "w1", ClientConfig: admissionregistrationv1.WebhookClientConfig{CABundle: existing}},
+		},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+
+	require.NoError(t, updateWebhookConfig(fakeClient, bytes.NewBuffer(existing)))
+}
+
+func TestUpdateWebhookConfig_NotFound(t *testing.T) {
+	fakeClient := kubefake.NewSimpleClientset() // webhook config not pre-loaded
+	err := updateWebhookConfig(fakeClient, bytes.NewBufferString("ca"))
+	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// easSecretCertValid
+// ---------------------------------------------------------------------------
+
+func TestEasSecretCertValid_SecretNotFound(t *testing.T) {
+	assert.False(t, easSecretCertValid(kubefake.NewSimpleClientset()))
+}
+
+func TestEasSecretCertValid_NoCertData(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{},
+	}
+	assert.False(t, easSecretCertValid(kubefake.NewSimpleClientset(secret)))
+}
+
+func TestEasSecretCertValid_InvalidPEM(t *testing.T) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": []byte("not-a-pem")},
+	}
+	assert.False(t, easSecretCertValid(kubefake.NewSimpleClientset(secret)))
+}
+
+func TestEasSecretCertValid_ExpiredCert(t *testing.T) {
+	certPEM := generateTestCertPEM(t, time.Now().Add(-time.Hour))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": certPEM},
+	}
+	assert.False(t, easSecretCertValid(kubefake.NewSimpleClientset(secret)))
+}
+
+func TestEasSecretCertValid_AlmostExpired(t *testing.T) {
+	// 3 days < 7-day headroom required
+	certPEM := generateTestCertPEM(t, time.Now().Add(3*24*time.Hour))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": certPEM},
+	}
+	assert.False(t, easSecretCertValid(kubefake.NewSimpleClientset(secret)))
+}
+
+func TestEasSecretCertValid_ValidCert(t *testing.T) {
+	certPEM := generateTestCertPEM(t, time.Now().Add(30*24*time.Hour))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": certPEM},
+	}
+	assert.True(t, easSecretCertValid(kubefake.NewSimpleClientset(secret)))
+}
+
+// ---------------------------------------------------------------------------
+// generateWebhookCertsWithClient
+// ---------------------------------------------------------------------------
+
+func TestGenerateWebhookCerts_Success(t *testing.T) {
+	tmpDir := overrideCertDir(t)
+
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{
+			{Name: "w1", ClientConfig: admissionregistrationv1.WebhookClientConfig{}},
+		},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+
+	require.NoError(t, generateWebhookCertsWithClient(fakeClient))
+
+	assert.FileExists(t, filepath.Join(tmpDir, "tls.crt"))
+	assert.FileExists(t, filepath.Join(tmpDir, "tls.key"))
+}
+
+func TestGenerateWebhookCerts_SecretAlreadyExists(t *testing.T) {
+	tmpDir := overrideCertDir(t)
+
+	// Pre-create the Secret so the fake client returns AlreadyExists on Create
+	existingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: certName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": []byte("old"), "tls.key": []byte("old")},
+	}
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{
+			{Name: "w1", ClientConfig: admissionregistrationv1.WebhookClientConfig{}},
+		},
+	}
+	fakeClient := kubefake.NewSimpleClientset(existingSecret, webhookCfg)
+
+	require.NoError(t, generateWebhookCertsWithClient(fakeClient))
+
+	assert.FileExists(t, filepath.Join(tmpDir, "tls.crt"))
+}
+
+// ---------------------------------------------------------------------------
+// generateEASCertsWithClient
+// ---------------------------------------------------------------------------
+
+func TestGenerateEASCerts_GenerateNew(t *testing.T) {
+	tmpDir := overrideCertDir(t)
+
+	fakeClient := kubefake.NewSimpleClientset()
+
+	caCert, err := generateEASCertsWithClient(fakeClient)
+	require.NoError(t, err)
+	assert.NotNil(t, caCert, "new cert generation must return non-nil caBundle")
+
+	assert.FileExists(t, filepath.Join(tmpDir, config.EASCertFile))
+	assert.FileExists(t, filepath.Join(tmpDir, config.EASKeyFile))
+}
+
+func TestGenerateEASCerts_SecretAlreadyExists(t *testing.T) {
+	tmpDir := overrideCertDir(t)
+
+	// Pre-create the Secret so Create returns AlreadyExists → Update path
+	existingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": []byte("old"), "tls.key": []byte("old")},
+	}
+	fakeClient := kubefake.NewSimpleClientset(existingSecret)
+
+	caCert, err := generateEASCertsWithClient(fakeClient)
+	require.NoError(t, err)
+	assert.NotNil(t, caCert, "AlreadyExists path must still return caBundle")
+
+	assert.FileExists(t, filepath.Join(tmpDir, config.EASCertFile))
+}
+
+func TestGenerateEASCerts_PreExistingValidCert(t *testing.T) {
+	tmpDir := overrideCertDir(t)
+
+	certPEM := generateTestCertPEM(t, time.Now().Add(30*24*time.Hour))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data: map[string][]byte{
+			"tls.crt": certPEM,
+			"tls.key": []byte("fake-key"),
+		},
+	}
+	fakeClient := kubefake.NewSimpleClientset(secret)
+
+	caCert, err := generateEASCertsWithClient(fakeClient)
+	require.NoError(t, err)
+	assert.Nil(t, caCert, "pre-existing cert path must return nil caBundle")
+
+	assert.FileExists(t, filepath.Join(tmpDir, config.EASCertFile))
+	assert.FileExists(t, filepath.Join(tmpDir, config.EASKeyFile))
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for error-path tests
+// ---------------------------------------------------------------------------
+
+// readOnlyCertDir sets certDir to a path inside a read-only parent directory so that
+// os.MkdirAll fails because the parent directory is not writable.
+func readOnlyCertDir(t *testing.T) {
+	t.Helper()
+	parentDir := t.TempDir()
+	require.NoError(t, os.Chmod(parentDir, 0444))
+	t.Cleanup(func() { os.Chmod(parentDir, 0755) })
+	orig := certDir
+	certDir = filepath.Join(parentDir, "certs")
+	t.Cleanup(func() { certDir = orig })
+}
+
+// writeOnlyCertDir sets certDir to an existing but read-only directory so that
+// os.MkdirAll succeeds (directory exists) but writing files inside fails.
+func writeOnlyCertDir(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	orig := certDir
+	certDir = tmpDir
+	require.NoError(t, os.Chmod(tmpDir, 0444))
+	t.Cleanup(func() {
+		os.Chmod(tmpDir, 0755)
+		certDir = orig
+	})
+	return tmpDir
+}
+
+// prependCreateReactor adds a reactor that makes every Create on "secrets" return err.
+func prependCreateReactor(t *testing.T, fakeClient *kubefake.Clientset, err error) {
+	t.Helper()
+	fakeClient.PrependReactor("create", "secrets", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, err
+	})
+}
+
+// prependUpdateReactor adds a reactor that makes every Update on the given resource return err.
+func prependUpdateReactor(t *testing.T, fakeClient *kubefake.Clientset, resource string, err error) {
+	t.Helper()
+	fakeClient.PrependReactor("update", resource, func(_ k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, err
+	})
+}
+
+// ---------------------------------------------------------------------------
+// generateWebhookCertsWithClient – AlreadyExists secret update/get error paths
+// ---------------------------------------------------------------------------
+
+func TestGenerateWebhookCerts_AlreadyExists_UpdateFails(t *testing.T) {
+	// Secret pre-exists → Create returns AlreadyExists → Get succeeds → Update fails.
+	overrideCertDir(t)
+	existingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: certName, Namespace: namespace},
+		Data:       map[string][]byte{},
+	}
+	fakeClient := kubefake.NewSimpleClientset(existingSecret)
+	prependUpdateReactor(t, fakeClient, "secrets", fmt.Errorf("simulated update error"))
+	err := generateWebhookCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+func TestGenerateWebhookCerts_AlreadyExists_GetFails(t *testing.T) {
+	// Secret pre-exists → Create returns AlreadyExists → Get fails.
+	overrideCertDir(t)
+	existingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: certName, Namespace: namespace},
+	}
+	fakeClient := kubefake.NewSimpleClientset(existingSecret)
+	fakeClient.PrependReactor("get", "secrets", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("simulated get error")
+	})
+	err := generateWebhookCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// generateWebhookCertsWithClient – additional error-path tests
+// ---------------------------------------------------------------------------
+
+func TestGenerateWebhookCerts_UpdateWebhookConfigFails(t *testing.T) {
+	overrideCertDir(t)
+	// No webhook config pre-loaded → updateWebhookConfig returns NotFound → retry exhausts
+	fakeClient := kubefake.NewSimpleClientset()
+	err := generateWebhookCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+func TestGenerateWebhookCerts_CreateSecretFails(t *testing.T) {
+	overrideCertDir(t)
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks:   []admissionregistrationv1.ValidatingWebhook{{Name: "w1"}},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+	prependCreateReactor(t, fakeClient, fmt.Errorf("simulated create error"))
+	err := generateWebhookCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+func TestGenerateWebhookCerts_MkdirAllFails(t *testing.T) {
+	// certDir is under a read-only parent → os.MkdirAll fails
+	readOnlyCertDir(t)
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks:   []admissionregistrationv1.ValidatingWebhook{{Name: "w1"}},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+	err := generateWebhookCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+func TestGenerateWebhookCerts_CertWriteFails(t *testing.T) {
+	// certDir is read-only → writeSecureFile for tls.crt fails
+	writeOnlyCertDir(t)
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks:   []admissionregistrationv1.ValidatingWebhook{{Name: "w1"}},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+	err := generateWebhookCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+func TestGenerateWebhookCerts_KeyWriteFails(t *testing.T) {
+	// tls.key file pre-created as read-only → cert write succeeds, key write fails
+	tmpDir := overrideCertDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "tls.key"), []byte("old"), 0400))
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks:   []admissionregistrationv1.ValidatingWebhook{{Name: "w1"}},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+	err := generateWebhookCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// easSecretCertValid – invalid DER bytes inside valid PEM block
+// ---------------------------------------------------------------------------
+
+func TestEasSecretCertValid_InvalidCertBytes(t *testing.T) {
+	// PEM decodes successfully but x509.ParseCertificate fails on the inner bytes
+	var buf bytes.Buffer
+	require.NoError(t, pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: []byte("not-valid-asn1")}))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": buf.Bytes()},
+	}
+	assert.False(t, easSecretCertValid(kubefake.NewSimpleClientset(secret)))
+}
+
+// ---------------------------------------------------------------------------
+// generateEASCertsWithClient – pre-existing cert path error tests
+// ---------------------------------------------------------------------------
+
+func TestGenerateEASCerts_PreExistingCert_MkdirAllFails(t *testing.T) {
+	readOnlyCertDir(t)
+	certPEM := generateTestCertPEM(t, time.Now().Add(30*24*time.Hour))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": certPEM, "tls.key": []byte("k")},
+	}
+	_, err := generateEASCertsWithClient(kubefake.NewSimpleClientset(secret))
+	assert.Error(t, err)
+}
+
+func TestGenerateEASCerts_PreExistingCert_CertWriteFails(t *testing.T) {
+	writeOnlyCertDir(t)
+	certPEM := generateTestCertPEM(t, time.Now().Add(30*24*time.Hour))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": certPEM, "tls.key": []byte("k")},
+	}
+	_, err := generateEASCertsWithClient(kubefake.NewSimpleClientset(secret))
+	assert.Error(t, err)
+}
+
+func TestGenerateEASCerts_PreExistingCert_KeyWriteFails(t *testing.T) {
+	tmpDir := overrideCertDir(t)
+	// Pre-create the key file as read-only so cert write succeeds but key write fails
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, config.EASKeyFile), []byte("old"), 0400))
+	certPEM := generateTestCertPEM(t, time.Now().Add(30*24*time.Hour))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{"tls.crt": certPEM, "tls.key": []byte("k")},
+	}
+	_, err := generateEASCertsWithClient(kubefake.NewSimpleClientset(secret))
+	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// generateEASCertsWithClient – new cert path error tests
+// ---------------------------------------------------------------------------
+
+func TestGenerateEASCerts_GenerateNew_CreateSecretFails(t *testing.T) {
+	overrideCertDir(t)
+	fakeClient := kubefake.NewSimpleClientset()
+	prependCreateReactor(t, fakeClient, fmt.Errorf("simulated create error"))
+	_, err := generateEASCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+func TestGenerateEASCerts_GenerateNew_MkdirAllFails(t *testing.T) {
+	readOnlyCertDir(t)
+	_, err := generateEASCertsWithClient(kubefake.NewSimpleClientset())
+	assert.Error(t, err)
+}
+
+func TestGenerateEASCerts_GenerateNew_CertWriteFails(t *testing.T) {
+	writeOnlyCertDir(t)
+	_, err := generateEASCertsWithClient(kubefake.NewSimpleClientset())
+	assert.Error(t, err)
+}
+
+func TestGenerateEASCerts_GenerateNew_KeyWriteFails(t *testing.T) {
+	tmpDir := overrideCertDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, config.EASKeyFile), []byte("old"), 0400))
+	_, err := generateEASCertsWithClient(kubefake.NewSimpleClientset())
+	assert.Error(t, err)
+}
+
+func TestGenerateEASCerts_AlreadyExists_UpdateFails(t *testing.T) {
+	overrideCertDir(t)
+	// Pre-create the Secret so Create returns AlreadyExists, then Update fails
+	existingSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: easCertSecretName, Namespace: namespace},
+		Data:       map[string][]byte{},
+	}
+	fakeClient := kubefake.NewSimpleClientset(existingSecret)
+	prependUpdateReactor(t, fakeClient, "secrets", fmt.Errorf("simulated update error"))
+	_, err := generateEASCertsWithClient(fakeClient)
+	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// updateWebhookConfig – Update failure
+// ---------------------------------------------------------------------------
+
+func TestUpdateWebhookConfig_UpdateFails(t *testing.T) {
+	webhookCfg := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: validatingWebhookConfiguration},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{
+			{Name: "w1", ClientConfig: admissionregistrationv1.WebhookClientConfig{CABundle: []byte("old")}},
+		},
+	}
+	fakeClient := kubefake.NewSimpleClientset(webhookCfg)
+	prependUpdateReactor(t, fakeClient, "validatingwebhookconfigurations", fmt.Errorf("update webhook failed"))
+
+	err := updateWebhookConfig(fakeClient, bytes.NewBufferString("new-ca"))
+	assert.Error(t, err)
 }

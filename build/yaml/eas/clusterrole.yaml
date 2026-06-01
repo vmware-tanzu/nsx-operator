@@ -1,3 +1,4 @@
+# nsx-eas-reader: read access to EAS API resources for authenticated cluster users.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -7,9 +8,12 @@ rules:
   resources:
   - vpcipaddressusages
   - ipblockusages
+  verbs: ["get", "list"]
+- apiGroups: ["eas.nsx.vmware.com"]
+  resources:
   - subnetippools
   - subnetdhcpserverstats
-  verbs: ["get", "list"]
+  verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -23,3 +27,28 @@ subjects:
 - apiGroup: rbac.authorization.k8s.io
   kind: Group
   name: system:authenticated
+---
+# nsx-eas-server: permissions needed by the nsx-eas server process itself to
+# self-register its APIService with kube-apiserver at startup
+# (registerExtensionAPIService in pkg/eas/server/apiservice_register.go).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nsx-eas-server
+rules:
+- apiGroups: ["apiregistration.k8s.io"]
+  resources: ["apiservices"]
+  verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nsx-eas-server-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nsx-eas-server
+subjects:
+- kind: ServiceAccount
+  name: nsx-ncp
+  namespace: vmware-system-nsx
