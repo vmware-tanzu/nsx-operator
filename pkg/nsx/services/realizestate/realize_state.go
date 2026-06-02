@@ -46,6 +46,10 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 		extraIdsRealized := 0
 		for _, result := range results.Results {
 			if *result.State == model.GenericPolicyRealizedResource_STATE_REALIZED {
+				if result.PublishStatus != nil && *result.PublishStatus != "" && *result.PublishStatus != "SUCCESS" && *result.PublishStatus != "UP" {
+					log.Info("Found realized resource but publish status is not success", "id", *result.Id, "publishStatus", *result.PublishStatus)
+					continue
+				}
 				for _, id := range extraIds {
 					if *result.Id == id {
 						extraIdsRealized++

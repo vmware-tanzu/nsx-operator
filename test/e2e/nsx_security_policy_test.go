@@ -211,7 +211,7 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
 	require.NoError(t, applyYAML(podPath, ns))
-	defer deleteYAML(podPath, "")
+	defer deleteYAML(podPath, ns)
 
 	clientA := "client-a"
 	clientB := "client-b"
