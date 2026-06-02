@@ -17,3 +17,13 @@ spec:
   subnetName: subnet-sample
   targetSubnetName: subnet1
   vlanTrafficTag: 202
+---
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetConnectionBindingMap
+metadata:
+  name: binding-auto
+  namespace: default
+spec:
+  subnetName: vlan-ext-subnet
+  targetSubnetSetName: vm-default
+  # vlanTrafficTag omitted: operator auto-allocates and patches spec.vlanTrafficTag

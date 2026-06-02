@@ -194,6 +194,7 @@ var (
 			"60514":  func() NsxError { return &NsxSearchTimeout{} },
 			"60515":  func() NsxError { return &NsxSearchOutOfSync{} },
 			"8327":   func() NsxError { return &NsxOverlapVlan{} },
+			"640873": func() NsxError { return &NsxOverlapVlan{} },
 			"500045": func() NsxError { return &NsxPendingDelete{} },
 			"500030": func() NsxError { return &ResourceInUse{} },
 			"500087": func() NsxError { return &StaleRevision{} },
@@ -543,7 +544,7 @@ func castApiError(apiErrorDataValue *data.StructValue) *model.ApiError {
 }
 
 func isEmptyAPIError(apiError model.ApiError) bool {
-	return (apiError.ErrorCode == nil && apiError.ErrorMessage == nil)
+	return apiError.ErrorCode == nil && apiError.ErrorMessage == nil
 }
 
 func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
@@ -784,4 +785,21 @@ func ParseDHCPMode(mode string) string {
 		log.Error(nil, "Failed to parse DHCP mode", "mode", mode)
 		return ""
 	}
+}
+
+func IsVpcOverlapVlanError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if nsxApiErr, ok := err.(*NSXApiError); ok {
+		if nsxApiErr.ErrorCode != nil && *nsxApiErr.ErrorCode == VpcOverlapVlanErrorCode {
+			return true
+		}
+		for _, relatedErr := range nsxApiErr.RelatedErrors {
+			if relatedErr.ErrorCode != nil && *relatedErr.ErrorCode == VpcOverlapVlanErrorCode {
+				return true
+			}
+		}
+	}
+	return false
 }
