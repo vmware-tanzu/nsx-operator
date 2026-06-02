@@ -1724,3 +1724,66 @@ func TestHttpErrorToNSXError_DataRace(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestIsOverlapVlanError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "NilError",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "NonNSXApiError",
+			err:      errors.New("some error"),
+			expected: false,
+		},
+		{
+			name: "NSXApiError with ErrorCode 8327",
+			err: &NSXApiError{
+				ApiError: &model.ApiError{
+					ErrorCode: Ptr(int64(8327)),
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "NSXApiError with RelatedErrors containing ErrorCode 8327",
+			err: &NSXApiError{
+				ApiError: &model.ApiError{
+					ErrorCode: Ptr(int64(123)),
+					RelatedErrors: []model.RelatedApiError{
+						{
+							ErrorCode: Ptr(int64(8327)),
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "NSXApiError with other ErrorCode",
+			err: &NSXApiError{
+				ApiError: &model.ApiError{
+					ErrorCode: Ptr(int64(123)),
+					RelatedErrors: []model.RelatedApiError{
+						{
+							ErrorCode: Ptr(int64(456)),
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsOverlapVlanError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

@@ -33,8 +33,8 @@ spec:
       name: targetSubnetSet
       type: string
     - description: Vlan used in the NSX SubnetConnectionBindingMap
-      jsonPath: .spec.vlanTrafficTag
-      name: vlanTrafficTag
+      jsonPath: .status.vlanID
+      name: vlanID
       type: integer
     name: v1alpha1
     schema:
@@ -79,14 +79,13 @@ spec:
               vlanTrafficTag:
                 description: |-
                   VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be
-                  unique on the target Subnet or SubnetSet.
+                  unique on the target Subnet or SubnetSet. When omitted, the operator auto-allocates a VLAN ID.
                 format: int64
                 maximum: 4094
-                minimum: 0
+                minimum: 1
                 type: integer
             required:
             - subnetName
-            - vlanTrafficTag
             type: object
             x-kubernetes-validations:
             - message: Only one of targetSubnetSetName or targetSubnetName can be
@@ -130,6 +129,10 @@ spec:
                   - type
                   type: object
                 type: array
+              vlanID:
+                description: VLANID is the VLAN ID realized in NSX for this binding.
+                format: int64
+                type: integer
             type: object
         type: object
     selectableFields:

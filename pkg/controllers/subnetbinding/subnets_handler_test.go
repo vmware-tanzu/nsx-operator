@@ -163,7 +163,7 @@ func TestRequeueSubnetConnectionBindingMapsBySubnet(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:       "child",
 			TargetSubnetName: "parent",
-			VLANTrafficTag:   101,
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 	req := reconcile.Request{
@@ -210,7 +210,7 @@ func TestRequeueSubnetConnectionBindingMapsBySubnetSet(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 	newScheme := runtime.NewScheme()
