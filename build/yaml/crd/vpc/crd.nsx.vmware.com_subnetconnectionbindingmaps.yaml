@@ -79,14 +79,13 @@ spec:
               vlanTrafficTag:
                 description: |-
                   VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be
-                  unique on the target Subnet or SubnetSet.
+                  unique on the target Subnet or SubnetSet. When omitted, the operator auto-allocates a VLAN ID.
                 format: int64
                 maximum: 4094
-                minimum: 0
+                minimum: 1
                 type: integer
             required:
             - subnetName
-            - vlanTrafficTag
             type: object
             x-kubernetes-validations:
             - message: Only one of targetSubnetSetName or targetSubnetName can be

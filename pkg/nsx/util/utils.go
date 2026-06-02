@@ -785,3 +785,20 @@ func ParseDHCPMode(mode string) string {
 		return ""
 	}
 }
+
+func IsOverlapVlanError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if nsxApiErr, ok := err.(*NSXApiError); ok {
+		if nsxApiErr.ErrorCode != nil && *nsxApiErr.ErrorCode == 8327 {
+			return true
+		}
+		for _, relatedErr := range nsxApiErr.RelatedErrors {
+			if relatedErr.ErrorCode != nil && *relatedErr.ErrorCode == 8327 {
+				return true
+			}
+		}
+	}
+	return false
+}

@@ -28,10 +28,14 @@ func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionB
 			log.Error(err, "failed to parse parent Subnet path, ignore it")
 			continue
 		}
+		if !binding.Spec.HasVlanTrafficTag() {
+			log.Error(nil, "SubnetConnectionBindingMap has no vlanTrafficTag", "SubnetConnectionBindingMap", binding.Namespace+"/"+binding.Name)
+			continue
+		}
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{
 			Id:             String(s.buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
 			DisplayName:    String(binding.Name),
-			VlanTrafficTag: Int64(binding.Spec.VLANTrafficTag),
+			VlanTrafficTag: Int64(*binding.Spec.VLANTrafficTag),
 			SubnetPath:     &path,
 			Tags:           tags,
 		}
