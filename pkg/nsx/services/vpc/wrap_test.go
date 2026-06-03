@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -40,7 +39,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 				lbs:              &model.LBService{},
 				attachment:       &model.VpcAttachment{},
 			},
-			want:            &model.OrgRoot{ResourceType: pointy.String("OrgRoot")},
+			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
 			wantVPCChildren: 2, // LBS + Attachment
 			wantErr:         assert.NoError,
@@ -55,7 +54,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 				lbs:              &model.LBService{},
 				attachment:       &model.VpcAttachment{},
 			},
-			want:            &model.OrgRoot{ResourceType: pointy.String("OrgRoot")},
+			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
 			wantVPCChildren: 3, // IPAlloc + LBS + Attachment
 			wantErr:         assert.NoError,
@@ -70,7 +69,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 				lbs:              nil,
 				attachment:       nil,
 			},
-			want:            &model.OrgRoot{ResourceType: pointy.String("OrgRoot")},
+			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
 			wantVPCChildren: 0,
 			wantErr:         assert.NoError,
