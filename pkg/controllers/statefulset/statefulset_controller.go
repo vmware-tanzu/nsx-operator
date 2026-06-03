@@ -110,12 +110,20 @@ func (r *StatefulSetReconciler) processDelete(ctx context.Context, namespacedNam
 	if err != nil {
 		// StatusUpdater is a struct, not a pointer/interface. So we check if its Client field is initialized.
 		if r.StatusUpdater.Client != nil {
-			r.StatusUpdater.DeleteFail(namespacedName, sts, err)
+			if sts == nil {
+				r.StatusUpdater.DeleteFail(namespacedName, nil, err)
+			} else {
+				r.StatusUpdater.DeleteFail(namespacedName, sts, err)
+			}
 		}
 		return common.ResultRequeue, err
 	}
 	if r.StatusUpdater.Client != nil {
-		r.StatusUpdater.DeleteSuccess(namespacedName, sts)
+		if sts == nil {
+			r.StatusUpdater.DeleteSuccess(namespacedName, nil)
+		} else {
+			r.StatusUpdater.DeleteSuccess(namespacedName, sts)
+		}
 	}
 	if pendingRunningPod {
 		return ctrl.Result{Requeue: true, RequeueAfter: stsSubnetPortPendingRequeueAfter}, nil
@@ -461,7 +469,7 @@ func NewStatefulSetReconciler(mgr ctrl.Manager, subnetPortService *subnetportser
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		SubnetPortService: subnetPortService,
-		Recorder:          mgr.GetEventRecorderFor("statefulset-controller"),
+		Recorder:          mgr.GetEventRecorderFor("statefulset-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	reconciler.StatusUpdater = common.NewStatusUpdater(reconciler.Client, reconciler.SubnetPortService.NSXConfig, reconciler.Recorder, MetricResTypeStatefulSet, "SubnetPort", "StatefulSet")
 	return reconciler

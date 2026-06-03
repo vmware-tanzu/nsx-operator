@@ -484,7 +484,7 @@ func TestZStatefulSetReconciler_Reconcile_RequeueAfterOutOfRangePortBlockedByPod
 	})
 	require.NoError(t, err)
 	assert.Equal(t, stsSubnetPortPendingRequeueAfter, res.RequeueAfter)
-	assert.True(t, res.Requeue || res.RequeueAfter > 0)
+	assert.True(t, res.Requeue) //nolint:staticcheck
 }
 
 func TestStatefulSetReconciler_CollectGarbage(t *testing.T) {
@@ -1797,7 +1797,7 @@ func TestReconcile_PodCacheNotReady(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Equal(t, "cache not ready", err.Error())
-	assert.True(t, res.Requeue || res.RequeueAfter > 0)
+	assert.True(t, res.Requeue) //nolint:staticcheck
 }
 
 func TestReconcile_WithDeleteAnnotation(t *testing.T) {
@@ -1924,6 +1924,93 @@ func TestProcessDelete_ReleaseSubnetPortsError(t *testing.T) {
 	assert.Equal(t, common.ResultRequeue, res)
 }
 
+func TestProcessDelete_SuccessWithNilSts(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().Build()
+	subnetPortService := &subnetportservice.SubnetPortService{SubnetPortStore: &subnetportservice.SubnetPortStore{}}
+	r := &StatefulSetReconciler{
+		Client:            fakeClient,
+		SubnetPortService: subnetPortService,
+		Recorder:          fakeRecorder{},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(fakeClient, r.SubnetPortService.NSXConfig, r.Recorder, MetricResTypeStatefulSet, "SubnetPort", "StatefulSet")
+
+	called := false
+	patches := gomonkey.ApplyFunc((*subnetportservice.SubnetPortService).ListSubnetPortByStsName,
+		func(s *subnetportservice.SubnetPortService, ns, stsName string) []*model.VpcSubnetPort {
+			return []*model.VpcSubnetPort{}
+		})
+	patches.ApplyFunc((*common.StatusUpdater).DeleteSuccess,
+		func(u *common.StatusUpdater, namespacedName types.NamespacedName, obj client.Object) {
+			called = true
+			assert.Nil(t, obj)
+		})
+	defer patches.Reset()
+
+	res, err := r.processDelete(context.Background(), types.NamespacedName{Namespace: "default", Name: "sts"}, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, common.ResultNormal, res)
+	assert.True(t, called)
+}
+
+func TestProcessDelete_SuccessWithSts(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().Build()
+	subnetPortService := &subnetportservice.SubnetPortService{SubnetPortStore: &subnetportservice.SubnetPortStore{}}
+	r := &StatefulSetReconciler{
+		Client:            fakeClient,
+		SubnetPortService: subnetPortService,
+		Recorder:          fakeRecorder{},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(fakeClient, r.SubnetPortService.NSXConfig, r.Recorder, MetricResTypeStatefulSet, "SubnetPort", "StatefulSet")
+
+	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "test-sts", Namespace: "default"}}
+	called := false
+	patches := gomonkey.ApplyFunc((*subnetportservice.SubnetPortService).ListSubnetPortByStsName,
+		func(s *subnetportservice.SubnetPortService, ns, stsName string) []*model.VpcSubnetPort {
+			return []*model.VpcSubnetPort{}
+		})
+	patches.ApplyFunc((*common.StatusUpdater).DeleteSuccess,
+		func(u *common.StatusUpdater, namespacedName types.NamespacedName, obj client.Object) {
+			called = true
+			assert.Same(t, sts, obj)
+		})
+	defer patches.Reset()
+
+	res, err := r.processDelete(context.Background(), types.NamespacedName{Namespace: "default", Name: "sts"}, sts)
+	assert.NoError(t, err)
+	assert.Equal(t, common.ResultNormal, res)
+	assert.True(t, called)
+}
+
+func TestProcessDelete_ErrorWithSts(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().Build()
+	subnetPortService := &subnetportservice.SubnetPortService{SubnetPortStore: &subnetportservice.SubnetPortStore{}}
+	r := &StatefulSetReconciler{
+		Client:            fakeClient,
+		SubnetPortService: subnetPortService,
+		Recorder:          fakeRecorder{},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(fakeClient, r.SubnetPortService.NSXConfig, r.Recorder, MetricResTypeStatefulSet, "SubnetPort", "StatefulSet")
+
+	sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "test-sts", Namespace: "default"}}
+	called := false
+	patches := gomonkey.ApplyFunc((*StatefulSetReconciler).releaseSubnetPortsForStatefulSet,
+		func(r *StatefulSetReconciler, ctx context.Context, namespace, name string) (bool, error) {
+			return false, errors.New("release error")
+		})
+	patches.ApplyFunc((*common.StatusUpdater).DeleteFail,
+		func(u *common.StatusUpdater, namespacedName types.NamespacedName, obj client.Object, err error) {
+			called = true
+			assert.Same(t, sts, obj)
+			assert.EqualError(t, err, "release error")
+		})
+	defer patches.Reset()
+
+	res, err := r.processDelete(context.Background(), types.NamespacedName{Namespace: "default", Name: "sts"}, sts)
+	assert.Error(t, err)
+	assert.Equal(t, common.ResultRequeue, res)
+	assert.True(t, called)
+}
+
 func TestProcessDelete_PendingRunningPodRequeues(t *testing.T) {
 	livePodUID := types.UID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 	fakeClient := fake.NewClientBuilder().WithObjects(&corev1.Pod{
@@ -1953,7 +2040,7 @@ func TestProcessDelete_PendingRunningPodRequeues(t *testing.T) {
 
 	res, err := r.processDelete(context.Background(), types.NamespacedName{Namespace: "default", Name: "test-sts"}, nil)
 	require.NoError(t, err)
-	assert.True(t, res.Requeue || res.RequeueAfter > 0)
+	assert.True(t, res.Requeue) //nolint:staticcheck
 	assert.Equal(t, stsSubnetPortPendingRequeueAfter, res.RequeueAfter)
 }
 
