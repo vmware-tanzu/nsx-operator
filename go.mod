@@ -53,7 +53,6 @@ require (
 
 require (
 	github.com/gofrs/uuid v4.4.0+incompatible
-	go.openly.dev/pointy v1.3.0
 	go.uber.org/mock v0.6.0
 )
 

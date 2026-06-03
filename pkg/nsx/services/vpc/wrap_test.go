@@ -6,7 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.openly.dev/pointy"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func TestVPCService_WrapHierarchyVPC(t *testing.T) {
@@ -33,7 +34,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 				lbs:         &model.LBService{},
 				attachment:  &model.VpcAttachment{},
 			},
-			want:         &model.OrgRoot{ResourceType: pointy.String("OrgRoot")},
+			want:         &model.OrgRoot{ResourceType: util.Ptr(string("OrgRoot"))},
 			wantChildren: 1,
 			wantErr:      assert.NoError,
 		},
