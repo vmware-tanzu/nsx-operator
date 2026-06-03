@@ -260,6 +260,50 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
+	// Validate VPC Connectivity Profile
+	vpcInfoList := r.VPCService.ListVPCInfo(req.Namespace)
+	if len(vpcInfoList) == 0 {
+		log.Info("No VPC info found, requeuing", "Namespace", req.Namespace)
+		return ResultRequeueAfter5mins, nil
+	}
+	vpcPath := vpcInfoList[0].GetVPCPath()
+	vpcProfilePath, err := r.VPCService.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
+	if err != nil {
+		log.Error(err, "Failed to get VPC connectivity profile path", "VPCPath", vpcPath)
+		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to get VPC connectivity profile path", setSubnetSetReadyStatusFalse)
+		return ResultRequeue, err
+	}
+
+	if vpcProfilePath != "" {
+		if vpcNetworkConfig == nil {
+			vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetsetCR.Namespace)
+			if err != nil {
+				log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetsetCR.Namespace)
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to get VPCNetworkConfig", setSubnetSetReadyStatusFalse)
+				return ResultRequeue, err
+			}
+		}
+
+		vpcProfile, err := r.VPCService.GetVpcConnectivityProfile(vpcNetworkConfig, vpcProfilePath)
+		if err != nil {
+			log.Error(err, "Failed to get VPC connectivity profile", "ProfilePath", vpcProfilePath)
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to get VPC connectivity profile", setSubnetSetReadyStatusFalse)
+			return ResultRequeue, err
+		}
+
+		if len(vpcProfile.ExternalIpBlocks) == 0 {
+			err := errors.New(servicecommon.ReasonNoExternalIPBlocksInVPCConnectivityProfile)
+			log.Error(err, "VPC connectivity profile does not have external IP blocks", "ProfilePath", vpcProfilePath)
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "VPC connectivity profile does not have external IP blocks", setSubnetSetReadyStatusFalse)
+			return ResultNormal, nil // No need to requeue, user needs to fix the profile
+		}
+	} else {
+		err := errors.New(servicecommon.ReasonNoExternalIPBlocksInVPCConnectivityProfile)
+		log.Error(err, "VPC connectivity profile is not set for VPC", "VPCPath", vpcPath)
+		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "VPC connectivity profile is not set for VPC", setSubnetSetReadyStatusFalse)
+		return ResultNormal, nil
+	}
+
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetsetCR.UID))
 	if len(nsxSubnets) > 0 || r.restoreMode {
 		// update SubnetSet tags if labels of namespace changed

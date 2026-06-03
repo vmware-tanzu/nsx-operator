@@ -191,6 +191,45 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Info("Updated Subnet CR", "Subnet", req.NamespacedName)
 	}
 
+	// Validate VPC Connectivity Profile
+	vpcPath := vpcInfoList[0].GetVPCPath()
+	vpcProfilePath, err := r.VPCService.GetVpcConnectivityProfilePathByVpcPath(vpcPath)
+	if err != nil {
+		log.Error(err, "Failed to get VPC connectivity profile path", "VPCPath", vpcPath)
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to get VPC connectivity profile path", setSubnetReadyStatusFalse)
+		return ResultRequeue, err
+	}
+
+	if vpcProfilePath != "" {
+		if vpcNetworkConfig == nil {
+			vpcNetworkConfig, err = common.GetVpcNetworkConfig(r.VPCService, subnetCR.Namespace)
+			if err != nil {
+				log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", subnetCR.Namespace)
+				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to get VPCNetworkConfig", setSubnetReadyStatusFalse)
+				return ResultRequeue, err
+			}
+		}
+
+		vpcProfile, err := r.VPCService.GetVpcConnectivityProfile(vpcNetworkConfig, vpcProfilePath)
+		if err != nil {
+			log.Error(err, "Failed to get VPC connectivity profile", "ProfilePath", vpcProfilePath)
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to get VPC connectivity profile", setSubnetReadyStatusFalse)
+			return ResultRequeue, err
+		}
+
+		if len(vpcProfile.ExternalIpBlocks) == 0 {
+			err := errors.New(servicecommon.ReasonNoExternalIPBlocksInVPCConnectivityProfile)
+			log.Error(err, "VPC connectivity profile does not have external IP blocks", "ProfilePath", vpcProfilePath)
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "VPC connectivity profile does not have external IP blocks", setSubnetReadyStatusFalse)
+			return ResultNormal, nil // No need to requeue, user needs to fix the profile
+		}
+	} else {
+		err := errors.New(servicecommon.ReasonNoExternalIPBlocksInVPCConnectivityProfile)
+		log.Error(err, "VPC connectivity profile is not set for VPC", "VPCPath", vpcPath)
+		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "VPC connectivity profile is not set for VPC", setSubnetReadyStatusFalse)
+		return ResultNormal, nil
+	}
+
 	tags := r.SubnetService.GenerateSubnetNSTags(subnetCR)
 	if tags == nil {
 		log.Error(nil, "Failed to generate Subnet tags", "Subnet", req.NamespacedName)

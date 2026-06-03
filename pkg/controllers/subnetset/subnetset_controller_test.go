@@ -180,7 +180,7 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "fake-path"
 					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
@@ -190,6 +190,48 @@ func TestReconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
@@ -210,13 +252,55 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
 
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
 
 				tags := []model.Tag{{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(ns)}}
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "fake-path"
 					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
@@ -243,11 +327,53 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []*v1alpha1.SubnetConnectionBindingMap {
-					return []*v1alpha1.SubnetConnectionBindingMap{}
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
 
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "fake-path"
 					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
@@ -280,10 +406,89 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
 					basicTags1 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
@@ -309,6 +514,51 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
 				return patches
 			},
 		},
@@ -322,10 +572,55 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return vpcnetworkConfig, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
 					return []v1alpha1.SubnetConnectionBindingMap{}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/fake-path"
 					basicTags1 := util.BuildBasicTags("fakeClusterName", subnetSet, "")
@@ -360,6 +655,51 @@ func TestReconcile(t *testing.T) {
 
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -616,8 +956,41 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -637,6 +1010,51 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 					cond := newConditions[0]
 					assert.Equal(t, "Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap binding1", cond.Message)
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
 				return patches
 			},
 			expectRes:    ctlcommon.ResultRequeue,
@@ -652,10 +1070,85 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 					assert.FailNow(t, "Should not update SubnetSet CR finalizer")
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{}
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
 				patches.ApplyFunc(setSubnetSetReadyStatusTrue, func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, _ ...interface{}) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -670,8 +1163,41 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update", func(_ client.Client, _ context.Context, obj client.Object, opts ...client.UpdateOption) error {
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -691,6 +1217,56 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 					cond := newConditions[0]
 					assert.Equal(t, "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps", cond.Message)
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
 				return patches
 			},
 			expectRes:    ctlcommon.ResultRequeue,
@@ -706,10 +1282,85 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 					assert.FailNow(t, "Should not update SubnetSet CR finalizer")
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{}
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
 				patches.ApplyFunc(setSubnetSetReadyStatusTrue, func(_ client.Client, _ context.Context, _ client.Object, _ metav1.Time, _ ...interface{}) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -724,9 +1375,58 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getNSXSubnetBindingsBySubnetSet", func(_ *SubnetSetReconciler, _ string) []*v1alpha1.SubnetConnectionBindingMap {
 					return []*v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "setSubnetDeletionFailedStatus", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ metav1.Time, msg string, reason string) {
-					assert.Equal(t, "SubnetSet is used by SubnetConnectionBindingMap binding1 and not able to delete", msg)
-					assert.Equal(t, "SubnetSetInUse", reason)
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -774,7 +1474,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 				Status:     v1alpha1.SubnetSetStatus{},
 			},
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetBySubnetSetName", func(_ *subnet.SubnetService, ns, subnetSetName string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "fake-path"
 					tags := []model.Tag{
@@ -802,8 +1502,21 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -813,7 +1526,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 			name:         "Delete failed with stale SubnetPort and requeue",
 			expectErrStr: "hasStaleSubnetPort: true",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetBySubnetSetName", func(_ *subnet.SubnetService, ns, subnetSetName string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "fake-path"
 					tags := []model.Tag{
@@ -834,15 +1547,59 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 					}
 				})
 
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					tags := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-2")},
+						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
+					}
+					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+
+					id2 := "fake-id-1"
+					path2 := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-xxx/subnets/fake-path-2"
+					tagStale := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-stale")},
+						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
+					}
+					vpcSubnetDelete := model.VpcSubnet{Id: &id2, Path: &path2, Tags: tagStale}
+					return []*model.VpcSubnet{
+						&vpcSubnetSkip, &vpcSubnetDelete,
+					}
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
 					return nil
 				})
-
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
+					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+					return nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
 					return false
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 					return nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -852,7 +1609,7 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 			name:         "Delete NSX Subnet failed and requeue",
 			expectErrStr: "multiple errors occurred while deleting Subnets",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetBySubnetSetName", func(_ *subnet.SubnetService, ns, subnetSetName string) []*model.VpcSubnet {
 					id1 := "fake-id"
 					path := "fake-path"
 					tags := []model.Tag{
@@ -873,15 +1630,70 @@ func TestReconcile_DeleteSubnetSet(t *testing.T) {
 					}
 				})
 
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					tags := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-2")},
+						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
+					}
+					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+
+					id2 := "fake-id-1"
+					path2 := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-xxx/subnets/fake-path-2"
+					tagStale := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-stale")},
+						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
+					}
+					vpcSubnetDelete := model.VpcSubnet{Id: &id2, Path: &path2, Tags: tagStale}
+					return []*model.VpcSubnet{
+						&vpcSubnetSkip, &vpcSubnetDelete,
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					tags := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-2")},
+						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
+					}
+					vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+
+					id2 := "fake-id-1"
+					path2 := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-xxx/subnets/fake-path-2"
+					tagStale := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-stale")},
+						{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String(subnetSetName)},
+					}
+					vpcSubnetDelete := model.VpcSubnet{Id: &id2, Path: &path2, Tags: tagStale}
+					return []*model.VpcSubnet{
+						&vpcSubnetSkip, &vpcSubnetDelete,
+					}
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.BindingService), "DeleteSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, parentSubnet *model.VpcSubnet) error {
 					return nil
 				})
-
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
 					return nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+					return true
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 					return errors.New("delete NSX Subnet failed")
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
 				})
 				return patches
 			},
@@ -929,7 +1741,7 @@ func TestReconcile_DeleteSubnetSet_WithFinalizer(t *testing.T) {
 
 	r := createFakeSubnetSetReconciler([]client.Object{subnetset})
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 		id1 := "fake-id"
 		path := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9/subnets/" + id1
 		vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path}
@@ -952,8 +1764,15 @@ func TestReconcile_DeleteSubnetSet_WithFinalizer(t *testing.T) {
 		return nil
 	})
 
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+		return true
+	})
+
 	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 		return nil
+	})
+
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
 	})
 
 	res, err := r.Reconcile(ctx, req)
@@ -1041,6 +1860,17 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
 		return nil
 	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+		return []common.VPCResourceInfo{
+			{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+		}
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+		return "fake-profile-path", nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+		return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+	})
 
 	patches.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
 		res := sets.New[string]("fake-subnetSet-uid-2")
@@ -1056,6 +1886,14 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 		return []*model.VpcSubnet{
 			&vpcSubnet1, &vpcSubnet2,
 		}
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, _ string) bool {
+		return true
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
 	})
 
 	// fake SubnetSetLocks
@@ -1170,6 +2008,7 @@ func TestStartSubnetSetController(t *testing.T) {
 			Client: fakeClient,
 		},
 	}
+	vpcService.VpcStore = &vpc.VPCStore{ResourceStore: common.ResourceStore{}}
 	subnetService := &subnet.SubnetService{
 		Service: common.Service{
 			Client: fakeClient,

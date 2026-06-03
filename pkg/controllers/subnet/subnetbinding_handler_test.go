@@ -282,11 +282,32 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &SubnetReconciler{
-				SubnetService:  &subnet.SubnetService{},
-				BindingService: &subnetbinding.BindingService{},
+				SubnetService:  &subnet.SubnetService{SubnetStore: &subnet.SubnetStore{ResourceStore: common.ResourceStore{}}},
+				BindingService: &subnetbinding.BindingService{BindingStore: &subnetbinding.BindingStore{ResourceStore: common.ResourceStore{}}},
 			}
 			patches := tc.patches(r)
 			defer patches.Reset()
+
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+				id1 := "fake-id"
+				path := "fake-path"
+				tags := []model.Tag{
+					{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-2")},
+					{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String("subnetSetName")},
+				}
+				vpcSubnetSkip := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+
+				id2 := "fake-id-1"
+				path2 := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-xxx/subnets/fake-path-2"
+				tagStale := []model.Tag{
+					{Scope: common.String(common.TagScopeSubnetSetCRUID), Tag: common.String("fake-subnetSet-uid-stale")},
+					{Scope: common.String(common.TagScopeSubnetSetCRName), Tag: common.String("subnetSetName")},
+				}
+				vpcSubnetDelete := model.VpcSubnet{Id: &id2, Path: &path2, Tags: tagStale}
+				return []*model.VpcSubnet{
+					&vpcSubnetSkip, &vpcSubnetDelete,
+				}
+			})
 
 			actBindings := r.getNSXSubnetBindingsBySubnet(tc.subnetCRUID)
 			assert.ElementsMatch(t, tc.expSubnetConnectionBindingMaps, actBindings)

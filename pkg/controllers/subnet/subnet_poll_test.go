@@ -583,6 +583,7 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 			}
 
 			r := createFakeSubnetReconciler([]client.Object{subnetCR})
+			r.SubnetService.SubnetStore = &subnetservice.SubnetStore{ResourceStore: common.ResourceStore{}}
 
 			nsxSubnet := &model.VpcSubnet{
 				Id:   common.String("subnet-id"),

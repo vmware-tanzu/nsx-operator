@@ -214,7 +214,7 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 			name:           "No NSX VpcSubnet exists for the Subnet CR",
 			subnetsetCRUID: "uuid1",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet", func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{}
 				})
 				return patch
@@ -224,7 +224,7 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 			name:           "No NSX SubnetConnectionBindingMap created for VpcSubnet",
 			subnetsetCRUID: "uuid1",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet", func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{
 						{Id: common.String("id1")},
 					}
@@ -239,7 +239,7 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 			name:           "Partial of VpcSubnets are associated with the NSX SubnetConnectionBindingMap",
 			subnetsetCRUID: "uuid1",
 			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet", func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
 					return []*model.VpcSubnet{
 						{Id: common.String("id1")},
 						{Id: common.String("id2")},

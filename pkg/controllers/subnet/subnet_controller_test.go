@@ -14,6 +14,7 @@ import (
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -519,6 +520,12 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
 				return patches
 			},
 			existingSubnetCR: createNewSubnet(),
@@ -535,6 +542,12 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
 				})
 
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
@@ -603,6 +616,12 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
 				})
 
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
@@ -692,6 +711,12 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
 				return patches
 			},
 			existingSubnetCR: createNewSubnet(),
@@ -759,6 +784,12 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
 				})
 				return patches
 			},
@@ -850,6 +881,12 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					fakeStatus.NetworkAddress = &value
 					return []model.VpcSubnetStatus{fakeStatus}, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+				})
 				return patches
 			},
 			existingSubnetCR: &v1alpha1.Subnet{
@@ -909,6 +946,12 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					fakeStatus.DhcpServerAddress = &value
 					fakeStatus.NetworkAddress = &value
 					return []model.VpcSubnetStatus{fakeStatus}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+					return "fake-profile-path", nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
 				})
 				return patches
 			},
@@ -1140,6 +1183,10 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			},
 			expectRes: ctrl.Result{},
 		}, {
+			expectRes: ctrl.Result{},
+		}, {
+			expectRes: ctrl.Result{},
+		}, {
 			name:           "Failed to add finalizer after a Subnet is used by SubnetConnectionBindingMap",
 			existingSubnet: testSubnet1,
 			patches: func(t *testing.T, r *SubnetReconciler) *gomonkey.Patches {
@@ -1249,10 +1296,32 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.TODO()
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: subnetName, Namespace: ns}}
-			r := createFakeSubnetReconciler([]client.Object{tc.existingSubnet})
+			var objs []client.Object
+			if tc.existingSubnet != nil {
+				objs = append(objs, tc.existingSubnet)
+			}
+			objs = append(objs, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
+
+			vpcNetworkConfig := &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "default",
+					Namespace: ns,
+				},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					DefaultSubnetSize: 24,
+				},
+			}
+			objs = append(objs, vpcNetworkConfig)
+
+			r := createFakeSubnetReconciler(objs)
+			r.SubnetService.SubnetStore = &subnet.SubnetStore{ResourceStore: common.ResourceStore{}}
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string, _ string) []*model.VpcSubnet {
+				return []*model.VpcSubnet{}
+			})
+			defer patches.Reset()
 			if tc.patches != nil {
-				patches := tc.patches(t, r)
-				defer patches.Reset()
+				tcPatches := tc.patches(t, r)
+				defer tcPatches.Reset()
 			}
 
 			res, err := r.Reconcile(ctx, req)
@@ -1277,6 +1346,15 @@ func patchSuccessfulReconcileSubnetWorkflow(r *SubnetReconciler, patches *gomonk
 	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
 		return []common.VPCResourceInfo{{ID: "vpc1"}}
 	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+		return "fake-profile-path", nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+		return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 24}}, nil
+	})
 	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
 		return false, nil
 	})
@@ -1299,7 +1377,8 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	defer mockCtl.Finish()
 
 	r := &SubnetReconciler{
-		Client: k8sClient,
+		Client:     k8sClient,
+		VPCService: &vpc.VPCService{VpcStore: &vpc.VPCStore{ResourceStore: common.ResourceStore{}}},
 	}
 
 	// Reconcile success
@@ -1325,6 +1404,12 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 		assert.Equal(t, "subnet-1", req.Name)
 		assert.Equal(t, "ns-1", req.Namespace)
 		return ResultNormal, nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+		return "fake-profile-path", nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+		return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
 	})
 	defer patches.Reset()
 	err := r.RestoreReconcile()
@@ -1352,6 +1437,12 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 		assert.Equal(t, "subnet-1", req.Name)
 		assert.Equal(t, "ns-1", req.Namespace)
 		return ResultRequeue, nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfilePathByVpcPath", func(_ *vpc.VPCService, _ string) (string, error) {
+		return "fake-profile-path", nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+		return &model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil
 	})
 	defer patches.Reset()
 	err = r.RestoreReconcile()
@@ -1500,6 +1591,7 @@ func TestHandleSharedSubnet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a fake reconciler
 			r := createFakeSubnetReconciler(nil)
+			r.SubnetService.SubnetStore = &subnet.SubnetStore{ResourceStore: common.ResourceStore{}}
 
 			// Create a test subnet CR
 			subnetCR := &v1alpha1.Subnet{
@@ -1514,8 +1606,8 @@ func TestHandleSharedSubnet(t *testing.T) {
 				Spec: v1alpha1.SubnetSpec{},
 			}
 
-			// Mock the GetNSXSubnetByAssociatedResource function
-			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource", func(_ *subnet.SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+			// Mock the GetNSXSubnetFromCacheOrAPI function
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
 				assert.Equal(t, tt.associatedResource, associatedResource)
 				return tt.nsxSubnet, tt.nsxSubnetErr
 			})

@@ -70,6 +70,19 @@ func (m *MockVPCServiceProvider) GetNetworkStackFromNC(nc *v1alpha1.VPCNetworkCo
 	return args.Get(0).(v1alpha1.NetworkStackType), args.Error(1)
 }
 
+func (m *MockVPCServiceProvider) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
+	args := m.Called(vpcPath)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockVPCServiceProvider) GetVpcConnectivityProfile(nc *v1alpha1.VPCNetworkConfiguration, vpcConnectivityProfilePath string) (*model.VpcConnectivityProfile, error) {
+	args := m.Called(nc, vpcConnectivityProfilePath)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.VpcConnectivityProfile), args.Error(1)
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }
