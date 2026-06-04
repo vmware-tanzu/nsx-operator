@@ -55,7 +55,6 @@ require (
 
 require (
 	github.com/gofrs/uuid v4.4.0+incompatible
-	go.openly.dev/pointy v1.3.0
 	go.uber.org/mock v0.6.0
 )
 
@@ -162,7 +161,6 @@ require (
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kms v0.35.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20260414162039-ec9c827d403f // indirect
-	sigs.k8s.io/gateway-api v1.5.1 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
