@@ -207,6 +207,7 @@ _Appears in:_
 | `DHCPDeactivated` |  |
 | `DHCPServer` |  |
 | `DHCPRelay` |  |
+| `DHCPServerStateless` |  |
 
 
 #### DHCPv6ServerAdditionalConfig
@@ -258,10 +259,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. | Private | Enum: [External Private PrivateTGW] <br /> |
+| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. |  | Enum: [External Private PrivateTGW] <br /> |
 | `allocationSize` _integer_ | AllocationSize specifies the size of IPv4 allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
-| `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses. |  | Maximum: 128 <br />Minimum: 64 <br /> |
+| `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation. | IPv4 | Enum: [IPv4 IPv6] <br /> |
 
 
@@ -926,7 +927,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `mode` _[DHCPv6ConfigMode](#dhcpv6configmode)_ | DHCPv6 Mode. DHCPDeactivated will be used if it is not defined. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated] <br /> |
+| `mode` _[DHCPv6ConfigMode](#dhcpv6configmode)_ | DHCPv6 Mode. DHCPDeactivated will be used if it is not defined. |  | Enum: [DHCPServer DHCPRelay DHCPDeactivated DHCPServerStateless] <br /> |
 | `dhcpv6ServerAdditionalConfig` _[DHCPv6ServerAdditionalConfig](#dhcpv6serveradditionalconfig)_ | Additional DHCPv6 server config for a VPC Subnet. |  |  |
 
 
@@ -1236,7 +1237,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize takes effect, other fields are ignored. |  |  |
+| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  |  |
 | `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  |  |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |

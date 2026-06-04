@@ -2442,6 +2442,124 @@ func TestNetworkInfoReconciler_RestoreReconcile(t *testing.T) {
 	}
 }
 
+func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
+	tests := []struct {
+		name               string
+		supervisorIPFamily v1alpha1.IPAddressType
+		hasIPv4CIDR        bool
+		hasIPv6CIDR        bool
+		expected           v1alpha1.IPAddressType
+		expectedErr        bool
+	}{
+		{
+			name:               "Both supervisor and VPC support IPv4 and IPv6",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			hasIPv4CIDR:        true,
+			hasIPv6CIDR:        true,
+			expected:           v1alpha1.IPAddressTypeIPv4IPv6,
+			expectedErr:        false,
+		},
+		{
+			name:               "Supervisor IPv4IPv6 with VPC IPv4 only",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			hasIPv4CIDR:        true,
+			hasIPv6CIDR:        false,
+			expected:           v1alpha1.IPAddressTypeIPv4,
+			expectedErr:        false,
+		},
+		{
+			name:               "Supervisor IPv4IPv6 with VPC IPv6 only",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			hasIPv4CIDR:        false,
+			hasIPv6CIDR:        true,
+			expected:           v1alpha1.IPAddressTypeIPv6,
+			expectedErr:        false,
+		},
+		{
+			name:               "Supervisor IPv4 with VPC IPv4 and IPv6",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4,
+			hasIPv4CIDR:        true,
+			hasIPv6CIDR:        true,
+			expected:           v1alpha1.IPAddressTypeIPv4,
+			expectedErr:        false,
+		},
+		{
+			name:               "Supervisor IPv4 with VPC IPv6 only - no intersection",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4,
+			hasIPv4CIDR:        false,
+			hasIPv6CIDR:        true,
+			expected:           "",
+			expectedErr:        true,
+		},
+		{
+			name:               "Supervisor IPv6 with VPC IPv4 only - no intersection",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv6,
+			hasIPv4CIDR:        true,
+			hasIPv6CIDR:        false,
+			expected:           "",
+			expectedErr:        true,
+		},
+		{
+			name:               "Supervisor IPv4 with VPC IPv4 only",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4,
+			hasIPv4CIDR:        true,
+			hasIPv6CIDR:        false,
+			expected:           v1alpha1.IPAddressTypeIPv4,
+			expectedErr:        false,
+		},
+		{
+			name:               "Supervisor IPv6 with VPC IPv6 only",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv6,
+			hasIPv4CIDR:        false,
+			hasIPv6CIDR:        true,
+			expected:           v1alpha1.IPAddressTypeIPv6,
+			expectedErr:        false,
+		},
+		{
+			name:               "VPC has no CIDR blocks",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			hasIPv4CIDR:        false,
+			hasIPv6CIDR:        false,
+			expected:           v1alpha1.IPAddressTypeIPv4IPv6,
+			expectedErr:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reconciler := &NetworkInfoReconciler{
+				Service: &vpc.VPCService{
+					Service: servicecommon.Service{
+						NSXConfig: &config.NSXOperatorConfig{
+							NsxConfig: &config.NsxConfig{
+								EnforcementPoint: "test-ep",
+							},
+						},
+					},
+				},
+			}
+
+			// Mock the GetIPAddressType method
+			patches := gomonkey.ApplyMethod(
+				reflect.TypeOf(reconciler.Service.NSXConfig.K8sConfig),
+				"GetIPAddressType",
+				func(_ *config.K8sConfig) v1alpha1.IPAddressType {
+					return tt.supervisorIPFamily
+				},
+			)
+			defer patches.Reset()
+
+			result := reconciler.computeSubnetSetIPAddressType(tt.hasIPv4CIDR, tt.hasIPv6CIDR)
+
+			if tt.expectedErr {
+				assert.Equal(t, v1alpha1.IPAddressType(""), result, "Expected empty result for error case")
+			} else {
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
 func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 	subnetSet := &v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -2455,34 +2573,44 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 		},
 	}
 	testCases := []struct {
-		name                string
-		hasCIDR             bool
-		hasPrecreatedSubnet bool
-		subnetSetList       []client.Object
-		expectErrStr        string
+		name                     string
+		autoCreatedIPAddressType v1alpha1.IPAddressType
+		hasPrecreatedSubnet      bool
+		subnetSetList            []client.Object
+		expectErrStr             string
 	}{
 		{
-			name:                "Create default SubnetSet",
-			hasCIDR:             true,
-			hasPrecreatedSubnet: false,
+			name:                     "Create default SubnetSet",
+			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			hasPrecreatedSubnet:      false,
 		},
 		{
-			name:                "Delete default SubnetSet 1",
-			hasCIDR:             false,
-			hasPrecreatedSubnet: false,
-			subnetSetList:       []client.Object{subnetSet},
+			name:                     "Delete default SubnetSet 1",
+			autoCreatedIPAddressType: "",
+			hasPrecreatedSubnet:      false,
+			subnetSetList:            []client.Object{subnetSet},
 		},
 		{
-			name:                "Delete default SubnetSet 2",
-			hasCIDR:             false,
-			hasPrecreatedSubnet: true,
-			subnetSetList:       []client.Object{subnetSet},
+			name:                     "Delete default SubnetSet 2",
+			autoCreatedIPAddressType: "",
+			hasPrecreatedSubnet:      true,
+			subnetSetList:            []client.Object{subnetSet},
 		},
 		{
-			name:                "Existing default SubnetSet",
-			hasCIDR:             true,
-			hasPrecreatedSubnet: false,
-			subnetSetList:       []client.Object{subnetSet},
+			name:                     "Existing default SubnetSet",
+			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			hasPrecreatedSubnet:      false,
+			subnetSetList:            []client.Object{subnetSet},
+		},
+		{
+			name:                     "Create default SubnetSet with IPv6",
+			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv6,
+			hasPrecreatedSubnet:      false,
+		},
+		{
+			name:                     "Create default SubnetSet with dual stack",
+			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			hasPrecreatedSubnet:      false,
 		},
 	}
 
@@ -2497,7 +2625,7 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 					DefaultIPv6PrefixLength: 80,
 				},
 			}
-			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasCIDR, tc.hasPrecreatedSubnet)
+			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType)
 			if tc.expectErrStr != "" {
 				assert.ErrorContains(t, err, tc.expectErrStr)
 			} else {

@@ -91,9 +91,9 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipv6AllocationPrefixLength:
-                description: IPv6AllocationPrefixLength specifies the prefix length
-                  of IPv6 addresses. Defaults to 64 when ipAddressType is IPv6 and
-                  this field is not specified.
+                description: |-
+                  IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.
+                  Defaults to 64 when ipAddressType is IPv6 and this field is not specified.
                 maximum: 128
                 minimum: 64
                 type: integer
@@ -120,9 +120,10 @@ spec:
                 is IPv6
               rule: '!has(self.ipv6AllocationPrefixLength) || self.ipAddressType ==
                 ''IPv6'''
-            - message: ipAddressBlockVisibility cannot be set when ipAddressType is IPv6
-              rule: '!has(self.ipAddressBlockVisibility) || !has(self.ipAddressType) || self.ipAddressType
-                != ''IPv6'''
+            - message: ipAddressBlockVisibility cannot be set when ipAddressType is
+                IPv6
+              rule: '!has(self.ipAddressBlockVisibility) || !has(self.ipAddressType)
+                || self.ipAddressType != ''IPv6'''
           status:
             description: IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
             properties:

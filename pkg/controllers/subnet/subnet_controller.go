@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
@@ -341,15 +342,41 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 
 func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
 	subnetCR := obj.(*v1alpha1.Subnet)
-	dhcpMode := subnetCR.Spec.SubnetDHCPConfig.Mode
-	if dhcpMode == "" {
-		dhcpMode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+
+	// Build DHCP mode strings only for enabled address types
+	var statusMsgs []string
+
+	// Check DHCPv4 if IPv4 is enabled
+	if util.IPAddressTypeIncludesIPv4(subnetCR.Spec.IPAddressType) {
+		dhcpMode := subnetCR.Spec.SubnetDHCPConfig.Mode
+		if dhcpMode == "" {
+			dhcpMode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+		}
+		statusMsgs = append(statusMsgs, fmt.Sprintf("DHCPv4: %s", dhcpMode))
 	}
+
+	// Check DHCPv6 if IPv6 is enabled
+	if util.IPAddressTypeIncludesIPv6(subnetCR.Spec.IPAddressType) {
+		dhcpv6Mode := subnetCR.Spec.SubnetDHCPv6Config.Mode
+		if dhcpv6Mode == "" {
+			dhcpv6Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated)
+		}
+		statusMsgs = append(statusMsgs, fmt.Sprintf("DHCPv6: %s", dhcpv6Mode))
+	}
+
+	// Build the message
+	var message string
+	if len(statusMsgs) > 0 {
+		message = fmt.Sprintf("NSX Subnet with %s has been successfully created/updated", strings.Join(statusMsgs, ", "))
+	} else {
+		message = "NSX Subnet has been successfully created/updated"
+	}
+
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
-			Message:            fmt.Sprintf("NSX Subnet with %s has been successfully created/updated", dhcpMode),
+			Message:            message,
 			Reason:             "SubnetReady",
 			LastTransitionTime: transitionTime,
 		},

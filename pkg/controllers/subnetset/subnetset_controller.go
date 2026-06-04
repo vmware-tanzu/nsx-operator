@@ -67,14 +67,40 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 			specChanged = true
 		}
 	}
+	subnetsetCR.Spec.SubnetNames = &dedupSubnetNames
+
+	if subnetsetCR.Spec.IPAddressType == "" {
+		// IPAddressType should be the intersection of subnet types and supervisor IP family
+		supervisorIPFamily := r.SubnetService.NSXConfig.K8sConfig.GetIPAddressType()
+		var subnetIPTypes []v1alpha1.IPAddressType
+		subnetIPTypes = append(subnetIPTypes, supervisorIPFamily)
+
+		// Collect IP address types from all referenced subnets
+		for _, subnetName := range *subnetsetCR.Spec.SubnetNames {
+			subnet := &v1alpha1.Subnet{}
+			if err := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetsetCR.Namespace, Name: subnetName}, subnet); err != nil {
+				return err
+			}
+			subnetIPTypes = append(subnetIPTypes, subnet.Spec.IPAddressType)
+		}
+
+		// Compute intersection and update SubnetSet
+		intersectedType, err := common.IntersectIPAddressTypes(subnetIPTypes)
+		if err != nil {
+			return fmt.Errorf("IP address types of Subnets in SubnetSet do not have intersection: %v, ipTypes: %v", err, subnetIPTypes)
+		}
+		subnetsetCR.Spec.IPAddressType = intersectedType
+		specChanged = true
+	}
+
 	if specChanged {
-		subnetsetCR.Spec.SubnetNames = &dedupSubnetNames
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
 			return err
 		}
 	}
+
 	// Update Subnet Info on SubnetSet
 	var subnetInfoList []v1alpha1.SubnetInfo
 	for _, subnetName := range *subnetsetCR.Spec.SubnetNames {
@@ -215,6 +241,11 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		subnetsetCR.Spec.IPv6PrefixLength = vpcNetworkConfig.Spec.DefaultIPv6PrefixLength
 		specChanged = true
 	}
+	// Set explicit IPv4 default for auto-created SubnetSets when IPAddressType is not set
+	if subnetsetCR.Spec.IPAddressType == "" {
+		subnetsetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4
+		specChanged = true
+	}
 	isSystemNs, err := util.IsVPCSystemNamespace(r.Client, subnetsetCR.Namespace, nil)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
@@ -256,7 +287,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
 			return ResultNormal, nil
 		}
-		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)); err != nil {
+		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, subnetsetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
 			return ResultNormal, err
 		}

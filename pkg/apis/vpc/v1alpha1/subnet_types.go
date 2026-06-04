@@ -14,21 +14,22 @@ type ConnectivityState string
 type IPAddressType string
 
 const (
-	AccessModePublic              string            = "Public"
-	AccessModePrivate             string            = "Private"
-	AccessModeProject             string            = "PrivateTGW"
-	AccessModeL2Only              string            = "L2Only"
-	DHCPConfigModeDeactivated     string            = "DHCPDeactivated"
-	DHCPConfigModeServer          string            = "DHCPServer"
-	DHCPConfigModeRelay           string            = "DHCPRelay"
-	DHCPv6ConfigModeDeactivated   DHCPv6ConfigMode  = "DHCPDeactivated"
-	DHCPv6ConfigModeServer        DHCPv6ConfigMode  = "DHCPServer"
-	DHCPv6ConfigModeRelay         DHCPv6ConfigMode  = "DHCPRelay"
-	ConnectivityStateConnected    ConnectivityState = "Connected"
-	ConnectivityStateDisconnected ConnectivityState = "Disconnected"
-	IPAddressTypeIPv4             IPAddressType     = "IPv4"
-	IPAddressTypeIPv6             IPAddressType     = "IPv6"
-	IPAddressTypeIPv4IPv6         IPAddressType     = "IPv4IPv6"
+	AccessModePublic                string            = "Public"
+	AccessModePrivate               string            = "Private"
+	AccessModeProject               string            = "PrivateTGW"
+	AccessModeL2Only                string            = "L2Only"
+	DHCPConfigModeDeactivated       string            = "DHCPDeactivated"
+	DHCPConfigModeServer            string            = "DHCPServer"
+	DHCPConfigModeRelay             string            = "DHCPRelay"
+	DHCPv6ConfigModeDeactivated     DHCPv6ConfigMode  = "DHCPDeactivated"
+	DHCPv6ConfigModeServer          DHCPv6ConfigMode  = "DHCPServer"
+	DHCPv6ConfigModeRelay           DHCPv6ConfigMode  = "DHCPRelay"
+	DHCPv6ConfigModeServerStateless DHCPv6ConfigMode  = "DHCPServerStateless"
+	ConnectivityStateConnected      ConnectivityState = "Connected"
+	ConnectivityStateDisconnected   ConnectivityState = "Disconnected"
+	IPAddressTypeIPv4               IPAddressType     = "IPv4"
+	IPAddressTypeIPv6               IPAddressType     = "IPv6"
+	IPAddressTypeIPv4IPv6           IPAddressType     = "IPv4IPv6"
 )
 
 // SubnetSpec defines the desired state of Subnet.
@@ -181,7 +182,7 @@ type DHCPv6ServerAdditionalConfig struct {
 // +kubebuilder:validation:XValidation:rule="(!has(self.mode) || self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay') && (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges) || size(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)==0) || has(self.mode) && self.mode=='DHCPServer'", message="DHCPv6ServerAdditionalConfig must be cleared when Subnet has DHCP relay enabled or DHCP is deactivated."
 type SubnetDHCPv6Config struct {
 	// DHCPv6 Mode. DHCPDeactivated will be used if it is not defined.
-	// +kubebuilder:validation:Enum=DHCPServer;DHCPRelay;DHCPDeactivated
+	// +kubebuilder:validation:Enum=DHCPServer;DHCPRelay;DHCPDeactivated;DHCPServerStateless
 	Mode DHCPv6ConfigMode `json:"mode,omitempty"`
 	// Additional DHCPv6 server config for a VPC Subnet.
 	DHCPv6ServerAdditionalConfig DHCPv6ServerAdditionalConfig `json:"dhcpv6ServerAdditionalConfig,omitempty"`

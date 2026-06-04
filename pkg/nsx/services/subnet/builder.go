@@ -126,23 +126,49 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 				nsxSubnet.AdvancedConfig.ConnectivityState = String("DISCONNECTED")
 			}
 		}
-		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
-		if dhcpMode == "" {
-			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+
+		// Only set DHCPv4 config and IPv4 subnet size when IPv4 is enabled
+		if util.IPAddressTypeIncludesIPv4(o.Spec.IPAddressType) {
+			dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
+			if dhcpMode == "" {
+				dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+			}
+			var dhcpServerAdditionalConfig *model.DhcpServerAdditionalConfig
+			if len(o.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges) > 0 {
+				dhcpServerAdditionalConfig = &model.DhcpServerAdditionalConfig{}
+				dhcpServerAdditionalConfig.ReservedIpRanges = o.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges
+			}
+			nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, dhcpServerAdditionalConfig)
+			if o.Spec.IPv4SubnetSize > 0 {
+				nsxSubnet.Ipv4SubnetSize = Int64(int64(o.Spec.IPv4SubnetSize))
+			}
 		}
-		var dhcpServerAdditionalConfig *model.DhcpServerAdditionalConfig
-		if len(o.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges) > 0 {
-			dhcpServerAdditionalConfig = &model.DhcpServerAdditionalConfig{}
-			dhcpServerAdditionalConfig.ReservedIpRanges = o.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges
+		// Only set DHCPv6 config and IPv6 prefix length when IPv6 is enabled
+		if util.IPAddressTypeIncludesIPv6(o.Spec.IPAddressType) {
+			dhcpv6Mode := string(o.Spec.SubnetDHCPv6Config.Mode)
+			if dhcpv6Mode == "" {
+				dhcpv6Mode = string(v1alpha1.DHCPv6ConfigModeDeactivated)
+			}
+			var dhcpv6ServerAdditionalConfig *model.DhcpV6ServerAdditionalConfig
+			if len(o.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges) > 0 {
+				dhcpv6ServerAdditionalConfig = &model.DhcpV6ServerAdditionalConfig{}
+				dhcpv6ServerAdditionalConfig.ReservedIpRanges = o.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges
+			}
+			nsxSubnet.SubnetDhcpv6Config = service.buildSubnetDHCPv6Config(dhcpv6Mode, dhcpv6ServerAdditionalConfig)
+			if o.Spec.IPv6PrefixLength > 0 {
+				nsxSubnet.Ipv6PrefixLength = Int64(int64(o.Spec.IPv6PrefixLength))
+			}
 		}
-		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, dhcpServerAdditionalConfig)
+
 		if len(o.Spec.IPAddresses) > 0 {
 			nsxSubnet.IpAddresses = o.Spec.IPAddresses
 		} else if len(o.Status.NetworkAddresses) > 0 {
 			nsxSubnet.IpAddresses = o.Status.NetworkAddresses
 		}
-		if o.Spec.IPv4SubnetSize > 0 {
-			nsxSubnet.Ipv4SubnetSize = Int64(int64(o.Spec.IPv4SubnetSize))
+
+		// Set IP address type
+		if o.Spec.IPAddressType != "" {
+			nsxSubnet.IpAddressType = String(controllerscommon.ConvertCRIPAddressTypeToNSX(o.Spec.IPAddressType))
 		}
 		// Support custom gateway addresses when provided
 		if len(o.Spec.AdvancedConfig.GatewayAddresses) > 0 {
@@ -157,22 +183,45 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		// value on a random UUID string.
 		index := util.GetRandomIndexString()
 		nsxSubnet = &model.VpcSubnet{
-			Id:             String(service.buildSubnetSetID(objForIdGeneration, index)),
-			AccessMode:     String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
-			Ipv4SubnetSize: Int64(int64(o.Spec.IPv4SubnetSize)),
-			DisplayName:    String(service.buildSubnetSetName(objForIdGeneration, index)),
-			Tags:           tags,
+			Id:          String(service.buildSubnetSetID(objForIdGeneration, index)),
+			AccessMode:  String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
+			DisplayName: String(service.buildSubnetSetName(objForIdGeneration, index)),
+			Tags:        tags,
 			AdvancedConfig: &model.SubnetAdvancedConfig{
 				StaticIpAllocation: &model.StaticIpAllocation{
 					Enabled: &staticIpAllocation,
 				},
 			},
 		}
-		dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
-		if dhcpMode == "" {
-			dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+		// Set IP address type
+		if o.Spec.IPAddressType != "" {
+			nsxSubnet.IpAddressType = String(controllerscommon.ConvertCRIPAddressTypeToNSX(o.Spec.IPAddressType))
 		}
-		nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
+
+		if util.IPAddressTypeIncludesIPv4(o.Spec.IPAddressType) {
+			// Add DHCPv4 configuration only when IPv4 is enabled
+			dhcpMode := string(o.Spec.SubnetDHCPConfig.Mode)
+			if dhcpMode == "" {
+				dhcpMode = v1alpha1.DHCPConfigModeDeactivated
+			}
+			nsxSubnet.SubnetDhcpConfig = service.buildSubnetDHCPConfig(dhcpMode, nil)
+			// Set IPv4 subnet size only when IPv4 is enabled
+			if o.Spec.IPv4SubnetSize > 0 {
+				nsxSubnet.Ipv4SubnetSize = Int64(int64(o.Spec.IPv4SubnetSize))
+			}
+		}
+		if util.IPAddressTypeIncludesIPv6(o.Spec.IPAddressType) {
+			// Add DHCPv6 configuration only when IPv6 is enabled
+			dhcpv6Mode := string(o.Spec.SubnetDHCPv6Config.Mode)
+			if dhcpv6Mode == "" {
+				dhcpv6Mode = string(v1alpha1.DHCPv6ConfigModeDeactivated)
+			}
+			nsxSubnet.SubnetDhcpv6Config = service.buildSubnetDHCPv6Config(dhcpv6Mode, nil)
+			// Set IPv6 prefix length if IPv6 is enabled
+			if o.Spec.IPv6PrefixLength > 0 {
+				nsxSubnet.Ipv6PrefixLength = Int64(int64(o.Spec.IPv6PrefixLength))
+			}
+		}
 		if len(ipAddresses) > 0 {
 			nsxSubnet.IpAddresses = ipAddresses
 		}
@@ -189,6 +238,15 @@ func (service *SubnetService) buildSubnetDHCPConfig(mode string, dhcpServerAddit
 		Mode:                       &nsxMode,
 	}
 	return subnetDhcpConfig
+}
+
+func (service *SubnetService) buildSubnetDHCPv6Config(mode string, dhcpServerAdditionalConfig *model.DhcpV6ServerAdditionalConfig) *model.SubnetDhcpv6Config {
+	nsxMode := nsxutil.ParseDHCPMode(mode)
+	subnetDhcpv6Config := &model.SubnetDhcpv6Config{
+		Dhcpv6ServerAdditionalConfig: dhcpServerAdditionalConfig,
+		Mode:                         &nsxMode,
+	}
+	return subnetDhcpv6Config
 }
 
 func (service *SubnetService) buildBasicTags(obj client.Object) []model.Tag {

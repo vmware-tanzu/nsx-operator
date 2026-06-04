@@ -804,6 +804,127 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			expectErrStr:     "vpc not found",
 			expectRes:        ResultNormal,
 		},
+		{
+			name: "Create Subnet with IPv6",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultIPv6PrefixLength: 64}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
+					return nil, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "/orgs/default/projects/project-id/vpcs/vpc-id/subnets/subnet_fake-path"
+					tags := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-2")},
+						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String("test-subnet")},
+					}
+					return []*model.VpcSubnet{{Id: &id1, Path: &path, Tags: tags}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus", func(_ *subnet.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+					fakeStatus := model.VpcSubnetStatus{}
+					value := ""
+					fakeStatus.GatewayAddress = &value
+					fakeStatus.DhcpServerAddress = &value
+					fakeStatus.NetworkAddress = &value
+					return []model.VpcSubnetStatus{fakeStatus}, nil
+				})
+				return patches
+			},
+			existingSubnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-subnet", Namespace: "default"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
+					IPv6PrefixLength: 64,
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+					},
+				},
+			},
+			expectRes: ResultNormal,
+		},
+		{
+			name: "Create Subnet with IPv4IPv6 and DHCPv6 Stateless",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 24, DefaultIPv6PrefixLength: 80}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnet", func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				tags := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
+					return nil, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "/orgs/default/projects/project-id/vpcs/vpc-id/subnets/subnet_fake-path"
+					tags := []model.Tag{
+						{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-subnet-uid-2")},
+						{Scope: common.String(common.TagScopeSubnetCRName), Tag: common.String("test-subnet")},
+					}
+					return []*model.VpcSubnet{{Id: &id1, Path: &path, Tags: tags}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus", func(_ *subnet.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+					fakeStatus := model.VpcSubnetStatus{}
+					value := ""
+					fakeStatus.GatewayAddress = &value
+					fakeStatus.DhcpServerAddress = &value
+					fakeStatus.NetworkAddress = &value
+					return []model.VpcSubnetStatus{fakeStatus}, nil
+				})
+				return patches
+			},
+			existingSubnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-subnet", Namespace: "default"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+					IPv4SubnetSize:   24,
+					IPv6PrefixLength: 80,
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
+					},
+				},
+			},
+			expectRes: ResultNormal,
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {

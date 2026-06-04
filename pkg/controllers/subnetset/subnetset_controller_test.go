@@ -112,7 +112,9 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 					EnforcementPoint:   "vmc-enforcementpoint",
 					UseAVILoadBalancer: false,
 				},
-				K8sConfig: &config.K8sConfig{},
+				K8sConfig: &config.K8sConfig{
+					IPFamily: "IPv4",
+				},
 			},
 		},
 		SubnetStore: &subnet.SubnetStore{},
@@ -301,7 +303,7 @@ func TestReconcile(t *testing.T) {
 					vpcSubnet3 := model.VpcSubnet{Id: &id1, Path: &path, Tags: basicTags2}
 					return []*model.VpcSubnet{&vpcSubnet1, &vpcSubnet2, &vpcSubnet3}
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, subnetsetCR *v1alpha1.SubnetSet) error {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
@@ -349,7 +351,7 @@ func TestReconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "RestoreSubnetSet", func(_ *subnet.SubnetService, obj *v1alpha1.SubnetSet, vpcInfo common.VPCResourceInfo, tags []model.Tag) error {
 					return nil
 				})
-				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, dhcpMode string) error {
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, subnetsetCR *v1alpha1.SubnetSet) error {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -405,6 +407,9 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 			subnets: []*v1alpha1.Subnet{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1"},
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					},
 					Status: v1alpha1.SubnetStatus{
 						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
 						GatewayAddresses: []string{"10.0.0.1/28"},
@@ -412,6 +417,9 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "subnet-2", Namespace: "ns-1"},
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					},
 					Status: v1alpha1.SubnetStatus{
 						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
 						GatewayAddresses: []string{"10.0.0.17/28"},
@@ -437,6 +445,9 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 						Name:      "subnet-1",
 						Namespace: "ns-1",
 					},
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					},
 					Status: v1alpha1.SubnetStatus{
 						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
 						GatewayAddresses: []string{"10.0.0.1/28"},
@@ -447,6 +458,9 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "subnet-2",
 						Namespace: "ns-1",
+					},
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4,
 					},
 					Status: v1alpha1.SubnetStatus{
 						Conditions:          []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
@@ -475,6 +489,9 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 						Name:      "subnet-1",
 						Namespace: "ns-1",
 					},
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					},
 					Status: v1alpha1.SubnetStatus{
 						Conditions:       []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v12.ConditionTrue}},
 						GatewayAddresses: []string{"10.0.0.1/28"},
@@ -485,6 +502,9 @@ func TestUpdateSubnetSetForSubnetNames(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "subnet-2",
 						Namespace: "ns-1",
+					},
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4,
 					},
 					Status: v1alpha1.SubnetStatus{},
 				},
@@ -547,6 +567,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 			IPv4SubnetSize:   16,
 			IPv6PrefixLength: testSubnetSetIPv6PrefixLen,
+			IPAddressType:    v1alpha1.IPAddressTypeIPv4,
 		},
 	}
 	testSubnetSet2 := &v1alpha1.SubnetSet{
@@ -561,6 +582,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 			IPv4SubnetSize:   16,
 			IPv6PrefixLength: testSubnetSetIPv6PrefixLen,
+			IPAddressType:    v1alpha1.IPAddressTypeIPv4,
 		},
 	}
 	deleteTime := metav1.Now()
