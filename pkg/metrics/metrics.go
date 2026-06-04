@@ -125,10 +125,7 @@ func InitializePrometheusMetrics() {
 }
 
 func AreMetricsExposed(cf *config.NSXOperatorConfig) bool {
-	if cf.EnforcementPoint == "vmc-enforcementpoint" {
-		return true
-	}
-	return false
+	return cf.EnforcementPoint == "vmc-enforcementpoint"
 }
 
 func CounterInc(cf *config.NSXOperatorConfig, counter *prometheus.CounterVec, res_type string) {

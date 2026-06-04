@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -277,7 +278,7 @@ func TestSetNSNetworkReadyCondition(t *testing.T) {
 		Type:    NamespaceNetworkReady,
 		Status:  corev1.ConditionFalse,
 		Reason:  NSReasonVPCNotReady,
-		Message: fmt.Sprintf("Error happened to create or update VPC: failed to connect to NSX"),
+		Message: "Error happened to create or update VPC: failed to connect to NSX",
 	}
 
 	ctx := context.Background()
@@ -316,7 +317,7 @@ func TestSetNSNetworkReadyCondition(t *testing.T) {
 									Type:    NamespaceNetworkReady,
 									Status:  corev1.ConditionFalse,
 									Reason:  NSReasonVPCNetConfigNotReady,
-									Message: fmt.Sprintf("Error happened to get system VPC network configuration: failed to connect to NSX"),
+									Message: "Error happened to get system VPC network configuration: failed to connect to NSX",
 								},
 							},
 						}
@@ -370,6 +371,10 @@ func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, op
 	return nil
 }
 func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return nil
+}
+
+func (writer fakeStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 	return nil
 }
 

@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // AddressBindings.
 type AddressBindingInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.AddressBindingLister
+	Lister() vpcv1alpha1.AddressBindingLister
 }
 
 type addressBindingInformer struct {
@@ -44,21 +44,33 @@ func NewAddressBindingInformer(client versioned.Interface, namespace string, res
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredAddressBindingInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().AddressBindings(namespace).List(context.TODO(), options)
+				return client.CrdV1alpha1().AddressBindings(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().AddressBindings(namespace).Watch(context.TODO(), options)
+				return client.CrdV1alpha1().AddressBindings(namespace).Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.AddressBinding{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().AddressBindings(namespace).List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().AddressBindings(namespace).Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.AddressBinding{},
 		resyncPeriod,
 		indexers,
 	)
@@ -69,9 +81,9 @@ func (f *addressBindingInformer) defaultInformer(client versioned.Interface, res
 }
 
 func (f *addressBindingInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.AddressBinding{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.AddressBinding{}, f.defaultInformer)
 }
 
-func (f *addressBindingInformer) Lister() v1alpha1.AddressBindingLister {
-	return v1alpha1.NewAddressBindingLister(f.Informer().GetIndexer())
+func (f *addressBindingInformer) Lister() vpcv1alpha1.AddressBindingLister {
+	return vpcv1alpha1.NewAddressBindingLister(f.Informer().GetIndexer())
 }

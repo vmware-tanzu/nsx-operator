@@ -58,7 +58,7 @@ func init() {
 }
 
 func (operatorConfig *NSXOperatorConfig) HAEnabled() bool {
-	if operatorConfig.EnableHA == nil || *operatorConfig.EnableHA == true {
+	if operatorConfig.EnableHA == nil || *operatorConfig.EnableHA {
 		return true
 	}
 	return false
@@ -316,7 +316,7 @@ func (vcConfig *VCConfig) validate() error {
 		return err
 	}
 	// VCPassword, VCUser should be both empty or valid
-	if !((len(vcConfig.VCPassword) > 0) == (len(vcConfig.VCUser) > 0)) {
+	if (len(vcConfig.VCPassword) > 0) != (len(vcConfig.VCUser) > 0) {
 		err := errors.New("invalid field " + "VCUser, VCPassword")
 		configLog.Info("Validate VcConfig failed VCUser %s VCPassword %s", vcConfig.VCUser, vcConfig.VCPassword)
 		return err
@@ -336,7 +336,7 @@ func removeEmptyItem(source []string) []string {
 }
 
 func (nsxConfig *NsxConfig) validateCert() error {
-	if nsxConfig.Insecure == true {
+	if nsxConfig.Insecure {
 		return nil
 	}
 	nsxConfig.Thumbprint = removeEmptyItem(nsxConfig.Thumbprint)

@@ -18,11 +18,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +36,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -45,7 +45,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 func fakeService() *securitypolicy.SecurityPolicyService {
@@ -178,6 +177,10 @@ func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, op
 }
 
 func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return nil
+}
+
+func (writer fakeStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 	return nil
 }
 
@@ -324,7 +327,7 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
-	resultRequeueAfter5mins := ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
+	resultRequeueAfter5mins := ctrl.Result{RequeueAfter: 5 * time.Minute}
 	assert.Equal(t, retErr, nil)
 	assert.Equal(t, resultRequeueAfter5mins, result)
 	checkNsxVersionPatch.Reset()
@@ -695,12 +698,12 @@ func TestSecurityPolicyReconciler_deleteSecuritypolicyByName(t *testing.T) {
 	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyByName", func(_ *securitypolicy.SecurityPolicyService, _ string, _ string) []*model.SecurityPolicy {
 		return []*model.SecurityPolicy{
 			{
-				Id:   pointy.String("sp-id-1"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagValueScopeSecurityPolicyUID), Tag: pointy.String("uid1")}},
+				Id:   util.Ptr("sp-id-1"),
+				Tags: []model.Tag{{Scope: util.Ptr(common.TagValueScopeSecurityPolicyUID), Tag: util.Ptr("uid1")}},
 			},
 			{
-				Id:   pointy.String("sp-id-2"),
-				Tags: []model.Tag{{Scope: pointy.String(common.TagValueScopeSecurityPolicyUID), Tag: pointy.String("uid2")}},
+				Id:   util.Ptr("sp-id-2"),
+				Tags: []model.Tag{{Scope: util.Ptr(common.TagValueScopeSecurityPolicyUID), Tag: util.Ptr("uid2")}},
 			},
 		}
 	})
@@ -783,7 +786,7 @@ func TestSecurityPolicyReconcilerForVPC_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil)
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
-	resultRequeueAfter5mins := ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
+	resultRequeueAfter5mins := ctrl.Result{RequeueAfter: 5 * time.Minute}
 	assert.Equal(t, retErr, nil)
 	assert.Equal(t, resultRequeueAfter5mins, result)
 	checkNsxVersionPatch.Reset()
@@ -908,11 +911,9 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			name: "Start SecurityPolicy Controller",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
-					return
 				})
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
 					return fakeService()
@@ -928,7 +929,6 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
 					return fakeService()

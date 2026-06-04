@@ -50,7 +50,7 @@ func (r *Reconciler) RestoreReconcile() error {
 }
 
 func NewReconciler(mgr ctrl.Manager, ipReservationService *subnetipreservation.IPReservationService, subnetService servicecommon.SubnetServiceProvider) *Reconciler {
-	recorder := mgr.GetEventRecorderFor("subnetipreservation-controller")
+	recorder := mgr.GetEventRecorderFor("subnetipreservation-controller") //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	// Create the SubnetIPReservation Reconciler with the necessary services and configuration
 	return &Reconciler{
 		Client:               mgr.GetClient(),

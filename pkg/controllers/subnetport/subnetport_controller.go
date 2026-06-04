@@ -57,9 +57,9 @@ var (
 )
 
 var (
-	vmOrInterfaceNotFoundError  = fmt.Errorf("VM or interface not found")
-	subnetPortRealizationError  = fmt.Errorf("SubnetPort realization error")
-	multipleInterfaceFoundError = fmt.Errorf("multiple interfaces found")
+	vmOrInterfaceNotFoundError  = fmt.Errorf("VM or interface not found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	subnetPortRealizationError  = fmt.Errorf("SubnetPort realization error") //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	multipleInterfaceFoundError = fmt.Errorf("multiple interfaces found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
 )
 
 // SubnetPortReconciler reconciles a SubnetPort object
@@ -342,7 +342,7 @@ func addressBindingIPAddressAllocationNameIndexFunc(obj client.Object) []string 
 		log.Info("Invalid object", "type", reflect.TypeOf(obj))
 		return []string{}
 	} else {
-		return []string{fmt.Sprintf("%s", ab.Spec.IPAddressAllocationName)}
+		return []string{ab.Spec.IPAddressAllocationName}
 	}
 }
 
@@ -488,7 +488,7 @@ func (r *SubnetPortReconciler) RestoreReconcile() error {
 	r.restoreMode = true
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if result.Requeue || err != nil {
+		if err != nil || common.IsReconcileResultRequeue(result) {
 			errorList = append(errorList, fmt.Errorf("failed to restore SubnetPort %s, error: %w", key, err))
 		}
 	}
@@ -587,7 +587,7 @@ func NewSubnetPortReconciler(mgr ctrl.Manager, subnetPortService *subnetport.Sub
 		SubnetPortService:          subnetPortService,
 		VPCService:                 vpcService,
 		IpAddressAllocationService: ipAddressAllocationService,
-		Recorder:                   mgr.GetEventRecorderFor("subnetport-controller"),
+		Recorder:                   mgr.GetEventRecorderFor("subnetport-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	err := subnetPortReconciler.SetupFieldIndexers(mgr)
 	if err != nil {

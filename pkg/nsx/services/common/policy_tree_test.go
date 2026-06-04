@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 
 	orgroot_mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -566,7 +566,7 @@ func TestBuildRootNodePerformance(t *testing.T) {
 	require.NoError(t, err)
 	start := time.Now()
 	builder.BuildRootNode(bindings, "")
-	cost := time.Now().Sub(start)
+	cost := time.Since(start)
 	assert.Truef(t, cost.Seconds() < 3, "It takes %s to build Org root with 10K resources", cost.String())
 }
 

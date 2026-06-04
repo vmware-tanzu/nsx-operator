@@ -248,9 +248,7 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 		},
 	}
 
-	for _, tag := range basicTags {
-		targetTags = append(targetTags, tag)
-	}
+	targetTags = append(targetTags, basicTags...)
 
 	// In non-VPC network, there is no need to add NSX share createdFor tag for target groups
 	if IsVPCEnabled(service) {
@@ -475,12 +473,11 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	for _, g := range ipSetGroups {
-		ruleGroups = append(ruleGroups, g)
-	}
+	ruleGroups = append(ruleGroups, ipSetGroups...)
 
 	for _, nsxRule := range nsxRules {
-		if ruleDirection == "IN" {
+		switch ruleDirection {
+		case "IN":
 			nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRuleInGroup(
 				obj, rule, nsxRule, ruleIdx, ruleBaseID, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
@@ -490,7 +487,7 @@ func (service *SecurityPolicyService) buildRuleAndGroups(obj *v1alpha1.SecurityP
 			if nsxRuleSrcGroup != nil {
 				ruleGroups = append(ruleGroups, nsxRuleSrcGroup)
 			}
-		} else if ruleDirection == "OUT" {
+		case "OUT":
 			nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildRuleOutGroup(
 				obj, rule, nsxRule, ruleIdx, ruleBaseID, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
@@ -798,7 +795,7 @@ func (service *SecurityPolicyService) buildRuleAppliedGroupByRule(obj *v1alpha1.
 
 func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.SecurityPolicy, ruleIdx int, ruleBaseID string, isSource bool, groupScope GroupScope) string {
 	suffix := common.DstGroupSuffix
-	if isSource == true {
+	if isSource {
 		suffix = common.SrcGroupSuffix
 	}
 
@@ -819,7 +816,7 @@ func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.Securit
 
 func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int, isSource bool) string {
 	suffix := common.DstGroupSuffix
-	if isSource == true {
+	if isSource {
 		suffix = common.SrcGroupSuffix
 	}
 	ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
@@ -867,7 +864,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 	var ruleDirection string
 	var err error
 
-	if isSource == true {
+	if isSource {
 		rulePeers = rule.Sources
 		ruleDirection = "source"
 	} else {
@@ -953,7 +950,7 @@ func (service *SecurityPolicyService) buildRulePeerGroup(obj *v1alpha1.SecurityP
 		return nil, "", nil, err
 	}
 
-	if IsVPCEnabled(service) && (groupShared == true) {
+	if IsVPCEnabled(service) && groupShared {
 		var projectGroupShare GroupShare
 		var infraGroupShare GroupShare
 
@@ -1070,7 +1067,7 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 	basicTags := service.buildBasicTags(obj, createdFor)
 	groupTypeTag := String(common.TagValueGroupDestination)
 	peers := &rule.Destinations
-	if isSource == true {
+	if isSource {
 		groupTypeTag = String(common.TagValueGroupSource)
 		peers = &rule.Sources
 	}
@@ -1090,9 +1087,7 @@ func (service *SecurityPolicyService) buildPeerTags(obj *v1alpha1.SecurityPolicy
 			Tag:   String(util.Sha1(string(serializedBytes))),
 		},
 	}
-	for _, tag := range basicTags {
-		peerTags = append(peerTags, tag)
-	}
+	peerTags = append(peerTags, basicTags...)
 
 	// In non-VPC network, there is no need to add NSX share createdFor tag for rule peer groups
 	if IsVPCEnabled(service) {
@@ -1833,9 +1828,7 @@ func (service *SecurityPolicyService) buildShareTags(obj *v1alpha1.SecurityPolic
 	basicTags := service.buildBasicTags(obj, createdFor)
 	shareTags := []model.Tag{}
 
-	for _, tag := range basicTags {
-		shareTags = append(shareTags, tag)
-	}
+	shareTags = append(shareTags, basicTags...)
 
 	switch groupScope {
 	case InfraScopeGroup:
@@ -1954,7 +1947,7 @@ func (service *SecurityPolicyService) buildRulePortString(port v1alpha1.Security
 }
 
 func (service *SecurityPolicyService) buildRulePortsString(ports []v1alpha1.SecurityPolicyPort) string {
-	if ports == nil || len(ports) == 0 {
+	if len(ports) == 0 {
 		return common.RuleAnyPorts
 	}
 	portStrings := make([]string, len(ports))
@@ -1981,7 +1974,7 @@ func (service *SecurityPolicyService) buildRulePortNumberString(port v1alpha1.Se
 }
 
 func (service *SecurityPolicyService) buildRulePortsNumberString(ports []v1alpha1.SecurityPolicyPort) string {
-	if ports == nil || len(ports) == 0 {
+	if len(ports) == 0 {
 		return common.RuleAnyPorts
 	}
 
@@ -2087,7 +2080,7 @@ func (service *SecurityPolicyService) getPeerGroupByRuleID(ruleID string, isSour
 	}
 
 	groupTypeTag := common.TagValueGroupDestination
-	if isSource == true {
+	if isSource {
 		groupTypeTag = common.TagValueGroupSource
 	}
 	// Check peer group's type to find the correct one.

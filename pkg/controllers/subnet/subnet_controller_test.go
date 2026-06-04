@@ -9,12 +9,11 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -71,7 +72,6 @@ func TestSubnetReconciler_GarbageCollector(t *testing.T) {
 					return nil
 				})
 				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patch
 			},
@@ -289,7 +289,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -363,7 +362,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -441,7 +439,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-					return
 				})
 				return patches
 			},
@@ -752,9 +749,9 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
 					return nil, nsxutil.NewNSXApiError(&model.ApiError{
-						ErrorCode:    pointy.Int64(508134),
-						ErrorMessage: pointy.String("Test error message"),
-						Details:      pointy.String("Reserved IP ranges cannot be overlapped"),
+						ErrorCode:    util.Ptr(int64(508134)),
+						ErrorMessage: util.Ptr("Test error message"),
+						Details:      util.Ptr("Reserved IP ranges cannot be overlapped"),
 					}, apierrors.ErrorType_INVALID_REQUEST)
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
@@ -909,7 +906,6 @@ func TestStartSubnetController(t *testing.T) {
 			name: "StartSubnetController with webhook",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -925,7 +921,6 @@ func TestStartSubnetController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil

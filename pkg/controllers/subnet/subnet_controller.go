@@ -425,7 +425,7 @@ func (r *SubnetReconciler) RestoreReconcile() error {
 	var errorList []error
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if result.Requeue || err != nil {
+		if err != nil || common.IsReconcileResultRequeue(result) {
 			errorList = append(errorList, fmt.Errorf("failed to restore Subnet %s, error: %w", key, err))
 		}
 	}
@@ -490,7 +490,7 @@ func NewSubnetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, 
 		SubnetPortService: subnetPortService,
 		VPCService:        vpcService,
 		BindingService:    bindingService,
-		Recorder:          mgr.GetEventRecorderFor("subnet-controller"),
+		Recorder:          mgr.GetEventRecorderFor("subnet-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	subnetReconciler.StatusUpdater = common.NewStatusUpdater(subnetReconciler.Client, subnetReconciler.SubnetService.NSXConfig, subnetReconciler.Recorder, MetricResTypeSubnet, "Subnet", "Subnet")
 	return subnetReconciler

@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -318,7 +318,6 @@ func TestStatusUpdater_DeleteSuccess(t *testing.T) {
 			assert.Equal(t, v1.EventTypeNormal, eventtype)
 			assert.Equal(t, ReasonSuccessfulDelete, reason)
 			assert.Equal(t, "Subnet CR has been successfully deleted", message)
-			return
 		})
 	defer patchesRecordEvent.Reset()
 
@@ -334,7 +333,6 @@ func TestStatusUpdater_DeleteFail(t *testing.T) {
 			assert.Equal(t, v1.EventTypeWarning, eventtype)
 			assert.Equal(t, ReasonFailDelete, reason)
 			assert.Equal(t, "mock error", message)
-			return
 		})
 	defer patchesRecordEvent.Reset()
 

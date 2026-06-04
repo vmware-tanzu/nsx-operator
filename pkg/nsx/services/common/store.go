@@ -48,10 +48,8 @@ type ResourceStore struct {
 // subclass could reuse it, distinguish the resource by bindingType and resourceAssertion
 func (resourceStore *ResourceStore) TransResourceToStore(entity *data.StructValue) error {
 	obj, err := NewConverter().ConvertToGolang(entity, resourceStore.BindingType)
-	if err != nil {
-		for _, e := range err {
-			return e
-		}
+	for _, e := range err {
+		return e
 	}
 	objAddr := nsxutil.CasttoPointer(obj)
 	if objAddr == nil {
@@ -155,7 +153,7 @@ func (service *Service) SearchResource(resourceTypeValue string, queryParam stri
 		}
 		if err != nil {
 			err = TransError(err)
-			if _, ok := err.(nsxutil.PageMaxError); ok == true {
+			if _, ok := err.(nsxutil.PageMaxError); ok {
 				DecrementPageSize(&pageSize)
 				continue
 			}
@@ -243,12 +241,12 @@ func containsTagScope(tags []model.Tag, scopes ...string) bool {
 
 // Helper function to format tag parameters
 func formatTagParamScope(paramType, value string) string {
-	valueEscaped := strings.Replace(value, "/", "\\/", -1)
+	valueEscaped := strings.ReplaceAll(value, "/", "\\/")
 	return fmt.Sprintf("%s:%s", paramType, valueEscaped)
 }
 
 func formatTagParamTag(paramType, value string) string {
-	valueEscaped := strings.Replace(value, ":", "\\:", -1)
+	valueEscaped := strings.ReplaceAll(value, ":", "\\:")
 	return fmt.Sprintf("%s:%s", paramType, valueEscaped)
 }
 
@@ -308,15 +306,15 @@ func (service *Service) QueryNCPCreatedResources(resourceTypes []string, store S
 }
 
 func (service *Service) AddNCPClusterTag(query string) string {
-	tagScopeClusterKey := strings.Replace(TagScopeNCPCluster, "/", "\\/", -1)
-	tagScopeClusterValue := strings.Replace(service.NSXClient.NsxConfig.Cluster, ":", "\\:", -1)
+	tagScopeClusterKey := strings.ReplaceAll(TagScopeNCPCluster, "/", "\\/")
+	tagScopeClusterValue := strings.ReplaceAll(service.NSXClient.NsxConfig.Cluster, ":", "\\:")
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 	return query + " AND " + tagParam
 }
 
 func AddNCPCreatedForTag(query string, createdFor string) string {
-	tagScopeClusterKey := strings.Replace(TagScopeNCPCreateFor, "/", "\\/", -1)
-	tagScopeClusterValue := strings.Replace(createdFor, ":", "\\:", -1)
+	tagScopeClusterKey := strings.ReplaceAll(TagScopeNCPCreateFor, "/", "\\/")
+	tagScopeClusterValue := strings.ReplaceAll(createdFor, ":", "\\:")
 	tagParam := fmt.Sprintf("tags.scope:%s AND tags.tag:%s", tagScopeClusterKey, tagScopeClusterValue)
 	return query + " AND " + tagParam
 }

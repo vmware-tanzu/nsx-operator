@@ -7,7 +7,7 @@ GOFLAGS            :=
 BINDIR             ?= $(CURDIR)/bin
 GO_FILES           := $(shell find . -type d -name '.cache' -prune -o -type f -name '*.go' -print)
 
-GOLANGCI_LINT_VERSION := v1.61.0
+GOLANGCI_LINT_VERSION := v2.11.4
 GOLANGCI_LINT_BINDIR  := $(CURDIR)/.golangci-bin
 GOLANGCI_LINT_BIN     := $(GOLANGCI_LINT_BINDIR)/$(GOLANGCI_LINT_VERSION)/golangci-lint
 
@@ -158,7 +158,7 @@ kustomize: ## Download kustomize locally if necessary.
 
 .PHONY: code-generator
 code-generator: ## Download code-generator locally if necessary.
-	go mod download k8s.io/code-generator@v0.27.1
+	go mod download k8s.io/code-generator@v0.35.1
 
 generated: code-generator
 	./hack/update-codegen.sh

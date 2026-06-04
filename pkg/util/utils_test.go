@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -534,8 +534,7 @@ func TestGenerateIDByObject(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var id string
-			id = GenerateIDByObject(tc.obj)
+			id := GenerateIDByObject(tc.obj)
 			assert.Equal(t, tc.expID, id)
 		})
 	}
@@ -573,7 +572,7 @@ func TestNewSha1(t *testing.T) {
 	for _, c := range HashCharset {
 		allowedChars.Insert(c)
 	}
-	randUID, err := uuid.NewRandom()
+	randUID, err := uuid.NewV4()
 	require.NoError(t, err)
 	hashString := Sha1WithCustomizedCharset(randUID.String())
 	// Verify all chars in the hash string are contained in base62Chars.
@@ -584,7 +583,7 @@ func TestNewSha1(t *testing.T) {
 
 func TestCollisionWithHashCharset(t *testing.T) {
 	hashLength := 5
-	newUUID, err := uuid.NewRandom()
+	newUUID, err := uuid.NewV4()
 	require.NoError(t, err)
 
 	hashStr := Sha1WithCustomizedCharset(newUUID.String())[:hashLength]

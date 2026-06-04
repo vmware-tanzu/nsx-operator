@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/openlyinc/pointy"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -231,9 +230,9 @@ func NewConverter() *bindings.TypeConverter {
 }
 
 var (
-	String = pointy.String // address of string
-	Int64  = pointy.Int64  // address of int64
-	Bool   = pointy.Bool   // address of bool
+	String = func(s string) *string { return &s }
+	Int64  = func(i int64) *int64 { return &i }
+	Bool   = func(b bool) *bool { return &b }
 )
 
 type VPCResourceInfo struct {

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,8 +27,8 @@ var (
 func QueryTagCondition(resourceType, cluster string) string {
 	return fmt.Sprintf("%s:%s AND tags.scope:%s AND tags.tag:%s",
 		ResourceType, resourceType,
-		strings.Replace(TagScopeCluster, "/", "\\/", -1),
-		strings.Replace(cluster, ":", "\\:", -1))
+		strings.ReplaceAll(TagScopeCluster, "/", "\\/"),
+		strings.ReplaceAll(cluster, ":", "\\:"))
 }
 
 func ConvertTagsToMPTags(tags []model.Tag) []mpmodel.Tag {
@@ -160,7 +160,7 @@ func BuildUniqueIDWithRandomUUID(initialObject metav1.Object, idGeneratorFn func
 	for idExistsFn(resId) {
 		newObj := &metav1.ObjectMeta{
 			Name: initialObject.GetName(),
-			UID:  types.UID(uuid.New().String()),
+			UID:  types.UID(uuid.Must(uuid.NewV4()).String()),
 		}
 		resId = idGeneratorFn(newObj)
 	}

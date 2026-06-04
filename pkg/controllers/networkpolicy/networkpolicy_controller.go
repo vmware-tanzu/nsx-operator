@@ -73,9 +73,7 @@ func cleanNetworkPolicyErrorAnnotation(client client.Client, ctx context.Context
 	if networkPolicy.Annotations == nil {
 		return
 	}
-	if _, exists := networkPolicy.Annotations[common.NSXOperatorError]; exists {
-		delete(networkPolicy.Annotations, common.NSXOperatorError)
-	}
+	delete(networkPolicy.Annotations, common.NSXOperatorError)
 	updateErr := client.Update(ctx, networkPolicy)
 	if updateErr != nil {
 		log.Error(updateErr, "Failed to clean NetworkPolicy annotation")
@@ -308,7 +306,7 @@ func NewNetworkPolicyReconciler(mgr ctrl.Manager, commonService servicecommon.Se
 	networkPolicyReconcile := &NetworkPolicyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("networkpolicy-controller"),
+		Recorder: mgr.GetEventRecorderFor("networkpolicy-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	networkPolicyReconcile.Service = securitypolicy.GetSecurityService(commonService, vpcService)
 	networkPolicyReconcile.StatusUpdater = common.NewStatusUpdater(networkPolicyReconcile.Client, networkPolicyReconcile.Service.NSXConfig, networkPolicyReconcile.Recorder, MetricResType, "NetworkPolicy", "NetworkPolicy")

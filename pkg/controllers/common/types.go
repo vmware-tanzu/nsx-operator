@@ -40,10 +40,10 @@ var (
 	ResultNormal  = ctrl.Result{}
 	ResultRequeue = ctrl.Result{Requeue: true}
 	// for k8s events that need to retry in short loop, eg: namespace creation
-	ResultRequeueAfter10sec = ctrl.Result{Requeue: true, RequeueAfter: 10 * time.Second}
-	ResultRequeueAfter60sec = ctrl.Result{Requeue: true, RequeueAfter: 60 * time.Second}
+	ResultRequeueAfter10sec = ctrl.Result{RequeueAfter: 10 * time.Second}
+	ResultRequeueAfter60sec = ctrl.Result{RequeueAfter: 60 * time.Second}
 	// for unstable event, eg: failed to k8s resources when reconciling, may due to k8s unstable
-	ResultRequeueAfter5mins     = ctrl.Result{Requeue: true, RequeueAfter: 5 * time.Minute}
+	ResultRequeueAfter5mins     = ctrl.Result{RequeueAfter: 5 * time.Minute}
 	AnnotationNamespaceVPCError = "nsx.vmware.com/vpc_error"
 )
 
@@ -70,3 +70,10 @@ const (
 	SupervisorServiceIDLabel = "appplatform.vmware.com/serviceId"
 	VsphereAppPlatformLabel  = "vSphere-AppPlatform"
 )
+
+// IsReconcileResultRequeue checks if a reconcile result indicates a requeue is needed.
+// This includes both immediate requeue (deprecated result.Requeue) and delayed requeue (result.RequeueAfter > 0).
+func IsReconcileResultRequeue(result ctrl.Result) bool {
+	//nolint:staticcheck // SA1019: result.Requeue is deprecated but still needs to be checked for compatibility
+	return result.Requeue || result.RequeueAfter > 0
+}

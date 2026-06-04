@@ -16,51 +16,51 @@ type FakeCrdV1alpha1 struct {
 }
 
 func (c *FakeCrdV1alpha1) AddressBindings(namespace string) v1alpha1.AddressBindingInterface {
-	return &FakeAddressBindings{c, namespace}
+	return newFakeAddressBindings(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) IPAddressAllocations(namespace string) v1alpha1.IPAddressAllocationInterface {
-	return &FakeIPAddressAllocations{c, namespace}
+	return newFakeIPAddressAllocations(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) IPBlocksInfos() v1alpha1.IPBlocksInfoInterface {
-	return &FakeIPBlocksInfos{c}
+	return newFakeIPBlocksInfos(c)
 }
 
 func (c *FakeCrdV1alpha1) NetworkInfos(namespace string) v1alpha1.NetworkInfoInterface {
-	return &FakeNetworkInfos{c, namespace}
+	return newFakeNetworkInfos(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) SecurityPolicies(namespace string) v1alpha1.SecurityPolicyInterface {
-	return &FakeSecurityPolicies{c, namespace}
+	return newFakeSecurityPolicies(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) StaticRoutes(namespace string) v1alpha1.StaticRouteInterface {
-	return &FakeStaticRoutes{c, namespace}
+	return newFakeStaticRoutes(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) Subnets(namespace string) v1alpha1.SubnetInterface {
-	return &FakeSubnets{c, namespace}
+	return newFakeSubnets(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) SubnetConnectionBindingMaps(namespace string) v1alpha1.SubnetConnectionBindingMapInterface {
-	return &FakeSubnetConnectionBindingMaps{c, namespace}
+	return newFakeSubnetConnectionBindingMaps(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) SubnetIPReservations(namespace string) v1alpha1.SubnetIPReservationInterface {
-	return &FakeSubnetIPReservations{c, namespace}
+	return newFakeSubnetIPReservations(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) SubnetPorts(namespace string) v1alpha1.SubnetPortInterface {
-	return &FakeSubnetPorts{c, namespace}
+	return newFakeSubnetPorts(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) SubnetSets(namespace string) v1alpha1.SubnetSetInterface {
-	return &FakeSubnetSets{c, namespace}
+	return newFakeSubnetSets(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) VPCNetworkConfigurations() v1alpha1.VPCNetworkConfigurationInterface {
-	return &FakeVPCNetworkConfigurations{c}
+	return newFakeVPCNetworkConfigurations(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

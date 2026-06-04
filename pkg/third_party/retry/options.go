@@ -133,7 +133,7 @@ func ExponentDelay(_ uint, _ error, config *Config) time.Duration {
 
 	dur := float64(config.delay) * math.Pow(float64(config.factor), float64(config.count))
 
-	if config.jitter == true {
+	if config.jitter {
 		dur = rand.Float64()*(dur-float64(config.delay)) + float64(config.delay)
 	}
 

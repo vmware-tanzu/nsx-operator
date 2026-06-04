@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/openlyinc/pointy"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
@@ -79,7 +78,7 @@ func Test_transError(t *testing.T) {
 type fakeQueryClient struct {
 }
 
-func (_ *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+func (*fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return model.SearchResponse{
@@ -291,8 +290,8 @@ func Test_containsTagScope(t *testing.T) {
 		{
 			name: "Tag with matching scope",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1")},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope1")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{"scope1"},
 			want:   true,
@@ -300,8 +299,8 @@ func Test_containsTagScope(t *testing.T) {
 		{
 			name: "Tag without matching scope",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1")},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope1")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{"scope3"},
 			want:   false,
@@ -315,8 +314,8 @@ func Test_containsTagScope(t *testing.T) {
 		{
 			name: "Empty scopes",
 			tags: []model.Tag{
-				{Scope: pointy.String("scope1")},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope1")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{},
 			want:   false,
@@ -325,7 +324,7 @@ func Test_containsTagScope(t *testing.T) {
 			name: "Nil scope in tag",
 			tags: []model.Tag{
 				{Scope: nil},
-				{Scope: pointy.String("scope2")},
+				{Scope: String("scope2")},
 			},
 			scopes: []string{"scope1"},
 			want:   false,
@@ -367,7 +366,7 @@ func (f *fakeStore) IsPolicyAPI() bool {
 
 type fakeMPQueryClient struct{}
 
-func (_ *fakeMPQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mp_model.SearchResponse, error) {
+func (*fakeMPQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mp_model.SearchResponse, error) {
 	cursor := "2"
 	resultCount := int64(2)
 	return mp_model.SearchResponse{

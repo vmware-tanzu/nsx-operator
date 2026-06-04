@@ -91,15 +91,13 @@ func (s *VPCService) getStaleSLBResources(resourceType string, resourceBindingTy
 
 	isSLBResourceValidToDelete := func(obj interface{}) bool {
 		var parentPath *string
-		switch obj.(type) {
+		switch obj := obj.(type) {
 		case *model.LBVirtualServer:
-			lbVS := obj.(*model.LBVirtualServer)
-			parentPath = lbVS.ParentPath
-			lbVS.MarkedForDelete = &MarkedForDelete
+			parentPath = obj.ParentPath
+			obj.MarkedForDelete = &MarkedForDelete
 		case *model.LBPool:
-			lbPool := obj.(*model.LBPool)
-			parentPath = lbPool.ParentPath
-			lbPool.MarkedForDelete = &MarkedForDelete
+			parentPath = obj.ParentPath
+			obj.MarkedForDelete = &MarkedForDelete
 		default:
 			return false
 		}

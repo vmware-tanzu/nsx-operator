@@ -82,7 +82,7 @@ func TestGetClient(t *testing.T) {
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported := client.NSXCheckVersion(SecurityPolicy)
-	assert.True(t, securityPolicySupported == false)
+	assert.False(t, securityPolicySupported)
 	assert.False(t, client.NSXCheckVersion(ServiceAccount))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountRestore))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
@@ -95,7 +95,7 @@ func TestGetClient(t *testing.T) {
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
-	assert.True(t, securityPolicySupported == true)
+	assert.True(t, securityPolicySupported)
 	assert.False(t, client.NSXCheckVersion(ServiceAccount))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountRestore))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
@@ -108,7 +108,7 @@ func TestGetClient(t *testing.T) {
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
-	assert.True(t, securityPolicySupported == true)
+	assert.True(t, securityPolicySupported)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountRestore))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
@@ -121,7 +121,7 @@ func TestGetClient(t *testing.T) {
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
-	assert.True(t, securityPolicySupported == true)
+	assert.True(t, securityPolicySupported)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
 	assert.True(t, client.NSXCheckVersion(ServiceAccountRestore))
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
@@ -134,7 +134,7 @@ func TestGetClient(t *testing.T) {
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
-	assert.True(t, securityPolicySupported == true)
+	assert.True(t, securityPolicySupported)
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
 	assert.True(t, client.NSXCheckVersion(ServiceAccountRestore))
 	assert.True(t, client.NSXCheckVersion(ServiceAccountCertRotation))
@@ -198,11 +198,11 @@ func TestRestConnectorAllowOverwrite(t *testing.T) {
 		t.Logf("header %v", r.Header)
 		w.WriteHeader(http.StatusOK)
 		if strings.Contains(r.URL.Path, "search") {
-			allowOverwrite, _ := r.Header["X-Allow-Overwrite"]
+			allowOverwrite := r.Header["X-Allow-Overwrite"]
 			assert.Equal(t, "True", allowOverwrite[0])
 		}
 		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
-			w.Write(([]byte(resHealth)))
+			w.Write([]byte(resHealth))
 		} else {
 			w.Write([]byte(resVersion))
 		}

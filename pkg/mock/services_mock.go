@@ -152,7 +152,6 @@ func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.Vpc
 }
 
 func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string) {
-	return
 }
 
 func (m *MockSubnetPortServiceProvider) IsEmptySubnet(path string) bool {
@@ -160,7 +159,6 @@ func (m *MockSubnetPortServiceProvider) IsEmptySubnet(path string) bool {
 }
 
 func (m *MockSubnetPortServiceProvider) DeletePortCount(path string) {
-	return
 }
 
 func (m *MockSubnetPortServiceProvider) GetSubnetPathForSubnetPortFromStore(crUid types.UID) string {
@@ -169,7 +167,6 @@ func (m *MockSubnetPortServiceProvider) GetSubnetPathForSubnetPortFromStore(crUi
 }
 
 func (m *MockSubnetPortServiceProvider) ResetSubnetTotalIP(path string) {
-	return
 }
 
 type MockIPAddressAllocationProvider struct {

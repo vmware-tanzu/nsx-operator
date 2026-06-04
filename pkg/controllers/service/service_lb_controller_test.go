@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -247,7 +247,6 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
-					return
 				})
 				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
 					return true
@@ -263,7 +262,6 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
-					return
 				})
 				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
 					return true

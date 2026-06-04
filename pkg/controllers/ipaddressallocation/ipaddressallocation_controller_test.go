@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -78,6 +78,10 @@ func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, op
 	return nil
 }
 func (writer fakeStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return nil
+}
+
+func (writer fakeStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 	return nil
 }
 
@@ -367,7 +371,6 @@ func TestIPAddressAllocationReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	patches.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-		return
 	})
 	defer patches.Reset()
 	r := NewIPAddressAllocationReconciler(mockMgr, ipAddressAllocationService, vpcService)

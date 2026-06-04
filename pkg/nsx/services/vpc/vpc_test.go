@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -907,7 +907,6 @@ func TestValidateConnectionStatus(t *testing.T) {
 			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig, tt.vpcNetworkConfig.Spec.VPCConnectivityProfile)
 			assert.Equal(t, tt.expectedStatus, status)
 			assert.Equal(t, tt.expectedError, err)
-			return
 		})
 	}
 }
@@ -1781,9 +1780,7 @@ func TestVPCService_DeleteVPC(t *testing.T) {
 			checkVPCStore: true,
 		},
 	}
-	// We do not need to verify copylocks for test case.
-	// nolint: copylocks
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:govet
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, service)

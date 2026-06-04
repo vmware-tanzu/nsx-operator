@@ -6,13 +6,13 @@
 package v1alpha1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // IPBlocksInfos.
 type IPBlocksInfoInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1alpha1.IPBlocksInfoLister
+	Lister() vpcv1alpha1.IPBlocksInfoLister
 }
 
 type iPBlocksInfoInformer struct {
@@ -43,21 +43,33 @@ func NewIPBlocksInfoInformer(client versioned.Interface, resyncPeriod time.Durat
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredIPBlocksInfoInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().IPBlocksInfos().List(context.TODO(), options)
+				return client.CrdV1alpha1().IPBlocksInfos().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().IPBlocksInfos().Watch(context.TODO(), options)
+				return client.CrdV1alpha1().IPBlocksInfos().Watch(context.Background(), options)
 			},
-		},
-		&vpcv1alpha1.IPBlocksInfo{},
+			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().IPBlocksInfos().List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.CrdV1alpha1().IPBlocksInfos().Watch(ctx, options)
+			},
+		}, client),
+		&apisvpcv1alpha1.IPBlocksInfo{},
 		resyncPeriod,
 		indexers,
 	)
@@ -68,9 +80,9 @@ func (f *iPBlocksInfoInformer) defaultInformer(client versioned.Interface, resyn
 }
 
 func (f *iPBlocksInfoInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&vpcv1alpha1.IPBlocksInfo{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisvpcv1alpha1.IPBlocksInfo{}, f.defaultInformer)
 }
 
-func (f *iPBlocksInfoInformer) Lister() v1alpha1.IPBlocksInfoLister {
-	return v1alpha1.NewIPBlocksInfoLister(f.Informer().GetIndexer())
+func (f *iPBlocksInfoInformer) Lister() vpcv1alpha1.IPBlocksInfoLister {
+	return vpcv1alpha1.NewIPBlocksInfoLister(f.Informer().GetIndexer())
 }

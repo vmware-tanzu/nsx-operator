@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
-	"github.com/golang/mock/gomock"
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 	v12 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1014,7 +1014,7 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 
 	// fake SubnetSetLocks
 	lock := sync.Mutex{}
-	subnetSetId := types.UID(uuid.NewString())
+	subnetSetId := types.UID(uuid.Must(uuid.NewV4()).String())
 	ctlcommon.SubnetSetLocks.LoadOrStore(subnetSetId, &lock)
 
 	r.CollectGarbage(ctx)
@@ -1099,7 +1099,6 @@ func (m *MockManager) Start(context.Context) error {
 type mockWebhookServer struct{}
 
 func (m *mockWebhookServer) Register(path string, hook http.Handler) {
-	return
 }
 
 func (m *mockWebhookServer) Start(ctx context.Context) error {
@@ -1154,7 +1153,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1171,7 +1169,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: nil,
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1188,7 +1185,6 @@ func TestStartSubnetSetController(t *testing.T) {
 			webHookServer: &mockWebhookServer{},
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctlcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-					return
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
 					return nil
@@ -1254,10 +1250,7 @@ func TestDeleteSubnets(t *testing.T) {
 					testLock.Unlock()
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "IsEmptySubnet", func(_ *subnetport.SubnetPortService, path string) bool {
-					if path == "subnet1-path" {
-						return false
-					}
-					return true
+					return path != "subnet1-path"
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, nsxSubnet model.VpcSubnet) error {
 					if *nsxSubnet.Id == "net1" {

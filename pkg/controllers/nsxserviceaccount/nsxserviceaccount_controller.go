@@ -319,7 +319,7 @@ func NewNSXServiceAccountReconciler(mgr ctrl.Manager, commonService servicecommo
 	nsxServiceAccountReconcile := &NSXServiceAccountReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("nsxserviceaccount-controller"),
+		Recorder: mgr.GetEventRecorderFor("nsxserviceaccount-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	nsxServiceAccountService, err := nsxserviceaccount.InitializeNSXServiceAccount(commonService)
 	if err != nil {

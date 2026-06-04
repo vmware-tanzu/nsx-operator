@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/gofrs/uuid"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -107,13 +107,13 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		// to make sure hostd will not ignore the vm network reconfigure
 		salt := []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 		var parsedUUID uuid.UUID
-		if parsedUUID, err = uuid.Parse(string(objMeta.UID)); err != nil {
+		if parsedUUID, err = uuid.FromString(string(objMeta.UID)); err != nil {
 			return nil, err
 		}
-		nsxCIFID = uuid.NewSHA1(parsedUUID, salt)
+		nsxCIFID = uuid.NewV5(parsedUUID, string(salt))
 	} else {
 		// use the subnetPort CR UID as the attachment uid generation to ensure the latter stable
-		if nsxCIFID, err = uuid.NewRandomFromReader(bytes.NewReader([]byte(string(objMeta.UID)))); err != nil {
+		if nsxCIFID, err = uuid.NewGenWithOptions(uuid.WithRandomReader(bytes.NewReader([]byte(string(objMeta.UID))))).NewV4(); err != nil {
 			return nil, err
 		}
 	}
@@ -289,7 +289,8 @@ func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.Sub
 		return a.CreationTimestamp.UTC().Compare(b.CreationTimestamp.UTC())
 	})
 	for _, ab := range abList.Items {
-		if ab.Spec.InterfaceName == "" {
+		switch ab.Spec.InterfaceName {
+		case "":
 			spList := &v1alpha1.SubnetPortList{}
 			spIndexValue := fmt.Sprintf("%s/%s", ab.Namespace, ab.Spec.VMName)
 			err = service.Client.List(context.TODO(), spList, client.MatchingFields{util.SubnetPortNamespaceVMIndexKey: spIndexValue})
@@ -302,7 +303,7 @@ func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.Sub
 				return &ab
 			}
 			log.Info("Found multiple SubnetPorts for a VM, ignore default AddressBinding for SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "defaultAddressBindingName", ab.Name, "VM", vm)
-		} else if ab.Spec.InterfaceName == port {
+		case port:
 			log.Debug("Found AddressBinding for SubnetPort", "namespace", sp.Namespace, "name", sp.Name, "addressBindingName", ab.Name)
 			return &ab
 		}
