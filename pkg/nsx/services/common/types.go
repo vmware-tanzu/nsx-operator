@@ -135,11 +135,18 @@ const (
 	SubnetPortGCInterval = 60 * time.Second
 	DefaultSNATID        = "DEFAULT"
 	AVISubnetLBID        = "_services"
-	// LBServiceIPAllocationID is the fixed NSX resource ID for the VPC-level LB service IP allocation used in tepless mode.
-	// It's only used for backup/restore
+	// LBServiceIPAllocationID is the fixed NSX resource ID for the VPC-level LB service IPv4 allocation used in tepless mode.
+	// It's only used for backup/restore.
 	LBServiceIPAllocationID = "_DEFAULT--VPC_SERVICE_IP"
-	TagScopeVPCService      = "services/vpc_service"
-	TagValueUserSpecifiedIP = "__DEFAULT--VPC_SERVICE_IP__"
+	// LBServiceIPAllocationIDV6 is the fixed NSX resource ID for the VPC-level LB service IPv6 allocation used in tepless mode.
+	// It's only used for backup/restore.
+	LBServiceIPAllocationIDV6   = "_DEFAULT--VPC_SERVICE_IP_V6"
+	TagScopeVPCService          = "services/vpc_service"
+	TagValueUserSpecifiedIP     = "__DEFAULT--VPC_SERVICE_IP__"
+	// TODO: verify TagValueUserSpecifiedIPV6 against a real NSX dual-stack tepless VPC before merge.
+	// Run: GET /policy/api/v1/orgs/<org>/projects/<project>/vpcs/<vpc>/ip-address-allocations/_DEFAULT--VPC_SERVICE_IP_V6
+	// and check the tags[].tag field.
+	TagValueUserSpecifiedIPV6 = "__DEFAULT--VPC_SERVICE_IP_V6__"
 
 	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
