@@ -1739,12 +1739,14 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			// Validate expressions for POD/VM Selectors
 			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
 			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions, matchLabels)
+			if err != nil {
+				return 0, 0, err
+			}
 
 			nsMergedMatchExpressions := service.mergeSelectorMatchExpression(*nsMatchExpressions)
 			nsOpInValCount, opErr := service.validateSelectorOpIn(*nsMergedMatchExpressions, nsMatchLabels)
-
-			if err != nil || opErr != nil {
-				return 0, 0, err
+			if opErr != nil {
+				return 0, 0, opErr
 			}
 
 			if opInValueCount > 0 && nsOpInValCount > 0 {
