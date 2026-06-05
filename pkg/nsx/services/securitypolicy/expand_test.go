@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
@@ -269,12 +270,12 @@ var secPolicy = &v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1000},
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1000}),
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1234},
-						EndPort:  1235,
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1234}),
+						EndPort:  ptr.To(1235),
 					},
 				},
 			},
@@ -284,12 +285,46 @@ var secPolicy = &v1alpha1.SecurityPolicy{
 				Ports: []v1alpha1.SecurityPolicyPort{
 					{
 						Protocol: "TCP",
-						Port:     intstr.IntOrString{Type: intstr.String, StrVal: "http"}, // http port is 443
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "http"}), // http port is 8080
 					},
 					{
 						Protocol: "UDP",
-						Port:     intstr.IntOrString{Type: intstr.Int, IntVal: 1236},
-						EndPort:  1237,
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 1236}),
+						EndPort:  ptr.To(1237),
+					},
+				},
+			},
+			{
+				Action:    &allowAction,
+				Direction: &directionIn,
+				Ports: []v1alpha1.SecurityPolicyPort{
+					{
+						Protocol: "TCP",
+						Port:     ptr.To(intstr.IntOrString{Type: intstr.Int, IntVal: 0}),
+						EndPort:  ptr.To(1235),
+					},
+					{
+						Protocol: "UDP",
+					},
+				},
+			},
+			{
+				Action:    &allowAction,
+				Direction: &directionIn,
+				Ports: []v1alpha1.SecurityPolicyPort{
+					{
+						Protocol: "TCP",
+						EndPort:  ptr.To(1235),
+					},
+				},
+			},
+			{
+				Action:    &allowAction,
+				Direction: &directionIn,
+				Ports: []v1alpha1.SecurityPolicyPort{
+					{
+						Port:    ptr.To(intstr.IntOrString{Type: intstr.String, StrVal: "http"}), // http port is 8080
+						EndPort: ptr.To(1235),
 					},
 				},
 			},
@@ -401,6 +436,7 @@ func Test_ExpandRule(t *testing.T) {
 	npRuleTags2 := appendRuleIDAndHashTags(npRuleTags, "2a54787a", "p1-2a54787a_ogcol")
 	npRuleTags3 := appendRuleIDAndHashTags(npRuleTags, "94b44028", "p1-94b44028_ogcol")
 	spVPCRuleTags1 := appendRuleIDAndHashTags(spVPCRuleTags, "94b44028", "p1-94b44028_ogcol")
+	spVPCRuleTags2 := appendRuleIDAndHashTags(spVPCRuleTags, "9cfca0b4", "p1-9cfca0b4_ogcol")
 
 	for _, tc := range []struct {
 		name        string
@@ -413,7 +449,7 @@ func Test_ExpandRule(t *testing.T) {
 		expErr      string
 	}{
 		{
-			name:       "VPC: rule without and ports for NetworkPolicy",
+			name:       "VPC: rule without named ports for NetworkPolicy",
 			vpcEnabled: true,
 			ruleIdx:    0,
 			createdFor: common.ResourceTypeNetworkPolicy,
@@ -428,7 +464,8 @@ func Test_ExpandRule(t *testing.T) {
 					Tags:           npRuleTags1,
 				},
 			},
-		}, {
+		},
+		{
 			name:       "VPC: named rule without named ports for NetworkPolicy",
 			vpcEnabled: true,
 			ruleIdx:    1,
@@ -442,13 +479,14 @@ func Test_ExpandRule(t *testing.T) {
 					Action:         common.String(string("ALLOW")),
 					Services:       []string{"ANY"},
 					ServiceEntries: []*data.StructValue{
-						getRuleServiceEntries(1000, 0, "TCP"),
-						getRuleServiceEntries(1234, 1235, "UDP"),
+						getRuleServiceEntries(ptr.To(1000), nil, "TCP"),
+						getRuleServiceEntries(ptr.To(1234), ptr.To(1235), "UDP"),
 					},
 					Tags: npRuleTags2,
 				},
 			},
-		}, {
+		},
+		{
 			name:       "VPC: rule with named ports for NetworkPolicy",
 			vpcEnabled: true,
 			ruleIdx:    2,
@@ -464,7 +502,7 @@ func Test_ExpandRule(t *testing.T) {
 					SequenceNumber:    Int64(int64(2)),
 					Action:            common.String("ALLOW"),
 					Services:          []string{"ANY"},
-					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(8080, 0, "TCP")},
+					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(ptr.To(8080), nil, "TCP")},
 					Tags:              npRuleTags3,
 					DestinationGroups: []string{"/orgs/default/projects/pro1/vpcs/vpc1/groups/p1-94b44028_ogcol_8080_ipset"},
 				}, {
@@ -474,11 +512,12 @@ func Test_ExpandRule(t *testing.T) {
 					SequenceNumber: Int64(int64(2)),
 					Action:         common.String("ALLOW"),
 					Services:       []string{"ANY"},
-					ServiceEntries: []*data.StructValue{getRuleServiceEntries(1236, 1237, "UDP")},
+					ServiceEntries: []*data.StructValue{getRuleServiceEntries(ptr.To(1236), ptr.To(1237), "UDP")},
 					Tags:           npRuleTags3,
 				},
 			},
-		}, {
+		},
+		{
 			name:       "VPC: rule with named ports for SecurityPolicy",
 			vpcEnabled: true,
 			ruleIdx:    2,
@@ -494,7 +533,7 @@ func Test_ExpandRule(t *testing.T) {
 					SequenceNumber:    Int64(int64(2)),
 					Action:            common.String("ALLOW"),
 					Services:          []string{"ANY"},
-					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(8080, 0, "TCP")},
+					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(ptr.To(8080), nil, "TCP")},
 					Tags:              spVPCRuleTags1,
 					DestinationGroups: []string{"/orgs/default/projects/pro1/vpcs/vpc1/groups/p1-94b44028_ogcol_8080_ipset"},
 				}, {
@@ -504,11 +543,12 @@ func Test_ExpandRule(t *testing.T) {
 					SequenceNumber: Int64(int64(2)),
 					Action:         common.String("ALLOW"),
 					Services:       []string{"ANY"},
-					ServiceEntries: []*data.StructValue{getRuleServiceEntries(1236, 1237, "UDP")},
+					ServiceEntries: []*data.StructValue{getRuleServiceEntries(ptr.To(1236), ptr.To(1237), "UDP")},
 					Tags:           spVPCRuleTags1,
 				},
 			},
-		}, {
+		},
+		{
 			name:       "T1: rule with named ports for SecurityPolicy",
 			vpcEnabled: false,
 			ruleIdx:    2,
@@ -524,7 +564,7 @@ func Test_ExpandRule(t *testing.T) {
 					SequenceNumber:    Int64(int64(2)),
 					Action:            common.String("ALLOW"),
 					Services:          []string{"ANY"},
-					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(8080, 0, "TCP")},
+					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(ptr.To(8080), nil, "TCP")},
 					Tags:              spT1RuleTags,
 					DestinationGroups: []string{"/infra/domains/k8scl-one/groups/sp_uid1_94b44028488f3e719879abbc27c75e5cb44872b7_2_0_0_ipset"},
 				}, {
@@ -534,10 +574,45 @@ func Test_ExpandRule(t *testing.T) {
 					SequenceNumber: Int64(int64(2)),
 					Action:         common.String("ALLOW"),
 					Services:       []string{"ANY"},
-					ServiceEntries: []*data.StructValue{getRuleServiceEntries(1236, 1237, "UDP")},
+					ServiceEntries: []*data.StructValue{getRuleServiceEntries(ptr.To(1236), ptr.To(1237), "UDP")},
 					Tags:           spT1RuleTags,
 				},
 			},
+		},
+		{
+			name:       "VPC:  rule with ports 0 for SecurityPolicy",
+			vpcEnabled: true,
+			ruleIdx:    3,
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expRules: []*model.Rule{
+				{
+					Id:             common.String("p1-9cfca0b4_ogcol_0.1235_all"),
+					DisplayName:    common.String("TCP.0.1235_UDP.all_ingress_allow"),
+					Direction:      common.String(string("IN")),
+					SequenceNumber: Int64(int64(3)),
+					Action:         common.String(string("ALLOW")),
+					Services:       []string{"ANY"},
+					ServiceEntries: []*data.StructValue{
+						getRuleServiceEntries(ptr.To(0), ptr.To(1235), "TCP"),
+						getRuleServiceEntries(nil, nil, "UDP"),
+					},
+					Tags: spVPCRuleTags2,
+				},
+			},
+		},
+		{
+			name:       "VPC:  rule with endPort only for SecurityPolicy",
+			vpcEnabled: true,
+			ruleIdx:    4,
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expErr:     "endPort can only be defined when 'port' is not specified.",
+		},
+		{
+			name:       "VPC:  rule with namedport and invalid port/endPort for SecurityPolicy",
+			vpcEnabled: true,
+			ruleIdx:    5,
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expErr:     "endPort can only be defined if port is also numeric.",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -674,10 +749,15 @@ func Test_ResolveNamespaceForNsSelectorMatchExpression(t *testing.T) {
 	assert.Equal(t, expectedNamespaceList, nsList)
 }
 
-func getRuleServiceEntries(portStart, portEnd int, protocol string) *data.StructValue {
+func getRuleServiceEntries(portStart, portEnd *int, protocol string) *data.StructValue {
+	var port *intstr.IntOrString
+	if portStart != nil {
+		port = ptr.To(intstr.FromInt32(int32(*portStart)))
+	}
+
 	return buildRuleServiceEntries(v1alpha1.SecurityPolicyPort{
 		Protocol: core_v1.Protocol(protocol),
-		Port:     intstr.FromInt32(int32(portStart)),
+		Port:     port,
 		EndPort:  portEnd,
 	})
 }
