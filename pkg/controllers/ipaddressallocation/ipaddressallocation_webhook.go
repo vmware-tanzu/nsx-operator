@@ -75,6 +75,15 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		if len(existingAddressBindingList.Items) > 0 {
 			return admission.Denied(fmt.Sprintf("IPAddressAllocation %s is used by AddressBinding %s", ipAddressAllocation.Name, existingAddressBindingList.Items[0].Name))
 		}
+
+		existingStaticRouteList := &v1alpha1.StaticRouteList{}
+		if err := v.Client.List(context.TODO(), existingStaticRouteList, client.InNamespace(ipAddressAllocation.Namespace), client.MatchingFields{util.StaticRouteIPAddressAllocationNameIndexKey: ipAddressAllocation.Name}); err != nil {
+			log.Error(err, "failed to list StaticRoute", "Namespace", ipAddressAllocation.Namespace)
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if len(existingStaticRouteList.Items) > 0 {
+			return admission.Denied(fmt.Sprintf("IPAddressAllocation %s is used by StaticRoute %s", ipAddressAllocation.Name, existingStaticRouteList.Items[0].Name))
+		}
 		return v.validateServiceVIP(ctx, req, ipAddressAllocation)
 	}
 	return admission.Allowed("")

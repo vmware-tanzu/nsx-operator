@@ -19,6 +19,10 @@ spec:
       jsonPath: .spec.network
       name: Network
       type: string
+    - description: IPAddressAllocation CR name
+      jsonPath: .spec.networkIpAllocation
+      name: NetworkIPAllocation
+      type: string
     - description: Next Hops
       jsonPath: .spec.nextHops[*].ipAddress
       name: NextHops
@@ -49,8 +53,15 @@ spec:
             description: StaticRouteSpec defines static routes configuration on VPC.
             properties:
               network:
-                description: Specify network address in CIDR format.
+                description: |-
+                  Specify network address in CIDR format.
+                  Mutually exclusive with networkIpAllocation.
                 format: cidr
+                type: string
+              networkIpAllocation:
+                description: |-
+                  Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as
+                  the static route network. Mutually exclusive with network.
                 type: string
               nextHops:
                 description: Next hop gateway
@@ -67,9 +78,11 @@ spec:
                 minItems: 1
                 type: array
             required:
-            - network
             - nextHops
             type: object
+            x-kubernetes-validations:
+            - message: spec.network and spec.networkIpAllocation are mutually exclusive
+              rule: '!has(self.network) || !has(self.networkIpAllocation)'
           status:
             description: StaticRouteStatus defines the observed state of StaticRoute.
             properties:

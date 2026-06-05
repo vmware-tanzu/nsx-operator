@@ -34,6 +34,14 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 			return []string{ab.Spec.IPAddressAllocationName}
 		}
 	}
+	indexFunc2 := func(obj client.Object) []string {
+		if sr, ok := obj.(*v1alpha1.StaticRoute); !ok {
+			log.Info("Invalid object", "type", reflect.TypeOf(obj))
+			return []string{}
+		} else {
+			return []string{sr.Spec.NetworkIPAllocation}
+		}
+	}
 	reqDelete, _ := json.Marshal(&v1alpha1.IPAddressAllocation{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "ns1",
@@ -108,6 +116,23 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 				return nil
 			},
 			want: admission.Denied("IPAddressAllocation ip1 is used by AddressBinding ab1"),
+		},
+		{
+			name: "delete with existing static route",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Delete,
+				OldObject: runtime.RawExtension{Raw: reqDelete},
+			}}},
+			prepareFunc: func(t *testing.T, client client.Client, ctx context.Context) *gomonkey.Patches {
+				client.Create(ctx, &v1alpha1.StaticRoute{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "sr1"},
+					Spec: v1alpha1.StaticRouteSpec{
+						NetworkIPAllocation: "ip1",
+					},
+				})
+				return nil
+			},
+			want: admission.Denied("IPAddressAllocation ip1 is used by StaticRoute sr1"),
 		},
 		{
 			name: "delete without address binding",
@@ -238,7 +263,7 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := clientgoscheme.Scheme
 			v1alpha1.AddToScheme(scheme)
-			client := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&v1alpha1.AddressBinding{}, util.AddressBindingIPAddressAllocationNameIndexKey, indexFunc).Build()
+			client := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&v1alpha1.AddressBinding{}, util.AddressBindingIPAddressAllocationNameIndexKey, indexFunc).WithIndex(&v1alpha1.StaticRoute{}, util.StaticRouteIPAddressAllocationNameIndexKey, indexFunc2).Build()
 			decoder := admission.NewDecoder(scheme)
 			ctx := context.TODO()
 			if tt.prepareFunc != nil {

@@ -15,11 +15,14 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/staticrouteclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -30,6 +33,30 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
+
+// fakeIPAllocationService is a minimal configurable stub for
+// common.IPAddressAllocationServiceProvider used in staticroute tests.
+type fakeIPAllocationService struct {
+	allocation *model.VpcIpAddressAllocation
+	err        error
+}
+
+func (f *fakeIPAllocationService) GetIPAddressAllocationByOwner(_ v1.Object) (*model.VpcIpAddressAllocation, error) {
+	return f.allocation, f.err
+}
+func (f *fakeIPAllocationService) CreateIPAddressAllocationForAddressBinding(_ *v1alpha1.AddressBinding, _ *v1alpha1.SubnetPort, _ bool) error {
+	return nil
+}
+func (f *fakeIPAllocationService) DeleteIPAddressAllocationForAddressBinding(_ v1.Object) error {
+	return nil
+}
+func (f *fakeIPAllocationService) BuildIPAddressAllocationID(_ v1.Object) string { return "" }
+func (f *fakeIPAllocationService) DeleteIPAddressAllocationByNSXResource(_ *model.VpcIpAddressAllocation) error {
+	return nil
+}
+func (f *fakeIPAllocationService) ListIPAddressAllocationWithAddressBinding() []*model.VpcIpAddressAllocation {
+	return nil
+}
 
 var (
 	staticrouteName1          = "ns1-staticroute-1"
@@ -104,7 +131,7 @@ func Test_InitializeStaticRouteStore(t *testing.T) {
 
 	vpcService := &vpc.VPCService{}
 
-	_, err := InitializeStaticRoute(commonService, vpcService)
+	_, err := InitializeStaticRoute(commonService, vpcService, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -127,7 +154,7 @@ func TestStaticRouteService_DeleteStaticRouteByCR(t *testing.T) {
 		})
 	defer patches2.Reset()
 	vpcService := &vpc.VPCService{}
-	returnservice, err := InitializeStaticRoute(service.Service, vpcService)
+	returnservice, err := InitializeStaticRoute(service.Service, vpcService, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -392,19 +419,19 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 
 	// Patch buildStaticRoute to return error
 	t.Run("buildStaticRoute retruns error", func(t *testing.T) {
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nil, fmt.Errorf("build error")
 		})
 		defer patchBuild.Reset()
 
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "build error")
 	})
 
 	t.Run("no update occurs if the StaticRoute is not modified", func(t *testing.T) {
 		// Patch buildStaticRoute to return valid static route
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nsxStaticRoute, nil
 		})
 		defer patchBuild.Reset()
@@ -423,7 +450,7 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		defer patchCompare.Reset()
 		// Add existing static route to store
 		service.StaticRouteStore.Add(nsxStaticRoute)
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{
 			Status: v1alpha1.StaticRouteStatus{
 				Conditions: []v1alpha1.StaticRouteCondition{
 					{
@@ -437,7 +464,7 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 	})
 
 	t.Run("update failed if VPC is not found", func(t *testing.T) {
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nsxStaticRoute, nil
 		})
 		defer patchBuild.Reset()
@@ -460,13 +487,13 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		})
 		defer patchVPC.Reset()
 
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no vpc found for ns ns")
 	})
 
 	t.Run("update failed NSX patch error", func(t *testing.T) {
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nsxStaticRoute, nil
 		})
 		defer patchBuild.Reset()
@@ -495,13 +522,13 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		})
 		defer patchPatch.Reset()
 
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "patch error")
 	})
 
 	t.Run("update failed with StaticRouteClient error", func(t *testing.T) {
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nsxStaticRoute, nil
 		})
 		defer patchBuild.Reset()
@@ -531,13 +558,13 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		defer patchPatch.Reset()
 
 		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(model.StaticRoutes{}, fmt.Errorf("get error")).Times(1)
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "get error")
 	})
 
 	t.Run("update failed with realization check error", func(t *testing.T) {
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nsxStaticRoute, nil
 		})
 		defer patchBuild.Reset()
@@ -577,14 +604,14 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		})
 		defer patchDelete.Reset()
 
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "realization check failed")
 		assert.Contains(t, err.Error(), "deletion failed")
 	})
 
 	t.Run("update failed and successfully delete the failed route", func(t *testing.T) {
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nsxStaticRoute, nil
 		})
 		defer patchBuild.Reset()
@@ -624,13 +651,13 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 			return nil
 		})
 		defer patchDelete.Reset()
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "realized error")
 	})
 
 	t.Run("successfully patch static route", func(t *testing.T) {
-		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute) (*model.StaticRoutes, error) {
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(service), "buildStaticRoute", func(_ *StaticRouteService, obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
 			return nsxStaticRoute, nil
 		})
 		defer patchBuild.Reset()
@@ -664,7 +691,7 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 			})
 		defer patchRealize.Reset()
 		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
-		err := service.CreateOrUpdateStaticRoute("ns", &v1alpha1.StaticRoute{})
+		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.NoError(t, err)
 	})
 }
@@ -701,4 +728,174 @@ func Test_isStaticRouteReady(t *testing.T) {
 		},
 	}
 	assert.False(t, isStaticRouteReady(staticRouteUnready))
+}
+
+func TestResolveNetworkIPAllocationPath(t *testing.T) {
+	const ns = "test-ns"
+	const crName = "my-alloc"
+	const nsxPath = "/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/alloc-1"
+
+	allocCR := &v1alpha1.IPAddressAllocation{
+		ObjectMeta: v1.ObjectMeta{Name: crName, Namespace: ns, UID: "cr-uid-1"},
+	}
+
+	scheme := apimachineryruntime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	// makeService builds a StaticRouteService whose k8s client is pre-loaded with objs
+	// and whose IPAllocationService is set to ipSvc.
+	makeService := func(ipSvc *fakeIPAllocationService, objs ...apimachineryruntime.Object) *StaticRouteService {
+		svc, ctrl, _ := createService(t)
+		defer ctrl.Finish()
+		svc.Client = fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(objs...).Build()
+		svc.IPAllocationService = ipSvc
+		return svc
+	}
+
+	t.Run("CR not found returns error", func(t *testing.T) {
+		svc := makeService(&fakeIPAllocationService{}) // no CR pre-loaded
+		_, err := svc.resolveNetworkIPAllocationPath(context.Background(), ns, crName)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("k8s client returns unexpected error", func(t *testing.T) {
+		mockCtrl := gomock.NewController(t)
+		defer mockCtrl.Finish()
+		svc, _, _ := createService(t)
+		mockK8s := mock_client.NewMockClient(mockCtrl)
+		mockK8s.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			Return(fmt.Errorf("connection refused"))
+		svc.Client = mockK8s
+		svc.IPAllocationService = &fakeIPAllocationService{}
+
+		_, err := svc.resolveNetworkIPAllocationPath(context.Background(), ns, crName)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get IPAddressAllocation CR")
+		assert.Contains(t, err.Error(), "connection refused")
+	})
+
+	t.Run("NSX allocation lookup fails", func(t *testing.T) {
+		svc := makeService(&fakeIPAllocationService{err: fmt.Errorf("store error")}, allocCR)
+		_, err := svc.resolveNetworkIPAllocationPath(context.Background(), ns, crName)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to look up NSX allocation")
+		assert.Contains(t, err.Error(), "store error")
+	})
+
+	t.Run("NSX allocation not in store returns error", func(t *testing.T) {
+		svc := makeService(&fakeIPAllocationService{allocation: nil, err: nil}, allocCR)
+		_, err := svc.resolveNetworkIPAllocationPath(context.Background(), ns, crName)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found in store")
+	})
+
+	t.Run("NSX allocation has nil path returns error", func(t *testing.T) {
+		svc := makeService(&fakeIPAllocationService{
+			allocation: &model.VpcIpAddressAllocation{Path: nil},
+		}, allocCR)
+		_, err := svc.resolveNetworkIPAllocationPath(context.Background(), ns, crName)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "has no policy path")
+	})
+
+	t.Run("NSX allocation has empty path returns error", func(t *testing.T) {
+		emptyPath := ""
+		svc := makeService(&fakeIPAllocationService{
+			allocation: &model.VpcIpAddressAllocation{Path: &emptyPath},
+		}, allocCR)
+		_, err := svc.resolveNetworkIPAllocationPath(context.Background(), ns, crName)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "has no policy path")
+	})
+
+	t.Run("success returns NSX allocation path", func(t *testing.T) {
+		path := nsxPath
+		svc := makeService(&fakeIPAllocationService{
+			allocation: &model.VpcIpAddressAllocation{Path: &path},
+		}, allocCR)
+		got, err := svc.resolveNetworkIPAllocationPath(context.Background(), ns, crName)
+		assert.NoError(t, err)
+		assert.Equal(t, nsxPath, got)
+	})
+}
+
+// TestCreateOrUpdateStaticRoute_WithNetworkIPAllocation verifies that when
+// spec.networkIpAllocation is set, CreateOrUpdateStaticRoute resolves the
+// IPAddressAllocation CR before calling buildStaticRoute.
+func TestCreateOrUpdateStaticRoute_WithNetworkIPAllocation(t *testing.T) {
+	const ns = "test-ns"
+	const crName = "my-alloc"
+	const nsxPath = "/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/alloc-1"
+
+	scheme := apimachineryruntime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	staticRouteCR := &v1alpha1.StaticRoute{
+		ObjectMeta: v1.ObjectMeta{Name: "sr1", Namespace: ns},
+		Spec: v1alpha1.StaticRouteSpec{
+			NetworkIPAllocation: crName,
+			NextHops:            []v1alpha1.NextHop{{IPAddress: "10.1.1.1"}},
+		},
+	}
+
+	t.Run("CR not found aborts without calling NSX", func(t *testing.T) {
+		svc, ctrl, _ := createService(t)
+		defer ctrl.Finish()
+		// Fake client has NO IPAddressAllocation pre-loaded → returns NotFound.
+		svc.Client = fake.NewClientBuilder().WithScheme(scheme).Build()
+		svc.IPAllocationService = &fakeIPAllocationService{}
+
+		err := svc.CreateOrUpdateStaticRoute(context.Background(), ns, staticRouteCR)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("NSX allocation not in store aborts without calling NSX", func(t *testing.T) {
+		allocCR := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{Name: crName, Namespace: ns, UID: "cr-uid-1"},
+		}
+		svc, ctrl, _ := createService(t)
+		defer ctrl.Finish()
+		svc.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(allocCR).Build()
+		svc.IPAllocationService = &fakeIPAllocationService{allocation: nil, err: nil}
+
+		err := svc.CreateOrUpdateStaticRoute(context.Background(), ns, staticRouteCR)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found in store")
+	})
+
+	t.Run("resolved path is forwarded to buildStaticRoute", func(t *testing.T) {
+		allocCR := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{Name: crName, Namespace: ns, UID: "cr-uid-2"},
+		}
+		path := nsxPath
+		svc, ctrl, _ := createService(t)
+		defer ctrl.Finish()
+		svc.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(allocCR).Build()
+		svc.IPAllocationService = &fakeIPAllocationService{
+			allocation: &model.VpcIpAddressAllocation{Path: &path},
+		}
+
+		// Patch buildStaticRoute to capture the path argument and return a minimal route.
+		var capturedPath string
+		patchBuild := gomonkey.ApplyPrivateMethod(reflect.TypeOf(svc), "buildStaticRoute",
+			func(_ *StaticRouteService, _ *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {
+				capturedPath = networkIPAllocationPath
+				id := "sr-id"
+				return &model.StaticRoutes{Id: &id}, nil
+			})
+		defer patchBuild.Reset()
+
+		// Patch the downstream NSX calls so the test doesn't need a real NSX server.
+		patchVPC := gomonkey.ApplyMethod(reflect.TypeOf(svc.VPCService), "ListVPCInfo",
+			func(_ common.VPCServiceProvider, _ string) []common.VPCResourceInfo {
+				return []common.VPCResourceInfo{}
+			})
+		defer patchVPC.Reset()
+
+		_ = svc.CreateOrUpdateStaticRoute(context.Background(), ns, staticRouteCR)
+		// Regardless of the downstream result, the path must have been forwarded.
+		assert.Equal(t, nsxPath, capturedPath)
+	})
 }

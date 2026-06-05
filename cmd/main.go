@@ -188,7 +188,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize node commonService", "controller", "Node")
 			os.Exit(1)
 		}
-		staticRouteService, err := staticroute.InitializeStaticRoute(commonService, vpcService)
+		staticRouteService, err := staticroute.InitializeStaticRoute(commonService, vpcService, ipAddressAllocationService)
 		if err != nil {
 			log.Error(err, "Failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
