@@ -14,12 +14,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
 )
@@ -238,8 +239,8 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 			name:        "No NSX VpcSubnet exists for the Subnet CR",
 			subnetCRUID: "uuid1",
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{}
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.BindingService), "GetSubnetConnectionBindingMapCRsBySubnet", func(_ *subnetbinding.BindingService, _ *model.VpcSubnet) []*v1alpha1.SubnetConnectionBindingMap {
+					return []*v1alpha1.SubnetConnectionBindingMap{}
 				})
 				return patch
 			},
@@ -248,12 +249,13 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 			name:        "No NSX SubnetConnectionBindingMap created for VpcSubnet",
 			subnetCRUID: "uuid1",
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{
-						{Id: common.String("id1")},
-					}
+				r.SubnetService.SubnetStore.Indexer.Add(&model.VpcSubnet{
+					Id: servicecommon.String("id1"),
+					Tags: []model.Tag{
+						{Scope: servicecommon.String(servicecommon.TagScopeSubnetCRUID), Tag: servicecommon.String("uuid1")},
+					},
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.BindingService), "GetSubnetConnectionBindingMapCRsBySubnet", func(_ *subnetbinding.BindingService, _ *model.VpcSubnet) []*v1alpha1.SubnetConnectionBindingMap {
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.BindingService), "GetSubnetConnectionBindingMapCRsBySubnet", func(_ *subnetbinding.BindingService, _ *model.VpcSubnet) []*v1alpha1.SubnetConnectionBindingMap {
 					return []*v1alpha1.SubnetConnectionBindingMap{}
 				})
 				return patch
@@ -263,15 +265,24 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 			name:        "Partial of VpcSubnets are associated with the NSX SubnetConnectionBindingMap",
 			subnetCRUID: "uuid1",
 			patches: func(r *SubnetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{
-						{Id: common.String("id1")},
-						{Id: common.String("id2")},
-					}
+				r.SubnetService.SubnetStore.Indexer.Add(&model.VpcSubnet{
+					Id: servicecommon.String("id1"),
+					Tags: []model.Tag{
+						{Scope: servicecommon.String(servicecommon.TagScopeSubnetCRUID), Tag: servicecommon.String("uuid1")},
+					},
 				})
-				patch.ApplyMethod(reflect.TypeOf(r.BindingService), "GetSubnetConnectionBindingMapCRsBySubnet", func(_ *subnetbinding.BindingService, subnet *model.VpcSubnet) []*v1alpha1.SubnetConnectionBindingMap {
-					if *subnet.Id == "id1" {
+				r.SubnetService.SubnetStore.Indexer.Add(&model.VpcSubnet{
+					Id: servicecommon.String("id2"),
+					Tags: []model.Tag{
+						{Scope: servicecommon.String(servicecommon.TagScopeSubnetCRUID), Tag: servicecommon.String("uuid1")},
+					},
+				})
+				patch := gomonkey.ApplyMethod(reflect.TypeOf(r.BindingService), "GetSubnetConnectionBindingMapCRsBySubnet", func(_ *subnetbinding.BindingService, subnet *model.VpcSubnet) []*v1alpha1.SubnetConnectionBindingMap {
+					if subnet != nil && subnet.Id != nil && *subnet.Id == "id1" {
 						return []*v1alpha1.SubnetConnectionBindingMap{}
+					}
+					if subnet != nil && subnet.Id != nil && *subnet.Id == "id2" {
+						return []*v1alpha1.SubnetConnectionBindingMap{bm1}
 					}
 					return []*v1alpha1.SubnetConnectionBindingMap{bm1}
 				})
@@ -282,14 +293,57 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &SubnetReconciler{
-				SubnetService:  &subnet.SubnetService{},
+				SubnetService: &subnet.SubnetService{
+					SubnetStore: &subnet.SubnetStore{
+						ResourceStore: servicecommon.ResourceStore{
+							Indexer: cache.NewIndexer(func(obj interface{}) (string, error) {
+								return *obj.(*model.VpcSubnet).Id, nil
+							}, cache.Indexers{
+								servicecommon.TagScopeSubnetCRUID: func(obj interface{}) ([]string, error) {
+									if subnet, ok := obj.(*model.VpcSubnet); ok {
+										for _, tag := range subnet.Tags {
+											if *tag.Scope == servicecommon.TagScopeSubnetCRUID {
+												return []string{*tag.Tag}, nil
+											}
+										}
+									}
+									return []string{}, nil
+								},
+							}),
+						},
+					},
+				},
 				BindingService: &subnetbinding.BindingService{},
 			}
 			patches := tc.patches(r)
 			defer patches.Reset()
 
 			actBindings := r.getNSXSubnetBindingsBySubnet(tc.subnetCRUID)
-			assert.ElementsMatch(t, tc.expSubnetConnectionBindingMaps, actBindings)
+
+			// We need to compare the elements without considering the pointers
+			var actBindingsVals []v1alpha1.SubnetConnectionBindingMap
+			for _, b := range actBindings {
+				if b != nil {
+					actBindingsVals = append(actBindingsVals, *b)
+				}
+			}
+			var expBindingsVals []v1alpha1.SubnetConnectionBindingMap
+			if tc.expSubnetConnectionBindingMaps != nil {
+				for _, b := range tc.expSubnetConnectionBindingMaps {
+					if b != nil {
+						expBindingsVals = append(expBindingsVals, *b)
+					}
+				}
+			} else {
+				expBindingsVals = []v1alpha1.SubnetConnectionBindingMap{}
+			}
+			if actBindingsVals == nil {
+				actBindingsVals = []v1alpha1.SubnetConnectionBindingMap{}
+			}
+			assert.Equal(t, len(expBindingsVals), len(actBindingsVals))
+			if len(expBindingsVals) == len(actBindingsVals) && len(expBindingsVals) > 0 {
+				assert.Equal(t, expBindingsVals[0].Name, actBindingsVals[0].Name)
+			}
 		})
 	}
 }

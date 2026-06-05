@@ -201,6 +201,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
 		if errors.As(err, &nsxutil.ExceedTagsError{}) {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Tags limit exceeded", setSubnetReadyStatusFalse)
+			r.updateSubnetSetStatusOnFail(ctx, subnetCR, err)
 			return ResultNormal, nil
 		}
 		var nsxErr *nsxutil.NSXApiError
@@ -208,10 +209,12 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOverlappedErrorCode || *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode {
 				// No need to requeue for invalid reservedIPRanges
 				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
+				r.updateSubnetSetStatusOnFail(ctx, subnetCR, err)
 				return ResultNormal, err
 			}
 		}
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
+		r.updateSubnetSetStatusOnFail(ctx, subnetCR, err)
 		return ResultRequeue, err
 	}
 	// Update status
@@ -420,6 +423,57 @@ func (r *SubnetReconciler) setSubnetDeletionFailedStatus(ctx context.Context, su
 		newConditions[0].Reason = reason
 	}
 	updateSubnetStatusConditions(r.Client, ctx, subnet, newConditions)
+}
+
+func (r *SubnetReconciler) updateSubnetSetStatusOnFail(ctx context.Context, subnetCR *v1alpha1.Subnet, err error) {
+	if subnetCR == nil {
+		return
+	}
+	var subnetSetName string
+	if associatedResource, exists := subnetCR.Annotations[servicecommon.AnnotationAssociatedResource]; exists {
+		subnetSetName = associatedResource
+	}
+
+	if subnetSetName == "" {
+		return
+	}
+
+	subnetSet := &v1alpha1.SubnetSet{}
+	if getErr := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetSetName}, subnetSet); getErr != nil {
+		log.Error(getErr, "Failed to get SubnetSet to update status", "SubnetSet", subnetSetName)
+		return
+	}
+
+	newCondition := v1alpha1.Condition{
+		Type:               v1alpha1.Ready,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("Subnet %s creation failed: %v", subnetCR.Name, err),
+		Reason:             "SubnetCreateFailed",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	conditionsUpdated := false
+	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetSet.Status.Conditions)
+	if matchedCondition != nil {
+		if matchedCondition.Reason != newCondition.Reason || matchedCondition.Message != newCondition.Message || matchedCondition.Status != newCondition.Status {
+			matchedCondition.Reason = newCondition.Reason
+			matchedCondition.Message = newCondition.Message
+			matchedCondition.Status = newCondition.Status
+			matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
+			conditionsUpdated = true
+		}
+	} else {
+		subnetSet.Status.Conditions = append(subnetSet.Status.Conditions, newCondition)
+		conditionsUpdated = true
+	}
+
+	if conditionsUpdated {
+		if updateErr := r.Client.Status().Update(ctx, subnetSet); updateErr != nil {
+			log.Error(updateErr, "Failed to update SubnetSet status", "SubnetSet", subnetSetName)
+		} else {
+			log.Info("Updated SubnetSet status due to Subnet creation failure", "SubnetSet", subnetSetName)
+		}
+	}
 }
 
 func updateSubnetStatusConditions(client client.Client, ctx context.Context, subnet *v1alpha1.Subnet, newConditions []v1alpha1.Condition) {
