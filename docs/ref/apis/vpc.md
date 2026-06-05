@@ -421,6 +421,8 @@ _Appears in:_
 | `ipAddresses` _[NetworkInterfaceIPAddress](#networkinterfaceipaddress) array_ |  |  |  |
 | `macAddress` _string_ | The MAC address. |  |  |
 | `dhcpDeactivatedOnSubnet` _boolean_ | DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet. |  |  |
+| `dhcpv6DeactivatedOnSubnet` _boolean_ | DHCPv6DeactivatedOnSubnet indicates whether DHCPv6 is deactivated on the Subnet. |  |  |
+| `raDeactivated` _boolean_ | RADeactivated indicates whether RAMode is deactivated on the VPC. |  |  |
 
 
 #### NetworkInterfaceIPAddress
@@ -1039,8 +1041,8 @@ _Appears in:_
 | `subnet` _string_ | Subnet defines the parent Subnet name of the SubnetPort. |  |  |
 | `subnetSet` _string_ | SubnetSet defines the parent SubnetSet name of the SubnetPort. |  |  |
 | `addressBindings` _[PortAddressBinding](#portaddressbinding) array_ | AddressBindings defines static address bindings used for the SubnetPort. |  |  |
-| `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. It will be ignored when<br />StaticIPAllocationType is set. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
-| `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. This field is only valid<br />when static allocation is enabled on the Subnet. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
+| `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType<br />is set, IP families of InterfaceIPType should be a superset of<br />StaticIPAllocationType. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
+| `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. If not specified, this field<br />will be back-filled based on InterfaceIPType and Subnet configuration. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
 
 
 #### SubnetPortStatus

@@ -26,15 +26,16 @@ type SubnetPortSpec struct {
 	// AddressBindings defines static address bindings used for the SubnetPort.
 	AddressBindings []PortAddressBinding `json:"addressBindings,omitempty"`
 	// InterfaceIPType decides the address families of static IP allocation, when
-	// DHCP or SLAAC is not activated on the Subnet. It will be ignored when
-	// StaticIPAllocationType is set.
+	// DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType
+	// is set, IP families of InterfaceIPType should be a superset of
+	// StaticIPAllocationType.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
 	InterfaceIPType IPAddressType `json:"interfaceIPType,omitempty"`
 	// StaticIPAllocationType explicitly requests static IP allocation of the
 	// specified the address families. In a mixed-mode Subnet (where both DHCP
 	// and static allocation are enabled), use this to define which families
-	// should be allocated from the static IP pools. This field is only valid
-	// when static allocation is enabled on the Subnet.
+	// should be allocated from the static IP pools. If not specified, this field
+	// will be back-filled based on InterfaceIPType and Subnet configuration.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6;None
 	StaticIPAllocationType StaticIPAllocationType `json:"staticIPAllocationType,omitempty"`
 }
@@ -70,6 +71,10 @@ type NetworkInterfaceConfig struct {
 	MACAddress string `json:"macAddress,omitempty"`
 	// DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet.
 	DHCPDeactivatedOnSubnet bool `json:"dhcpDeactivatedOnSubnet,omitempty"`
+	// DHCPv6DeactivatedOnSubnet indicates whether DHCPv6 is deactivated on the Subnet.
+	DHCPv6DeactivatedOnSubnet bool `json:"dhcpv6DeactivatedOnSubnet,omitempty"`
+	// RADeactivated indicates whether RAMode is deactivated on the VPC.
+	RADeactivated bool `json:"raDeactivated,omitempty"`
 }
 
 type NetworkInterfaceIPAddress struct {
