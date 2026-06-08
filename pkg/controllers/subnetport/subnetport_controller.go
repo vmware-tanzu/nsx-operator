@@ -79,6 +79,63 @@ type SubnetPortReconciler struct {
 
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports/status,verbs=get;update;patch
+func (r *SubnetPortReconciler) updateSubnetSetStatusOnFail(ctx context.Context, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet, err error) {
+	if subnetPort == nil {
+		return
+	}
+	var subnetSetName string
+	if subnetPort.Spec.SubnetSet != "" {
+		subnetSetName = subnetPort.Spec.SubnetSet
+	} else if nsxSubnet != nil {
+		for _, tag := range nsxSubnet.Tags {
+			if *tag.Scope == servicecommon.TagScopeSubnetSetCRName {
+				subnetSetName = *tag.Tag
+				break
+			}
+		}
+	}
+	if subnetSetName == "" {
+		subnetSetName = "default"
+	}
+
+	subnetSet := &v1alpha1.SubnetSet{}
+	if getErr := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetPort.Namespace, Name: subnetSetName}, subnetSet); getErr != nil {
+		log.Error(getErr, "Failed to get SubnetSet to update status", "SubnetSet", subnetSetName)
+		return
+	}
+
+	newCondition := v1alpha1.Condition{
+		Type:               v1alpha1.Ready,
+		Status:             v1.ConditionFalse,
+		Message:            fmt.Sprintf("SubnetPort %s creation failed: %v", subnetPort.Name, err),
+		Reason:             "SubnetPortCreateFailed",
+		LastTransitionTime: metav1.Now(),
+	}
+
+	conditionsUpdated := false
+	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetSet.Status.Conditions)
+	if matchedCondition != nil {
+		if matchedCondition.Reason != newCondition.Reason || matchedCondition.Message != newCondition.Message || matchedCondition.Status != newCondition.Status {
+			matchedCondition.Reason = newCondition.Reason
+			matchedCondition.Message = newCondition.Message
+			matchedCondition.Status = newCondition.Status
+			matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
+			conditionsUpdated = true
+		}
+	} else {
+		subnetSet.Status.Conditions = append(subnetSet.Status.Conditions, newCondition)
+		conditionsUpdated = true
+	}
+
+	if conditionsUpdated {
+		if updateErr := r.Client.Status().Update(ctx, subnetSet); updateErr != nil {
+			log.Error(updateErr, "Failed to update SubnetSet status", "SubnetSet", subnetSetName)
+		} else {
+			log.Info("Updated SubnetSet status due to SubnetPort creation failure", "SubnetSet", subnetSetName)
+		}
+	}
+}
+
 func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log.Info("Reconciling SubnetPort CR", "SubnetPort", req.NamespacedName)
 	startTime := time.Now()
@@ -113,10 +170,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if isParentResourceTerminating {
 			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.updateSubnetSetStatusOnFail(ctx, subnetPort, nil, err)
 			return common.ResultNormal, err
 		}
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.updateSubnetSetStatusOnFail(ctx, subnetPort, nil, err)
 			return common.ResultRequeue, err
 		}
 		if !isExisting {
@@ -127,6 +186,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		vm, nicName, err := r.getVirtualMachine(ctx, subnetPort, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get labels from VirtualMachine", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.updateSubnetSetStatusOnFail(ctx, subnetPort, nil, err)
 			return common.ResultRequeue, err
 		}
 		if vm != nil {
@@ -150,6 +210,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				}
 			}
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.updateSubnetSetStatusOnFail(ctx, subnetPort, nil, err)
 			return common.ResultRequeue, err
 		}
 
@@ -165,11 +226,13 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		err = r.IpAddressAllocationService.CreateIPAddressAllocationForAddressBinding(ab, subnetPort, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.updateSubnetSetStatusOnFail(ctx, subnetPort, nsxSubnet, err)
 			return common.ResultRequeue, err
 		}
 		nsxSubnetPortState, enableDHCP, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.updateSubnetSetStatusOnFail(ctx, subnetPort, nsxSubnet, err)
 			if nsxutil.IsRealizeStateError(err) {
 				return common.ResultRequeueAfter60sec, nil
 			}
@@ -181,6 +244,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				if err != nil {
 					log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
 					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					r.updateSubnetSetStatusOnFail(ctx, subnetPort, nsxSubnet, err)
 					return common.ResultRequeue, err
 				}
 			}
