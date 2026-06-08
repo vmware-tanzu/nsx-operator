@@ -1057,6 +1057,7 @@ func TestBuildSubnetCR(t *testing.T) {
 					VPCName:        "proj-1:vpc-1",
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 					IPv4SubnetSize: 27,
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPAddresses:    []string{"172.26.0.0/27"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
@@ -1190,6 +1191,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 24,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
@@ -1232,6 +1234,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			expectedSubnet: &v1alpha1.Subnet{
 				Spec: v1alpha1.SubnetSpec{
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					IPv4SubnetSize: 24,
 					IPAddresses:    []string{"192.168.1.0/24"},
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
