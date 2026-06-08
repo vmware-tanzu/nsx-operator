@@ -2357,3 +2357,54 @@ func appendRuleIDAndHashTags(baseTags []model.Tag, ruleHash, ruleID string) []mo
 			},
 		}...)
 }
+
+func Test_updatePeerExpressions_NamespaceSelector_OpIn_Limit(t *testing.T) {
+	s := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster:          "k8scl-one",
+					EnableVPCNetwork: false,
+				},
+			},
+		},
+	}
+	s.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&s.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
+			return types.UID("ns-uid")
+		})
+	defer patches.Reset()
+
+	sp := &v1alpha1.SecurityPolicy{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "test-sp",
+			Namespace: "test-ns",
+			UID:       "sp-uid",
+		},
+	}
+
+	peer := &v1alpha1.SecurityPolicyPeer{
+		PodSelector: &v1.LabelSelector{
+			MatchLabels: map[string]string{"app": "test"},
+		},
+		NamespaceSelector: &v1.LabelSelector{
+			MatchExpressions: []v1.LabelSelectorRequirement{
+				{
+					Key:      "name",
+					Operator: v1.LabelSelectorOpIn,
+					Values:   []string{"ns1", "ns2", "ns3", "ns4", "ns5", "ns6"},
+				},
+			},
+		},
+	}
+
+	group := &model.Group{
+		Expression: []*data.StructValue{},
+	}
+
+	_, _, err := s.updatePeerExpressions(sp, peer, group, 0, false)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "count of values list for operator 'In' expressions")
+	assert.Contains(t, err.Error(), "exceed limit of 5")
+}
