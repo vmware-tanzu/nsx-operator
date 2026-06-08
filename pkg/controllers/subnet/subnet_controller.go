@@ -23,6 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -201,6 +203,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
 		if errors.As(err, &nsxutil.ExceedTagsError{}) {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Tags limit exceeded", setSubnetReadyStatusFalse)
+			r.updateSubnetSetStatusOnFail(ctx, subnetCR, err)
 			return ResultNormal, nil
 		}
 		var nsxErr *nsxutil.NSXApiError
@@ -208,12 +211,15 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOverlappedErrorCode || *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode {
 				// No need to requeue for invalid reservedIPRanges
 				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
+				r.updateSubnetSetStatusOnFail(ctx, subnetCR, err)
 				return ResultNormal, err
 			}
 		}
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
+		r.updateSubnetSetStatusOnFail(ctx, subnetCR, err)
 		return ResultRequeue, err
 	}
+	r.removeSubnetSetStatusOnSuccess(ctx, subnetCR)
 	// Update status
 	if err := r.updateSubnetStatus(subnetCR); err != nil {
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet status", setSubnetReadyStatusFalse)
@@ -221,6 +227,116 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ctrl.Result{}, nil
+}
+
+func (r *SubnetReconciler) updateSubnetSetStatusOnFail(ctx context.Context, subnetCR *v1alpha1.Subnet, err error) {
+	if subnetCR == nil {
+		return
+	}
+	subnetSetName := ""
+	if len(subnetCR.OwnerReferences) > 0 {
+		for _, owner := range subnetCR.OwnerReferences {
+			if owner.Kind == "SubnetSet" {
+				subnetSetName = owner.Name
+				break
+			}
+		}
+	}
+	if subnetSetName == "" {
+		return
+	}
+
+	subnetSet := &v1alpha1.SubnetSet{}
+	if getErr := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetSetName}, subnetSet); getErr != nil {
+		log.Error(getErr, "Failed to get SubnetSet to update status", "SubnetSet", subnetSetName)
+		return
+	}
+
+	subnetSetStatusUpdater := common.NewStatusUpdater(r.Client, r.SubnetService.NSXConfig, r.Recorder, common.MetricResTypeSubnetSet, "Subnet", "SubnetSet")
+	subnetSetStatusUpdater.UpdateFail(ctx, subnetSet, err, fmt.Sprintf("Subnet %s creation failed", subnetCR.Name), setSubnetSetSubnetFailedStatus)
+}
+
+func setSubnetSetSubnetFailedStatus(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
+	subnetSet := obj.(*v1alpha1.SubnetSet)
+	newConditions := []v1alpha1.Condition{
+		{
+			Type:               v1alpha1.SubnetFailed,
+			Status:             v1.ConditionTrue,
+			Message:            fmt.Sprintf("Subnet creation failed: %v", err),
+			Reason:             "SubnetCreateFailed",
+			LastTransitionTime: transitionTime,
+		},
+	}
+	updateSubnetSetStatusConditions(client, ctx, subnetSet, newConditions)
+}
+
+func updateSubnetSetStatusConditions(client client.Client, ctx context.Context, subnetSet *v1alpha1.SubnetSet, newConditions []v1alpha1.Condition) {
+	conditionsUpdated := false
+	for i := range newConditions {
+		matchedCondition := getExistingConditionOfType(newConditions[i].Type, subnetSet.Status.Conditions)
+		if matchedCondition != nil {
+			if matchedCondition.Reason != newConditions[i].Reason || matchedCondition.Message != newConditions[i].Message || matchedCondition.Status != newConditions[i].Status {
+				matchedCondition.Reason = newConditions[i].Reason
+				matchedCondition.Message = newConditions[i].Message
+				matchedCondition.Status = newConditions[i].Status
+				matchedCondition.LastTransitionTime = newConditions[i].LastTransitionTime
+				conditionsUpdated = true
+			}
+		} else {
+			subnetSet.Status.Conditions = append(subnetSet.Status.Conditions, newConditions[i])
+			conditionsUpdated = true
+		}
+	}
+	if conditionsUpdated {
+		if err := client.Status().Update(ctx, subnetSet); err != nil {
+			log.Error(err, "Failed to update status", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace)
+		} else {
+			log.Info("Updated SubnetSet", "Name", subnetSet.Name, "Namespace", subnetSet.Namespace, "New Conditions", newConditions)
+		}
+	}
+}
+
+func (r *SubnetReconciler) removeSubnetSetStatusOnSuccess(ctx context.Context, subnetCR *v1alpha1.Subnet) {
+	if subnetCR == nil {
+		return
+	}
+	subnetSetName := ""
+	if len(subnetCR.OwnerReferences) > 0 {
+		for _, owner := range subnetCR.OwnerReferences {
+			if owner.Kind == "SubnetSet" {
+				subnetSetName = owner.Name
+				break
+			}
+		}
+	}
+	if subnetSetName == "" {
+		return
+	}
+
+	subnetSet := &v1alpha1.SubnetSet{}
+	if getErr := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetSetName}, subnetSet); getErr != nil {
+		log.Error(getErr, "Failed to get SubnetSet to update status", "SubnetSet", subnetSetName)
+		return
+	}
+
+	conditionsUpdated := false
+	var newConditions []v1alpha1.Condition
+	for _, condition := range subnetSet.Status.Conditions {
+		if condition.Type == v1alpha1.SubnetFailed {
+			conditionsUpdated = true
+		} else {
+			newConditions = append(newConditions, condition)
+		}
+	}
+
+	if conditionsUpdated {
+		subnetSet.Status.Conditions = newConditions
+		if updateErr := r.Client.Status().Update(ctx, subnetSet); updateErr != nil {
+			log.Error(updateErr, "Failed to update SubnetSet status", "SubnetSet", subnetSetName)
+		} else {
+			log.Info("Updated SubnetSet status due to Subnet creation success", "SubnetSet", subnetSetName)
+		}
+	}
 }
 
 func (r *SubnetReconciler) setDefaultIPv4SubnetSizeValue(ctx context.Context, subnetCR *v1alpha1.Subnet, vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration) error {
@@ -568,10 +684,26 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 	return nil
 }
 
+var PredicateFuncsSubnet = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		oldSubnet, ok1 := e.ObjectOld.(*v1alpha1.Subnet)
+		newSubnet, ok2 := e.ObjectNew.(*v1alpha1.Subnet)
+		if ok1 && ok2 {
+			if reflect.DeepEqual(oldSubnet.Spec, newSubnet.Spec) &&
+				reflect.DeepEqual(oldSubnet.ObjectMeta.Annotations, newSubnet.ObjectMeta.Annotations) &&
+				reflect.DeepEqual(oldSubnet.ObjectMeta.Labels, newSubnet.ObjectMeta.Labels) &&
+				oldSubnet.ObjectMeta.DeletionTimestamp == newSubnet.ObjectMeta.DeletionTimestamp {
+				return false
+			}
+		}
+		return true
+	},
+}
+
 // setupWithManager configures the controller to watch Subnet resources
 func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.Subnet{}).
+		For(&v1alpha1.Subnet{}, builder.WithPredicates(PredicateFuncsSubnet)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
