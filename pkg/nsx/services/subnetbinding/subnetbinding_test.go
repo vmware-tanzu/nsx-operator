@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
@@ -18,6 +19,7 @@ import (
 	bindingmap_mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/subnetconnectionbindingmapclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -316,11 +318,35 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 			prepareFunc: func() {
 				mockOrgRootClient.EXPECT().Patch(gomock.Any(), &enforceRevisionCheckParam).Return(nil)
 				mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
-					Return(model.SubnetConnectionBindingMapListResult{}, fmt.Errorf("fake-error"))
+					Return(model.SubnetConnectionBindingMapListResult{}, nsxutil.NewNSXApiError(&model.ApiError{ErrorMessage: String("fake-error")}, stderrors.ErrorType_ERROR))
 			},
-			expErr:                "fake-error",
+			expErr:                "nsx error code: 0, message: fake-error",
 			existingBindingMaps:   []*model.SubnetConnectionBindingMap{createdBM1, &oriBM2},
-			expBindingMapsInStore: []*model.SubnetConnectionBindingMap{createdBM1, &oriBM2},
+			expBindingMapsInStore: []*model.SubnetConnectionBindingMap{&oriBM2},
+		}, {
+			name: "missing binding map in NSX",
+			prepareFunc: func() {
+				count0 := int64(0)
+				count1 := int64(1)
+				mockOrgRootClient.EXPECT().Patch(gomock.Any(), &enforceRevisionCheckParam).Return(nil)
+				gomock.InOrder(
+					mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
+						Return(model.SubnetConnectionBindingMapListResult{
+							ResultCount: &count0,
+							Results:     []model.SubnetConnectionBindingMap{},
+						}, nil),
+					mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
+						Return(model.SubnetConnectionBindingMapListResult{
+							ResultCount: &count1,
+							Results: []model.SubnetConnectionBindingMap{
+								*createdBM2,
+							},
+						}, nil),
+				)
+			},
+			expErr:                "",
+			existingBindingMaps:   []*model.SubnetConnectionBindingMap{createdBM1, &oriBM2},
+			expBindingMapsInStore: []*model.SubnetConnectionBindingMap{createdBM2},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
