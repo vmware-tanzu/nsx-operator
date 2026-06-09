@@ -2,15 +2,18 @@ package subnetbinding
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -182,30 +185,63 @@ func (s *BindingService) Apply(subnetPath string, bindingMaps []*model.SubnetCon
 		return err
 	}
 
-	// Get SubnetConnectionBindingMaps from NSX after patch operation as NSX renders several fields like `path`/`parent_path`.
-	subnetBindingListResult, err := s.NSXClient.SubnetConnectionBindingMapsClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, subnetID, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		log.Error(err, "Failed to list SubnetConnectionBindingMaps from NSX under subnet", "orgID", vpcInfo.OrgID, "projectID", vpcInfo.ProjectID, "vpcID", vpcInfo.VPCID, "subnetID", subnetID, "subnetConnectionBindingMaps", bindingMaps)
-		err = nsxutil.TransNSXApiError(err)
-		return err
-	}
-
-	nsxBindingMaps := make(map[string]model.SubnetConnectionBindingMap)
-	for _, bm := range subnetBindingListResult.Results {
-		nsxBindingMaps[*bm.Id] = bm
-	}
-
+	// No need to check the deleted bindingmaps from NSX, delete them from store directly.
+	var pendingBindingMaps []*model.SubnetConnectionBindingMap
 	for i := range bindingMaps {
 		bm := bindingMaps[i]
 		if bm.MarkedForDelete != nil && *bm.MarkedForDelete {
 			s.BindingStore.Apply(bm)
-		} else {
-			nsxBindingMap := nsxBindingMaps[*bm.Id]
-			s.BindingStore.Apply(&nsxBindingMap)
+			continue
 		}
+		pendingBindingMaps = append(pendingBindingMaps, bm)
 	}
 
-	return nil
+	// In scaled case, when HAPI call succeeds, the SubnetConnectionBindingMaps may not be immediately available in NSX.
+	// So we need to retry to list the SubnetConnectionBindingMaps from NSX until they are available.
+	nsxBindingMaps := make(map[string]model.SubnetConnectionBindingMap)
+	var cursor *string
+	err = retry.OnError(util.NSXTRealizeRetry, func(err error) bool {
+		if err == nil {
+			return false
+		}
+		if _, ok := err.(*nsxutil.NSXApiError); ok {
+			return false
+		}
+		return true
+	}, func() error {
+		for {
+			subnetBindingListResult, listErr := s.NSXClient.SubnetConnectionBindingMapsClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, subnetID, cursor, nil, nil, nil, nil, nil)
+			if listErr != nil {
+				log.Error(listErr, "Failed to list SubnetConnectionBindingMaps from NSX under Subnet", "orgID", vpcInfo.OrgID, "projectID", vpcInfo.ProjectID, "vpcID", vpcInfo.VPCID, "subnetID", subnetID, "subnetConnectionBindingMaps", pendingBindingMaps)
+				return nsxutil.TransNSXApiError(listErr)
+			}
+			for _, bm := range subnetBindingListResult.Results {
+				nsxBindingMaps[*bm.Id] = bm
+			}
+			if subnetBindingListResult.Cursor == nil {
+				break
+			}
+			cursor = subnetBindingListResult.Cursor
+		}
+		var missingBindingMaps []*model.SubnetConnectionBindingMap
+		for i := range pendingBindingMaps {
+			bm := pendingBindingMaps[i]
+			nsxBindingMap, ok := nsxBindingMaps[*bm.Id]
+			if ok {
+				s.BindingStore.Apply(&nsxBindingMap)
+				continue
+			}
+			missingBindingMaps = append(missingBindingMaps, bm)
+		}
+		pendingBindingMaps = missingBindingMaps
+		if len(missingBindingMaps) > 0 {
+			err := fmt.Errorf("Subnet connection binding maps not found in NSX: %v", missingBindingMaps)
+			log.Error(err, "Missing SubnetConnectionBindingMaps in NSX, will retry")
+			return err
+		}
+		return nil
+	})
+	return err
 }
 
 // deleteSubnetConnectionBindingMaps uses HAPI call to delete multiple SubnetConnectionBindingMaps on NSX in one
