@@ -538,7 +538,7 @@ func buildRuleServiceEntries(port v1alpha1.SecurityPolicyPort) *data.StructValue
 	// For the named port case, the caller should
 	// convert to a new SecurityPolicyPort using the correct port number.
 	var zeroPort intstr.IntOrString
-	if port.Port != zeroPort {
+	if port.Port != zeroPort || port.EndPort != 0 {
 		if port.EndPort == 0 || port.EndPort == port.Port.IntValue() {
 			portRange = port.Port.String()
 		} else {
