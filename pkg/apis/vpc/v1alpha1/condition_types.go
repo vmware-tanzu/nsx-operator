@@ -9,6 +9,7 @@ type ConditionType string
 
 const (
 	Ready                      ConditionType = "Ready"
+	SubnetCreationFailed       ConditionType = "SubnetCreationFailed"
 	GatewayConnectionReady     ConditionType = "GatewayConnectionReady"
 	ServiceClusterReady        ConditionType = "ServiceClusterReady"
 	AutoSnatEnabled            ConditionType = "AutoSnatEnabled"

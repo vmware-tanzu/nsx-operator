@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -224,22 +225,28 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to create or update nsxSubnet", "ID", *nsxSubnet.Id)
+		service.updateSubnetSetConditionOnFail(obj, err)
 		return nil, err
 	}
 
 	// Get Subnet from NSX after patch operation as NSX renders several fields like `path`/`parent_path`.
 	if *nsxSubnet, err = service.NSXClient.SubnetsClient.Get(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, *nsxSubnet.Id); err != nil {
 		err = nsxutil.TransNSXApiError(err)
+		service.updateSubnetSetConditionOnFail(obj, err)
 		return nil, err
 	}
 	err = service.checkSubnetRealizeState(nsxSubnet)
 	if err != nil {
+		service.updateSubnetSetConditionOnFail(obj, err)
 		return nil, err
 	}
 	if err = service.SubnetStore.Apply(nsxSubnet); err != nil {
 		log.Error(err, "Failed to add nsxSubnet to store", "ID", *nsxSubnet.Id)
 		return nil, err
 	}
+
+	service.removeSubnetSetConditionOnSuccess(obj)
+
 	// No need to update the SubnetSet status in restore mode
 	if !restoreMode {
 		if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
@@ -904,4 +911,94 @@ func (service *SubnetService) GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *mod
 	}
 	log.Debug("Got gateway from NSX Subnet status", "nsxSubnet.Id", *nsxSubnet.Id, "gateway", gateway, "prefix", prefix)
 	return gateway, prefix, nil
+}
+
+func (service *SubnetService) updateSubnetSetConditionOnFail(obj client.Object, err error) {
+	ctx := context.Background()
+
+	if _, ok := obj.(*v1alpha1.SubnetSet); !ok {
+		return
+	}
+
+	if service.Client == nil {
+		return
+	}
+
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		subnetSet := &v1alpha1.SubnetSet{}
+		if getErr := service.Client.Get(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, subnetSet); getErr != nil {
+			return getErr
+		}
+
+		changed := false
+		newCondition := v1alpha1.Condition{
+			Type:               v1alpha1.SubnetCreationFailed,
+			Status:             v1.ConditionTrue,
+			Message:            fmt.Sprintf("Failed to create NSX Subnet: %v", err),
+			Reason:             "SubnetCreationFailed",
+			LastTransitionTime: metav1.Now(),
+		}
+		found := false
+		for i, cond := range subnetSet.Status.Conditions {
+			if cond.Type == v1alpha1.SubnetCreationFailed {
+				found = true
+				if cond.Message != newCondition.Message || cond.Status != newCondition.Status {
+					subnetSet.Status.Conditions[i] = newCondition
+					changed = true
+				}
+				break
+			}
+		}
+		if !found {
+			subnetSet.Status.Conditions = append(subnetSet.Status.Conditions, newCondition)
+			changed = true
+		}
+
+		if changed {
+			return service.Client.Status().Update(ctx, subnetSet)
+		}
+		return nil
+	})
+
+	if retryErr != nil {
+		log.Error(retryErr, "Failed to update SubnetSet status", "SubnetSet", obj.GetName())
+	}
+}
+
+func (service *SubnetService) removeSubnetSetConditionOnSuccess(obj client.Object) {
+	ctx := context.Background()
+
+	if _, ok := obj.(*v1alpha1.SubnetSet); !ok {
+		return
+	}
+
+	if service.Client == nil {
+		return
+	}
+
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		subnetSet := &v1alpha1.SubnetSet{}
+		if getErr := service.Client.Get(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, subnetSet); getErr != nil {
+			return getErr
+		}
+
+		changed := false
+		var newConditions []v1alpha1.Condition
+		for _, cond := range subnetSet.Status.Conditions {
+			if cond.Type != v1alpha1.SubnetCreationFailed {
+				newConditions = append(newConditions, cond)
+			} else {
+				changed = true
+			}
+		}
+		if changed {
+			subnetSet.Status.Conditions = newConditions
+			return service.Client.Status().Update(ctx, subnetSet)
+		}
+		return nil
+	})
+
+	if retryErr != nil {
+		log.Error(retryErr, "Failed to update SubnetSet status", "SubnetSet", obj.GetName())
+	}
 }
