@@ -458,6 +458,27 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	// Set LBCapability condition on the system VPC config.
+	// Condition is False when VNA (VLANBackedVPC) + NSX-LB + IPv6/DualStack, True otherwise.
+	// LBCapability=False is informational only — namespace readiness is not blocked.
+	if ncName == commonservice.SystemVPCNetworkConfigurationName {
+		ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
+		lbCapable := !(networkStack == v1alpha1.VLANBackedVPC &&
+			lbProvider == vpc.NSXLB &&
+			util.IPAddressTypeIncludesIPv6(ipFamily))
+		// When LBCapability is False, read NSX LBS realization alarms (best-effort) so
+		// manual testing can observe what NSX actually reports. The hardcoded reason string
+		// is always used for machine-readability; the NSX alarm goes into the message field.
+		var nsxAlarmMsg string
+		if !lbCapable && len(nsxLBSPath) > 0 {
+			nsxAlarmMsg = r.Service.GetLBSRealizationAlarmMessages(nsxLBSPath)
+			if nsxAlarmMsg != "" {
+				log.Info("NSX LBS realization alarms for LBCapability=False", "lbsPath", nsxLBSPath, "alarms", nsxAlarmMsg)
+			}
+		}
+		setVPCNetworkConfigurationStatusWithLBCapability(ctx, r.Client, systemVpcNetCfg, lbCapable, nsxAlarmMsg)
+	}
+
 	// if lb VPC enabled, read avi subnet path and cidr
 	// nsx bug, if set LoadBalancerVpcEndpoint.Enabled to false, when read this VPC back,
 	// LoadBalancerVpcEndpoint.Enabled will become a nil pointer.

@@ -249,6 +249,7 @@ var (
 	ReasonServiceClusterNotSet                       = "ServiceClusterNotSet"
 	ReasonNoExternalIPBlocksInVPCConnectivityProfile = "ExternalIPBlockMissingInProfile"
 	ReasonSNATNotSupportedInTEPLess                  = "SNAT not supported in TEP-less mode"
+	ReasonIPv6LBNotSupportedOnVNA                    = "IPv6 LB is not supported as VPCs are hosted on VNA"
 )
 
 type Service struct {

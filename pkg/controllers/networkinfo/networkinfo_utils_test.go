@@ -184,6 +184,86 @@ func TestSetVPCNetworkConfigurationStatusWithSnatEnabled(t *testing.T) {
 	}
 }
 
+func TestSetVPCNetworkConfigurationStatusWithLBCapability(t *testing.T) {
+	tests := []struct {
+		name                    string
+		lbCapable               bool
+		nsxAlarmMsg             string
+		expectedConditionStatus corev1.ConditionStatus
+		expectedConditionReason string
+		expectedConditionMsg    string
+	}{
+		{
+			name:                    "VNA + NSXLB + IPv6 — LBCapability False, no NSX alarm",
+			lbCapable:               false,
+			nsxAlarmMsg:             "",
+			expectedConditionStatus: corev1.ConditionFalse,
+			expectedConditionReason: common.ReasonIPv6LBNotSupportedOnVNA,
+			expectedConditionMsg:    "",
+		},
+		{
+			name:                    "VNA + NSXLB + IPv6 — LBCapability False, with NSX alarm",
+			lbCapable:               false,
+			nsxAlarmMsg:             "LBService IPv6 not supported on VLAN-backed VPC",
+			expectedConditionStatus: corev1.ConditionFalse,
+			expectedConditionReason: common.ReasonIPv6LBNotSupportedOnVNA,
+			expectedConditionMsg:    "LBService IPv6 not supported on VLAN-backed VPC",
+		},
+		{
+			name:                    "VNA + NSXLB + DualStack — LBCapability False",
+			lbCapable:               false,
+			nsxAlarmMsg:             "",
+			expectedConditionStatus: corev1.ConditionFalse,
+			expectedConditionReason: common.ReasonIPv6LBNotSupportedOnVNA,
+			expectedConditionMsg:    "",
+		},
+		{
+			name:                    "VNA + NSXLB + IPv4 — LBCapability True",
+			lbCapable:               true,
+			nsxAlarmMsg:             "",
+			expectedConditionStatus: corev1.ConditionTrue,
+			expectedConditionReason: "",
+			expectedConditionMsg:    "",
+		},
+		{
+			name:                    "VNA + AVI LB + IPv6 — LBCapability True",
+			lbCapable:               true,
+			nsxAlarmMsg:             "",
+			expectedConditionStatus: corev1.ConditionTrue,
+			expectedConditionReason: "",
+			expectedConditionMsg:    "",
+		},
+		{
+			name:                    "FullStack + NSXLB + IPv6 — LBCapability True",
+			lbCapable:               true,
+			nsxAlarmMsg:             "",
+			expectedConditionStatus: corev1.ConditionTrue,
+			expectedConditionReason: "",
+			expectedConditionMsg:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.TODO()
+			scheme := clientgoscheme.Scheme
+			v1alpha1.AddToScheme(scheme)
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.VPCNetworkConfiguration{}).Build()
+			nc := &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: "ncName"},
+			}
+			assert.NoError(t, fakeClient.Create(ctx, nc))
+
+			setVPCNetworkConfigurationStatusWithLBCapability(ctx, fakeClient, nc, tt.lbCapable, tt.nsxAlarmMsg)
+
+			assert.Equal(t, 1, len(nc.Status.Conditions))
+			assert.Equal(t, v1alpha1.LBCapability, nc.Status.Conditions[0].Type)
+			assert.Equal(t, tt.expectedConditionStatus, nc.Status.Conditions[0].Status)
+			assert.Equal(t, tt.expectedConditionReason, nc.Status.Conditions[0].Reason)
+			assert.Equal(t, tt.expectedConditionMsg, nc.Status.Conditions[0].Message)
+		})
+	}
+}
+
 func TestGetConnectionStatusFromCR(t *testing.T) {
 	tests := []struct {
 		name                            string
