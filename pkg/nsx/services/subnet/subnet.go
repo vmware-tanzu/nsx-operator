@@ -186,10 +186,10 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet := *existingSubnet
 				updatedSubnet.Tags = nsxSubnet.Tags
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
-			updatedSubnet.SubnetDhcpv6Config = nsxSubnet.SubnetDhcpv6Config
-			updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
-			// Only update gateway_addresses, dhcp_server_address, connectivity_state
-			// and static_ip_allocation (enabled + pool_ranges) from AdvancedConfig.
+				updatedSubnet.SubnetDhcpv6Config = nsxSubnet.SubnetDhcpv6Config
+				updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
+				// Only update gateway_addresses, dhcp_server_address, connectivity_state
+				// and static_ip_allocation (enabled + pool_ranges) from AdvancedConfig.
 				if nsxSubnet.AdvancedConfig != nil {
 					updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
 						GatewayAddresses:    nsxSubnet.AdvancedConfig.GatewayAddresses,

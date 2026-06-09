@@ -18,6 +18,10 @@ const (
 	// PoolRangesOutOfSubnetRangeErrorCode is returned by NSX when
 	// staticIPAllocation.poolRanges contains addresses outside the subnet CIDR.
 	PoolRangesOutOfSubnetRangeErrorCode = 660005
+	// MixedModeNotSupportedErrorCode is returned by NSX when both
+	// static_ip_allocation.enabled=true and subnet_dhcp_config.mode=DHCP_SERVER
+	// are set simultaneously and the NSX version does not support mixed-mode subnets.
+	MixedModeNotSupportedErrorCode = 508128
 )
 
 type NsxError interface {

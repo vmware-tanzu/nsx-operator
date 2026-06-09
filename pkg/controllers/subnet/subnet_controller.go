@@ -208,8 +208,10 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			switch *(nsxErr.ApiError.ErrorCode) {
 			case nsxutil.ReservedIPRangesOverlappedErrorCode,
 				nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode,
-				nsxutil.PoolRangesOutOfSubnetRangeErrorCode:
-				// User configuration error — no benefit in requeuing until the spec is fixed.
+				nsxutil.PoolRangesOutOfSubnetRangeErrorCode,
+				nsxutil.MixedModeNotSupportedErrorCode:
+				// User configuration error or NSX version incompatibility —
+				// no benefit in requeuing until the spec is fixed or NSX is upgraded.
 				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
 				return ResultNormal, err
 			}
