@@ -15,6 +15,7 @@
 - [IPBlocksInfo](#ipblocksinfo)
 - [NetworkInfo](#networkinfo)
 - [SecurityPolicy](#securitypolicy)
+- [ServiceEndpoint](#serviceendpoint)
 - [StaticRoute](#staticroute)
 - [Subnet](#subnet)
 - [SubnetConnectionBindingMap](#subnetconnectionbindingmap)
@@ -22,6 +23,7 @@
 - [SubnetPort](#subnetport)
 - [SubnetPortSetting](#subnetportsetting)
 - [SubnetSet](#subnetset)
+- [VPCEndpoint](#vpcendpoint)
 - [VPCNetworkConfiguration](#vpcnetworkconfiguration)
 
 
@@ -682,6 +684,57 @@ _Appears in:_
 | `podSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#labelselector-v1-meta)_ | PodSelector uses label selector to select Pods. |  |  |
 
 
+#### ServiceEndpoint
+
+
+
+ServiceEndpoint is the Schema for the serviceendpoints API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `ServiceEndpoint` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ServiceEndpointSpec](#serviceendpointspec)_ |  |  |  |
+| `status` _[ServiceEndpointStatus](#serviceendpointstatus)_ |  |  |  |
+
+
+#### ServiceEndpointSpec
+
+
+
+ServiceEndpointSpec defines the desired state of ServiceEndpoint.
+
+
+
+_Appears in:_
+- [ServiceEndpoint](#serviceendpoint)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `serviceEndpointIP` _string_ | ServiceEndpointIP is the IP address of the VPC service endpoint. |  | Required: \{\} <br /> |
+
+
+#### ServiceEndpointStatus
+
+
+
+ServiceEndpointStatus defines the observed state of ServiceEndpoint.
+
+
+
+_Appears in:_
+- [ServiceEndpoint](#serviceendpoint)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the ServiceEndpoint. |  | Optional: \{\} <br /> |
+
+
 #### SharedSubnet
 
 
@@ -715,7 +768,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false.<br />If the DHCP mode is DHCPRelay, its default value is false. |  |  |
-| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
+| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  | Optional: \{\} <br /> |
 
 
 #### StaticIPAllocationType
@@ -789,8 +842,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br /> |
-| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  |  |
+| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br />Optional: \{\} <br /> |
+| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  | Optional: \{\} <br /> |
 | `nextHops` _[NextHop](#nexthop) array_ | Next hop gateway |  | MinItems: 1 <br /> |
 
 
@@ -1241,6 +1294,58 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `vpcGatewayConnectionEnable` _boolean_ | Flag to control whether the VLAN extension Subnet connects to the VPC gateway. |  |  |
 | `vlanId` _integer_ | VLAN ID of the VLAN extension Subnet. |  |  |
+
+
+#### VPCEndpoint
+
+
+
+VPCEndpoint is the Schema for the vpcendpoints API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `VPCEndpoint` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[VPCEndpointSpec](#vpcendpointspec)_ |  |  |  |
+| `status` _[VPCEndpointStatus](#vpcendpointstatus)_ |  |  |  |
+
+
+#### VPCEndpointSpec
+
+
+
+VPCEndpointSpec defines the desired state of VPCEndpoint.
+
+
+
+_Appears in:_
+- [VPCEndpoint](#vpcendpoint)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `serviceEndpointName` _string_ | ServiceEndpointName is the VPC service endpoint name being consumed. |  | Required: \{\} <br /> |
+| `ipAllocationName` _string_ | IPAllocationName defines the IPAddressAllocation CR name that supplies the IP of VPC endpoint. |  | Required: \{\} <br /> |
+
+
+#### VPCEndpointStatus
+
+
+
+VPCEndpointStatus defines the observed state of VPCEndpoint.
+
+
+
+_Appears in:_
+- [VPCEndpoint](#vpcendpoint)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the VPCEndpoint. |  | Optional: \{\} <br /> |
 
 
 #### VPCInfo

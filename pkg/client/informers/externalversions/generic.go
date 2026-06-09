@@ -50,6 +50,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().NetworkInfos().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("securitypolicies"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SecurityPolicies().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("serviceendpoints"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().ServiceEndpoints().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("staticroutes"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().StaticRoutes().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("subnets"):
@@ -64,6 +66,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetPortSettings().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("subnetsets"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetSets().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("vpcendpoints"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().VPCEndpoints().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vpcnetworkconfigurations"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().VPCNetworkConfigurations().Informer()}, nil
 
