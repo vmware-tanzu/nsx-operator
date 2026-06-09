@@ -370,7 +370,8 @@ func TestInitializeSubnetService(t *testing.T) {
 
 func TestSubnetService_GetSubnetByCR(t *testing.T) {
 	service := &SubnetService{
-		Service: common.Service{},
+		Service:     common.Service{},
+		SubnetStore: buildSubnetStore(),
 	}
 
 	testCases := []struct {
@@ -464,7 +465,8 @@ func TestSubnetService_GetSubnetByCR(t *testing.T) {
 
 func TestSubnetService_GetSubnetByPath(t *testing.T) {
 	service := &SubnetService{
-		Service: common.Service{},
+		Service:     common.Service{},
+		SubnetStore: buildSubnetStore(),
 	}
 	testCases := []struct {
 		name           string
@@ -1707,8 +1709,8 @@ func TestGetSubnetStatus(t *testing.T) {
 				Id:   common.String("subnet-1"),
 			},
 			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(fakeSubnetStatusClient.List,
-					func(_ fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeSubnetStatusClient{}), "List",
+					func(_ *fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
 						return model.VpcSubnetStatusListResult{
 							Results: []model.VpcSubnetStatus{
 								{
@@ -1735,8 +1737,8 @@ func TestGetSubnetStatus(t *testing.T) {
 				AccessMode: common.String("L2_Only"),
 			},
 			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(fakeSubnetStatusClient.List,
-					func(_ fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeSubnetStatusClient{}), "List",
+					func(_ *fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
 						return model.VpcSubnetStatusListResult{
 							Results: []model.VpcSubnetStatus{{
 								VlanExtension: &model.VpcSubnetVlanExtensionStatus{
@@ -1760,8 +1762,8 @@ func TestGetSubnetStatus(t *testing.T) {
 				Id:   common.String("subnet-1"),
 			},
 			prepareFunc: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(fakeSubnetStatusClient.List,
-					func(_ fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeSubnetStatusClient{}), "List",
+					func(_ *fakeSubnetStatusClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string) (model.VpcSubnetStatusListResult, error) {
 						return model.VpcSubnetStatusListResult{
 							Results: []model.VpcSubnetStatus{{}},
 						}, nil

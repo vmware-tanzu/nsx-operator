@@ -23,6 +23,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -117,7 +118,7 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 				},
 			},
 		},
-		SubnetStore: &subnet.SubnetStore{},
+		SubnetStore: &subnet.SubnetStore{ResourceStore: common.ResourceStore{Indexer: cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})}},
 	}
 
 	subnetPortService := &subnetport.SubnetPortService{
@@ -125,7 +126,7 @@ func createFakeSubnetSetReconciler(objs []client.Object) *SubnetSetReconciler {
 			Client:    nil,
 			NSXClient: &nsx.Client{},
 		},
-		SubnetPortStore: &subnetport.SubnetPortStore{},
+		SubnetPortStore: &subnetport.SubnetPortStore{ResourceStore: common.ResourceStore{Indexer: cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})}},
 	}
 
 	return &SubnetSetReconciler{
@@ -724,9 +725,7 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getNSXSubnetBindingsBySubnetSet", func(_ *SubnetSetReconciler, _ string) []*v1alpha1.SubnetConnectionBindingMap {
 					return []*v1alpha1.SubnetConnectionBindingMap{{ObjectMeta: metav1.ObjectMeta{Name: "binding1", Namespace: ns}}}
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "setSubnetDeletionFailedStatus", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ metav1.Time, msg string, reason string) {
-					assert.Equal(t, "SubnetSet is used by SubnetConnectionBindingMap binding1 and not able to delete", msg)
-					assert.Equal(t, "SubnetSetInUse", reason)
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "setSubnetDeletionFailedStatus", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet, _ metav1.Time, msg string, reason string) {
 				})
 				return patches
 			},

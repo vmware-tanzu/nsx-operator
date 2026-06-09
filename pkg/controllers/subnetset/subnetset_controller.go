@@ -251,12 +251,22 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
 		return ResultNormal, err
 	}
+
 	metadataChanged := updateLabels(subnetsetCR, isSystemNs)
 	if specChanged || metadataChanged {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
 			return ResultRequeue, err
+		}
+	}
+
+	// Check if SubnetSet has SubnetCreationFailed condition
+	for _, cond := range subnetsetCR.Status.Conditions {
+		if cond.Type == v1alpha1.SubnetCreationFailed && cond.Status == v1.ConditionTrue {
+			err := fmt.Errorf("%s", cond.Message)
+			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to create/update Subnet", setSubnetSetReadyStatusFalse, cond.Message, cond.Reason)
+			return ResultNormal, nil
 		}
 	}
 
@@ -358,6 +368,9 @@ func setSubnetSetReadyStatusFalse(client client.Client, ctx context.Context, obj
 		if err != nil {
 			newConditions[0].Message = fmt.Sprintf("Error occurred while processing the SubnetSet CR. Please check the config and try again. Error: %v", err)
 		}
+	}
+	if len(args) > 1 {
+		newConditions[0].Reason = args[1].(string)
 	}
 	updateSubnetSetStatusConditions(client, ctx, subnetSet, newConditions)
 }
