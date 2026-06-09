@@ -3343,11 +3343,11 @@ func TestVPCService_buildLBServiceIPAllocsForRestore(t *testing.T) {
 			wantEmpty:  true,
 		},
 		{
-			name:       "NSXLB + VLANBackedVPC + empty VPCs returns error",
-			lbProvider: NSXLB,
-			obj:        &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "ni-test"}, VPCs: nil},
-			nc:         &v1alpha1.VPCNetworkConfiguration{},
-			mockStack:  mockVLANBacked,
+			name:        "NSXLB + VLANBackedVPC + empty VPCs returns error",
+			lbProvider:  NSXLB,
+			obj:         &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "ni-test"}, VPCs: nil},
+			nc:          &v1alpha1.VPCNetworkConfiguration{},
+			mockStack:   mockVLANBacked,
 			wantErrLike: "no VPC state in NetworkInfo ni-test",
 		},
 		{

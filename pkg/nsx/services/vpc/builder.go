@@ -147,9 +147,9 @@ func buildNSXLBServiceIPAllocation(lbIP string) *model.VpcIpAddressAllocation {
 func buildNSXLBServiceIPv6Allocation(lbIP string) *model.VpcIpAddressAllocation {
 	ipType := model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
 	return &model.VpcIpAddressAllocation{
-		Id:           common.String(common.LBServiceIPAllocationIDV6),
-		DisplayName:  common.String(common.LBServiceIPAllocationIDV6),
-		AllocationIp: common.String(lbIP),
+		Id:            common.String(common.LBServiceIPAllocationIDV6),
+		DisplayName:   common.String(common.LBServiceIPAllocationIDV6),
+		AllocationIp:  common.String(lbIP),
 		IpAddressType: &ipType,
 		Tags: []model.Tag{
 			{

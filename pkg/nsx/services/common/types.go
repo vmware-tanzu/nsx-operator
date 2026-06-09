@@ -137,9 +137,9 @@ const (
 	LBServiceIPAllocationID = "_DEFAULT--VPC_SERVICE_IP"
 	// LBServiceIPAllocationIDV6 is the fixed NSX resource ID for the VPC-level LB service IPv6 allocation used in tepless mode.
 	// It's only used for backup/restore.
-	LBServiceIPAllocationIDV6   = "_DEFAULT--VPC_SERVICE_IP_V6"
-	TagScopeVPCService          = "services/vpc_service"
-	TagValueUserSpecifiedIP     = "__DEFAULT--VPC_SERVICE_IP__"
+	LBServiceIPAllocationIDV6 = "_DEFAULT--VPC_SERVICE_IP_V6"
+	TagScopeVPCService        = "services/vpc_service"
+	TagValueUserSpecifiedIP   = "__DEFAULT--VPC_SERVICE_IP__"
 	// TODO: verify TagValueUserSpecifiedIPV6 against a real NSX dual-stack tepless VPC before merge.
 	// Run: GET /policy/api/v1/orgs/<org>/projects/<project>/vpcs/<vpc>/ip-address-allocations/_DEFAULT--VPC_SERVICE_IP_V6
 	// and check the tags[].tag field.
