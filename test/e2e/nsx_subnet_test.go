@@ -939,6 +939,7 @@ func SubnetMixedMode(t *testing.T) {
 	probeCreated := createSubnetWithCheck(t, probe)
 	require.NotEmpty(t, probeCreated.Status.NetworkAddresses)
 	subnetCIDRStr := probeCreated.Status.NetworkAddresses[0]
+	probeUID := string(probeCreated.UID)
 	_, subnetCIDR, err := net.ParseCIDR(subnetCIDRStr)
 	require.NoError(t, err)
 	require.NoError(t, testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), probe.Name, v1.DeleteOptions{}))
@@ -949,6 +950,15 @@ func SubnetMixedMode(t *testing.T) {
 		}
 		return false, err
 	}))
+	// Wait for NSX to mark the probe's backing subnet for deletion before reusing
+	// its CIDR. The K8s CR disappearing only means the finalizer ran; the NSX
+	// object may still be pending the ~5-minute purge cycle. Without this wait,
+	// a subsequent subnet creation with the same CIDR can fail on loaded clusters.
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		probeNSXSubnets := testData.fetchSubnetBySubnetUID(t, probeUID)
+		return len(probeNSXSubnets) == 0 || *probeNSXSubnets[0].MarkedForDelete, nil
+	})
+	require.NoError(t, err)
 
 	ip := subnetCIDR.IP.To4()
 	require.NotNil(t, ip, "mixed-mode test assumes IPv4 subnet")
@@ -1062,11 +1072,16 @@ func SubnetMixedMode(t *testing.T) {
 		"static SubnetPort in mixed mode should use BOTH allocation")
 
 	// Case 2: day-2 add a second poolRange; expect drift to reconcile.
-	mixedCreated.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = append(
-		mixedCreated.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges,
+	// Re-fetch to obtain the latest ResourceVersion; using mixedCreated directly
+	// can cause HTTP 409 Conflict if the reconciler touched the object since we
+	// last read it.
+	mixedLatest, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), mixed.Name, v1.GetOptions{})
+	require.NoError(t, err)
+	mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = append(
+		mixedLatest.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges,
 		fmt.Sprintf("%s-%s", secondRangeStart.String(), secondRangeEnd.String()),
 	)
-	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedCreated, v1.UpdateOptions{})
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), mixedLatest, v1.UpdateOptions{})
 	require.NoError(t, err, "day-2 add of poolRanges should be allowed")
 	// Re-read and confirm both ranges are present in spec.
 	updated := assureSubnet(t, subnetTestNamespace, mixed.Name, "")
@@ -1124,6 +1139,9 @@ func SubnetMixedMode(t *testing.T) {
 		},
 	}
 	singleIPCreated, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), singleIPSubnet, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		singleIPCreated, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), singleIPSubnet.Name, v1.GetOptions{})
+	}
 	require.NoError(t, err, "single-IP pool range string must be accepted by webhook")
 	require.Len(t, singleIPCreated.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges, 1)
 	// Wait for the subnet to be realized, then confirm the pool range round-trips
@@ -1167,9 +1185,19 @@ func randomIPv4() (net.IP, error) {
 
 func fetchSubnetPortBySubnetPortUID(t *testing.T, subnetPortUID string) *model.VpcSubnetPort {
 	tags := []string{common.TagScopeSubnetPortCRUID, subnetPortUID}
-	results, err := testData.queryResource(common.ResourceTypeSubnetPort, tags)
-	require.NoError(t, err)
-	res := transSearchResponsetoSubnetPort(results)
+	var res []model.VpcSubnetPort
+	// The NSX search index is eventually consistent and may lag behind K8s Ready=True
+	// by several seconds. Retry until the index returns a result to avoid a panic
+	// on the empty-slice dereference.
+	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+		results, queryErr := testData.queryResource(common.ResourceTypeSubnetPort, tags)
+		if queryErr != nil {
+			return false, queryErr
+		}
+		res = transSearchResponsetoSubnetPort(results)
+		return len(res) > 0, nil
+	})
+	require.NoError(t, err, "NSX search index did not return SubnetPort %s within 30s", subnetPortUID)
 	return &res[0]
 }
 
