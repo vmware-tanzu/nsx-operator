@@ -119,7 +119,7 @@ func testPodServiceDeletionInventoryUpdate(t *testing.T) {
 
 	// Create a pod
 	podName := fmt.Sprintf("test-pod-svc-%s", getRandomString())
-	pod, err := testData.createPod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
+	_, err := testData.createPod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
 	if err != nil {
 		t.Fatalf("Failed to create pod: %v", err)
 	}
