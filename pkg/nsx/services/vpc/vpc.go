@@ -39,15 +39,16 @@ const (
 )
 
 var (
-	log                           = logger.Log
-	ResourceTypeVPC               = common.ResourceTypeVpc
-	NewConverter                  = common.NewConverter
-	globalLbProvider              = NoneLB
-	lbProviderMutex               = &sync.Mutex{}
-	MarkedForDelete               = true
-	EnforceRevisionCheckParam     = false
-	TypeGatewayConnection         = "gateway-connections"
-	TypeDistributedVlanConnection = "distributed-vlan-connections"
+	log                            = logger.Log
+	ResourceTypeVPC                = common.ResourceTypeVpc
+	NewConverter                   = common.NewConverter
+	globalLbProvider               = NoneLB
+	lbProviderMutex                = &sync.Mutex{}
+	MarkedForDelete                = true
+	EnforceRevisionCheckParam      = false
+	TypeGatewayConnection          = "gateway-connections"
+	TypeDistributedVlanConnection  = "distributed-vlan-connections"
+	TypeDistributedVXlanConnection = "distributed-vxlan-connections"
 )
 
 type VPCService struct {
@@ -750,6 +751,7 @@ func (s *VPCService) checkVpcAttachmentRealization(createdAttachment *model.VpcA
 func (s *VPCService) GetConnectionTypeFromConnectionPath(connectionPath string) (string, error) {
 	/* examples of connection_path:
 	   /infra/distributed-vlan-connections/gateway-101
+	   /infra/distributed-vxlan-connections/dvxlan-101
 	   /infra/gateway-connections/tenant-1
 	*/
 	parts := strings.Split(connectionPath, "/")
@@ -883,7 +885,7 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 		case TypeGatewayConnection:
 			status.GatewayConnectionReady = true
 			status.GatewayConnectionReason = ""
-		case TypeDistributedVlanConnection:
+		case TypeDistributedVlanConnection, TypeDistributedVXlanConnection:
 			status.ServiceClusterReady = true
 			status.ServiceClusterReason = ""
 		}
