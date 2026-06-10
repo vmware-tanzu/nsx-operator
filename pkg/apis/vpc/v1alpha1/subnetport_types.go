@@ -38,6 +38,8 @@ type SubnetPortSpec struct {
 	// will be back-filled based on InterfaceIPType and Subnet configuration.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6;None
 	StaticIPAllocationType StaticIPAllocationType `json:"staticIPAllocationType,omitempty"`
+	// Name of PortConfig associated with this SubnetPort.
+	PortConfig string `json:"portConfig,omitempty"`
 }
 
 // PortAddressBinding defines static addresses for the Port.
@@ -66,6 +68,10 @@ type PortAttachment struct {
 type NetworkInterfaceConfig struct {
 	// NSX Logical Switch UUID of the Subnet.
 	LogicalSwitchUUID string                      `json:"logicalSwitchUUID,omitempty"`
+	// ID of the Subnet. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1
+	SubnetID string                      `json:"subnetID,omitempty"`
+	// ID of the SubnetPortConfig. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1/port-configs/port-config1
+	PortConfigID string                      `json:"portConfigID,omitempty"`
 	IPAddresses       []NetworkInterfaceIPAddress `json:"ipAddresses,omitempty"`
 	// The MAC address.
 	MACAddress string `json:"macAddress,omitempty"`
