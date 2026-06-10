@@ -35,6 +35,10 @@ func TestInventorySync(t *testing.T) {
 			StartParallel(t)
 			testPodSync(t)
 		})
+		RunSubtest(t, "testPodServiceDeletionInventoryUpdate", func(t *testing.T) {
+			StartParallel(t)
+			testPodServiceDeletionInventoryUpdate(t)
+		})
 		RunSubtest(t, "testServiceSync", func(t *testing.T) {
 			StartParallel(t)
 			testServiceSync(t)
@@ -103,6 +107,73 @@ func testPodSync(t *testing.T) {
 	// Wait for the pod to be removed from the NSX inventory
 	err = testData.waitForResourceExistOrNot(ns, "ContainerApplicationInstance", podName, false)
 	assert.NoError(t, err, "Pod was not removed from NSX inventory")
+}
+
+// testPodServiceDeletionInventoryUpdate tests that a deleted Kubernetes service is removed from the pod's ContainerApplicationInstance
+func testPodServiceDeletionInventoryUpdate(t *testing.T) {
+	_, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+
+	// Use the pre-created namespace
+	ns := NsInventorySync
+
+	// Create a pod
+	podName := fmt.Sprintf("test-pod-svc-%s", getRandomString())
+	pod, err := testData.createPod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
+	if err != nil {
+		t.Fatalf("Failed to create pod: %v", err)
+	}
+
+	// Wait for the pod to be ready
+	_, err = testData.podWaitFor(resourceReadyTime, podName, ns, func(pod *corev1.Pod) (bool, error) {
+		return pod.Status.Phase == corev1.PodRunning, nil
+	})
+	if err != nil {
+		t.Fatalf("Pod did not become ready: %v", err)
+	}
+
+	// Wait for the pod to be synced to the NSX inventory as a ContainerApplicationInstance
+	err = testData.waitForResourceExistOrNot(ns, "ContainerApplicationInstance", podName, true)
+	assert.NoError(t, err, "Pod was not synced to NSX inventory as ContainerApplicationInstance")
+
+	// Create a service selecting the pod
+	serviceName := fmt.Sprintf("test-service-%s", getRandomString())
+	port := int32(80)
+	targetPort := int32(80)
+	selector := map[string]string{"app": podName}
+
+	service, err := testData.createService(ns, serviceName, port, targetPort, corev1.ProtocolTCP, selector, corev1.ServiceTypeClusterIP)
+	if err != nil {
+		t.Fatalf("Failed to create service: %v", err)
+	}
+
+	// Wait for the service to be synced to the NSX inventory as a ContainerApplication
+	err = testData.waitForResourceExistOrNot(ns, "ContainerApplication", serviceName, true)
+	assert.NoError(t, err, "Service was not synced to NSX inventory as ContainerApplication")
+
+	// Wait for the pod's ContainerApplicationInstance to contain the service's UID
+	err = testData.waitForContainerApplicationInstanceToContainAppId(podName, string(service.UID), true)
+	assert.NoError(t, err, "Pod's ContainerApplicationInstance did not contain the service's UID")
+
+	// Delete the service
+	err = testData.clientset.CoreV1().Services(ns).Delete(context.TODO(), serviceName, metav1.DeleteOptions{})
+	if err != nil {
+		t.Fatalf("Failed to delete service: %v", err)
+	}
+
+	// Wait for the service to be removed from the NSX inventory
+	err = testData.waitForResourceExistOrNot(ns, "ContainerApplication", serviceName, false)
+	assert.NoError(t, err, "Service was not removed from NSX inventory")
+
+	// Wait for the pod's ContainerApplicationInstance to NOT contain the service's UID
+	err = testData.waitForContainerApplicationInstanceToContainAppId(podName, string(service.UID), false)
+	assert.NoError(t, err, "Pod's ContainerApplicationInstance still contained the service's UID after service deletion")
+
+	// Clean up pod
+	err = testData.clientset.CoreV1().Pods(ns).Delete(context.TODO(), podName, metav1.DeleteOptions{})
+	if err != nil {
+		t.Fatalf("Failed to delete pod: %v", err)
+	}
 }
 
 // testServiceSync tests that a Kubernetes service is synced to the NSX inventory as a ContainerApplication
