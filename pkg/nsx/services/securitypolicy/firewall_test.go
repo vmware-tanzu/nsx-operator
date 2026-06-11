@@ -508,6 +508,7 @@ var (
 )
 
 func Test_GetSecurityService(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 	commonService := fakeService.Service
@@ -527,6 +528,7 @@ func Test_GetSecurityService(t *testing.T) {
 }
 
 func Test_InitializeSecurityPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = true
 	commonService := fakeService.Service
@@ -699,6 +701,7 @@ func Test_createOrUpdateGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			config.SetMixedModeStateForTest(false, true)
 			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
 			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
 
@@ -2389,6 +2392,7 @@ func Test_CreateOrUpdateSecurityPolicyFromNetworkPolicy(t *testing.T) {
 }
 
 func Test_createOrUpdateT1SecurityPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(true, false)
 	fakeService := fakeSecurityPolicyService()
 	fakeService.NSXConfig.EnableVPCNetwork = false
 
@@ -2533,6 +2537,7 @@ func Test_createOrUpdateT1SecurityPolicy(t *testing.T) {
 }
 
 func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"
@@ -2704,6 +2709,7 @@ func Test_createOrUpdateVPCSecurityPolicy(t *testing.T) {
 }
 
 func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "default"
@@ -2884,6 +2890,7 @@ func Test_createOrUpdateVPCSecurityPolicyInDefaultProject(t *testing.T) {
 }
 
 func Test_GetFinalSecurityPolicyResourceForT1(t *testing.T) {
+	config.SetMixedModeStateForTest(true, false)
 	fakeService := fakeSecurityPolicyService()
 
 	type args struct {
@@ -2973,6 +2980,7 @@ func Test_GetFinalSecurityPolicyResourceForT1(t *testing.T) {
 }
 
 func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"
@@ -3228,6 +3236,7 @@ func Test_ConvertNetworkPolicyToInternalSecurityPolicies(t *testing.T) {
 }
 
 func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
+	config.SetMixedModeStateForTest(false, true)
 	VPCInfo := make([]common.VPCResourceInfo, 1)
 	VPCInfo[0].OrgID = "default"
 	VPCInfo[0].ProjectID = "projectQuality"
