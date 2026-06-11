@@ -19,6 +19,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -59,19 +60,19 @@ func TestBuildSubnetPort(t *testing.T) {
 		}).AnyTimes()
 
 	tests := []struct {
-		name          string
-		obj           interface{}
-		nsxSubnet     *model.VpcSubnet
-		contextID     string
-		labelTags     *map[string]string
-		restore       bool
-		expectedPort  *model.VpcSubnetPort
-		expectedError error
+		name            string
+		obj             interface{}
+		nsxSubnet       *model.VpcSubnet
+		contextID       string
+		labelTags       *map[string]string
+		restore         bool
+		interfaceIPType v1alpha1.IPAddressType
+		expectedPort    *model.VpcSubnetPort
+		expectedError   error
 	}{
 		{
-			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - N
-			name: "build-NSX-port-for-subnetport",
+			name:            "build-NSX-port-for-subnetport",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1alpha1",
@@ -81,6 +82,9 @@ func TestBuildSubnetPort(t *testing.T) {
 					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
 					Name:      "fake_subnetport",
 					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -95,26 +99,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -124,13 +113,13 @@ func TestBuildSubnetPort(t *testing.T) {
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - Y;
-			name: "build-NSX-port-in-subnet-dhcp-with-binding-in-nsx-mac-pool",
+			name:            "build-NSX-port-in-subnet-dhcp-with-binding-in-nsx-mac-pool",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
 					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
@@ -145,6 +134,7 @@ func TestBuildSubnetPort(t *testing.T) {
 							MACAddress: "04:50:56:00:fa:00",
 						},
 					},
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -164,26 +154,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -199,13 +174,13 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("04:50:56:00:fa:00"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - Y; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - Y (restore);
-			name: "build-NSX-port-for-restore-subnetport-dhcp",
+			name:            "build-NSX-port-for-restore-subnetport-dhcp",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1alpha1",
@@ -223,6 +198,9 @@ func TestBuildSubnetPort(t *testing.T) {
 						},
 						MACAddress: "aa:bb:cc:dd:ee:ff",
 					},
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -238,26 +216,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -272,13 +235,13 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - N (restore);
-			name: "build-NSX-port-for-restore-subnetport-ipam",
+			name:            "build-NSX-port-for-restore-subnetport-ipam",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1alpha1",
@@ -296,6 +259,9 @@ func TestBuildSubnetPort(t *testing.T) {
 						},
 						MACAddress: "aa:bb:cc:dd:ee:ff",
 					},
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -316,26 +282,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -350,13 +301,14 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				// Updated: o.Spec.StaticIPAllocationType is empty string -> converted to "" (or whatever ConvertCRStaticIPAddressTypeToNSX handles for empty strings)
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv4),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - Y (restore);
-			name: "build-NSX-port-for-restore-subnetport-ipam-with-mac",
+			name:            "build-NSX-port-for-restore-subnetport-ipam-with-mac",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1alpha1",
@@ -374,6 +326,7 @@ func TestBuildSubnetPort(t *testing.T) {
 							MACAddress: "aa:bb:cc:dd:ee:ff",
 						},
 					},
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 				},
 				Status: v1alpha1.SubnetPortStatus{
 					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
@@ -402,26 +355,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -436,13 +374,13 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv4),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - Y
-			name: "build-NSX-port-for-subnetport-specified-mac",
+			name:            "build-NSX-port-for-subnetport-specified-mac",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
 					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
@@ -457,6 +395,7 @@ func TestBuildSubnetPort(t *testing.T) {
 							MACAddress: "aa:bb:cc:dd:ee:ff",
 						},
 					},
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -476,26 +415,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -511,13 +435,13 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("aa:bb:cc:dd:ee:ff"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv4),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - N (pod)
-			name: "build-NSX-port-for-pod",
+			name:            "build-NSX-port-for-pod-ipv4",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1",
@@ -549,34 +473,13 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_pod"),
 				Id:          common.String("fake_pod_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/pod_name"),
-						Tag:   common.String("fake_pod"),
-					},
-					{
-						Scope: common.String("nsx-op/pod_uid"),
-						Tag:   common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
-					},
-					{
-						Scope: common.String("kubernetes.io/metadata.name"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("vSphereClusterID"),
-						Tag:   common.String("domain-c11"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/pod_name"), Tag: common.String("fake_pod")},
+					{Scope: common.String("nsx-op/pod_uid"), Tag: common.String("c5db1800-ce4c-11de-a935-8105ba7ace78")},
+					{Scope: common.String("kubernetes.io/metadata.name"), Tag: common.String("fake_ns")},
+					{Scope: common.String("vSphereClusterID"), Tag: common.String("domain-c11")},
 				},
 				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -588,13 +491,69 @@ func TestBuildSubnetPort(t *testing.T) {
 					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
 					ContextId:         common.String("fake_context_id"),
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv4),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - Y;
-			// AddressBinding exists - N (restore pod)
-			name: "build-NSX-port-for-restore-pod",
+			name:            "build-NSX-port-for-pod-ipv6",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv6,
+			obj: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "Pod",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "c5db1800-ce4c-11de-a935-8105ba7ace78",
+					Name:      "fake_pod",
+					Namespace: "fake_ns",
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: common.Bool(true),
+					},
+				},
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_DEACTIVATED"),
+				},
+				Path: common.String("fake_path"),
+			},
+			contextID: "fake_context_id",
+			labelTags: &map[string]string{
+				"kubernetes.io/metadata.name": "fake_ns",
+				"vSphereClusterID":            "domain-c11",
+			},
+			expectedPort: &model.VpcSubnetPort{
+				DisplayName: common.String("fake_pod"),
+				Id:          common.String("fake_pod_phoia"),
+				Tags: []model.Tag{
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/pod_name"), Tag: common.String("fake_pod")},
+					{Scope: common.String("nsx-op/pod_uid"), Tag: common.String("c5db1800-ce4c-11de-a935-8105ba7ace78")},
+					{Scope: common.String("kubernetes.io/metadata.name"), Tag: common.String("fake_ns")},
+					{Scope: common.String("vSphereClusterID"), Tag: common.String("domain-c11")},
+				},
+				Path:       common.String("fake_path/ports/fake_pod_phoia"),
+				ParentPath: common.String("fake_path"),
+				Attachment: &model.PortAttachment{
+					AllocateAddresses: common.String("BOTH"),
+					Type_:             common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					TrafficTag:        common.Int64(0),
+					Id:                common.String("63356462-3138-4030-ad63-6534632d3131"),
+					AppId:             common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
+					ContextId:         common.String("fake_context_id"),
+				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv6),
+			},
+			expectedError: nil,
+		},
+		{
+			name:            "build-NSX-port-for-restore-pod",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1",
@@ -607,7 +566,9 @@ func TestBuildSubnetPort(t *testing.T) {
 					Annotations: map[string]string{common.AnnotationPodMAC: "04:50:56:00:fa:00"},
 				},
 				Status: corev1.PodStatus{
-					PodIP: "10.0.0.1",
+					PodIPs: []corev1.PodIP{
+						{IP: "10.0.0.1"},
+					},
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -630,34 +591,13 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_pod"),
 				Id:          common.String("fake_pod_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/pod_name"),
-						Tag:   common.String("fake_pod"),
-					},
-					{
-						Scope: common.String("nsx-op/pod_uid"),
-						Tag:   common.String("c5db1800-ce4c-11de-a935-8105ba7ace78"),
-					},
-					{
-						Scope: common.String("kubernetes.io/metadata.name"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("vSphereClusterID"),
-						Tag:   common.String("domain-c11"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/pod_name"), Tag: common.String("fake_pod")},
+					{Scope: common.String("nsx-op/pod_uid"), Tag: common.String("c5db1800-ce4c-11de-a935-8105ba7ace78")},
+					{Scope: common.String("kubernetes.io/metadata.name"), Tag: common.String("fake_ns")},
+					{Scope: common.String("vSphereClusterID"), Tag: common.String("domain-c11")},
 				},
 				Path:       common.String("fake_path/ports/fake_pod_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -674,14 +614,15 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("04:50:56:00:fa:00"),
 					},
 				},
+				// Updated: Uses ConvertCRIPAddressTypeToNSX(interfaceIPType)
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv4),
 			},
 			expectedError: nil,
 			restore:       true,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - N
-			name: "build-NSX-port-for-subnetport-no-ip",
+			name:            "build-NSX-port-for-subnetport-no-ip",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1alpha1",
@@ -691,6 +632,9 @@ func TestBuildSubnetPort(t *testing.T) {
 					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
 					Name:      "fake_subnetport",
 					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -710,26 +654,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -739,13 +668,13 @@ func TestBuildSubnetPort(t *testing.T) {
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - N
-			name: "build-NSX-port-for-subnetport-no-ip-2",
+			name:            "build-NSX-port-for-subnetport-no-ip-2",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: "v1alpha1",
@@ -755,6 +684,9 @@ func TestBuildSubnetPort(t *testing.T) {
 					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
 					Name:      "fake_subnetport",
 					Namespace: "fake_ns",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -772,26 +704,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -801,13 +718,13 @@ func TestBuildSubnetPort(t *testing.T) {
 					Id:                common.String("32636365-6333-4239-ad37-3534362d3466"),
 					TrafficTag:        common.Int64(0),
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
 		{
-			// DHCP/DHCPRelay - N; StaticIPAllocation Enabled - N;
-			// AddressBinding exists - Y;
-			name: "build-NSX-port-in-subnet-no-ip-but-binding-in-nsx-mac-pool",
+			name:            "build-NSX-port-in-subnet-no-ip-but-binding-in-nsx-mac-pool",
+			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			obj: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
 					UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
@@ -822,6 +739,7 @@ func TestBuildSubnetPort(t *testing.T) {
 							MACAddress: "04:50:56:00:fa:00",
 						},
 					},
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 				},
 			},
 			nsxSubnet: &model.VpcSubnet{
@@ -841,26 +759,11 @@ func TestBuildSubnetPort(t *testing.T) {
 				DisplayName: common.String("fake_subnetport"),
 				Id:          common.String("fake_subnetport_phoia"),
 				Tags: []model.Tag{
-					{
-						Scope: common.String("nsx-op/cluster"),
-						Tag:   common.String("fake_cluster"),
-					},
-					{
-						Scope: common.String("nsx-op/version"),
-						Tag:   common.String("1.0.0"),
-					},
-					{
-						Scope: common.String("nsx-op/namespace"),
-						Tag:   common.String("fake_ns"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_name"),
-						Tag:   common.String("fake_subnetport"),
-					},
-					{
-						Scope: common.String("nsx-op/subnetport_uid"),
-						Tag:   common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
-					},
+					{Scope: common.String("nsx-op/cluster"), Tag: common.String("fake_cluster")},
+					{Scope: common.String("nsx-op/version"), Tag: common.String("1.0.0")},
+					{Scope: common.String("nsx-op/namespace"), Tag: common.String("fake_ns")},
+					{Scope: common.String("nsx-op/subnetport_name"), Tag: common.String("fake_subnetport")},
+					{Scope: common.String("nsx-op/subnetport_uid"), Tag: common.String("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc")},
 				},
 				Path:       common.String("fake_path/ports/fake_subnetport_phoia"),
 				ParentPath: common.String("fake_path"),
@@ -876,6 +779,7 @@ func TestBuildSubnetPort(t *testing.T) {
 						MacAddress: common.String("04:50:56:00:fa:00"),
 					},
 				},
+				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeNone),
 			},
 			expectedError: nil,
 		},
@@ -883,13 +787,13 @@ func TestBuildSubnetPort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			observedPort, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags, false, tt.restore)
+			// Passed tt.interfaceIPType explicitly into the updated method signature
+			observedPort, err := service.buildSubnetPort(tt.obj, tt.nsxSubnet, tt.contextID, tt.labelTags, false, tt.restore, tt.interfaceIPType)
 			if tt.expectedError != nil {
 				assert.Equal(t, tt.expectedError, err)
 			} else {
 				assert.Nil(t, err)
-				// Ignore attachment id for restore mode as it is random
-				if tt.restore {
+				if tt.restore && observedPort != nil && observedPort.Attachment != nil {
 					tt.expectedPort.Attachment.Id = observedPort.Attachment.Id
 				}
 				assert.Equal(t, tt.expectedPort, observedPort)
@@ -897,7 +801,6 @@ func TestBuildSubnetPort(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestGetAddressBindingBySubnetPort(t *testing.T) {

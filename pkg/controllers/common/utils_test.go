@@ -98,7 +98,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 		},
 	}
 	k8sclient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(subnetSet).Build()
-	patches := gomonkey.ApplyFunc(GetSubnetFromSubnetSet, func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
+	patches := gomonkey.ApplyFunc(GetSubnetFromSubnetSet, func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType) (string, error) {
 		return expectedSubnetPath, nil
 	})
 	defer patches.Reset()
@@ -122,7 +122,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 						},
 					})
 				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("GetPortsOfSubnet", mock.Anything).Return([]*model.VpcSubnetPort{})
-				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(true, nil)
+				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(true, nil)
 			},
 			expectedResult: expectedSubnetPath,
 			subnetSet:      subnetSet,
@@ -146,7 +146,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 				ssp.(*pkg_mock.MockSubnetServiceProvider).On("GenerateSubnetNSTags", mock.Anything)
 				vsp.(*pkg_mock.MockVPCServiceProvider).On("ListVPCInfo", mock.Anything).Return([]servicecommon.VPCResourceInfo{{}})
 				ssp.(*pkg_mock.MockSubnetServiceProvider).On("CreateOrUpdateSubnet", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(&model.VpcSubnet{Path: &expectedSubnetPath}, nil)
-				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(true, nil)
+				spsp.(*pkg_mock.MockSubnetPortServiceProvider).On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(true, nil)
 			},
 			expectedResult: expectedSubnetPath,
 			subnetSet: &v1alpha1.SubnetSet{
@@ -197,7 +197,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 			ssp := &pkg_mock.MockSubnetServiceProvider{}
 			spsp := &pkg_mock.MockSubnetPortServiceProvider{}
 			tt.prepareFunc(t, vps, ssp, spsp)
-			subnetPath, subnetSetUID, subnetSetLock, err := AllocateSubnetFromSubnetSet(k8sclient, k8sclient, tt.subnetSet, vps, ssp, spsp)
+			subnetPath, subnetSetUID, subnetSetLock, err := AllocateSubnetFromSubnetSet(k8sclient, k8sclient, tt.subnetSet, vps, ssp, spsp, "")
 			if subnetSetLock != nil {
 				RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
 			}
@@ -733,7 +733,7 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) *gomonkey.Patches {
 				// We use mock.Anything here to avoid pointer address issues
 				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet1, nil)
-				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(true, nil)
+				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(true, nil)
 				return nil
 			},
 			expectedPath: path1,
@@ -752,8 +752,8 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) *gomonkey.Patches {
 				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet1, nil)
 				// First call returns false (full), second call returns true
-				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(false, nil).Once()
-				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(true, nil).Once()
+				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Once()
+				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Once()
 				return nil
 			},
 			expectedPath: path1,
@@ -778,7 +778,7 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) *gomonkey.Patches {
 				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet1, nil).Once()
 				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet2, nil).Once()
-				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(true, nil).Once()
+				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Once()
 				patches := gomonkey.ApplyFunc(GetVpcNetworkConfig, func(service servicecommon.VPCServiceProvider, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
 					return &v1alpha1.VPCNetworkConfiguration{
 						Spec: v1alpha1.VPCNetworkConfigurationSpec{
@@ -805,7 +805,7 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 			},
 			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) *gomonkey.Patches {
 				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet1, nil)
-				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(false, nil)
+				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(false, nil)
 				return nil
 			},
 			expectedPath: "",
@@ -851,7 +851,7 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 			},
 			mockSetup: func(ms *pkg_mock.MockSubnetServiceProvider, mp *pkg_mock.MockSubnetPortServiceProvider) *gomonkey.Patches {
 				ms.On("GetSubnetByCR", mock.Anything).Return(nsxSubnet1, nil)
-				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything).Return(false, errors.New("capacity-check-failed"))
+				mp.On("AllocatePortFromSubnet", mock.Anything, mock.Anything, mock.Anything).Return(false, errors.New("capacity-check-failed"))
 				return nil
 			},
 			wantErr:     true,
@@ -872,7 +872,7 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 			}
 
 			// Execute
-			result, err := GetSubnetFromSubnetSet(client, tt.subnetSet, mockVpcSvc, mockSubnetSvc, mockPortSvc)
+			result, err := GetSubnetFromSubnetSet(client, tt.subnetSet, mockVpcSvc, mockSubnetSvc, mockPortSvc, "")
 
 			// Assert
 			if tt.wantErr {

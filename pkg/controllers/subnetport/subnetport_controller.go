@@ -106,7 +106,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		r.StatusUpdater.IncreaseUpdateTotal()
 
 		old_status := subnetPort.Status.DeepCopy()
-		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
 		if subnetSetLock != nil {
 			defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
 		}
@@ -120,7 +120,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultRequeue, err
 		}
 		if !isExisting {
-			defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath)
+			defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType)
 		}
 
 		var labels *map[string]string
@@ -152,6 +152,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
+		err = r.updateSubnetPortIPType(ctx, subnetPort, interfaceIPType, nsxSubnet)
+		if err != nil {
+			return common.ResultNormal, err
+		}
 
 		isVmSubnetPort := true
 		if value, exists := subnetPort.Labels[servicecommon.LabelImageFetcher]; exists && value == "true" {
@@ -167,7 +171,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
-		nsxSubnetPortState, enableDHCP, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode)
+		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			if nsxutil.IsRealizeStateError(err) {
@@ -191,13 +195,43 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 						Gateway: "",
 					},
 				},
-				DHCPDeactivatedOnSubnet: !enableDHCP,
+				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
+				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
+			}
+			// Append one more ipaddress for dual stack SubnetPort
+			if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = append(
+					subnetPort.Status.NetworkInterfaceConfig.IPAddresses,
+					v1alpha1.NetworkInterfaceIPAddress{Gateway: ""},
+				)
 			}
 			if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
-					subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = *nsxSubnetPortState.RealizedBindings[0].Binding.IpAddress
-					// The MAC address is updated here when the SubnetPort's StaticIPAllocation is enabled or spec.AddressBindings is specific. For the other cases, the MAC address will be updated in the VIF polling.
-					subnetPort.Status.NetworkInterfaceConfig.MACAddress = strings.Trim(*nsxSubnetPortState.RealizedBindings[0].Binding.MacAddress, "\"")
+					// Process all realized bindings and populate IPAddresses array
+					// RealizedBindings can contain up to 2 entries (IPv4 and IPv6)
+					// The MAC address is updated here when the SubnetPort's StaticIPAllocation
+					// is enabled or spec.AddressBindings is specific. For the other cases, the MAC
+					// address will be updated in the VIF polling.
+					macAddress := ""
+					for i, binding := range nsxSubnetPortState.RealizedBindings {
+						if binding.Binding != nil && binding.Binding.IpAddress != nil {
+							if macAddress == "" && binding.Binding.MacAddress != nil {
+								macAddress = strings.Trim(*binding.Binding.MacAddress, "\"")
+							}
+							if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses) <= i {
+								// TODO: revisit this when supporting multiple addressbindings per IPAddressType
+								log.Warn("More IPs are realized on SubnetPort", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "RealizedBindings", nsxSubnetPortState.RealizedBindings)
+								subnetPort.Status.NetworkInterfaceConfig.IPAddresses = append(
+									subnetPort.Status.NetworkInterfaceConfig.IPAddresses,
+									v1alpha1.NetworkInterfaceIPAddress{Gateway: "", IPAddress: *binding.Binding.IpAddress},
+								)
+							} else {
+								subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].IPAddress = *binding.Binding.IpAddress
+							}
+						}
+					}
+					// MAC address is consistent across all bindings, set it once
+					subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
 				} else if !util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && len(subnetPort.Spec.AddressBindings) > 0 {
 					// If StaticIPAllocation is disabled, propagate the MAC from spec.addressBinding to status
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
@@ -211,9 +245,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
 				}
-				if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress == "" && old_status.NetworkInterfaceConfig.IPAddresses[0].IPAddress != "" {
-					subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress = old_status.NetworkInterfaceConfig.IPAddresses[0].IPAddress
-				}
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = old_status.NetworkInterfaceConfig.IPAddresses
 			}
 			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
 			if err != nil {
@@ -294,6 +326,34 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), vmOrInterfaceNotFoundError)
 	}
 	return common.ResultNormal, nil
+}
+
+func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subnetPort *v1alpha1.SubnetPort, interfaceIPType v1alpha1.IPAddressType, nsxSubnet *model.VpcSubnet) error {
+	specChanged := false
+	if subnetPort.Spec.InterfaceIPType == "" {
+		subnetPort.Spec.InterfaceIPType = interfaceIPType
+		specChanged = true
+	}
+	// If staticIPAllocationType are not set
+	//     staticIPAllocationType is the same as interfaceIPType if static ip allocation is enabled
+	//     staticIPAllocationType is None if static ip allocation is disabled
+	// TODO: Add check for DHCP/SLAAC when mixed mode Subnet is supported
+	if subnetPort.Spec.StaticIPAllocationType == "" {
+		if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+			subnetPort.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationType(subnetPort.Spec.InterfaceIPType)
+		} else {
+			subnetPort.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationTypeNone
+		}
+		specChanged = true
+	}
+	if specChanged {
+		err := r.Client.Update(ctx, subnetPort)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to update SubnetPort InterfaceIPType or StaticIPAllocationType", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *SubnetPortReconciler) getSubnetCR(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
@@ -738,22 +798,29 @@ func setSubnetPortReadyStatusFalse(client client.Client, ctx context.Context, ob
 }
 
 func updateSubnetPortStatusConditions(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, newConditions []v1alpha1.Condition) {
-	conditionsUpdated := false
-	for i := range newConditions {
-		if mergeSubnetPortStatusCondition(subnetPort, &newConditions[i]) {
-			conditionsUpdated = true
+	retry.OnError(util.K8sClientRetry, func(err error) bool {
+		log.Error(err, "Failed to update SubnetPort Status, will retry", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
+		return err != nil
+	}, func() error {
+		latestSubnetPort := &v1alpha1.SubnetPort{}
+		if err := client.Get(ctx, types.NamespacedName{Namespace: subnetPort.Namespace, Name: subnetPort.Name}, latestSubnetPort); err != nil {
+			return err
 		}
-	}
-	if conditionsUpdated {
-		retry.OnError(util.K8sClientRetry, func(err error) bool {
-			log.Error(err, "Failed to update SubnetPort Status, will retry", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
-			return err != nil
-		}, func() error {
-			return client.Status().Update(ctx, subnetPort)
-		})
-		log.Debug("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
-			"New Conditions", newConditions)
-	}
+		conditionsUpdated := false
+		for i := range newConditions {
+			if mergeSubnetPortStatusCondition(latestSubnetPort, &newConditions[i]) {
+				conditionsUpdated = true
+			}
+		}
+		if conditionsUpdated {
+			latestSubnetPort.Status.Attachment = subnetPort.Status.Attachment
+			latestSubnetPort.Status.NetworkInterfaceConfig = subnetPort.Status.NetworkInterfaceConfig
+			return client.Status().Update(ctx, latestSubnetPort)
+		}
+		return nil
+	})
+	log.Debug("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
+		"New Conditions", newConditions)
 }
 
 func mergeSubnetPortStatusCondition(subnetPort *v1alpha1.SubnetPort, newCondition *v1alpha1.Condition) bool {
@@ -829,7 +896,7 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 	return common.GetSubnetByIP(subnets, gatewayIP)
 }
 
-func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, subnetSetUID *types.UID, subnetSetLock *sync.RWMutex, err error) {
+func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, subnetSetUID *types.UID, subnetSetLock *sync.RWMutex, interfaceType v1alpha1.IPAddressType, err error) {
 	var subnetCR *v1alpha1.Subnet
 	subnetCR, isStale, err = r.getSubnetCR(ctx, subnetPort)
 	if err != nil {
@@ -839,7 +906,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	existingSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 	if err != nil {
 		log.Error(err, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
-		return false, false, "", nil, nil, err
+		return false, false, "", nil, nil, "", err
 	}
 	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
 		subnetPath = *existingSubnetPort.ParentPath
@@ -872,7 +939,8 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		var canAllocate bool
-		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR))
+		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetCR.Spec.IPAddressType)
+		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceType)
 		if err != nil {
 			return
 		}
@@ -896,8 +964,13 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("subnetset %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return
 		}
+		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {
+			err = fmt.Errorf("Waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
+			return
+		}
+		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
 		log.Info("Got SubnetSet for SubnetPort CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
+		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType)
 		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return
@@ -913,8 +986,13 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("default subnetset %s is being deleted, cannot operate subnetport %s", subnetSet.Name, subnetPort.Name)
 			return
 		}
+		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {
+			err = fmt.Errorf("Waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
+			return
+		}
 		log.Info("Got default SubnetSet for SubnetPort CR, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService)
+		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
+		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType)
 		if err != nil {
 			return
 		}
@@ -924,19 +1002,99 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 }
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
-	gateway, prefix, err := r.SubnetService.GetGatewayPrefixOfSubnet(nsxSubnet)
+	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
+	// Get all gateways from the subnet (may be IPv4, IPv6, or both for dual-stack)
+	gatewaysWithPrefixes, err := r.SubnetService.GetAllGatewayPrefixesOfSubnet(nsxSubnet)
 	if err != nil {
 		return err
 	}
-	// For now, we have an assumption that one subnetport only have one IP address
-	if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress) > 0 && prefix > 0 {
-		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress += fmt.Sprintf("/%d", prefix)
-	}
 	// The gateway can be empty for L2_Only Subnet which has the vlan_connection without gateway
-	if len(gateway) > 0 {
-		subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway = gateway
+	if len(gatewaysWithPrefixes) == 0 {
+		return nil
 	}
-	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
+
+	var newIPAddresses []v1alpha1.NetworkInterfaceIPAddress
+	usedGateways := make([]bool, len(gatewaysWithPrefixes))
+
+	// First pass: Process non-empty IPs and/or non-empty Gateways
+	for _, ipConfig := range subnetPort.Status.NetworkInterfaceConfig.IPAddresses {
+		// In restore mode, the prefix may already set
+		if strings.Contains(ipConfig.IPAddress, "/") {
+			// If the IPAddress already has the prefix, just mark gateway as used
+			newIPAddresses = append(newIPAddresses, ipConfig)
+			for i, gwInfo := range gatewaysWithPrefixes {
+				if gwInfo.Gateway == ipConfig.Gateway {
+					usedGateways[i] = true
+					break
+				}
+			}
+			continue
+		}
+
+		if len(ipConfig.IPAddress) > 0 {
+			// Update the gateway and prefix in IPAddress
+			ip := net.ParseIP(ipConfig.IPAddress)
+			if ip == nil {
+				return fmt.Errorf("invalid IP address %s", ipConfig.IPAddress)
+			}
+
+			for i, gwInfo := range gatewaysWithPrefixes {
+				gwCIDR := fmt.Sprintf("%s/%d", gwInfo.Gateway, gwInfo.Prefix)
+				_, ipNet, err := net.ParseCIDR(gwCIDR)
+				if err != nil {
+					// Should not reach here
+					return fmt.Errorf("invalid gateway CIDR %s", gwCIDR)
+				}
+				// Observed for IPv6 single stack SubnetPort, there will be another IPAddress
+				// not matching the gateway CIDR in realized state like fe80::650:56ff:fe00:8401,
+				// thus we need to filter the ip
+				if ipNet.Contains(ip) {
+					// Match found
+					ipConfig.IPAddress += fmt.Sprintf("/%d", gwInfo.Prefix)
+					ipConfig.Gateway = gwInfo.Gateway
+					newIPAddresses = append(newIPAddresses, ipConfig)
+					usedGateways[i] = true
+					break
+				}
+			}
+		} else if len(ipConfig.Gateway) > 0 {
+			// For DHCP case, we can have empty IPAddress with non-empty Gateway.
+			// If Gateway is already filled, we should keep it in the SubnetPort status.
+			newIPAddresses = append(newIPAddresses, ipConfig)
+			for i, gwInfo := range gatewaysWithPrefixes {
+				if gwInfo.Gateway == ipConfig.Gateway {
+					usedGateways[i] = true
+					break
+				}
+			}
+		}
+	}
+
+	// Second pass: Process empty IPs and empty Gateways
+	// For DHCP case, the IPAddress will be empty. We set the unused Gateway in IPAddresses
+	for _, ipConfig := range subnetPort.Status.NetworkInterfaceConfig.IPAddresses {
+		if len(ipConfig.IPAddress) == 0 && ipConfig.Gateway == "" {
+			// Find first unused gateway
+			for i, gwInfo := range gatewaysWithPrefixes {
+				if !usedGateways[i] {
+					ipConfig.Gateway = gwInfo.Gateway
+					newIPAddresses = append(newIPAddresses, ipConfig)
+					usedGateways[i] = true
+					break
+				}
+			}
+		}
+	}
+
+	slices.SortFunc(newIPAddresses, func(a, b v1alpha1.NetworkInterfaceIPAddress) int {
+		if a.Gateway != b.Gateway {
+			return strings.Compare(a.Gateway, b.Gateway)
+		}
+		return strings.Compare(a.IPAddress, b.IPAddress)
+	})
+
+	log.Debug("updateSubnetStatusOnSubnetPort IPAddresses", "before", subnetPort.Status.NetworkInterfaceConfig.IPAddresses, "after", newIPAddresses)
+	subnetPort.Status.NetworkInterfaceConfig.IPAddresses = newIPAddresses
 	return nil
 }
 

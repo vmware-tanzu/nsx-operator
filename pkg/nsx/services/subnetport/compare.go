@@ -19,10 +19,11 @@ func (sp *SubnetPort) Key() string {
 
 func (sp *SubnetPort) Value() data.DataValue {
 	s := &SubnetPort{
-		Id:          sp.Id,
-		DisplayName: sp.DisplayName,
-		Tags:        sp.Tags,
-		Attachment:  sp.Attachment,
+		Id:                     sp.Id,
+		DisplayName:            sp.DisplayName,
+		Tags:                   sp.Tags,
+		Attachment:             sp.Attachment,
+		StaticIpAllocationType: sp.StaticIpAllocationType,
 	}
 	if sp.Attachment != nil {
 		// Ignoring the fields BmsInterfaceConfig, ContextType, EvpnVlans, HyperbusMode
@@ -37,11 +38,12 @@ func (sp *SubnetPort) Value() data.DataValue {
 		}
 	}
 	if sp.AddressBindings != nil {
-		s.AddressBindings = []model.PortAddressBindingEntry{
-			{
-				IpAddress:  sp.AddressBindings[0].IpAddress,
-				MacAddress: sp.AddressBindings[0].MacAddress,
-			},
+		s.AddressBindings = make([]model.PortAddressBindingEntry, len(sp.AddressBindings))
+		for i, binding := range sp.AddressBindings {
+			s.AddressBindings[i] = model.PortAddressBindingEntry{
+				IpAddress:  binding.IpAddress,
+				MacAddress: binding.MacAddress,
+			}
 		}
 	}
 	if sp.ExternalAddressBinding != nil {

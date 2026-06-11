@@ -121,16 +121,8 @@ func (m *MockSubnetServiceProvider) GetSubnetStatus(subnet *model.VpcSubnet) ([]
 	return nil, nil
 }
 
-func (m *MockSubnetServiceProvider) GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	return "", 0, nil
-}
-
-func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnet(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	return "", 0, nil
-}
-
-func (m *MockSubnetServiceProvider) GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error) {
-	return "", 0, nil
+func (m *MockSubnetServiceProvider) GetAllGatewayPrefixesOfSubnet(nsxSubnet *model.VpcSubnet) ([]common.GatewayPrefixInfo, error) {
+	return nil, nil
 }
 
 func (m *MockSubnetServiceProvider) GetAllVIFs() ([]mpmodel.VirtualNetworkInterface, error) {
@@ -149,12 +141,12 @@ func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(subnetPath string) (por
 	return args.Get(0).([]*model.VpcSubnetPort)
 }
 
-func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool) (bool, error) {
-	args := m.Called(subnet, sharedSubnet)
+func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType) (bool, error) {
+	args := m.Called(subnet, sharedSubnet, interfaceIPType)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string) {
+func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string, interfaceIPType v1alpha1.IPAddressType) {
 }
 
 func (m *MockSubnetPortServiceProvider) IsEmptySubnet(path string) bool {

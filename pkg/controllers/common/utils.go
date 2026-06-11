@@ -30,6 +30,7 @@ const (
 	NSXIPAddressTypeIPv4     = "IPV4"
 	NSXIPAddressTypeIPv6     = "IPV6"
 	NSXIPAddressTypeIPv4IPv6 = "IPV4_IPV6"
+	NSXIPAddressTypeNone     = "NONE"
 )
 
 var (
@@ -104,7 +105,7 @@ func getSubnetFromVPCNetworkConfiguration(vpcService servicecommon.VPCServicePro
 }
 
 // Get a Subnet with available IPs from the pre-created SubnetSet
-func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, error) {
+func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType) (string, error) {
 	var errList []error
 	defaultSubnetSetFor := util.GetSubnetSetKind(subnetSet)
 	subnetPathsFromConfig := sets.New[string]()
@@ -140,7 +141,7 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 				continue
 			}
 		}
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR))
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceIPType)
 		if err != nil {
 			log.Error(err, "Failed to check capacity of NSX Subnet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace, "NSXSubnet", nsxSubnet.Id)
 			errList = append(errList, err)
@@ -184,7 +185,7 @@ func IsNamespaceInTepLessMode(client k8sclient.Client, namespace string) (bool, 
 	return networkInfo.VPCs[0].NetworkStack == v1alpha1.VLANBackedVPC, nil
 }
 
-func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider) (string, *types.UID, *sync.RWMutex, error) {
+func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType) (string, *types.UID, *sync.RWMutex, error) {
 	if subnetSet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 		// From NSX Operator 9.1.1, DHCPRelay SubnetSet is no longer supported.
 		return "", nil, nil, fmt.Errorf("Creating SubnetPort on DHCPRelay SubnetSet is not supported")
@@ -197,7 +198,7 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 		if err := apiReader.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name}, subnetSet); err != nil {
 			return "", &subnetSet.UID, subnetSetLock, err
 		}
-		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService)
+		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService, interfaceIPType)
 		return nsxSubnet, &subnetSet.UID, subnetSetLock, err
 	}
 	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created
@@ -205,7 +206,7 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 	defer WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	for _, nsxSubnet := range subnetList {
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false)
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -228,7 +229,7 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 	if err != nil {
 		return "", nil, nil, err
 	}
-	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false)
+	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType)
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -636,6 +637,25 @@ func ConvertCRIPAddressTypeToNSX(crType v1alpha1.IPAddressType) string {
 		return NSXIPAddressTypeIPv6
 	case v1alpha1.IPAddressTypeIPv4IPv6:
 		return NSXIPAddressTypeIPv4IPv6
+	default:
+		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(crType))
+		return NSXIPAddressTypeIPv4
+	}
+}
+
+// ConvertCRStaticIPAddressTypeToNSX converts CR StaticIPAddressType to NSX API format
+// v1alpha1 format: IPv4, IPv6, IPv4IPv6, None
+// NSX format: IPV4, IPV6, IPV4_IPV6, NONE
+func ConvertCRStaticIPAddressTypeToNSX(crType v1alpha1.StaticIPAllocationType) string {
+	switch crType {
+	case v1alpha1.StaticIPAllocationTypeIPv4:
+		return NSXIPAddressTypeIPv4
+	case v1alpha1.StaticIPAllocationTypeIPv6:
+		return NSXIPAddressTypeIPv6
+	case v1alpha1.StaticIPAllocationTypeIPv4IPv6:
+		return NSXIPAddressTypeIPv4IPv6
+	case v1alpha1.StaticIPAllocationTypeNone:
+		return NSXIPAddressTypeNone
 	default:
 		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(crType))
 		return NSXIPAddressTypeIPv4

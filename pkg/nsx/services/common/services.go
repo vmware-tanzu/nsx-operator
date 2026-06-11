@@ -37,15 +37,13 @@ type SubnetServiceProvider interface {
 	GetSubnetByCR(subnet *v1alpha1.Subnet) (*model.VpcSubnet, error)
 	GetNSXSubnetFromCacheOrAPI(associatedResource string, forceAPI bool) (*model.VpcSubnet, error)
 	GetSubnetStatus(subnet *model.VpcSubnet) ([]model.VpcSubnetStatus, error)
-	GetGatewayPrefixFromNSXSubnet(nsxSubnet *model.VpcSubnet) (string, int, error)
-	GetGatewayPrefixFromNSXSubnetStatus(nsxSubnet *model.VpcSubnet) (string, int, error)
-	GetGatewayPrefixOfSubnet(nsxSubnet *model.VpcSubnet) (string, int, error)
+	GetAllGatewayPrefixesOfSubnet(nsxSubnet *model.VpcSubnet) ([]GatewayPrefixInfo, error)
 }
 
 type SubnetPortServiceProvider interface {
 	GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort)
-	AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool) (bool, error)
-	ReleasePortInSubnet(path string)
+	AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType) (bool, error)
+	ReleasePortInSubnet(path string, interfaceIPType v1alpha1.IPAddressType)
 	IsEmptySubnet(path string) bool
 	DeletePortCount(path string)
 	GetSubnetPathForSubnetPortFromStore(crUid types.UID) string

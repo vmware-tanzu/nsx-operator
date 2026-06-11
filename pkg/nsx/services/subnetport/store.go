@@ -141,11 +141,15 @@ type SubnetPortStore struct {
 }
 
 type CountInfo struct {
-	// dirtyCount defines the number of SubnetPorts under creation in the Subnet
+	// dirtyCount defines the number of SubnetPorts under creation in the Subnet (IPv4)
 	dirtyCount int
-	lock       sync.Mutex
-	// totalIP defines the number of available IP in the Subnet
-	totalIP            int
+	// dirtyCountIPv6 defines the number of SubnetPorts under creation in the Subnet (IPv6)
+	dirtyCountIPv6 int
+	lock           sync.Mutex
+	// totalIP defines the number of available IPv4 in the Subnet
+	totalIP int
+	// totalIPv6 defines the number of available IPv6 in the Subnet
+	totalIPv6          int
 	exhaustedCheckTime time.Time
 }
 
