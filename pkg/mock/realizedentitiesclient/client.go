@@ -7,8 +7,8 @@ package mocks
 import (
 	reflect "reflect"
 
-	gomock "go.uber.org/mock/gomock"
 	model "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	gomock "go.uber.org/mock/gomock"
 )
 
 // MockRealizedEntitiesClient is a mock of RealizedEntitiesClient interface.
