@@ -852,6 +852,48 @@ func TestValidateConnectionStatus(t *testing.T) {
 			},
 		},
 		{
+			name: "ServiceClusterReadyWithVXlanConnection",
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReady:  false,
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReady:     true,
+			},
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/default/projects/project-quality",
+				},
+			},
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.VpcConnectivityProfile{
+							ServiceGateway: &model.VpcServiceGatewayConfig{
+								Enable:           common.Bool(true),
+								EdgeClusterPaths: []string{"/service-cluster-path"},
+							},
+							TransitGatewayPath: common.String("/transit-gateway"),
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						model.TransitGatewayAttachmentListResult{
+							Results: []model.TransitGatewayAttachment{
+								{
+									ConnectionPath: common.String("/infra/distributed-vxlan-connections/dvxlan-103"),
+								},
+							},
+						},
+						nil,
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+		},
+		{
 			name: "GatewayConnectionReady",
 			expectedStatus: &common.VPCConnectionStatus{
 				GatewayConnectionReady: true,
