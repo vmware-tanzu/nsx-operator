@@ -783,7 +783,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `network` _string_ | Specify network address in CIDR format. |  | Format: cidr <br /> |
+| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocation. |  | Format: cidr <br /> |
+| `networkIpAllocation` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  |  |
 | `nextHops` _[NextHop](#nexthop) array_ | Next hop gateway |  | MinItems: 1 <br /> |
 
 
@@ -1247,6 +1248,7 @@ _Appears in:_
 | `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
 | `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Defaults to 64. | 64 | Maximum: 127 <br />Minimum: 2 <br /> |
+| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, this VPC will be used to create load balancer resources (such as VIP and LB pools) instead of the current VPC. |  |  |
 
 
 #### VPCNetworkConfigurationStatus
