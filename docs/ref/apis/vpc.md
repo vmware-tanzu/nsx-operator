@@ -771,7 +771,6 @@ _Appears in:_
 | `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false.<br />If the DHCP mode is DHCPRelay, its default value is false. |  |  |
 | `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  | Optional: \{\} <br /> |
 
-
 #### StaticIPAllocationType
 
 _Underlying type:_ _string_
@@ -1412,6 +1411,7 @@ _Appears in:_
 | `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
 | `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Defaults to 64. | 64 | Maximum: 127 <br />Minimum: 2 <br /> |
+| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
 
 
 #### VPCNetworkConfigurationStatus
