@@ -47,6 +47,10 @@ type VPCNetworkConfigurationSpec struct {
 	// +kubebuilder:validation:Minimum:=2
 	// +kubebuilder:validation:Maximum:=127
 	DefaultIPv6PrefixLength int `json:"defaultIPv6PrefixLength,omitempty"`
+
+	// NSX Policy path of the Load Balancer VPC. If set, this VPC will be used to create load balancer resources (such as VIP and LB pools) instead of the current VPC.
+	// +optional
+	LoadBalancerVPC string `json:"loadBalancerVPC,omitempty"`
 }
 
 // SharedSubnet defines the information for a Subnet shared with vSphere Namespace.

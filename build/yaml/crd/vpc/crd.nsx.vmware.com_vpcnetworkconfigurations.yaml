@@ -71,6 +71,11 @@ spec:
                 items:
                   type: string
                 type: array
+              loadBalancerVPC:
+                description: NSX Policy path of the Load Balancer VPC. If set, this
+                  VPC will be used to create load balancer resources (such as VIP
+                  and LB pools) instead of the current VPC.
+                type: string
               nsxProject:
                 description: NSX Project the Namespace is associated with.
                 type: string
