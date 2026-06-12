@@ -149,10 +149,8 @@ type StaticIPAllocation struct {
 	// Activate or deactivate static IP allocation for VPC Subnet Ports.
 	// If the DHCP mode is DHCPDeactivated or not set, its default value is true.
 	// If the DHCP mode is DHCPServer, its default value is false. When enabled
-	// together with DHCPServer, the Subnet operates in mixed mode: PoolRanges
-	// defines the static pool and NSX allocates the remaining IPs to the DHCP
-	// pool.
-	// The value cannot be set to true when the DHCP mode is DHCPRelay.
+	// together with DHCPServer, the Subnet operates in mixed mode.
+	// If the DHCP mode is DHCPRelay, its default value is false.
 	Enabled *bool `json:"enabled,omitempty"`
 	// PoolRanges specifies the IP address ranges for static IP allocation.
 	// Each entry is either a single IP address (e.g. "192.168.1.5") or a

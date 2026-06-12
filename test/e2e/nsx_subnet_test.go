@@ -920,8 +920,9 @@ func SubnetPortWithDHCP(t *testing.T) {
 //     allocated from the range; DHCP SubnetPort gets an IP outside the range.
 //   - day-2: add a second poolRange and confirm drift reconciles.
 //   - negative: attempt to flip staticIPAllocation.enabled post-create
-//     (rejected by CEL immutability) and poolRanges overlapping reservedIPRanges
-//     (rejected by webhook).
+//     (rejected by CEL immutability); poolRanges overlapping reservedIPRanges
+//     and malformed poolRange strings are admitted by the webhook and rejected
+//     by NSX — the reconciler sets Ready=False without requeuing.
 func SubnetMixedMode(t *testing.T) {
 	// Discover an available CIDR by creating a throwaway Subnet first so the
 	// static/DHCP ranges we construct later are guaranteed to fit.
@@ -1094,7 +1095,9 @@ func SubnetMixedMode(t *testing.T) {
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Update(context.TODO(), toggle, v1.UpdateOptions{})
 	require.Error(t, err, "flipping staticIPAllocation.enabled post-creation must be rejected")
 
-	// Case 4 (negative): poolRanges overlapping reservedIPRanges is rejected.
+	// Case 4 (negative): poolRanges overlapping reservedIPRanges — the webhook
+	// now admits this; NSX rejects it and the reconciler sets Ready=False without
+	// requeuing (error code in 508100s or 660000–660011 range).
 	overlap := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-overlap", Namespace: subnetTestNamespace},
 		Spec: v1alpha1.SubnetSpec{
@@ -1114,7 +1117,27 @@ func SubnetMixedMode(t *testing.T) {
 		},
 	}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), overlap, v1.CreateOptions{})
-	require.Error(t, err, "poolRanges overlapping reservedIPRanges must be rejected by webhook")
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err, "poolRanges overlapping reservedIPRanges must be admitted by webhook")
+	{
+		deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
+		defer deadlineCancel()
+		err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (bool, error) {
+			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, overlap.Name, v1.GetOptions{})
+			if getErr != nil {
+				return false, getErr
+			}
+			for _, con := range s.Status.Conditions {
+				if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+		require.NoError(t, err, "timed out waiting for overlap Subnet to reach Ready=False")
+	}
 
 	// Case 5: single-IP string form — "X.X.X.X" (no dash) is the canonical NSX
 	// format for a one-address range. Previously only representable as
@@ -1152,9 +1175,8 @@ func SubnetMixedMode(t *testing.T) {
 	require.Contains(t, singleIPRealized.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges[0], singleIP.String(),
 		"single-IP poolRange must contain the original IP after NSX round-trip")
 
-	// Case 6: malformed poolRange string must be rejected by the webhook before
-	// reaching NSX. This was structurally impossible with the old {Start, End}
-	// struct but is a real user-facing concern with the flat []string API.
+	// Case 6: malformed poolRange string — admitted by the webhook, rejected by
+	// NSX; the reconciler sets Ready=False without requeuing.
 	malformed := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-malformed", Namespace: subnetTestNamespace},
 		Spec: v1alpha1.SubnetSpec{
@@ -1171,7 +1193,27 @@ func SubnetMixedMode(t *testing.T) {
 		},
 	}
 	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), malformed, v1.CreateOptions{})
-	require.Error(t, err, "malformed poolRange string must be rejected by webhook")
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err, "malformed poolRange string must be admitted by webhook")
+	{
+		deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
+		defer deadlineCancel()
+		err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (bool, error) {
+			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, malformed.Name, v1.GetOptions{})
+			if getErr != nil {
+				return false, getErr
+			}
+			for _, con := range s.Status.Conditions {
+				if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+		require.NoError(t, err, "timed out waiting for malformed Subnet to reach Ready=False")
+	}
 }
 
 func randomIPv4() (net.IP, error) {
