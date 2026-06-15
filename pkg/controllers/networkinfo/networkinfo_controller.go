@@ -142,9 +142,11 @@ func (r *NetworkInfoReconciler) computeSubnetSetIPAddressType(hasIPv4CIDR, hasIP
 	} else if hasIPv4CIDR {
 		vpcIPFamily = v1alpha1.IPAddressTypeIPv4
 	}
-	if vpcIPFamily != "" {
-		ipTypes = append(ipTypes, vpcIPFamily)
+	if vpcIPFamily == "" {
+		log.Info("VPC has no IPv4 or IPv6 blocks for default SubnetSet")
+		return IPAddressTypeNone
 	}
+	ipTypes = append(ipTypes, vpcIPFamily)
 
 	// Compute intersection using common utility
 	intersectedType, err := common.IntersectIPAddressTypes(ipTypes)
