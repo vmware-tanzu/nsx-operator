@@ -923,6 +923,9 @@ func SubnetPortWithDHCP(t *testing.T) {
 //     (rejected by CEL immutability); poolRanges overlapping reservedIPRanges
 //     and malformed poolRange strings are admitted by the webhook and rejected
 //     by NSX — the reconciler sets Ready=False without requeuing.
+//   - DHCPDeactivated + poolRanges: NSX behavior is not yet confirmed; the test
+//     accepts either Ready=True (NSX supports it) or Ready=False (rejected, no
+//     requeue). Outcome is logged for observability.
 func SubnetMixedMode(t *testing.T) {
 	// Discover an available CIDR by creating a throwaway Subnet first so the
 	// static/DHCP ranges we construct later are guaranteed to fit.
@@ -1213,6 +1216,65 @@ func SubnetMixedMode(t *testing.T) {
 			return false, nil
 		})
 		require.NoError(t, err, "timed out waiting for malformed Subnet to reach Ready=False")
+	}
+
+	// Case 7: DHCPDeactivated + poolRanges — NSX behavior is not yet confirmed.
+	// The test accepts either outcome: Ready=True (NSX supports the combination)
+	// or Ready=False (NSX rejects it, controller stops requeuing via the
+	// 660000–660011 guard). It fails only if no terminal condition is reached,
+	// which would indicate an infinite requeue loop.
+	deactivatedRangeStart := make(net.IP, len(ip))
+	copy(deactivatedRangeStart, ip)
+	deactivatedRangeStart[3] += 40
+	deactivatedRangeEnd := make(net.IP, len(ip))
+	copy(deactivatedRangeEnd, ip)
+	deactivatedRangeEnd[3] += 42
+
+	dhcpDeactivated := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: "subnet-mixed-deactivated", Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{subnetCIDRStr},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled:    common.Bool(true),
+					PoolRanges: []string{fmt.Sprintf("%s-%s", deactivatedRangeStart.String(), deactivatedRangeEnd.String())},
+				},
+			},
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), dhcpDeactivated, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err, "DHCPDeactivated + poolRanges must be admitted by webhook")
+	{
+		deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
+		defer deadlineCancel()
+		err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (bool, error) {
+			s, getErr := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(ctx, dhcpDeactivated.Name, v1.GetOptions{})
+			if getErr != nil {
+				return false, getErr
+			}
+			for _, con := range s.Status.Conditions {
+				if con.Type != v1alpha1.Ready {
+					continue
+				}
+				if con.Status == corev1.ConditionTrue {
+					t.Logf("DHCPDeactivated+poolRanges: NSX accepted (Ready=True), poolRanges=%v",
+						s.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges)
+					return true, nil
+				}
+				if con.Status == corev1.ConditionFalse {
+					t.Logf("DHCPDeactivated+poolRanges: NSX rejected (Ready=False), message=%s", con.Message)
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+		require.NoError(t, err, "timed out waiting for DHCPDeactivated+poolRanges Subnet to reach a terminal Ready state")
 	}
 }
 
