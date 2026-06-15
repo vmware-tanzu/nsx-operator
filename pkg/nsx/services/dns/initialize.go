@@ -15,16 +15,16 @@ import (
 
 // InitializeDNSRecordService constructs a DNSRecordService and hydrates DNSRecordStore from NSX Policy search.
 func InitializeDNSRecordService(commonService common.Service, vpcService common.VPCServiceProvider) (*DNSRecordService, error) {
-	builder, err := common.PolicyPathProjectDnsRecord.NewPolicyTreeBuilder()
+	builder, err := common.PolicyPathDnsRecord.NewPolicyTreeBuilder()
 	if err != nil {
 		return nil, fmt.Errorf("creating DNS record tree builder: %w", err)
 	}
 	s := &DNSRecordService{
-		Service:                 commonService,
-		DNSRecordStore:          BuildDNSRecordStore(),
-		VPCService:              vpcService,
-		DNSZoneMap:              newDNSZoneCache(),
-		ProjectDnsRecordBuilder: builder,
+		Service:          commonService,
+		DNSRecordStore:   BuildDNSRecordStore(),
+		VPCService:       vpcService,
+		DNSZoneMap:       newDNSZoneCache(),
+		DnsRecordBuilder: builder,
 	}
 
 	cluster := commonService.NSXConfig.CoeConfig.Cluster
@@ -35,7 +35,7 @@ func InitializeDNSRecordService(commonService common.Service, vpcService common.
 	fatalErrors := make(chan error, 1)
 
 	wg.Add(1)
-	go commonService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeProjectDnsRecord, tags, s.DNSRecordStore)
+	go commonService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeDnsRecord, tags, s.DNSRecordStore)
 
 	go func() {
 		wg.Wait()

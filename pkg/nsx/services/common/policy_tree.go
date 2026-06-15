@@ -24,7 +24,7 @@ type GetId[T any] func(obj T) *string
 
 func getNSXResourcePath[T any](obj T) *string {
 	switch v := any(obj).(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		return v.Path
 	case *model.VpcIpAddressAllocation:
 		return v.Path
@@ -70,7 +70,7 @@ func getNSXResourcePath[T any](obj T) *string {
 
 func getNSXResourceId[T any](obj T) *string {
 	switch v := any(obj).(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		return v.Id
 	case *model.VpcIpAddressAllocation:
 		return v.Id
@@ -116,7 +116,7 @@ func getNSXResourceId[T any](obj T) *string {
 
 func getNSXResourceName[T any](obj T) *string {
 	switch v := any(obj).(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		return v.DisplayName
 	case *model.VpcIpAddressAllocation:
 		return v.DisplayName
@@ -162,8 +162,8 @@ func getNSXResourceName[T any](obj T) *string {
 
 func leafWrapper[T any](obj T) (*data.StructValue, error) {
 	switch v := any(obj).(type) {
-	case *model.ProjectDnsRecord:
-		return WrapProjectDnsRecord(v)
+	case *model.DnsRecord:
+		return WrapDnsRecord(v)
 	case *model.VpcIpAddressAllocation:
 		return WrapVpcIpAddressAllocation(v)
 	case *model.VpcSubnet:
@@ -278,7 +278,7 @@ var (
 	PolicyResourceInfraLBPool                                                                          = PolicyResourceType{ModelKey: ResourceTypeLBPool, PathKey: "lb-pools"}
 	PolicyResourceInfraLBVirtualServer                                                                 = PolicyResourceType{ModelKey: ResourceTypeLBVirtualServer, PathKey: "lb-virtual-servers"}
 	PolicyResourceVpcIPAddressAllocation                                                               = PolicyResourceType{ModelKey: ResourceTypeIPAddressAllocation, PathKey: "ip-address-allocations"}
-	PolicyResourceProjectDnsRecord                                                                     = PolicyResourceType{ModelKey: ResourceTypeProjectDnsRecord, PathKey: PathSegmentProjectDnsRecords}
+	PolicyResourceDnsRecord                                                                            = PolicyResourceType{ModelKey: ResourceTypeDnsRecord, PathKey: PathSegmentDnsRecords}
 	PolicyResourceDomain                                                                               = PolicyResourceType{ModelKey: ResourceTypeDomain, PathKey: "domains"}
 	PolicyResourceShare                                                                                = PolicyResourceType{ModelKey: ResourceTypeShare, PathKey: "shares"}
 	PolicyResourceSharedResource                                                                       = PolicyResourceType{ModelKey: ResourceTypeSharedResource, PathKey: "resources"}
@@ -311,9 +311,9 @@ var (
 	PolicyPathInfraDomain                       PolicyResourcePath[*model.Domain]                      = []PolicyResourceType{PolicyResourceInfra, PolicyResourceDomain}
 	PolicyPathVpcSubnetDynamicIPReservation     PolicyResourcePath[*model.DynamicIpAddressReservation] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcDynamicIPReservation}
 	PolicyPathVpcSubnetStaticIPReservation      PolicyResourcePath[*model.StaticIpAddressReservation]  = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceVpc, PolicyResourceVpcSubnet, PolicyResourceVpcStaticIPReservation}
-	// PolicyPathProjectDnsRecord is the OrgRoot hierarchy for *model.ProjectDnsRecord under a project.
+	// PolicyPathDnsRecord is the OrgRoot hierarchy for *model.DnsRecord under a project.
 	// Path pattern: /orgs/{org}/projects/{project}/dns-records/{record-id}.
-	PolicyPathProjectDnsRecord PolicyResourcePath[*model.ProjectDnsRecord] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceProjectDnsRecord}
+	PolicyPathDnsRecord PolicyResourcePath[*model.DnsRecord] = []PolicyResourceType{PolicyResourceOrg, PolicyResourceProject, PolicyResourceDnsRecord}
 )
 
 type hNodeKey struct {

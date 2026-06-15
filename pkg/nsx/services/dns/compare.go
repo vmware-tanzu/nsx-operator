@@ -13,14 +13,14 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-// dnsRecordComparable adapts model.ProjectDnsRecord for common.CompareResource(s) (see ipaddressallocation/compare.go).
-type dnsRecordComparable model.ProjectDnsRecord
+// dnsRecordComparable adapts model.DnsRecord for common.CompareResource(s) (see ipaddressallocation/compare.go).
+type dnsRecordComparable model.DnsRecord
 
 func (d *dnsRecordComparable) Key() string {
 	if d == nil {
 		return ""
 	}
-	rec := (*model.ProjectDnsRecord)(d)
+	rec := (*model.DnsRecord)(d)
 	if rec.Path == nil {
 		return ""
 	}
@@ -31,8 +31,8 @@ func (d *dnsRecordComparable) Value() data.DataValue {
 	if d == nil {
 		return nil
 	}
-	rec := (*model.ProjectDnsRecord)(d)
-	s := &model.ProjectDnsRecord{
+	rec := (*model.DnsRecord)(d)
+	s := &model.DnsRecord{
 		RecordName:   rec.RecordName,
 		RecordType:   rec.RecordType,
 		ZonePath:     rec.ZonePath,
@@ -72,7 +72,7 @@ func sortedNormalizedTagsForCompare(tags []model.Tag) []model.Tag {
 	return out
 }
 
-func comparableToProjectDnsRecord(c common.Comparable) *model.ProjectDnsRecord {
+func comparableToDnsRecord(c common.Comparable) *model.DnsRecord {
 	if c == nil {
 		return nil
 	}
@@ -80,13 +80,13 @@ func comparableToProjectDnsRecord(c common.Comparable) *model.ProjectDnsRecord {
 	if !ok {
 		return nil
 	}
-	out := model.ProjectDnsRecord(*dc)
+	out := model.DnsRecord(*dc)
 	return &out
 }
 
 // compareRecords returns (toUpsert, toRemove) for reconcile; caller marks toRemove copies deleted.
-func compareRecords(desired, existing []*model.ProjectDnsRecord) (toUpsert []*model.ProjectDnsRecord, toRemove []*model.ProjectDnsRecord) {
-	existingByPath := make(map[string]*model.ProjectDnsRecord)
+func compareRecords(desired, existing []*model.DnsRecord) (toUpsert []*model.DnsRecord, toRemove []*model.DnsRecord) {
+	existingByPath := make(map[string]*model.DnsRecord)
 	existingComp := make([]common.Comparable, 0, len(existing))
 	for _, e := range existing {
 		if e == nil || e.Path == nil {
@@ -108,9 +108,9 @@ func compareRecords(desired, existing []*model.ProjectDnsRecord) (toUpsert []*mo
 
 	changed, stale := common.CompareResources(existingComp, desiredComp)
 
-	toUpsert = make([]*model.ProjectDnsRecord, 0, len(changed))
+	toUpsert = make([]*model.DnsRecord, 0, len(changed))
 	for _, ch := range changed {
-		d := comparableToProjectDnsRecord(ch)
+		d := comparableToDnsRecord(ch)
 		if d == nil || d.Path == nil {
 			continue
 		}
@@ -121,9 +121,9 @@ func compareRecords(desired, existing []*model.ProjectDnsRecord) (toUpsert []*mo
 		}
 	}
 
-	toRemove = make([]*model.ProjectDnsRecord, 0, len(stale))
+	toRemove = make([]*model.DnsRecord, 0, len(stale))
 	for _, st := range stale {
-		if rec := comparableToProjectDnsRecord(st); rec != nil {
+		if rec := comparableToDnsRecord(st); rec != nil {
 			toRemove = append(toRemove, rec)
 		}
 	}

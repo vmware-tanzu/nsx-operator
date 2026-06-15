@@ -130,7 +130,7 @@ type Client struct {
 	StaticIPReservationsClient        subnets.StaticIpReservationsClient
 	NsxApiClient                      *nsxt.APIClient
 	VifsClient                        fabric.VifsClient
-	ProjectDnsZoneClient              dns_services.ZonesClient
+	DnsZoneClient                     dns_services.ZonesClient
 	DnsRecordsClient                  projects.DnsRecordsClient
 
 	NSXChecker    NSXHealthChecker
@@ -254,7 +254,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	vifsClient := fabric.NewVifsClient(connector)
-	projectDnsZoneClient := dns_services.NewZonesClient(connector)
+	dnsZoneClient := dns_services.NewZonesClient(connector)
 	dnsRecordsClient := projects.NewDnsRecordsClient(connector)
 
 	nsxChecker := &NSXHealthChecker{
@@ -327,7 +327,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
 		NsxApiClient:                      nsxApiClient,
 		VifsClient:                        vifsClient,
-		ProjectDnsZoneClient:              projectDnsZoneClient,
+		DnsZoneClient:                     dnsZoneClient,
 		DnsRecordsClient:                  dnsRecordsClient,
 	}
 	nsxClient.Cluster.SetOnNodeVersionChanged(func(oldVer, newVer string) {
