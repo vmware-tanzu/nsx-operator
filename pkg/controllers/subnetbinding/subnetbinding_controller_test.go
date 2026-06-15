@@ -1438,14 +1438,36 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 			TargetSubnetName: "subnet-parent-2",
 		},
 	}
-	parentSubnet := &v1alpha1.Subnet{
+	bm3 := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "default",
-			Name:      "subnet-parent-2",
+			Name:      "bm-3",
+			UID:       "uuid-3",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-3",
+			TargetSubnetName: "subnet-parent-3",
+		},
+	}
+	childSubnet := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "subnet-child-2",
 		},
 		Status: v1alpha1.SubnetStatus{
 			VLANExtension: v1alpha1.VLANExtension{
 				VLANID: 300,
+			},
+		},
+	}
+	childSubnetNoVlan := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "subnet-child-3",
+		},
+		Status: v1alpha1.SubnetStatus{
+			VLANExtension: v1alpha1.VLANExtension{
+				VLANID: 0,
 			},
 		},
 	}
@@ -1480,9 +1502,37 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 			expErr: true,
 		},
 		{
-			name:       "Auto allocate VLAN successfully",
+			name:       "Auto allocate VLAN successfully with VLAN ext subnet (preferred VLAN ID is used)",
 			bindingMap: bm2,
-			objects:    []client.Object{parentSubnet, bm2},
+			objects:    []client.Object{childSubnet, bm2},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.Equal(t, int64(300), preferred)
+					return 300, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(300),
+		},
+		{
+			name:       "Auto allocate VLAN successfully when child Subnet is not a VLAN ext subnet",
+			bindingMap: bm3,
+			objects:    []client.Object{childSubnetNoVlan, bm3},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.Equal(t, int64(-1), preferred)
+					return 100, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(100),
+		},
+		{
+			name:       "Auto allocate VLAN successfully when child Subnet does not exist",
+			bindingMap: bm2,
+			objects:    []client.Object{bm2},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
 					assert.Equal(t, int64(-1), preferred)
@@ -1496,18 +1546,19 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.TODO()
+			bm := tc.bindingMap.DeepCopy()
 			r := createFakeReconciler(tc.objects...)
 			if tc.patches != nil {
 				patches := tc.patches(t, r)
 				defer patches.Reset()
 			}
-			err := r.reconcileVlanTrafficTag(ctx, tc.bindingMap, []string{"/parent"}, false)
+			err := r.reconcileVlanTrafficTag(ctx, bm, []string{"/parent"}, false)
 			if tc.expErr {
 				assert.NotNil(t, err)
 			} else {
 				assert.Nil(t, err)
 				if tc.expVlan != nil {
-					assert.Equal(t, *tc.expVlan, *tc.bindingMap.Spec.VLANTrafficTag)
+					assert.Equal(t, *tc.expVlan, *bm.Spec.VLANTrafficTag)
 				}
 			}
 		})

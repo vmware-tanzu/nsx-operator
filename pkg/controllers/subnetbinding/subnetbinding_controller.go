@@ -411,6 +411,16 @@ func (r *Reconciler) reconcileVlanTrafficTag(ctx context.Context, bindingMap *v1
 	}
 
 	preferred := int64(-1)
+	if bindingMap.Spec.SubnetName != "" {
+		childSubnet := &v1alpha1.Subnet{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Spec.SubnetName}, childSubnet); err == nil {
+			if childSubnet.Status.VLANExtension.VLANID != 0 {
+				preferred = int64(childSubnet.Status.VLANExtension.VLANID)
+			}
+		} else {
+			log.Error(err, "Failed to get child Subnet for VLAN allocation", "Subnet", bindingMap.Spec.SubnetName)
+		}
+	}
 
 	vlan, err := r.VlanPoolService.Allocate(parentSubnetPaths, string(bindingMap.UID), preferred, fromNSX)
 	if err != nil {
