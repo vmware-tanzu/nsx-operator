@@ -784,6 +784,41 @@ func TestApplyServiceIDUpdates(t *testing.T) {
 	assert.Equal(t, instance.ExternalId, inventoryService.requestBuffer[0].ContainerObject["external_id"])
 }
 
+func TestRemoveDeletedServiceIDFromApplicationInstances(t *testing.T) {
+	inventoryService, _ := createService(t)
+
+	staleInstance1 := &containerinventory.ContainerApplicationInstance{
+		ExternalId:              "stale-pod-uid-1",
+		ContainerApplicationIds: []string{"service-uid-789", "service-uid-999"},
+	}
+
+	staleInstance2 := &containerinventory.ContainerApplicationInstance{
+		ExternalId:              "stale-pod-uid-2",
+		ContainerApplicationIds: []string{"service-uid-789"},
+	}
+
+	normalInstance := &containerinventory.ContainerApplicationInstance{
+		ExternalId:              "normal-pod-uid",
+		ContainerApplicationIds: []string{"service-uid-999"},
+	}
+
+	inventoryService.ApplicationInstanceStore.Add(staleInstance1)
+	inventoryService.ApplicationInstanceStore.Add(staleInstance2)
+	inventoryService.ApplicationInstanceStore.Add(normalInstance)
+
+	inventoryService.removeDeletedServiceIDFromApplicationInstances("service-uid-789")
+
+	updatedInstance1 := inventoryService.ApplicationInstanceStore.GetByKey("stale-pod-uid-1").(*containerinventory.ContainerApplicationInstance)
+	assert.NotContains(t, updatedInstance1.ContainerApplicationIds, "service-uid-789")
+	assert.Contains(t, updatedInstance1.ContainerApplicationIds, "service-uid-999")
+
+	updatedInstance2 := inventoryService.ApplicationInstanceStore.GetByKey("stale-pod-uid-2").(*containerinventory.ContainerApplicationInstance)
+	assert.NotContains(t, updatedInstance2.ContainerApplicationIds, "service-uid-789")
+
+	updatedInstance3 := inventoryService.ApplicationInstanceStore.GetByKey("normal-pod-uid").(*containerinventory.ContainerApplicationInstance)
+	assert.Contains(t, updatedInstance3.ContainerApplicationIds, "service-uid-999")
+}
+
 func TestUpdateServiceIDsForApplicationInstance(t *testing.T) {
 	inventoryService, k8sClient := createService(t)
 

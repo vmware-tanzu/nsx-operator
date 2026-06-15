@@ -49,6 +49,7 @@ func (s *InventoryService) SyncContainerApplication(name, namespace string, key 
 	externalId := key.ExternalId
 	if apierrors.IsNotFound(err) ||
 		((err == nil) && (string(service.UID) != externalId)) {
+		s.removeDeletedServiceIDFromApplicationInstances(externalId)
 		err = s.DeleteResource(externalId, ContainerApplication)
 		if err != nil {
 			log.Error(err, "Delete ContainerApplication Resource error", "key", key)
@@ -74,6 +75,7 @@ func (s *InventoryService) CleanStaleInventoryApplication() error {
 		if project == nil {
 			log.Info("Cannot find ContainerProject by id, so clean up stale ContainerApplication", "Project Id",
 				inventoryApplication.ContainerProjectId, "Application name", inventoryApplication.DisplayName, "External Id", inventoryApplication.ExternalId)
+			s.removeDeletedServiceIDFromApplicationInstances(inventoryApplication.ExternalId)
 			err := s.DeleteResource(inventoryApplication.ExternalId, ContainerApplication)
 			if err != nil {
 				log.Error(err, "Clean stale InventoryApplication", "External Id", inventoryApplication.ExternalId)
@@ -81,6 +83,7 @@ func (s *InventoryService) CleanStaleInventoryApplication() error {
 			}
 		} else if s.isApplicationDeleted(project.(*containerinventory.ContainerProject).DisplayName, inventoryApplication.DisplayName, inventoryApplication.ExternalId) {
 			log.Info("Clean stale inventoryApplication", "Name", inventoryApplication.DisplayName, "External Id", inventoryApplication.ExternalId)
+			s.removeDeletedServiceIDFromApplicationInstances(inventoryApplication.ExternalId)
 			err := s.DeleteResource(inventoryApplication.ExternalId, ContainerApplication)
 			if err != nil {
 				log.Error(err, "Clean stale InventoryApplication", "External Id", inventoryApplication.ExternalId)

@@ -809,6 +809,24 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 	return err
 }
 
+func (data *TestData) waitForContainerApplicationInstanceToContainAppId(podName string, appId string, shouldContain bool) error {
+	return wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
+		queryParam := fmt.Sprintf("resource_type:ContainerApplicationInstance AND display_name:*%s* AND container_application_ids:*%s*", podName, appId)
+		var cursor *string
+		var pageSize int64 = 500
+		response, err := data.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+		if err != nil {
+			return false, err
+		}
+
+		exist := len(response.Results) > 0
+		if exist != shouldContain {
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
 func (data *TestData) waitForResourceExistOrNot(namespace string, resourceType string, resourceName string, shouldExist bool) error {
 	return data.waitForResourceExist(namespace, resourceType, "display_name", resourceName, shouldExist)
 }

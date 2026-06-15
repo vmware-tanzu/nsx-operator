@@ -517,6 +517,18 @@ func (s *InventoryService) removeStaleServiceIDsFromApplicationInstances(podUIDs
 	return false
 }
 
+func (s *InventoryService) removeDeletedServiceIDFromApplicationInstances(serviceUID string) {
+	allInstances := s.ApplicationInstanceStore.List()
+	for _, instObj := range allInstances {
+		inst := instObj.(*containerinventory.ContainerApplicationInstance)
+		if !util.Contains(inst.ContainerApplicationIds, serviceUID) {
+			continue
+		}
+		newIds := util.FilterOut(inst.ContainerApplicationIds, serviceUID)
+		s.applyServiceIDUpdates(inst, newIds)
+	}
+}
+
 func (s *InventoryService) BuildNode(node *corev1.Node) (retry bool) {
 	log.Trace("Building Node", "Node", node.Name)
 	retry = false

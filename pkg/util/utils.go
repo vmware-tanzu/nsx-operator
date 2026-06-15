@@ -236,7 +236,7 @@ func Contains(s []string, str string) bool {
 }
 
 func FilterOut(s []string, strToRemove string) []string {
-	var result []string
+	result := make([]string, 0)
 	for _, element := range s {
 		if element != strToRemove {
 			result = append(result, element)
