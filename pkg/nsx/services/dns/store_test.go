@@ -22,12 +22,12 @@ func TestDNSRecordKeyFunc_table(t *testing.T) {
 	}{
 		{
 			name: "valid path",
-			obj:  &model.ProjectDnsRecord{Path: &path},
+			obj:  &model.DnsRecord{Path: &path},
 			want: path,
 		},
 		{
 			name:    "nil path returns error",
-			obj:     &model.ProjectDnsRecord{},
+			obj:     &model.DnsRecord{},
 			wantErr: true,
 		},
 		{
@@ -69,16 +69,16 @@ func TestResourceKindToCreatedFor_table(t *testing.T) {
 	}
 }
 
-func TestDNSRecordFQDNLower_table(t *testing.T) {
+func TestDNSRecordRecordNameLower_table(t *testing.T) {
 	fqdn := "A.EXAMPLE.COM"
 	tests := []struct {
 		name string
-		rec  *model.ProjectDnsRecord
+		rec  *model.DnsRecord
 		want string
 	}{
 		{"nil record", nil, ""},
-		{"nil fqdn field", &model.ProjectDnsRecord{}, ""},
-		{"valid fqdn lowercased", &model.ProjectDnsRecord{RecordName: &fqdn}, "a.example.com"},
+		{"nil fqdn field", &model.DnsRecord{}, ""},
+		{"valid fqdn lowercased", &model.DnsRecord{RecordName: &fqdn}, "a.example.com"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -90,17 +90,17 @@ func TestDNSRecordFQDNLower_table(t *testing.T) {
 func TestDeleteMultipleObjects_table(t *testing.T) {
 	t.Run("nil records skipped without panic", func(t *testing.T) {
 		store := BuildDNSRecordStore()
-		store.DeleteMultipleObjects([]*model.ProjectDnsRecord{nil, nil})
+		store.DeleteMultipleObjects([]*model.DnsRecord{nil, nil})
 	})
 
 	t.Run("valid record removed from store", func(t *testing.T) {
 		store := BuildDNSRecordStore()
 		path := "/orgs/o/projects/p/dns-records/r1"
-		rec := &model.ProjectDnsRecord{Path: servicecommon.String(path)}
+		rec := &model.DnsRecord{Path: servicecommon.String(path)}
 		require.NoError(t, store.Add(rec))
 		require.NotNil(t, store.GetByKey(path))
 
-		store.DeleteMultipleObjects([]*model.ProjectDnsRecord{nil, rec})
+		store.DeleteMultipleObjects([]*model.DnsRecord{nil, rec})
 		require.Nil(t, store.GetByKey(path))
 	})
 }
@@ -108,14 +108,14 @@ func TestDeleteMultipleObjects_table(t *testing.T) {
 func TestApply_addAndDeleteBranches(t *testing.T) {
 	store := BuildDNSRecordStore()
 	path := "/orgs/o/projects/p/dns-records/r2"
-	rec := &model.ProjectDnsRecord{Path: servicecommon.String(path)}
+	rec := &model.DnsRecord{Path: servicecommon.String(path)}
 
-	require.NoError(t, store.Apply([]*model.ProjectDnsRecord{rec}))
+	require.NoError(t, store.Apply([]*model.DnsRecord{rec}))
 	require.NotNil(t, store.GetByKey(path))
 
 	cp := *rec
 	cp.MarkedForDelete = servicecommon.Bool(true)
-	require.NoError(t, store.Apply([]*model.ProjectDnsRecord{&cp}))
+	require.NoError(t, store.Apply([]*model.DnsRecord{&cp}))
 	require.Nil(t, store.GetByKey(path))
 }
 
@@ -141,32 +141,32 @@ func TestIndexFunctions_unsupported_type(t *testing.T) {
 }
 
 func TestIndexDNSRecordByZonePathFQDN_earlyReturn_table(t *testing.T) {
-	rt := model.ProjectDnsRecord_RECORD_TYPE_A
+	rt := model.DnsRecord_RECORD_TYPE_A
 	fqdn := "a.example.com"
 	zp := "/z1"
 	tests := []struct {
 		name    string
-		rec     *model.ProjectDnsRecord
+		rec     *model.DnsRecord
 		wantLen int
 	}{
 		{
 			name:    "nil ZonePath returns empty",
-			rec:     &model.ProjectDnsRecord{RecordType: &rt, RecordName: &fqdn},
+			rec:     &model.DnsRecord{RecordType: &rt, RecordName: &fqdn},
 			wantLen: 0,
 		},
 		{
 			name:    "nil RecordType returns empty",
-			rec:     &model.ProjectDnsRecord{ZonePath: &zp, RecordName: &fqdn},
+			rec:     &model.DnsRecord{ZonePath: &zp, RecordName: &fqdn},
 			wantLen: 0,
 		},
 		{
 			name:    "empty fqdn returns empty",
-			rec:     &model.ProjectDnsRecord{ZonePath: &zp, RecordType: &rt},
+			rec:     &model.DnsRecord{ZonePath: &zp, RecordType: &rt},
 			wantLen: 0,
 		},
 		{
 			name:    "valid record returns one index key",
-			rec:     &model.ProjectDnsRecord{ZonePath: &zp, RecordType: &rt, RecordName: &fqdn},
+			rec:     &model.DnsRecord{ZonePath: &zp, RecordType: &rt, RecordName: &fqdn},
 			wantLen: 1,
 		},
 	}

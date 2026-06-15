@@ -17,11 +17,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-func parseContributingOwnersFromRecord(rec *model.ProjectDnsRecord) []string {
+func parseContributingOwnersFromRecord(rec *model.DnsRecord) []string {
 	return parseContributingOwnersTag(decompressContributingTags(rec))
 }
 
-func decompressContributingTags(rec *model.ProjectDnsRecord) string {
+func decompressContributingTags(rec *model.DnsRecord) string {
 	encodedContributingKeys := firstTagValue(rec.Tags, common.TagScopeDNSRecordContributingOwners)
 	if encodedContributingKeys == "" {
 		return ""
@@ -71,7 +71,7 @@ func mergeContributingOwnerKeys(existing string, add string, primaryNNKey string
 	return formatContributingOwnersTag(seen.UnsortedList())
 }
 
-func resourceRefFromDNSRecord(rec *model.ProjectDnsRecord) (*ResourceRef, bool) {
+func resourceRefFromDNSRecord(rec *model.DnsRecord) (*ResourceRef, bool) {
 	if rec == nil {
 		return nil, false
 	}
@@ -111,7 +111,7 @@ func ownerNNIndexKeyForResourceRef(owner *ResourceRef) string {
 	return dnsRecordOwnerKey(createdFor, dnsRecordOwnerNamespacedNameKey(owner.GetNamespace(), owner.GetName()))
 }
 
-func primaryOwnerNNIndexKeyFromRecord(rec *model.ProjectDnsRecord) string {
+func primaryOwnerNNIndexKeyFromRecord(rec *model.DnsRecord) string {
 	return getDNSRecordOwnerNamespacedName(rec)
 }
 

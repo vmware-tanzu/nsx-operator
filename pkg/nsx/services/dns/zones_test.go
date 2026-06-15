@@ -104,7 +104,7 @@ func TestZonePathForHostnameFromMap_table(t *testing.T) {
 	}
 }
 
-func TestParseProjectDNSZonePath_table(t *testing.T) {
+func TestParseDnsZonePath_table(t *testing.T) {
 	tests := []struct {
 		name       string
 		path       string
@@ -130,7 +130,7 @@ func TestParseProjectDNSZonePath_table(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			org, proj, dnsSvc, zone, err := parseProjectDNSZonePath(tc.path)
+			org, proj, dnsSvc, zone, err := parseDnsZonePath(tc.path)
 			if tc.wantErr {
 				require.Error(t, err)
 				return

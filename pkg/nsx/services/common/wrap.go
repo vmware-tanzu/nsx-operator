@@ -85,19 +85,19 @@ func (service *Service) WrapAttachment(attachment *model.VpcAttachment) ([]*data
 	return []*data.StructValue{dataValue.(*data.StructValue)}, nil
 }
 
-func WrapProjectDnsRecord(rec *model.ProjectDnsRecord) (*data.StructValue, error) {
+func WrapDnsRecord(rec *model.DnsRecord) (*data.StructValue, error) {
 	if rec == nil {
-		return nil, fmt.Errorf("nil ProjectDnsRecord")
+		return nil, fmt.Errorf("nil DnsRecord")
 	}
 	// Fqdn may be server-populated / read-only on PATCH; send payload without it (operator may set it on in-memory copies for indexing).
 	send := *rec
 	send.Fqdn = nil
-	send.ResourceType = &ResourceTypeProjectDnsRecord
-	child := model.ChildProjectDnsRecord{
-		Id:               send.Id,
-		MarkedForDelete:  send.MarkedForDelete,
-		ResourceType:     ResourceTypeChildProjectDnsRecord,
-		ProjectDnsRecord: &send,
+	send.ResourceType = &ResourceTypeDnsRecord
+	child := model.ChildDnsRecord{
+		Id:              send.Id,
+		MarkedForDelete: send.MarkedForDelete,
+		ResourceType:    ResourceTypeChildDnsRecord,
+		DnsRecord:       &send,
 	}
 	dataValue, errors := NewConverter().ConvertToVapi(child, child.GetType__())
 	if len(errors) > 0 {

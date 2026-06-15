@@ -20,8 +20,8 @@ const (
 	ResourceKindGRPCRoute = "GRPCRoute"
 	ResourceKindTLSRoute  = "TLSRoute"
 	ResourceKindService   = "Service"
-	// DNSRecordPathSegment is the NSX Policy path segment for project-scoped ProjectDnsRecord (same as common.PathSegmentProjectDnsRecords).
-	DNSRecordPathSegment = common.PathSegmentProjectDnsRecords
+	// DNSRecordPathSegment is the NSX Policy path segment for project-scoped DnsRecord (same as common.PathSegmentDnsRecords).
+	DNSRecordPathSegment = common.PathSegmentDnsRecords
 )
 
 // EndpointLabelParentGateway is the ExternalDNS Endpoint label for parent Gateway ns/name (comma-separated if merged).
