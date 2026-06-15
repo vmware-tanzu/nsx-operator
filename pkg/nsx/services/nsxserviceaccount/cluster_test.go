@@ -33,6 +33,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -218,7 +219,8 @@ func TestInitializeNSXServiceAccount(t *testing.T) {
 			commonService := newFakeCommonService()
 			patches := tt.prepareFunc(t, &commonService, ctx)
 			defer patches.Reset()
-			got, err := InitializeNSXServiceAccount(commonService)
+			vpcService := &vpc.VPCService{}
+			got, err := InitializeNSXServiceAccount(commonService, vpcService)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("InitializeNSXServiceAccount() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -253,6 +255,42 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
+				patches.ApplyMethodSeq(s.VPCService, "ListVPCInfo", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						[]common.VPCResourceInfo{
+							{
+								OrgID:     "o1",
+								ProjectID: "p1",
+								VPCID:     "v1",
+							},
+						},
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+				},
+			},
+			wantErr:    true,
+			wantSecret: false,
+			expectedCR: nil,
+		},
+		{
+			name: "ListVPCInfoError",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(s.VPCService, "ListVPCInfo", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						[]common.VPCResourceInfo{},
+					},
+					Times: 1,
+				}})
 				return patches
 			},
 			args: args{
@@ -272,7 +310,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 			name: "Success with update PI Cert",
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
 				normalizedClusterName := "k8scl-one_test-ns1-name1"
-				vpcPath := "/orgs/default/projects/k8scl-one:test/vpcs/vpc1"
+				vpcPath := "/orgs/o1/projects/p1/vpcs/v1"
 				piId := "Id1"
 				uid := "00000000-0000-0000-0000-000000000001"
 				s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
@@ -385,6 +423,18 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					Values: gomonkey.Params{true},
 					Times:  1,
 				}})
+				patches.ApplyMethodSeq(s.VPCService, "ListVPCInfo", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						[]common.VPCResourceInfo{
+							{
+								OrgID:     "o1",
+								ProjectID: "p1",
+								VPCID:     "v1",
+							},
+						},
+					},
+					Times: 1,
+				}})
 				return patches
 			},
 			args: args{
@@ -422,7 +472,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 							Message: "Success.",
 						},
 					},
-					VPCPath:        "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc",
+					VPCPath:        "/orgs/o1/projects/p1/vpcs/v1",
 					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
 					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
 					ClusterID:      "clusterId1",
@@ -433,6 +483,260 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 		},
 		{
 			name: "Success",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				assert.NoError(t, s.Client.Create(ctx, obj))
+				normalizedClusterName := "k8scl-one_test-ns1-name1"
+				vpcPath := "/orgs/o1/projects/p1/vpcs/v1"
+				piId := "Id1"
+				uid := "00000000-0000-0000-0000-000000000001"
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.WithCertificateClient, "Create", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+						IsProtected: &isProtectedTrue,
+						Name:        &normalizedClusterName,
+						NodeId:      &normalizedClusterName,
+						Role:        nil,
+						RolesForPaths: []mpmodel.RolesForPath{{
+							Path: &readerPath,
+							Roles: []mpmodel.Role{{
+								Role: &readerRole,
+							}},
+						}, {
+							Path: &vpcPath,
+							Roles: []mpmodel.Role{{
+								Role: &vpcRole,
+							}},
+						}},
+						Id: &piId,
+						Tags: []mpmodel.Tag{{
+							Scope: &tagScopeCluster,
+							Tag:   &s.NSXConfig.CoeConfig.Cluster,
+						}, {
+							Scope: &tagScopeNamespace,
+							Tag:   &obj.Namespace,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRName,
+							Tag:   &obj.Name,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				nodeId := "clusterId1"
+				patches.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.ClusterControlPlane{
+						Id:           &normalizedClusterName,
+						NodeId:       &nodeId,
+						Revision:     &revision1,
+						ResourceType: &antreaClusterResourceType,
+						Certificate:  nil,
+						VhcPath:      &vpcPath,
+						Tags: []model.Tag{{
+							Scope: &tagScopeCluster,
+							Tag:   &s.NSXConfig.CoeConfig.Cluster,
+						}, {
+							Scope: &tagScopeNamespace,
+							Tag:   &obj.Namespace,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRName,
+							Tag:   &obj.Name,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.VPCService, "ListVPCInfo", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						[]common.VPCResourceInfo{
+							{
+								OrgID:     "o1",
+								ProjectID: "p1",
+								VPCID:     "v1",
+							},
+						},
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Spec: v1alpha1.NSXServiceAccountSpec{
+						VPCName: "vpc1",
+					},
+				},
+			},
+			wantErr:    false,
+			wantSecret: true,
+			expectedCR: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "name1",
+					Namespace:       "ns1",
+					UID:             "00000000-0000-0000-0000-000000000001",
+					ResourceVersion: "2",
+				},
+				Spec: v1alpha1.NSXServiceAccountSpec{
+					VPCName: "vpc1",
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{
+						{
+							Type:    v1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionTrue,
+							Reason:  v1alpha1.ConditionReasonRealizationSuccess,
+							Message: "Success.",
+						},
+					},
+					VPCPath:        "/orgs/o1/projects/p1/vpcs/v1",
+					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
+					ClusterID:      "clusterId1",
+					ClusterName:    "k8scl-one_test-ns1-name1",
+					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+				},
+			},
+		},
+		{
+			name: "LongNameSuccess",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				assert.NoError(t, s.Client.Create(ctx, obj))
+				s.NSXConfig.CoeConfig.Cluster = "k8scl-one:1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
+				normalizedClusterName := "k8scl-one_12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456-1a6417ee"
+				vpcPath := "/orgs/o1/projects/p1/vpcs/v1"
+				piId := "Id1"
+				uid := "00000000-0000-0000-0000-000000000001"
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.WithCertificateClient, "Create", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+						IsProtected: &isProtectedTrue,
+						Name:        &normalizedClusterName,
+						NodeId:      &normalizedClusterName,
+						Role:        nil,
+						RolesForPaths: []mpmodel.RolesForPath{{
+							Path: &readerPath,
+							Roles: []mpmodel.Role{{
+								Role: &readerRole,
+							}},
+						}, {
+							Path: &vpcPath,
+							Roles: []mpmodel.Role{{
+								Role: &vpcRole,
+							}},
+						}},
+						Id: &piId,
+						Tags: []mpmodel.Tag{{
+							Scope: &tagScopeCluster,
+							Tag:   &s.NSXConfig.CoeConfig.Cluster,
+						}, {
+							Scope: &tagScopeNamespace,
+							Tag:   &obj.Namespace,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRName,
+							Tag:   &obj.Name,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				nodeId := "clusterId1"
+				patches.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.ClusterControlPlane{
+						Id:           &normalizedClusterName,
+						NodeId:       &nodeId,
+						Revision:     &revision1,
+						ResourceType: &antreaClusterResourceType,
+						Certificate:  nil,
+						VhcPath:      &vpcPath,
+						Tags: []model.Tag{{
+							Scope: &tagScopeCluster,
+							Tag:   &s.NSXConfig.CoeConfig.Cluster,
+						}, {
+							Scope: &tagScopeNamespace,
+							Tag:   &obj.Namespace,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRName,
+							Tag:   &obj.Name,
+						}, {
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  2,
+				}})
+				patches.ApplyMethodSeq(s.VPCService, "ListVPCInfo", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{
+						[]common.VPCResourceInfo{
+							{
+								OrgID:     "o1",
+								ProjectID: "p1",
+								VPCID:     "v1",
+							},
+						},
+					},
+					Times: 1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+				},
+			},
+			wantErr:    false,
+			wantSecret: true,
+			expectedCR: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "name1",
+					Namespace:       "ns1",
+					UID:             "00000000-0000-0000-0000-000000000001",
+					ResourceVersion: "2",
+				},
+				Spec: v1alpha1.NSXServiceAccountSpec{},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{
+						{
+							Type:    v1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionTrue,
+							Reason:  v1alpha1.ConditionReasonRealizationSuccess,
+							Message: "Success.",
+						},
+					},
+					VPCPath:        "/orgs/o1/projects/p1/vpcs/v1",
+					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
+					ClusterID:      "clusterId1",
+					ClusterName:    "k8scl-one_12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456-1a6417ee",
+					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+				},
+			},
+		},
+		{
+			name: "Success with existing vpcPath",
 			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
 				assert.NoError(t, s.Client.Create(ctx, obj))
 				normalizedClusterName := "k8scl-one_test-ns1-name1"
@@ -514,6 +818,9 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 					Spec: v1alpha1.NSXServiceAccountSpec{
 						VPCName: "vpc1",
 					},
+					Status: v1alpha1.NSXServiceAccountStatus{
+						VPCPath: "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
+					},
 				},
 			},
 			wantErr:    false,
@@ -539,124 +846,11 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 							Message: "Success.",
 						},
 					},
-					VPCPath:        "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc",
+					VPCPath:        "/orgs/default/projects/k8scl-one:test/vpcs/vpc1",
 					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
 					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
 					ClusterID:      "clusterId1",
 					ClusterName:    "k8scl-one_test-ns1-name1",
-					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
-				},
-			},
-		},
-		{
-			name: "LongNameSuccess",
-			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
-				assert.NoError(t, s.Client.Create(ctx, obj))
-				s.NSXConfig.CoeConfig.Cluster = "k8scl-one:1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
-				normalizedClusterName := "k8scl-one_12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456-1a6417ee"
-				vpcPath := "/orgs/default/projects/k8scl-one:test/vpcs/ns1-default-vpc"
-				piId := "Id1"
-				uid := "00000000-0000-0000-0000-000000000001"
-				patches := gomonkey.ApplyMethodSeq(s.NSXClient.WithCertificateClient, "Create", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
-						IsProtected: &isProtectedTrue,
-						Name:        &normalizedClusterName,
-						NodeId:      &normalizedClusterName,
-						Role:        nil,
-						RolesForPaths: []mpmodel.RolesForPath{{
-							Path: &readerPath,
-							Roles: []mpmodel.Role{{
-								Role: &readerRole,
-							}},
-						}, {
-							Path: &vpcPath,
-							Roles: []mpmodel.Role{{
-								Role: &vpcRole,
-							}},
-						}},
-						Id: &piId,
-						Tags: []mpmodel.Tag{{
-							Scope: &tagScopeCluster,
-							Tag:   &s.NSXConfig.CoeConfig.Cluster,
-						}, {
-							Scope: &tagScopeNamespace,
-							Tag:   &obj.Namespace,
-						}, {
-							Scope: &tagScopeNSXServiceAccountCRName,
-							Tag:   &obj.Name,
-						}, {
-							Scope: &tagScopeNSXServiceAccountCRUID,
-							Tag:   &uid,
-						}},
-					}, nil},
-					Times: 1,
-				}})
-				nodeId := "clusterId1"
-				patches.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.ClusterControlPlane{
-						Id:           &normalizedClusterName,
-						NodeId:       &nodeId,
-						Revision:     &revision1,
-						ResourceType: &antreaClusterResourceType,
-						Certificate:  nil,
-						VhcPath:      &vpcPath,
-						Tags: []model.Tag{{
-							Scope: &tagScopeCluster,
-							Tag:   &s.NSXConfig.CoeConfig.Cluster,
-						}, {
-							Scope: &tagScopeNamespace,
-							Tag:   &obj.Namespace,
-						}, {
-							Scope: &tagScopeNSXServiceAccountCRName,
-							Tag:   &obj.Name,
-						}, {
-							Scope: &tagScopeNSXServiceAccountCRUID,
-							Tag:   &uid,
-						}},
-					}, nil},
-					Times: 1,
-				}})
-				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{true},
-					Times:  2,
-				}})
-				return patches
-			},
-			args: args{
-				obj: &v1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "name1",
-						Namespace: "ns1",
-						UID:       "00000000-0000-0000-0000-000000000001",
-					},
-				},
-			},
-			wantErr:    false,
-			wantSecret: true,
-			expectedCR: &v1alpha1.NSXServiceAccount{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "name1",
-					Namespace:       "ns1",
-					UID:             "00000000-0000-0000-0000-000000000001",
-					ResourceVersion: "2",
-				},
-				Spec: v1alpha1.NSXServiceAccountSpec{},
-				Status: v1alpha1.NSXServiceAccountStatus{
-					Phase:  "realized",
-					Reason: "Success",
-					Conditions: []metav1.Condition{
-						{
-							Type:    v1alpha1.ConditionTypeRealized,
-							Status:  metav1.ConditionTrue,
-							Reason:  v1alpha1.ConditionReasonRealizationSuccess,
-							Message: "Success.",
-						},
-					},
-					VPCPath:        "/orgs/default/projects/k8scl-one_12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456-e8ad9afc/vpcs/ns1-default-vpc",
-					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
-					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
-					ClusterID:      "clusterId1",
-					ClusterName:    "k8scl-one_12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456-1a6417ee",
 					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
 				},
 			},
@@ -666,7 +860,11 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
 			commonService := newFakeCommonService()
-			s := &NSXServiceAccountService{Service: commonService}
+			vpcService := &vpc.VPCService{}
+			s := &NSXServiceAccountService{
+				Service:    commonService,
+				VPCService: vpcService,
+			}
 			s.SetUpStore()
 			patches := tt.prepareFunc(t, s, ctx, tt.args.obj)
 			defer patches.Reset()
