@@ -36,7 +36,7 @@ import (
 
 var _ servicecommon.VPCServiceProvider = (*pkgmock.MockVPCServiceProvider)(nil)
 
-// Policy DNS zone paths must match projectDNSZonePathRe in zones.go:
+// Policy DNS zone paths must match dnsZonePathRe in zones.go:
 const (
 	testDNSZonePathT      = "/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-t"
 	testDNSZonePathGw     = "/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-gw"
@@ -79,7 +79,7 @@ func testDNSZoneMapForVPCFixture() map[string]string {
 // is hermetic: no package-level state is shared between test cases.
 type testDNSSvc struct {
 	*DNSRecordService
-	bodies map[string]*model.ProjectDnsRecord
+	bodies map[string]*model.DnsRecord
 }
 
 // registerBodiesForBatch pre-populates the mock Get registry with the records that
@@ -90,7 +90,7 @@ func registerBodiesForBatch(t *testing.T, env *testDNSSvc, batch *AggregatedDNSE
 		return
 	}
 	for _, row := range batch.Rows {
-		rec := env.BuildProjectDnsRecord(batch.Owner, row)
+		rec := env.BuildDnsRecord(batch.Owner, row)
 		if rec == nil || rec.Id == nil {
 			continue
 		}
@@ -104,7 +104,7 @@ func recordStoreKey(zonePath, recordName, recordType string) string {
 	return path
 }
 
-func newTestNSXClient(t *testing.T, bodies map[string]*model.ProjectDnsRecord) *nsx.Client {
+func newTestNSXClient(t *testing.T, bodies map[string]*model.DnsRecord) *nsx.Client {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	t.Cleanup(ctrl.Finish)
@@ -120,7 +120,7 @@ func newTestNSXClient(t *testing.T, bodies map[string]*model.ProjectDnsRecord) *
 
 	dnsRec := dnsrecmocks.NewMockDnsRecordsClient(ctrl)
 	dnsRec.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(orgID, projectID, recordID string) (model.ProjectDnsRecord, error) {
+		func(orgID, projectID, recordID string) (model.DnsRecord, error) {
 			p := fmt.Sprintf("/orgs/%s/projects/%s/%s/%s", orgID, projectID, DNSRecordPathSegment, recordID)
 			if d := bodies[recordID]; d != nil {
 				out := *d
@@ -129,7 +129,7 @@ func newTestNSXClient(t *testing.T, bodies map[string]*model.ProjectDnsRecord) *
 				return out, nil
 			}
 			rid := recordID
-			return model.ProjectDnsRecord{Id: &rid, Path: &p}, nil
+			return model.DnsRecord{Id: &rid, Path: &p}, nil
 		}).AnyTimes()
 	dnsRec.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
@@ -142,9 +142,9 @@ func newTestNSXClient(t *testing.T, bodies map[string]*model.ProjectDnsRecord) *
 
 func newTestDNSRecordService(t *testing.T, store *RecordStore) *testDNSSvc {
 	t.Helper()
-	bodies := make(map[string]*model.ProjectDnsRecord)
+	bodies := make(map[string]*model.DnsRecord)
 	fc := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build()
-	builder, err := servicecommon.PolicyPathProjectDnsRecord.NewPolicyTreeBuilder()
+	builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
 	require.NoError(t, err)
 	svc := &DNSRecordService{
 		Service: servicecommon.Service{
@@ -152,8 +152,8 @@ func newTestDNSRecordService(t *testing.T, store *RecordStore) *testDNSSvc {
 			NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "unit-test"}},
 			NSXClient: newTestNSXClient(t, bodies),
 		},
-		DNSRecordStore:          store,
-		ProjectDnsRecordBuilder: builder,
+		DNSRecordStore:   store,
+		DnsRecordBuilder: builder,
 	}
 	return &testDNSSvc{DNSRecordService: svc, bodies: bodies}
 }
@@ -363,7 +363,7 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 				ep := extdns.NewEndpoint("gw.example.com", extdns.RecordTypeA, "10.0.0.1")
 				ep.WithLabel(EndpointLabelParentGateway, "app/gw1")
 				row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "gw.example.com"}
-				require.NotNil(t, env.BuildProjectDnsRecord(owner, row))
+				require.NotNil(t, env.BuildDnsRecord(owner, row))
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 				key := recordStoreKey(row.zonePath, row.nsxRecordName, row.Endpoint.RecordType)
 				require.NotNil(t, env.DNSRecordStore.GetByKey(key))
@@ -382,7 +382,7 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 				epG := extdns.NewEndpoint("gw.example.com", extdns.RecordTypeA, "10.0.0.1")
 				epG.WithLabel(EndpointLabelParentGateway, "app/gw1")
 				rowG := EndpointRow{Endpoint: epG, zonePath: z, nsxRecordName: "gw.example.com"}
-				require.NotNil(t, env.BuildProjectDnsRecord(gwOwner, rowG))
+				require.NotNil(t, env.BuildDnsRecord(gwOwner, rowG))
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(gwOwner, []EndpointRow{rowG}))
 				hrEp := extdns.NewEndpoint("r.example.com", extdns.RecordTypeA, "10.0.0.2")
 				hrEp.WithLabel(EndpointLabelParentGateway, "app/gw1")
@@ -391,7 +391,7 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 					Kind:   ResourceKindHTTPRoute,
 					Object: &metav1.ObjectMeta{Namespace: "app", Name: "hr1", UID: types.UID("u-hr")},
 				}
-				require.NotNil(t, env.BuildProjectDnsRecord(hrOwner, *hrRow))
+				require.NotNil(t, env.BuildDnsRecord(hrOwner, *hrRow))
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(hrOwner, []EndpointRow{*hrRow}))
 				requireNoErrDeleteDNS(ctx, t, env, ResourceKindGateway, "app", "gw1")
 				require.Nil(t, env.DNSRecordStore.GetByKey(recordStoreKey(rowG.zonePath, rowG.nsxRecordName, rowG.Endpoint.RecordType)))
@@ -409,7 +409,7 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 					Kind:   ResourceKindHTTPRoute,
 					Object: &metav1.ObjectMeta{Namespace: ns, Name: "hr1", UID: types.UID("uid-hr1")},
 				}
-				require.NotNil(t, env.BuildProjectDnsRecord(hrOwner, *row))
+				require.NotNil(t, env.BuildDnsRecord(hrOwner, *row))
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(hrOwner, []EndpointRow{*row}))
 				require.True(t, env.ListReferredGatewayNN().Has(types.NamespacedName{Namespace: "demo", Name: "gw1"}))
 				groups := env.ListRecordOwnerResource()
@@ -427,9 +427,9 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 }
 
 // dnsRecordStructValue converts rec to a *data.StructValue for use in mock SearchResponse.Results.
-func dnsRecordStructValue(t *testing.T, rec model.ProjectDnsRecord) *data.StructValue {
+func dnsRecordStructValue(t *testing.T, rec model.DnsRecord) *data.StructValue {
 	t.Helper()
-	dv, errs := servicecommon.NewConverter().ConvertToVapi(rec, model.ProjectDnsRecordBindingType())
+	dv, errs := servicecommon.NewConverter().ConvertToVapi(rec, model.DnsRecordBindingType())
 	require.Empty(t, errs, "ConvertToVapi failed")
 	sv, ok := dv.(*data.StructValue)
 	require.True(t, ok, "expected *data.StructValue from ConvertToVapi")
@@ -442,7 +442,7 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 	vpcM := &pkgmock.MockVPCServiceProvider{}
 
 	// A minimal record whose ZonePath falls into testDNSZonePathT.
-	recWithZone := model.ProjectDnsRecord{
+	recWithZone := model.DnsRecord{
 		Id:       servicecommon.String("rec-warmup"),
 		Path:     servicecommon.String("/orgs/org1/projects/proj1/dns-records/rec-warmup"),
 		ZonePath: servicecommon.String(testDNSZonePathT),
@@ -471,14 +471,14 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				rc := int64(0)
 				qc.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(model.SearchResponse{Results: nil, Cursor: nil, ResultCount: &rc}, nil).Times(1)
-				// ProjectDnsZoneClient.Get must NOT be called: no records, no warm-up.
+				// DnsZoneClient.Get must NOT be called: no records, no warm-up.
 				zc := dnszonemocks.NewMockZonesClient(ctrl)
-				return &nsx.Client{QueryClient: qc, ProjectDnsZoneClient: zc, NsxConfig: cfg}
+				return &nsx.Client{QueryClient: qc, DnsZoneClient: zc, NsxConfig: cfg}
 			},
 			checkSvc: func(t *testing.T, svc *DNSRecordService) {
 				require.NotNil(t, svc.DNSRecordStore)
 				require.NotNil(t, svc.VPCService)
-				require.NotNil(t, svc.ProjectDnsRecordBuilder)
+				require.NotNil(t, svc.DnsRecordBuilder)
 				require.NotNil(t, svc.DNSZoneMap)
 				_, found := svc.DNSZoneMap.get(testDNSZonePathT)
 				require.False(t, found, "zone map must be empty when store is empty")
@@ -494,8 +494,8 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 					Return(model.SearchResponse{Results: []*data.StructValue{sv}, Cursor: nil, ResultCount: &rc}, nil).Times(1)
 				domain := "example.com"
 				zc := dnszonemocks.NewMockZonesClient(ctrl)
-				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.ProjectDnsZone{DnsDomainName: &domain}, nil).Times(1)
-				return &nsx.Client{QueryClient: qc, ProjectDnsZoneClient: zc, NsxConfig: cfg}
+				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: &domain}, nil).Times(1)
+				return &nsx.Client{QueryClient: qc, DnsZoneClient: zc, NsxConfig: cfg}
 			},
 			checkSvc: func(t *testing.T, svc *DNSRecordService) {
 				got, found := svc.DNSZoneMap.get(testDNSZonePathT)
@@ -512,8 +512,8 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				qc.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(model.SearchResponse{Results: []*data.StructValue{sv}, Cursor: nil, ResultCount: &rc}, nil).Times(1)
 				zc := dnszonemocks.NewMockZonesClient(ctrl)
-				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.ProjectDnsZone{}, errors.New("nsx zone unavailable")).Times(1)
-				return &nsx.Client{QueryClient: qc, ProjectDnsZoneClient: zc, NsxConfig: cfg}
+				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{}, errors.New("nsx zone unavailable")).Times(1)
+				return &nsx.Client{QueryClient: qc, DnsZoneClient: zc, NsxConfig: cfg}
 			},
 			checkSvc: func(t *testing.T, svc *DNSRecordService) {
 				_, found := svc.DNSZoneMap.get(testDNSZonePathT)
@@ -529,8 +529,8 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				qc.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(model.SearchResponse{Results: []*data.StructValue{sv}, Cursor: nil, ResultCount: &rc}, nil).Times(1)
 				zc := dnszonemocks.NewMockZonesClient(ctrl)
-				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.ProjectDnsZone{DnsDomainName: nil}, nil).Times(1)
-				return &nsx.Client{QueryClient: qc, ProjectDnsZoneClient: zc, NsxConfig: cfg}
+				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: nil}, nil).Times(1)
+				return &nsx.Client{QueryClient: qc, DnsZoneClient: zc, NsxConfig: cfg}
 			},
 			checkSvc: func(t *testing.T, svc *DNSRecordService) {
 				_, found := svc.DNSZoneMap.get(testDNSZonePathT)
@@ -540,7 +540,7 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 		{
 			name: "warmup_dedup_same_zone_path_get_once",
 			setupMock: func(t *testing.T, ctrl *gomock.Controller) *nsx.Client {
-				rec2 := model.ProjectDnsRecord{
+				rec2 := model.DnsRecord{
 					Id:       servicecommon.String("rec-warmup-2"),
 					Path:     servicecommon.String("/orgs/org1/projects/proj1/dns-records/rec-warmup-2"),
 					ZonePath: servicecommon.String(testDNSZonePathT),
@@ -554,8 +554,8 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				domain := "example.com"
 				// Even though two records share the same zone path, Get must be called exactly once.
 				zc := dnszonemocks.NewMockZonesClient(ctrl)
-				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.ProjectDnsZone{DnsDomainName: &domain}, nil).Times(1)
-				return &nsx.Client{QueryClient: qc, ProjectDnsZoneClient: zc, NsxConfig: cfg}
+				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: &domain}, nil).Times(1)
+				return &nsx.Client{QueryClient: qc, DnsZoneClient: zc, NsxConfig: cfg}
 			},
 			checkSvc: func(t *testing.T, svc *DNSRecordService) {
 				got, found := svc.DNSZoneMap.get(testDNSZonePathT)
@@ -599,7 +599,7 @@ func TestCreateOrUpdateRecords_ownerScoped_mergeUpdatesTargets(t *testing.T) {
 	recordName := "x.example.com"
 	ep0 := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "10.0.0.1")
 	ep0.WithLabel(EndpointLabelParentGateway, "ns/gw")
-	require.NotNil(t, env.BuildProjectDnsRecord(owner, EndpointRow{Endpoint: ep0, zonePath: z, nsxRecordName: recordName}))
+	require.NotNil(t, env.BuildDnsRecord(owner, EndpointRow{Endpoint: ep0, zonePath: z, nsxRecordName: recordName}))
 	for _, targets := range [][]string{{"10.0.0.1"}, {"10.0.0.2"}} {
 		ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, targets...)
 		ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
@@ -622,14 +622,14 @@ func Test_CreateOrUpdateRecords_Service_DeleteByOwnerNN(t *testing.T) {
 	ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "10.0.0.1")
 	ep.WithLabel(EndpointLabelParentGateway, "ns1/lbsvc")
 	row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "x.example.com"}
-	require.NotNil(t, env.BuildProjectDnsRecord(owner, row))
+	require.NotNil(t, env.BuildDnsRecord(owner, row))
 	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	require.Len(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindService, "ns1", "lbsvc"), 1)
 	requireNoErrDeleteDNS(ctx, t, env, ResourceKindService, "ns1", "lbsvc")
 	assert.Empty(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindService, "ns1", "lbsvc"))
 }
 
-func TestParseProjectDNSRecordPolicyPath_table(t *testing.T) {
+func TestParseDnsRecordPolicyPath_table(t *testing.T) {
 	tests := []struct {
 		name    string
 		path    string
@@ -648,17 +648,17 @@ func TestParseProjectDNSRecordPolicyPath_table(t *testing.T) {
 		{
 			name:   "missing_segment",
 			path:   "/orgs/acme/projects/p1/projects/rec-a",
-			errSub: "invalid ProjectDnsRecord path",
+			errSub: "invalid DnsRecord path",
 		},
 		{
 			name:   "empty_path",
 			path:   "",
-			errSub: "empty ProjectDnsRecord path",
+			errSub: "empty DnsRecord path",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			org, prj, id, err := parseProjectDNSRecordPolicyPath(tt.path)
+			org, prj, id, err := parseDnsRecordPolicyPath(tt.path)
 			if tt.errSub != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errSub)
@@ -674,16 +674,16 @@ func TestParseProjectDNSRecordPolicyPath_table(t *testing.T) {
 
 func TestDedupeRecordsByPath(t *testing.T) {
 	p := "/orgs/o/projects/p/dns-records/a"
-	a := &model.ProjectDnsRecord{Path: servicecommon.String(p), Id: servicecommon.String("a")}
-	b := &model.ProjectDnsRecord{Path: servicecommon.String(p), Id: servicecommon.String("b")}
-	out := dedupeRecordsByPath([]*model.ProjectDnsRecord{a, b})
+	a := &model.DnsRecord{Path: servicecommon.String(p), Id: servicecommon.String("a")}
+	b := &model.DnsRecord{Path: servicecommon.String(p), Id: servicecommon.String("b")}
+	out := dedupeRecordsByPath([]*model.DnsRecord{a, b})
 	require.Len(t, out, 1)
 }
 
-func TestDeleteProjectDnsRecordOnNSX(t *testing.T) {
+func TestDeleteDnsRecordOnNSX(t *testing.T) {
 	env := newTestDNSRecordService(t, BuildDNSRecordStore())
 	p := "/orgs/org1/projects/proj1/dns-records/rec1"
-	err := env.deleteProjectDnsRecordOnNSX(&model.ProjectDnsRecord{Path: &p})
+	err := env.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
 	require.NoError(t, err)
 }
 
@@ -778,13 +778,13 @@ func TestGetNSXDnsRecordType_table(t *testing.T) {
 		input string
 		want  string
 	}{
-		{extdns.RecordTypeA, model.ProjectDnsRecord_RECORD_TYPE_A},
-		{extdns.RecordTypeAAAA, model.ProjectDnsRecord_RECORD_TYPE_AAAA},
-		{extdns.RecordTypeCNAME, model.ProjectDnsRecord_RECORD_TYPE_CNAME},
-		{extdns.RecordTypeNS, model.ProjectDnsRecord_RECORD_TYPE_NS},
-		{extdns.RecordTypePTR, model.ProjectDnsRecord_RECORD_TYPE_PTR},
-		{"UNKNOWN", model.ProjectDnsRecord_RECORD_TYPE_A},
-		{"", model.ProjectDnsRecord_RECORD_TYPE_A},
+		{extdns.RecordTypeA, model.DnsRecord_RECORD_TYPE_A},
+		{extdns.RecordTypeAAAA, model.DnsRecord_RECORD_TYPE_AAAA},
+		{extdns.RecordTypeCNAME, model.DnsRecord_RECORD_TYPE_CNAME},
+		{extdns.RecordTypeNS, model.DnsRecord_RECORD_TYPE_NS},
+		{extdns.RecordTypePTR, model.DnsRecord_RECORD_TYPE_PTR},
+		{"UNKNOWN", model.DnsRecord_RECORD_TYPE_A},
+		{"", model.DnsRecord_RECORD_TYPE_A},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
@@ -855,8 +855,8 @@ func TestSortedNormalizedTagsForCompare_table(t *testing.T) {
 }
 
 func TestRecordAfterPrimaryDeletePromotion_table(t *testing.T) {
-	makeOwnerRec := func(kind, ns, name, path string) *model.ProjectDnsRecord {
-		return &model.ProjectDnsRecord{
+	makeOwnerRec := func(kind, ns, name, path string) *model.DnsRecord {
+		return &model.DnsRecord{
 			Path: servicecommon.String(path),
 			Tags: []model.Tag{
 				modelTag(servicecommon.TagScopeDNSRecordFor, resourceKindToCreatedFor(kind)),
@@ -874,8 +874,8 @@ func TestRecordAfterPrimaryDeletePromotion_table(t *testing.T) {
 	tests := []struct {
 		name           string
 		sortedContribs []string
-		rec            *model.ProjectDnsRecord
-		storeRecords   []*model.ProjectDnsRecord
+		rec            *model.DnsRecord
+		storeRecords   []*model.DnsRecord
 		wantErr        bool
 		wantOwnerName  string
 		wantGateway    string
@@ -884,39 +884,39 @@ func TestRecordAfterPrimaryDeletePromotion_table(t *testing.T) {
 		{
 			name:           "invalid contrib key format returns error",
 			sortedContribs: []string{"badformat"},
-			rec:            &model.ProjectDnsRecord{},
+			rec:            &model.DnsRecord{},
 			wantErr:        true,
 		},
 		{
 			name:           "unknown kind in contrib key returns error",
 			sortedContribs: []string{"unknown_kind/ns/name"},
-			rec:            &model.ProjectDnsRecord{},
+			rec:            &model.DnsRecord{},
 			wantErr:        true,
 		},
 		{
 			name:           "sole contributor promoted, no remaining contribs",
 			sortedContribs: []string{keyA},
-			rec:            &model.ProjectDnsRecord{Path: sharedPath},
-			storeRecords:   []*model.ProjectDnsRecord{storeRecA},
+			rec:            &model.DnsRecord{Path: sharedPath},
+			storeRecords:   []*model.DnsRecord{storeRecA},
 			wantOwnerName:  "a",
 			wantContribs:   nil,
 		},
 		{
 			name:           "first of two contributors promoted, second remains",
 			sortedContribs: []string{keyA, keyB},
-			rec:            &model.ProjectDnsRecord{Path: sharedPath},
-			storeRecords:   []*model.ProjectDnsRecord{storeRecA},
+			rec:            &model.DnsRecord{Path: sharedPath},
+			storeRecords:   []*model.DnsRecord{storeRecA},
 			wantOwnerName:  "a",
 			wantContribs:   []string{keyB},
 		},
 		{
 			name:           "gateway tag from original record is preserved",
 			sortedContribs: []string{keyA},
-			rec: &model.ProjectDnsRecord{
+			rec: &model.DnsRecord{
 				Path: sharedPath,
 				Tags: []model.Tag{modelTag(servicecommon.TagScopeDNSRecordGatewayIndexList, "ns/gw1")},
 			},
-			storeRecords:  []*model.ProjectDnsRecord{storeRecA},
+			storeRecords:  []*model.DnsRecord{storeRecA},
 			wantOwnerName: "a",
 			wantGateway:   "ns/gw1",
 			wantContribs:  nil,
@@ -951,7 +951,7 @@ func TestClassifyOwnerRemoval_table(t *testing.T) {
 	keyA := dnsRecordOwnerKey(servicecommon.TagValueDNSRecordForHTTPRoute, dnsRecordOwnerNamespacedNameKey("ns", "a"))
 	keyB := dnsRecordOwnerKey(servicecommon.TagValueDNSRecordForHTTPRoute, dnsRecordOwnerNamespacedNameKey("ns", "b"))
 
-	makeRec := func(ownerKey string, contribs []string, path string) *model.ProjectDnsRecord {
+	makeRec := func(ownerKey string, contribs []string, path string) *model.DnsRecord {
 		createdFor, ns, name, _ := parseOwnerNNIndexKey(ownerKey)
 		tags := []model.Tag{
 			modelTag(servicecommon.TagScopeDNSRecordFor, createdFor),
@@ -961,11 +961,11 @@ func TestClassifyOwnerRemoval_table(t *testing.T) {
 		if len(contribs) > 0 {
 			tags = append(tags, modelTag(servicecommon.TagScopeDNSRecordContributingOwners, formatContributingOwnersTag(contribs)))
 		}
-		return &model.ProjectDnsRecord{Path: servicecommon.String(path), Tags: tags}
+		return &model.DnsRecord{Path: servicecommon.String(path), Tags: tags}
 	}
 
 	// Store record for the promoted owner (needed when primary is deleted with contribs)
-	storeRecA := &model.ProjectDnsRecord{
+	storeRecA := &model.DnsRecord{
 		Path: servicecommon.String("/orgs/org1/projects/proj1/dns-records/for_a"),
 		Tags: []model.Tag{
 			modelTag(servicecommon.TagScopeDNSRecordFor, servicecommon.TagValueDNSRecordForHTTPRoute),
@@ -976,9 +976,9 @@ func TestClassifyOwnerRemoval_table(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		rec           *model.ProjectDnsRecord
+		rec           *model.DnsRecord
 		deletedKey    string
-		storeRecords  []*model.ProjectDnsRecord
+		storeRecords  []*model.DnsRecord
 		wantDeleteLen int
 		wantUpdateLen int
 		wantMarked    bool
@@ -995,7 +995,7 @@ func TestClassifyOwnerRemoval_table(t *testing.T) {
 			name:          "primary owner, has contribs: first contrib promoted",
 			rec:           makeRec(keyB, []string{keyA}, "/orgs/org1/projects/proj1/dns-records/shared"),
 			deletedKey:    keyB,
-			storeRecords:  []*model.ProjectDnsRecord{storeRecA},
+			storeRecords:  []*model.DnsRecord{storeRecA},
 			wantUpdateLen: 1,
 			wantContribs:  nil,
 		},
@@ -1021,7 +1021,7 @@ func TestClassifyOwnerRemoval_table(t *testing.T) {
 			}
 			env := newTestDNSRecordService(t, store)
 
-			var toDelete, toUpdate []*model.ProjectDnsRecord
+			var toDelete, toUpdate []*model.DnsRecord
 			err := env.classifyOwnerRemoval(tc.rec, tc.deletedKey, &toDelete, &toUpdate)
 			require.NoError(t, err)
 			require.Len(t, toDelete, tc.wantDeleteLen)
@@ -1041,31 +1041,31 @@ func TestCompareRecords_toUpsertAndRemove(t *testing.T) {
 	z := testDNSZonePathZ
 	id1 := "id1"
 	id2 := "id2"
-	d1 := &model.ProjectDnsRecord{
+	d1 := &model.DnsRecord{
 		Id:           &id1,
 		Path:         servicecommon.String("/orgs/o/projects/p/dns-records/" + id1),
 		RecordName:   servicecommon.String("n1"),
-		RecordType:   servicecommon.String(model.ProjectDnsRecord_RECORD_TYPE_A),
+		RecordType:   servicecommon.String(model.DnsRecord_RECORD_TYPE_A),
 		ZonePath:     &z,
 		RecordValues: []string{"1.1.1.1"},
 	}
-	e1 := &model.ProjectDnsRecord{
+	e1 := &model.DnsRecord{
 		Id:           &id1,
 		Path:         servicecommon.String("/orgs/o/projects/p/dns-records/" + id1),
 		RecordName:   servicecommon.String("n1"),
-		RecordType:   servicecommon.String(model.ProjectDnsRecord_RECORD_TYPE_A),
+		RecordType:   servicecommon.String(model.DnsRecord_RECORD_TYPE_A),
 		ZonePath:     &z,
 		RecordValues: []string{"9.9.9.9"},
 	}
-	stale := &model.ProjectDnsRecord{
+	stale := &model.DnsRecord{
 		Id:           &id2,
 		Path:         servicecommon.String("/orgs/o/projects/p/dns-records/" + id2),
 		RecordName:   servicecommon.String("n2"),
-		RecordType:   servicecommon.String(model.ProjectDnsRecord_RECORD_TYPE_A),
+		RecordType:   servicecommon.String(model.DnsRecord_RECORD_TYPE_A),
 		ZonePath:     &z,
 		RecordValues: []string{"2.2.2.2"},
 	}
-	up, rm := compareRecords([]*model.ProjectDnsRecord{d1}, []*model.ProjectDnsRecord{e1, stale})
+	up, rm := compareRecords([]*model.DnsRecord{d1}, []*model.DnsRecord{e1, stale})
 	require.Len(t, rm, 1)
 	require.Equal(t, id2, *rm[0].Id)
 	require.Len(t, up, 1)
@@ -1084,7 +1084,7 @@ func TestCleanupInfraResources(t *testing.T) {
 	ep := extdns.NewEndpoint("cl.example.com", extdns.RecordTypeA, "192.0.2.1")
 	ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
 	row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "cl.example.com"}
-	require.NotNil(t, env.BuildProjectDnsRecord(owner, row))
+	require.NotNil(t, env.BuildDnsRecord(owner, row))
 	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	require.NotEmpty(t, store.ListDNSRecords())
 
@@ -1101,12 +1101,12 @@ func TestValidateEndpointRowConflict_table(t *testing.T) {
 	ownerB := &ResourceRef{Kind: ResourceKindService, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "svcB"}}
 	epA := extdns.NewEndpoint(fqdn, extdns.RecordTypeA, "10.0.0.1")
 
-	makeStoreRec := func(owner *ResourceRef, path string, values []string) *model.ProjectDnsRecord {
+	makeStoreRec := func(owner *ResourceRef, path string, values []string) *model.DnsRecord {
 		createdFor := resourceKindToCreatedFor(owner.Kind)
-		return &model.ProjectDnsRecord{
+		return &model.DnsRecord{
 			Path:         servicecommon.String(path),
 			ZonePath:     servicecommon.String(zonePath),
-			RecordType:   servicecommon.String(model.ProjectDnsRecord_RECORD_TYPE_A),
+			RecordType:   servicecommon.String(model.DnsRecord_RECORD_TYPE_A),
 			RecordName:   servicecommon.String("svc"),
 			Fqdn:         servicecommon.String(fqdn),
 			RecordValues: values,
@@ -1120,7 +1120,7 @@ func TestValidateEndpointRowConflict_table(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		storeRecs  []*model.ProjectDnsRecord
+		storeRecs  []*model.DnsRecord
 		owner      *ResourceRef
 		wantErr    bool
 		errSub     string
@@ -1132,28 +1132,28 @@ func TestValidateEndpointRowConflict_table(t *testing.T) {
 		},
 		{
 			name:      "own record in store: returns row directly",
-			storeRecs: []*model.ProjectDnsRecord{makeStoreRec(ownerA, "/orgs/org1/projects/proj1/dns-records/r-svcA", []string{"10.0.0.1"})},
+			storeRecs: []*model.DnsRecord{makeStoreRec(ownerA, "/orgs/org1/projects/proj1/dns-records/r-svcA", []string{"10.0.0.1"})},
 			owner:     ownerA,
 		},
 		{
 			name:      "FQDN conflict: different target values for different owner",
-			storeRecs: []*model.ProjectDnsRecord{makeStoreRec(ownerB, "/orgs/org1/projects/proj1/dns-records/r-svcB", []string{"10.0.0.99"})},
+			storeRecs: []*model.DnsRecord{makeStoreRec(ownerB, "/orgs/org1/projects/proj1/dns-records/r-svcB", []string{"10.0.0.99"})},
 			owner:     ownerA,
 			wantErr:   true,
 			errSub:    "configured with different values",
 		},
 		{
 			name:       "adoption: same values from different owner",
-			storeRecs:  []*model.ProjectDnsRecord{makeStoreRec(ownerB, "/orgs/org1/projects/proj1/dns-records/r-svcB", []string{"10.0.0.1"})},
+			storeRecs:  []*model.DnsRecord{makeStoreRec(ownerB, "/orgs/org1/projects/proj1/dns-records/r-svcB", []string{"10.0.0.1"})},
 			owner:      ownerA,
 			wantShared: true,
 		},
 		{
 			name: "adoption fails: same values but incomplete owner metadata",
-			storeRecs: []*model.ProjectDnsRecord{{
+			storeRecs: []*model.DnsRecord{{
 				Path:         servicecommon.String("/orgs/org1/projects/proj1/dns-records/r-noowner"),
 				ZonePath:     servicecommon.String(zonePath),
-				RecordType:   servicecommon.String(model.ProjectDnsRecord_RECORD_TYPE_A),
+				RecordType:   servicecommon.String(model.DnsRecord_RECORD_TYPE_A),
 				RecordName:   servicecommon.String("svc"),
 				Fqdn:         servicecommon.String(fqdn),
 				RecordValues: []string{"10.0.0.1"},
@@ -1232,7 +1232,7 @@ func TestApplyDNSUpsertRows_unsupportedOwnerKind(t *testing.T) {
 		{Endpoint: ep, zonePath: testDNSZonePathT, nsxRecordName: "a"},
 	})
 	// collectRecordsByOwner returns ("", nil) for unknown kind, so ownerNNKey="" → toUpsert is non-empty
-	// but syncProjectDnsRecordsInNSX will be called. The important thing is no panic.
+	// but syncDnsRecordsInNSX will be called. The important thing is no panic.
 	_, _, err := env.applyDNSUpsertRows(batch)
 	require.NoError(t, err)
 }
@@ -1242,7 +1242,7 @@ func TestSyncDNSZonesByVpcNetworkConfig_table(t *testing.T) {
 	t.Cleanup(func() { ctrl.Finish() })
 	zc := dnszonemocks.NewMockZonesClient(ctrl)
 
-	builder, err := servicecommon.PolicyPathProjectDnsRecord.NewPolicyTreeBuilder()
+	builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
 	require.NoError(t, err)
 	cfg := &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "unit-test"}}
 	svc := &DNSRecordService{
@@ -1250,12 +1250,12 @@ func TestSyncDNSZonesByVpcNetworkConfig_table(t *testing.T) {
 			Client:    fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build(),
 			NSXConfig: cfg,
 			NSXClient: &nsx.Client{
-				NsxConfig:            cfg,
-				ProjectDnsZoneClient: zc,
+				NsxConfig:     cfg,
+				DnsZoneClient: zc,
 			},
 		},
-		DNSZoneMap:              newDNSZoneCache(),
-		ProjectDnsRecordBuilder: builder,
+		DNSZoneMap:       newDNSZoneCache(),
+		DnsRecordBuilder: builder,
 	}
 
 	// No error returns when VPCNetworkConfiguration does not set DNS zones.
@@ -1265,7 +1265,7 @@ func TestSyncDNSZonesByVpcNetworkConfig_table(t *testing.T) {
 
 	domain := "fetched.example"
 	zp := testDNSZonePathZ
-	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.ProjectDnsZone{
+	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{
 		DnsDomainName: &domain,
 	}, nil).Times(1)
 
