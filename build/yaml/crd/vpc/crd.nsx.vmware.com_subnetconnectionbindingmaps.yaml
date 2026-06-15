@@ -65,6 +65,18 @@ spec:
             type: object
           spec:
             properties:
+              subnetAssociation:
+                description: |-
+                  SubnetAssociation indicates the role of targetSubnetName in the binding.
+                  TRUNK: targetSubnetName is the parent Subnet (default, legacy behavior).
+                  BRANCH: targetSubnetName is the child Subnet; subnetName is the parent and hosts the NSX binding map.
+                enum:
+                - TRUNK
+                - BRANCH
+                type: string
+                x-kubernetes-validations:
+                - message: subnetAssociation is immutable
+                  rule: self == oldSelf
               subnetName:
                 description: SubnetName is the Subnet name which this SubnetConnectionBindingMap
                   is associated.
@@ -80,23 +92,6 @@ spec:
                 description: TargetSubnetSetName specifies the target SubnetSet which
                   a Subnet is connected to.
                 type: string
-              targetSubnetNamespace:
-                description: |-
-                  TargetSubnetNamespace is the Namespace of targetSubnetName. When unset, the SubnetConnectionBindingMap
-                  Namespace is used. Required for cross-VPC bindings when the target Subnet lives in another Namespace.
-                type: string
-              subnetAssociation:
-                description: |-
-                  SubnetAssociation indicates the role of targetSubnetName in the binding.
-                  TRUNK: targetSubnetName is the parent Subnet (default, legacy behavior).
-                  BRANCH: targetSubnetName is the child Subnet; subnetName is the parent and hosts the NSX binding map.
-                enum:
-                - TRUNK
-                - BRANCH
-                type: string
-                x-kubernetes-validations:
-                - message: subnetAssociation is immutable
-                  rule: self == oldSelf
               vlanTrafficTag:
                 description: |-
                   VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be

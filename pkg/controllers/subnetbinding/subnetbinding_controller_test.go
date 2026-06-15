@@ -446,16 +446,15 @@ func TestValidateDependency(t *testing.T) {
 			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns-vpc-a"},
 				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
-					SubnetName:            "parent-subnet",
-					TargetSubnetName:      "child-subnet",
-					TargetSubnetNamespace: "ns-vpc-b",
-					SubnetAssociation:     v1alpha1.SubnetAssociationBranch,
-					VLANTrafficTag:        201,
+					SubnetName:        "parent-subnet",
+					TargetSubnetName:  "child-subnet",
+					SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+					VLANTrafficTag:    201,
 				},
 			},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				return gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, checkNotUsedAsTarget, checkNotUsedAsHost bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
-					if namespace == "ns-vpc-a" {
+					if name == "parent-subnet" {
 						return []string{"/orgs/default/projects/default/vpcs/vpc-a/subnets/parent-subnet"}, &v1alpha1.Subnet{}, nil
 					}
 					return []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"}, &v1alpha1.Subnet{
@@ -1250,14 +1249,13 @@ func TestGetSubnetConnectionBindingMapsBySubnet(t *testing.T) {
 
 	bmCrossNS := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "ns-vpc-a",
+			Namespace: "ns-vpc-b",
 			Name:      "bm-cross",
 		},
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
-			SubnetName:            "parent-subnet",
-			TargetSubnetName:      "child-subnet",
-			TargetSubnetNamespace: "ns-vpc-b",
-			SubnetAssociation:     v1alpha1.SubnetAssociationBranch,
+			SubnetName:        "parent-subnet",
+			TargetSubnetName:  "child-subnet",
+			SubnetAssociation: v1alpha1.SubnetAssociationBranch,
 		},
 	}
 
@@ -1286,7 +1284,7 @@ func TestGetSubnetConnectionBindingMapsBySubnet(t *testing.T) {
 	result, err = r.getSubnetConnectionBindingMapsByTargetSubnet(ctx, "ns-vpc-b", "child-subnet")
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(result))
-	assert.Equal(t, types.NamespacedName{Namespace: "ns-vpc-a", Name: "bm-cross"}, result[0])
+	assert.Equal(t, types.NamespacedName{Namespace: "ns-vpc-b", Name: "bm-cross"}, result[0])
 }
 
 func createFakeReconciler(objs ...client.Object) *Reconciler {

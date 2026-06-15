@@ -71,7 +71,7 @@ func requeueSubnetConnectionBindingMapsBySubnet(ctx context.Context, c client.Cl
 	}
 	for _, bm := range bindingMapList.Items {
 		isHost := bm.Spec.SubnetName == subnet && bm.Namespace == namespace
-		isTarget := bm.Spec.TargetSubnetName == subnet && bm.Spec.ResolveTargetSubnetNamespace(bm.Namespace) == namespace
+		isTarget := bm.Spec.TargetSubnetName == subnet && bm.Namespace == namespace
 		if !isHost && !isTarget {
 			continue
 		}

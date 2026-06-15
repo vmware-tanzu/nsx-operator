@@ -79,8 +79,7 @@ var PredicateFuncsWithSubnetBindings = predicate.Funcs{
 		oldBindingMap := e.ObjectOld.(*v1alpha1.SubnetConnectionBindingMap)
 		newBindingMap := e.ObjectNew.(*v1alpha1.SubnetConnectionBindingMap)
 		if oldBindingMap.Spec.TargetSubnetSetName != newBindingMap.Spec.TargetSubnetSetName ||
-			oldBindingMap.Spec.TargetSubnetName != newBindingMap.Spec.TargetSubnetName ||
-			oldBindingMap.Spec.TargetSubnetNamespace != newBindingMap.Spec.TargetSubnetNamespace {
+			oldBindingMap.Spec.TargetSubnetName != newBindingMap.Spec.TargetSubnetName {
 			return true
 		}
 		return false

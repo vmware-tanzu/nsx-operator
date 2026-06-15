@@ -105,15 +105,14 @@ func TestBuildSubnetBindingsBranch(t *testing.T) {
 	branchBinding := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: v1.ObjectMeta{
 			Name:      "cross-vpc-binding",
-			Namespace: "ns-vpc-a",
+			Namespace: "ns-vpc-b",
 			UID:       "uuid-cross",
 		},
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
-			SubnetName:            "parent-subnet",
-			TargetSubnetName:      "child-subnet",
-			TargetSubnetNamespace: "ns-vpc-b",
-			SubnetAssociation:     v1alpha1.SubnetAssociationBranch,
-			VLANTrafficTag:        201,
+			SubnetName:        "parent-subnet",
+			TargetSubnetName:  "child-subnet",
+			SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+			VLANTrafficTag:    201,
 		},
 	}
 	peerPaths := []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"}

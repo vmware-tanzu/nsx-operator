@@ -26,10 +26,6 @@ type SubnetConnectionBindingMapSpec struct {
 	// TargetSubnetName specifies the target Subnet which a Subnet is connected to.
 	// +kubebuilder:validation:Optional
 	TargetSubnetName string `json:"targetSubnetName,omitempty"`
-	// TargetSubnetNamespace is the Namespace of targetSubnetName. When unset, the SubnetConnectionBindingMap
-	// Namespace is used. Required for cross-VPC bindings when the target Subnet lives in another Namespace.
-	// +kubebuilder:validation:Optional
-	TargetSubnetNamespace string `json:"targetSubnetNamespace,omitempty"`
 	// SubnetAssociation indicates the role of targetSubnetName in the binding.
 	// TRUNK: targetSubnetName is the parent Subnet (default, legacy behavior).
 	// BRANCH: targetSubnetName is the child Subnet; subnetName is the parent and hosts the NSX binding map.
@@ -88,12 +84,4 @@ func init() {
 // IsBranchAssociation reports whether targetSubnetName is the child (branch) Subnet.
 func (s SubnetConnectionBindingMapSpec) IsBranchAssociation() bool {
 	return s.SubnetAssociation == SubnetAssociationBranch
-}
-
-// ResolveTargetSubnetNamespace returns the Namespace used to look up targetSubnetName.
-func (s SubnetConnectionBindingMapSpec) ResolveTargetSubnetNamespace(bindingNamespace string) string {
-	if s.TargetSubnetNamespace != "" {
-		return s.TargetSubnetNamespace
-	}
-	return bindingNamespace
 }

@@ -21,19 +21,18 @@ func requeueSubnetBySubnetBindingUpdate(ctx context.Context, c client.Client, ob
 	newBM := objNew.(*v1alpha1.SubnetConnectionBindingMap)
 	oldBM := objOld.(*v1alpha1.SubnetConnectionBindingMap)
 
-	if newBM.Spec.TargetSubnetName == oldBM.Spec.TargetSubnetName &&
-		newBM.Spec.TargetSubnetNamespace == oldBM.Spec.TargetSubnetNamespace {
+	if newBM.Spec.TargetSubnetName == oldBM.Spec.TargetSubnetName {
 		return
 	}
 
 	if newBM.Spec.TargetSubnetName != "" {
-		targetNs := newBM.Spec.ResolveTargetSubnetNamespace(newBM.Namespace)
+		targetNs := newBM.Namespace
 		if err := enqueue(ctx, c, targetNs, newBM.Spec.TargetSubnetName, q); err != nil {
 			log.Error(err, "Failed to enqueue the new target Subnet after SubnetConnectionBindingMap updates", "Namespace", targetNs, "Subnet", newBM.Spec.TargetSubnetName, "SubnetConnectionBindingMap", newBM.Name)
 		}
 	}
 	if oldBM.Spec.TargetSubnetName != "" {
-		targetNs := oldBM.Spec.ResolveTargetSubnetNamespace(oldBM.Namespace)
+		targetNs := oldBM.Namespace
 		_ = enqueue(ctx, c, targetNs, oldBM.Spec.TargetSubnetName, q)
 	}
 }
@@ -44,7 +43,7 @@ func enqueueSubnets(ctx context.Context, c client.Client, bindingMap *v1alpha1.S
 	}
 
 	if bindingMap.Spec.TargetSubnetName != "" {
-		targetNs := bindingMap.Spec.ResolveTargetSubnetNamespace(bindingMap.Namespace)
+		targetNs := bindingMap.Namespace
 		_ = enqueue(ctx, c, targetNs, bindingMap.Spec.TargetSubnetName, q)
 	}
 }
@@ -102,7 +101,7 @@ func (r *SubnetReconciler) getSubnetBindingCRsBySubnet(ctx context.Context, subn
 			validBindings = append(validBindings, bm)
 			continue
 		}
-		if bm.Spec.TargetSubnetName == subnetCR.Name && bm.Spec.ResolveTargetSubnetNamespace(bm.Namespace) == subnetCR.Namespace {
+		if bm.Spec.TargetSubnetName == subnetCR.Name && bm.Namespace == subnetCR.Namespace {
 			validBindings = append(validBindings, bm)
 		}
 	}

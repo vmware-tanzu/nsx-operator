@@ -380,7 +380,7 @@ func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns stri
 				"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
 			return true, nil
 		}
-		if bm.Spec.TargetSubnetName == subnet.Name && bm.Spec.ResolveTargetSubnetNamespace(bm.Namespace) == ns {
+		if bm.Spec.TargetSubnetName == subnet.Name && bm.Namespace == ns {
 			log.Info("Cannot delete Subnet CR for shared subnet because it is used as targetSubnetName by a SubnetConnectionBindingMap CR",
 				"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
 			return true, nil

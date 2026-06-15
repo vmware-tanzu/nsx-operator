@@ -221,7 +221,7 @@ func getVpcPath(subnetPath string) (string, *errorWithRetry) {
 // (spec.subnetName, where the binding map is created) and peer Subnet path(s) (target Subnet or SubnetSet members).
 func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
 	isBranch := bindingMap.Spec.IsBranchAssociation()
-	targetNamespace := bindingMap.Spec.ResolveTargetSubnetNamespace(bindingMap.Namespace)
+	targetNamespace := bindingMap.Namespace
 
 	var hostCheckUsedAsTarget, hostCheckUsedAsHost bool
 	if isBranch {
@@ -427,20 +427,15 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 }
 
 // getSubnetConnectionBindingMapsByTargetSubnet lists bindings that reference the Subnet as targetSubnetName
-// in the given target Namespace (including cross-namespace binding CRs via targetSubnetNamespace).
+// in the given target Namespace.
 func (r *Reconciler) getSubnetConnectionBindingMapsByTargetSubnet(ctx context.Context, targetNs, name string) ([]types.NamespacedName, error) {
-	allBindings := &v1alpha1.SubnetConnectionBindingMapList{}
-	if err := r.Client.List(ctx, allBindings); err != nil {
+	bmKeys := []types.NamespacedName{}
+	subnetBindingList := &v1alpha1.SubnetConnectionBindingMapList{}
+	err := r.Client.List(ctx, subnetBindingList, client.InNamespace(targetNs), client.MatchingFields{"spec.targetSubnetName": name})
+	if err != nil {
 		return nil, fmt.Errorf("failed to list SubnetConnectionBindingMap CRs: %w", err)
 	}
-	bmKeys := make([]types.NamespacedName, 0)
-	for _, bm := range allBindings.Items {
-		if bm.Spec.TargetSubnetName != name {
-			continue
-		}
-		if bm.Spec.ResolveTargetSubnetNamespace(bm.Namespace) != targetNs {
-			continue
-		}
+	for _, bm := range subnetBindingList.Items {
 		bmKeys = append(bmKeys, types.NamespacedName{Namespace: bm.Namespace, Name: bm.Name})
 	}
 	return bmKeys, nil

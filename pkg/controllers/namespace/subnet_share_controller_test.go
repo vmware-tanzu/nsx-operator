@@ -403,13 +403,12 @@ func TestCheckSubnetReferences(t *testing.T) {
 				&v1alpha1.SubnetConnectionBindingMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "cross-binding",
-						Namespace: "ns-vpc-a",
+						Namespace: "ns-vpc-b",
 					},
 					Spec: v1alpha1.SubnetConnectionBindingMapSpec{
-						SubnetName:            "parent-subnet",
-						TargetSubnetName:      "child-subnet",
-						TargetSubnetNamespace: "ns-vpc-b",
-						SubnetAssociation:     v1alpha1.SubnetAssociationBranch,
+						SubnetName:        "parent-subnet",
+						TargetSubnetName:  "child-subnet",
+						SubnetAssociation: v1alpha1.SubnetAssociationBranch,
 					},
 				},
 			},
@@ -471,7 +470,7 @@ func TestCheckSubnetReferences(t *testing.T) {
 							return true, nil
 						}
 						if binding.Spec.TargetSubnetName == subnet.Name &&
-							binding.Spec.ResolveTargetSubnetNamespace(binding.Namespace) == ns {
+							binding.Namespace == ns {
 							return true, nil
 						}
 					}
