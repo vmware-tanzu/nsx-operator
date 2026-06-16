@@ -568,6 +568,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case StatefulSetPod:
 		minVersion = nsx912Version
 		validFeature = true
+	case IPv6:
+		minVersion = nsx920Version
+		validFeature = true
 	}
 
 	if validFeature {

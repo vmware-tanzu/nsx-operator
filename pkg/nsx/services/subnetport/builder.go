@@ -197,7 +197,10 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		Path:                   &nsxSubnetPortPath,
 		ParentPath:             nsxSubnet.Path,
 		ExternalAddressBinding: externalAddressBinding,
-		StaticIpAllocationType: &staticIpAllocationType,
+	}
+	// For backward compatibility, only set StaticIpAllocationType for 9.2+
+	if service.NSXClient.NSXCheckVersion(nsx.IPv6) {
+		nsxSubnetPort.StaticIpAllocationType = &staticIpAllocationType
 	}
 	if appId != "" {
 		nsxSubnetPort.Attachment.AppId = &appId

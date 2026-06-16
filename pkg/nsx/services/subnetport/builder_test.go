@@ -48,7 +48,7 @@ func TestBuildSubnetPort(t *testing.T) {
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
 		func(_ *nsx.Client, _ int) bool {
-			return false
+			return true
 		})
 	defer patches.Reset()
 
