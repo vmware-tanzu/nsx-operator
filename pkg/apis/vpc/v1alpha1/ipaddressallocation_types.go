@@ -14,6 +14,7 @@ var (
 	IPAddressVisibilityPrivateTGW IPAddressVisibility     = "PrivateTGW"
 	IPAllocationIPAddressTypeIPv4 IPAllocationAddressType = "IPv4"
 	IPAllocationIPAddressTypeIPv6 IPAllocationAddressType = "IPv6"
+	UsedForLBFrontend             string                  = "LB_FRONTEND"
 )
 
 // +genclient
@@ -43,11 +44,14 @@ type IPAddressAllocationList struct {
 }
 
 // IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
+// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="spec is immutable"
 // +kubebuilder:validation:XValidation:rule="!has(self.allocationSize) || !has(self.allocationIPs)", message="Only one of allocationSize or allocationIPs can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipv6AllocationPrefixLength) || !has(self.allocationIPs)", message="Only one of ipv6AllocationPrefixLength or allocationIPs can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.allocationSize) || has(self.allocationSize)", message="allocationSize is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.allocationIPs) || has(self.allocationIPs)", message="allocationIPs is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipv6AllocationPrefixLength) || has(self.ipv6AllocationPrefixLength)", message="ipv6AllocationPrefixLength is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.usedFor) || has(self.usedFor)", message="usedFor is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ipBlock) || has(self.ipBlock)", message="ipBlock is required once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.allocationSize) || !has(self.ipAddressType) || self.ipAddressType == 'IPv4'", message="allocationSize can only be set when ipAddressType is IPv4"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipv6AllocationPrefixLength) || self.ipAddressType == 'IPv6'", message="ipv6AllocationPrefixLength can only be set when ipAddressType is IPv6"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipAddressBlockVisibility) || !has(self.ipAddressType) || self.ipAddressType != 'IPv6'", message="ipAddressBlockVisibility cannot be set when ipAddressType is IPv6"
@@ -79,10 +83,17 @@ type IPAddressAllocationSpec struct {
 	// +kubebuilder:default=IPv4
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddressType IPAllocationAddressType `json:"ipAddressType,omitempty"`
-	// IPBlockName specifies name of the IPBlock to allocate IP addresses.
+	// UsedFor specifies the intent/use case for the IP allocation.
+	// Only LB_FRONTEND is supported. When set to LB_FRONTEND, IP must be allocated from LoadBalancerVPC configured in VPCNetworkConfiguration.
+	// +kubebuilder:validation:Enum=LB_FRONTEND
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
-	IPBlockName string `json:"ipBlockName,omitempty"`
+	UsedFor string `json:"usedFor,omitempty"`
+	// IPBlock specifies the name or ID of the IPBlock to allocate IP addresses.
+	// Can be an infra IPBlock ID or '<project ID>:<ipBlockID>' for project-scoped IPBlock.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	IPBlock string `json:"ipBlock,omitempty"`
 }
 
 // IPAddressAllocationStatus defines the observed state of IPAddressAllocation.

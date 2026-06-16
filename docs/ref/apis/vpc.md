@@ -122,7 +122,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 
@@ -270,9 +270,9 @@ _Appears in:_
 | `recordName` _string_ | RecordName specifies the DNS record name or, for PTR records, the host-octet label.<br />For A/AAAA/CNAME: the hostname portion of the FQDN (e.g., "api" for "api.coke.com").<br />For PTR: the host octet of the IP address (e.g., "10" for 10.0.0.10). |  | MaxLength: 255 <br />Required: \{\} <br /> |
 | `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA CNAME PTR NS TXT] <br />Required: \{\} <br /> |
 | `recordValues` _string array_ | RecordValues specifies the DNS record data values. |  | MinItems: 1 <br />Required: \{\} <br /> |
-| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  | Optional: \{\} <br /> |
-| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br />Optional: \{\} <br /> |
-| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  | Optional: \{\} <br /> |
+| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  |  |
+| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br /> |
+| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  |  |
 
 
 #### DNSRecordStatus
@@ -288,7 +288,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  |  |
 
 
 #### DNSRecordType
@@ -344,12 +344,13 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. |  | Enum: [External Private PrivateTGW] <br />Optional: \{\} <br /> |
+| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. |  | Enum: [External Private PrivateTGW] <br /> |
 | `allocationSize` _integer_ | AllocationSize specifies the size of IPv4 allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified.<br />Supported starting with VCF 9.2.0. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
-| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  | Optional: \{\} <br /> |
+| `usedFor` _string_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set to LB_FRONTEND, IP is allocated from LoadBalancerVPC if configured. |  | Enum: [LB_FRONTEND] <br /> |
+| `ipBlock` _string_ | IPBlock specifies the name or ID of the IPBlock to allocate IP addresses.<br />Can be an infra IPBlock ID or '<project ID>:<ipBlockID>' for project-scoped IPBlock. |  |  |
 
 
 #### IPAddressAllocationStatus
@@ -620,7 +621,8 @@ _Underlying type:_ _string_
 
 RuleDirection specifies the direction of traffic.
 
-
+_Validation:_
+- MaxLength: 7
 
 _Appears in:_
 - [SecurityPolicyRule](#securitypolicyrule)
@@ -704,7 +706,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `action` _[RuleAction](#ruleaction)_ | Action specifies the action to be applied on the rule. |  |  |
 | `appliedTo` _[SecurityPolicyTarget](#securitypolicytarget) array_ | AppliedTo is a list of rule targets.<br />Policy level 'Applied To' will take precedence over rule level. |  |  |
-| `direction` _[RuleDirection](#ruledirection)_ | Direction is the direction of the rule, including 'In' or 'Ingress', 'Out' or 'Egress'. |  |  |
+| `direction` _[RuleDirection](#ruledirection)_ | Direction is the direction of the rule, including 'In' or 'Ingress', 'Out' or 'Egress'. |  | MaxLength: 7 <br /> |
 | `sources` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Deprecated: use From instead.<br />Sources defines the endpoints where the traffic is from. For ingress rule only. |  |  |
 | `destinations` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Deprecated: use To instead.<br />Destinations defines the endpoints where the traffic is to. For egress rule only. |  |  |
 | `from` _[SecurityPolicyPeer](#securitypolicypeer) array_ | From defines the endpoints where the traffic is from. For ingress rule only.<br />This is the preferred field over the deprecated Sources. |  |  |
@@ -813,7 +815,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the ServiceEndpoint. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the ServiceEndpoint. |  |  |
 
 
 #### SharedSubnet
@@ -849,7 +851,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false.<br />If the DHCP mode is DHCPRelay, its default value is false. |  |  |
-| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  | Optional: \{\} <br /> |
+| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
 
 
 #### StaticIPAllocationType
@@ -905,7 +907,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 
@@ -923,8 +925,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br />Optional: \{\} <br /> |
-| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  | Optional: \{\} <br /> |
+| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br /> |
+| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  |  |
 | `nextHops` _[NextHop](#nexthop) array_ | Next hop gateway |  | MinItems: 1 <br /> |
 
 
@@ -1356,8 +1358,8 @@ _Appears in:_
 | `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for Subnet.<br />Supported starting with VCF 9.2.0. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 | `vlanConnectionName` _string_ | Distributed VLAN Connection name. |  |  |
-| `description` _string_ | Description of the Subnet. |  | MaxLength: 1024 <br />Optional: \{\} <br /> |
-| `ipBlockNames` _string array_ | IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).<br />The IPBlock should belong to one of the following sources:<br />1) The VPC's private IPBlock<br />2) The VPCConnectivityProfile's external IPBlock<br />3) The VPCConnectivityProfile's private-TGW IPBlock<br />4) The VPCConnectivityProfile's IPv6 IPBlock |  | MaxItems: 2 <br />MinItems: 0 <br />Optional: \{\} <br /> |
+| `description` _string_ | Description of the Subnet. |  | MaxLength: 1024 <br /> |
+| `ipBlockNames` _string array_ | IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).<br />The IPBlock should belong to one of the following sources:<br />1) The VPC's private IPBlock<br />2) The VPCConnectivityProfile's external IPBlock<br />3) The VPCConnectivityProfile's private-TGW IPBlock<br />4) The VPCConnectivityProfile's IPv6 IPBlock |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 
 
 #### SubnetStatus
@@ -1447,7 +1449,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the VPCEndpoint. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the VPCEndpoint. |  |  |
 
 
 #### VPCInfo
@@ -1505,15 +1507,15 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  | Optional: \{\} <br /> |
-| `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  | Optional: \{\} <br /> |
+| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  |  |
+| `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  |  |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
 | `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets. |  | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
 | `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Supported starting with VCF 9.2.0. |  | Maximum: 127 <br />Minimum: 2 <br /> |
-| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  | Optional: \{\} <br /> |
+| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
 
 
 #### VPCNetworkConfigurationStatus

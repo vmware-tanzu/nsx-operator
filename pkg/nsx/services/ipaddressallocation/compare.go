@@ -21,7 +21,7 @@ func (ipa *IpAddressAllocation) Value() data.DataValue {
 	if ipa == nil {
 		return nil
 	}
-	s := &IpAddressAllocation{Id: ipa.Id, DisplayName: ipa.DisplayName, Tags: ipa.Tags, AllocationSize: ipa.AllocationSize, IpAddressBlockVisibility: ipa.IpAddressBlockVisibility, IpAddressType: ipa.IpAddressType, Ipv6AllocationPrefixLength: ipa.Ipv6AllocationPrefixLength}
+	s := &IpAddressAllocation{Id: ipa.Id, DisplayName: ipa.DisplayName, Tags: ipa.Tags, AllocationSize: ipa.AllocationSize, IpAddressBlockVisibility: ipa.IpAddressBlockVisibility, IpAddressType: ipa.IpAddressType, Ipv6AllocationPrefixLength: ipa.Ipv6AllocationPrefixLength, IpBlock: ipa.IpBlock}
 	dataValue, _ := ComparableToIpAddressAllocation(s).GetDataValue__()
 	return dataValue
 }

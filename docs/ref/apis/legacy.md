@@ -29,7 +29,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 
@@ -273,7 +273,8 @@ _Underlying type:_ _string_
 
 RuleDirection specifies the direction of traffic.
 
-
+_Validation:_
+- MaxLength: 7
 
 _Appears in:_
 - [SecurityPolicyRule](#securitypolicyrule)
@@ -357,7 +358,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `action` _[RuleAction](#ruleaction)_ | Action specifies the action to be applied on the rule. |  |  |
 | `appliedTo` _[SecurityPolicyTarget](#securitypolicytarget) array_ | AppliedTo is a list of rule targets.<br />Policy level 'Applied To' will take precedence over rule level. |  |  |
-| `direction` _[RuleDirection](#ruledirection)_ | Direction is the direction of the rule, including 'In' or 'Ingress', 'Out' or 'Egress'. |  |  |
+| `direction` _[RuleDirection](#ruledirection)_ | Direction is the direction of the rule, including 'In' or 'Ingress', 'Out' or 'Egress'. |  | MaxLength: 7 <br /> |
 | `sources` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Deprecated: use From instead.<br />Sources defines the endpoints where the traffic is from. For ingress rule only. |  |  |
 | `destinations` _[SecurityPolicyPeer](#securitypolicypeer) array_ | Deprecated: use To instead.<br />Destinations defines the endpoints where the traffic is to. For egress rule only. |  |  |
 | `from` _[SecurityPolicyPeer](#securitypolicypeer) array_ | From defines the endpoints where the traffic is from. For ingress rule only.<br />This is the preferred field over the deprecated Sources. |  |  |
