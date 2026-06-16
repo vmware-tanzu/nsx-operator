@@ -727,19 +727,14 @@ func (s *VPCService) checkVPCRealizationState(createdVpc *model.Vpc, newVpcPath 
 	return nil
 }
 
-// buildLBServiceIPAllocsForRestore returns the VpcIpAddressAllocation(s) that should be embedded in the HAPI
-// payload when restoring a tepless (VLANBackedVPC) VPC with NSX LB. It returns nil if the conditions are not
-// met (non-NSXLB provider or non-VLANBackedVPC network stack).
+// buildLBServiceIPAllocsForRestore returns the VpcIpAddressAllocation(s) to embed in the VPC HAPI payload
+// during restore for tepless (VLANBackedVPC) NSX LB VPCs. Returns nil for non-NSXLB or non-VLANBackedVPC.
 //
-// For dual-stack VPCs, both an IPv4 and an IPv6 allocation are returned. For single-stack VPCs only the
-// relevant family is returned.
-//
-// IP sources (in priority order):
-//  1. LoadBalancerBackendIPs — populated with all IPv4/IPv6 IPs since dual-stack support landed.
+// IP source priority:
+//  1. LoadBalancerBackendIPs — carries both IPv4 and IPv6 for dual-stack VPCs.
 //  2. LoadBalancerIPAddresses — fallback for older NetworkInfo CRs that pre-date LoadBalancerBackendIPs.
-//     The IP family is detected via util.IsIPv6 so the correct allocation type is always built.
 //
-// An error is returned when the network stack is VLANBackedVPC + NSXLB but no usable IP is found.
+// Returns an error if the VPC qualifies (VLANBackedVPC + NSXLB) but no usable IP is found.
 func (s *VPCService) buildLBServiceIPAllocsForRestore(obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider) ([]*model.VpcIpAddressAllocation, error) {
 	if lbProvider != NSXLB {
 		return nil, nil
