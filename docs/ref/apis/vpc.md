@@ -264,6 +264,7 @@ _Appears in:_
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation. | IPv4 | Enum: [IPv4 IPv6] <br /> |
+| `ipBlock` _string_ | IPBlock specifies the Policy path for IP Block for the allocation. |  |  |
 
 
 #### IPAddressAllocationStatus

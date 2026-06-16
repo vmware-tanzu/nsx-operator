@@ -103,7 +103,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, result)
 		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in Namespace default")
 	})
@@ -135,7 +135,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
@@ -174,7 +174,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
@@ -212,7 +212,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc-ipv6_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc-ipv6", *result.DisplayName)
@@ -250,7 +250,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "2001:db8::/128", *result.AllocationIps)
 		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *result.IpAddressType)
@@ -289,7 +289,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				return "nsUUid"
 			})
 		defer patch.Reset()
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, true)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, true)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
@@ -323,7 +323,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				UID:       "sp-uid1",
 			},
 		}
-		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ab, sp, false)
 		assert.Nil(t, err)
 		assert.Nil(t, result)
 	})
@@ -355,7 +355,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				return "nsUUid"
 			})
 		defer patch.Reset()
-		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ab_p26xv", *result.Id)
 		assert.Equal(t, "test-ab", *result.DisplayName)
@@ -394,7 +394,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				return "nsUUid"
 			})
 		defer patch.Reset()
-		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
 		assert.Nil(t, err)
 		assert.Equal(t, "2001:db8::1", *result.AllocationIps)
 		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *result.IpAddressType)
@@ -402,5 +402,60 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, (*int64)(nil), result.AllocationSize)
 		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
 		assert.Equal(t, 8, len(result.Tags))
+	})
+
+	t.Run("Success case with IPBlock and loadBalancerVPC selection", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-lb",
+				Namespace: "default",
+				UID:       "uid-lb",
+				Annotations: map[string]string{
+					"nsx.vmware.com/lb": "true",
+				},
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
+				AllocationSize:           4,
+				IPBlock:                  "/infra/ip-blocks/custom-block",
+			},
+		}
+
+		nc := &v1alpha1.VPCNetworkConfiguration{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				LoadBalancerVPC: "/orgs/default/projects/proj-1/vpcs/vpc-lb",
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+			return nc, nil
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, vpcInfo, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(vpcInfo))
+		assert.Equal(t, "default", vpcInfo[0].OrgID)
+		assert.Equal(t, "proj-1", vpcInfo[0].ProjectID)
+		assert.Equal(t, "vpc-lb", vpcInfo[0].VPCID)
+		assert.Equal(t, "test-ip-alloc-lb_p26xv", *result.Id)
+		assert.Equal(t, "test-ip-alloc-lb", *result.DisplayName)
+		assert.Equal(t, "/infra/ip-blocks/custom-block", *result.IpBlock)
+		assert.Equal(t, int64(4), *result.AllocationSize)
+		assert.Equal(t, "PRIVATE", *result.IpAddressBlockVisibility)
+
+		// Check that the tag "nsx-op/lb" is appended
+		hasLBTag := false
+		for _, tag := range result.Tags {
+			if *tag.Scope == "nsx-op/lb" && *tag.Tag == "true" {
+				hasLBTag = true
+				break
+			}
+		}
+		assert.True(t, hasLBTag)
 	})
 }

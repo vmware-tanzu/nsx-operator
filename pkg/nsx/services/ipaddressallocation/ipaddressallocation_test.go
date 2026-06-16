@@ -22,6 +22,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/ipaddressallocation"
 	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -525,8 +526,8 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation_Errors(t *
 
 	// Test case: BuildIPAddressAllocation error
 	patchBuildIPAddressAllocation := gomonkey.ApplyMethod(reflect.TypeOf(returnservice), "BuildIPAddressAllocation",
-		func(_ *IPAddressAllocationService, _ v1.Object, _ *v1alpha1.SubnetPort, _ bool) (*model.VpcIpAddressAllocation, error) {
-			return nil, fmt.Errorf("build error")
+		func(_ *IPAddressAllocationService, _ v1.Object, _ *v1alpha1.SubnetPort, _ bool) (*model.VpcIpAddressAllocation, []common.VPCResourceInfo, error) {
+			return nil, nil, fmt.Errorf("build error")
 		})
 	_, err := returnservice.CreateOrUpdateIPAddressAllocation(ipa, false)
 	assert.Error(t, err)
@@ -535,7 +536,7 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation_Errors(t *
 
 	// Test case: Apply error
 	patchApply := gomonkey.ApplyMethod(reflect.TypeOf(returnservice), "Apply",
-		func(_ *IPAddressAllocationService, _ *model.VpcIpAddressAllocation) error {
+		func(_ *IPAddressAllocationService, _ *model.VpcIpAddressAllocation, _ []common.VPCResourceInfo) error {
 			return fmt.Errorf("apply error")
 		})
 	defer patchApply.Reset()
@@ -765,7 +766,7 @@ func TestIPAddressAllocationService_CreateIPAddressAllocationForAddressBinding(t
 
 	// Create IPAddressAllocation for AddressBinding
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "Apply",
-		func(service *IPAddressAllocationService, nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
+		func(service *IPAddressAllocationService, nsxIPAddressAllocation *model.VpcIpAddressAllocation, _ []common.VPCResourceInfo) error {
 			return nil
 		})
 	patches.ApplyPrivateMethod(reflect.TypeOf(service), "buildIPAddressAllocationTags",
@@ -775,4 +776,100 @@ func TestIPAddressAllocationService_CreateIPAddressAllocationForAddressBinding(t
 	err = service.CreateIPAddressAllocationForAddressBinding(ab1, subnetport, true)
 	assert.Nil(t, err)
 	patches.Reset()
+}
+
+func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation_ReuseVIP(t *testing.T) {
+	service, mockController, mockVPCIPAddressallocationclient := createIPAddressAllocationService(t)
+	defer mockController.Finish()
+
+	vpcService := &vpc.VPCService{}
+	service.VPCService = vpcService
+
+	k8sClient := mock_client.NewMockClient(mockController)
+	service.Client = k8sClient
+
+	originalCRUID := "original-cr-uid"
+	newCRUID := "new-cr-uid"
+	name := "test-ip-alloc"
+	namespace := "ns-1"
+	nsUUID := "nsUuid"
+	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
+
+	originalCR := &v1alpha1.IPAddressAllocation{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "original-cr",
+			Namespace: namespace,
+			UID:       types.UID(originalCRUID),
+		},
+	}
+
+	newCR := &v1alpha1.IPAddressAllocation{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			UID:       types.UID(newCRUID),
+			Annotations: map[string]string{
+				"nsx.vmware.com/reuse-vip": "original-cr",
+			},
+		},
+		Spec: v1alpha1.IPAddressAllocationSpec{
+			AllocationSize:           256,
+			IPAddressBlockVisibility: "Private",
+		},
+	}
+
+	originalAlloc := &model.VpcIpAddressAllocation{
+		Id:          common.String("original-alloc-id"),
+		DisplayName: common.String("original-cr"),
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/ipaddressallocation_uid"),
+				Tag:   common.String(originalCRUID),
+			},
+		},
+		ParentPath:               &vpcPath,
+		Path:                     String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, "original-alloc-id")),
+		AllocationIps:            common.String("192.168.1.0/24"),
+		IpAddressBlockVisibility: common.String("PRIVATE"),
+		IpAddressType:            common.String(model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4),
+	}
+
+	k8sClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Namespace: namespace, Name: "original-cr"}, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ types.NamespacedName, obj *v1alpha1.IPAddressAllocation, _ ...interface{}) error {
+			*obj = *originalCR
+			return nil
+		},
+	)
+
+	patchGetNamespaceUID := gomonkey.ApplyMethod(reflect.TypeOf(&service.Service), "GetNamespaceUID",
+		func(s *common.Service, ns string) types.UID {
+			return types.UID(nsUUID)
+		})
+	defer patchGetNamespaceUID.Reset()
+
+	updatedAlloc := *originalAlloc
+	updatedAlloc.Tags = service.buildIPAddressAllocationTags(newCR)
+
+	patchGetByUID := gomonkey.ApplyMethod(reflect.TypeOf(service.ipAddressAllocationStore), "GetByUID", func(_ *IPAddressAllocationStore, uid types.UID) (*model.VpcIpAddressAllocation, error) {
+		if uid == types.UID(originalCRUID) {
+			return originalAlloc, nil
+		}
+		if uid == types.UID(newCRUID) {
+			return &updatedAlloc, nil
+		}
+		return nil, nil
+	})
+	defer patchGetByUID.Reset()
+
+	patchListVPCInfo := gomonkey.ApplyMethod(reflect.TypeOf(service.VPCService), "ListVPCInfo", func(_ common.VPCServiceProvider, ns string) []common.VPCResourceInfo {
+		return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "project-1", VPCID: "vpc-1", ID: "12345678"}}
+	})
+	defer patchListVPCInfo.Reset()
+
+	mockVPCIPAddressallocationclient.EXPECT().Patch(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	mockVPCIPAddressallocationclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(updatedAlloc, nil).Times(1)
+
+	_, err := service.CreateOrUpdateIPAddressAllocation(newCR, false)
+	assert.Nil(t, err)
+	assert.Equal(t, "192.168.1.0/24", newCR.Status.AllocationIPs)
 }
