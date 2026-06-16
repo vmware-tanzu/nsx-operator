@@ -1,7 +1,9 @@
 package ipaddressallocation
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -64,8 +66,93 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	return ipAddressAllocationService, nil
 }
 
-func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj *v1alpha1.IPAddressAllocation, restoreMode bool) (bool, error) {
-	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
+func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(ctx context.Context, obj *v1alpha1.IPAddressAllocation, restoreMode bool) (bool, error) {
+	reuseVIP, hasReuse := obj.Annotations[common.AnnotationIPAllocReuseVIP]
+	if hasReuse && reuseVIP != "" {
+		var targetName, targetNamespace string
+		if strings.Contains(reuseVIP, "/") {
+			parts := strings.SplitN(reuseVIP, "/", 2)
+			targetNamespace = strings.TrimSpace(parts[0])
+			targetName = strings.TrimSpace(parts[1])
+			if targetNamespace == "" || targetName == "" {
+				log.Error(nil, "Invalid reuse-vip format", "reuse-vip", reuseVIP)
+				return false, fmt.Errorf("invalid reuse-vip format: %s", reuseVIP)
+			}
+		} else {
+			targetNamespace = obj.Namespace
+			targetName = strings.TrimSpace(reuseVIP)
+			if targetName == "" {
+				log.Error(nil, "Invalid reuse-vip format", "reuse-vip", reuseVIP)
+				return false, fmt.Errorf("invalid reuse-vip format: %s", reuseVIP)
+			}
+		}
+
+		originalCR := &v1alpha1.IPAddressAllocation{}
+		err := service.Client.Get(ctx, types.NamespacedName{Namespace: targetNamespace, Name: targetName}, originalCR)
+		if err != nil {
+			err = fmt.Errorf("failed to get original IPAddressAllocation CR %s/%s for reuse-vip: %w", targetNamespace, targetName, err)
+			log.Error(err, "Cannot reuse VIP")
+			return false, err
+		}
+
+		originalNSXAlloc, err := service.indexedIPAddressAllocation(originalCR.UID)
+		if err != nil {
+			log.Error(err, "Failed to get original NSX IPAddressAllocation by UID", "UID", originalCR.UID)
+			return false, err
+		}
+		if originalNSXAlloc == nil {
+			originalNSXAlloc, _ = service.indexedIPAddressAllocation(obj.UID)
+			if originalNSXAlloc != nil {
+				// NSX resource tags were already updated to current obj.UID in a previous reconcile.
+				if originalNSXAlloc.AllocationIps != nil && obj.Status.AllocationIPs != *originalNSXAlloc.AllocationIps {
+					obj.Status.AllocationIPs = *originalNSXAlloc.AllocationIps
+					return true, nil
+				}
+				return false, nil
+			}
+		}
+		if originalNSXAlloc == nil {
+			log.Error(nil, "Original NSX IPAddressAllocation not found in store", "OriginalUID", originalCR.UID, "NewUID", obj.UID)
+			return false, fmt.Errorf("original NSX IPAddressAllocation not found in store for UID %s, cannot reuse VIP yet", originalCR.UID)
+		}
+
+		log.Info("Reusing VIP: updating original NSX IPAddressAllocation tags with new CR info", "OriginalUID", originalCR.UID, "NewUID", obj.UID)
+		newTags := service.buildIPAddressAllocationTags(obj)
+		annos := obj.GetAnnotations()
+		if annos != nil && annos[common.AnnotationIPAllocLB] == "true" {
+			newTags = append(newTags, model.Tag{
+				Scope: String(common.TagScopeIPAllocLB),
+				Tag:   String("true"),
+			})
+		}
+
+		updatedNSXAlloc := *originalNSXAlloc
+		updatedNSXAlloc.Tags = newTags
+
+		if originalNSXAlloc.Path == nil {
+			log.Error(nil, "Original NSX IPAddressAllocation path is nil", "ID", *originalNSXAlloc.Id)
+			return false, fmt.Errorf("original NSX IPAddressAllocation path is nil")
+		}
+		vpcResourceInfo, err := common.ParseVPCResourcePath(*originalNSXAlloc.Path)
+		if err != nil {
+			log.Error(err, "Failed to parse VPC path from original NSX IPAddressAllocation", "Path", *originalNSXAlloc.Path)
+			return false, err
+		}
+		originalVPCInfo := []common.VPCResourceInfo{vpcResourceInfo}
+
+		if err := service.Apply(&updatedNSXAlloc, originalVPCInfo); err != nil {
+			log.Error(err, "Failed to update tags of original NSX IPAddressAllocation", "ID", *originalNSXAlloc.Id)
+			return false, err
+		}
+
+		if originalNSXAlloc.AllocationIps != nil && obj.Status.AllocationIPs != *originalNSXAlloc.AllocationIps {
+			obj.Status.AllocationIPs = *originalNSXAlloc.AllocationIps
+			return true, nil
+		}
+		return false, nil
+	}
+
+	nsxIPAddressAllocation, vpcInfo, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
 	if err != nil {
 		return false, err
 	}
@@ -99,14 +186,14 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		log.Info("IPAddressAllocation is not changed", "UID", obj.UID)
 		// If nsx operator is stopped between IPAddressAllocation creation and CR status update,
 		// we need to trigger the status update when IPAddressAllocation matching the spec exists.
-		if obj.Status.AllocationIPs != *existingIPAddressAllocation.AllocationIps {
+		if existingIPAddressAllocation.AllocationIps != nil && obj.Status.AllocationIPs != *existingIPAddressAllocation.AllocationIps {
 			obj.Status.AllocationIPs = *existingIPAddressAllocation.AllocationIps
 			return true, nil
 		}
 		return false, nil
 	}
 
-	if err := service.Apply(nsxIPAddressAllocation); err != nil {
+	if err := service.Apply(nsxIPAddressAllocation, vpcInfo); err != nil {
 		return false, err
 	}
 
@@ -114,6 +201,9 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	if err != nil {
 		log.Error(err, "Failed to get created ipaddressallocation", "UID", obj.UID)
 		return false, err
+	}
+	if createdIPAddressAllocation == nil {
+		return false, fmt.Errorf("created ipaddressallocation not found in cache for %s", obj.UID)
 	}
 	allocation_ips := createdIPAddressAllocation.AllocationIps
 	if allocation_ips == nil {
@@ -154,7 +244,7 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 		log.Debug("The IPAddressAllocation has been created, skipping", "AddressBinding", addressBinding)
 		return nil
 	}
-	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(addressBinding, subnetPort, restoreMode)
+	nsxIPAddressAllocation, vpcInfo, err := service.BuildIPAddressAllocation(addressBinding, subnetPort, restoreMode)
 	if err != nil {
 		return err
 	}
@@ -162,7 +252,7 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 	if nsxIPAddressAllocation == nil {
 		return nil
 	}
-	err = service.Apply(nsxIPAddressAllocation)
+	err = service.Apply(nsxIPAddressAllocation, vpcInfo)
 	if err != nil {
 		log.Error(err, "Failed to create NSX IPAddressAllocation for AddressBinding", "AddressBinding", addressBinding)
 		return err
@@ -204,15 +294,13 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNSXResourc
 	return err
 }
 
-func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
-	ns := service.GetIPAddressAllocationNamespace(nsxIPAddressAllocation)
-	VPCInfo := service.VPCService.ListVPCInfo(ns)
+func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.VpcIpAddressAllocation, VPCInfo []common.VPCResourceInfo) error {
 	if len(VPCInfo) == 0 {
 		err := nsxutil.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
 		log.Error(err, "Failed to list VPCInfo for IPAddressAllocation")
 		return err
 	}
-	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
+	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].VPCID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
 	errPatch = nsxutil.TransNSXApiError(errPatch)
 	if errPatch != nil {
 		// not return err, try to get it from nsx, in case if cidr not realized at the first time
@@ -220,7 +308,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 		log.Error(errPatch, "Patch failed, try to get it from nsx", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	}
 	// get back from nsx, it contains path which is used to parse vpc info when deleting
-	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id)
+	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].VPCID, *nsxIPAddressAllocation.Id)
 	errGet = nsxutil.TransNSXApiError(errGet)
 	if errGet != nil {
 		if errPatch != nil {
