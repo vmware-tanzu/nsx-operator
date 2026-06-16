@@ -342,6 +342,10 @@ func Test_buildNSXLBServiceIPv6Allocation(t *testing.T) {
 				// IpAddressBlockVisibility must NOT be set for IPv6 allocations.
 				assert.Nil(t, alloc.IpAddressBlockVisibility)
 				assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *alloc.IpAddressType)
+				// Ipv6AllocationPrefixLength must be 128 — without it NSX defaults to /64
+				// and rejects the allocation with "no spare capacity" (confirmed via live API test).
+				require.NotNil(t, alloc.Ipv6AllocationPrefixLength)
+				assert.Equal(t, int64(128), *alloc.Ipv6AllocationPrefixLength)
 				require.Len(t, alloc.Tags, 1)
 				assert.Equal(t, common.TagScopeVPCService, *alloc.Tags[0].Scope)
 				assert.Equal(t, common.TagValueUserSpecifiedIPV6, *alloc.Tags[0].Tag)
