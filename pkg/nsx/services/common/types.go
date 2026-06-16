@@ -94,6 +94,7 @@ const (
 	TagValueDLB                        string = "DLB"
 	TagValueSLB                        string = "SLB"
 	TagValueL3InVlanBackedVPCMode      string = "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE"
+	TagScopeIPAllocLB                  string = "nsx-op/lb"
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"

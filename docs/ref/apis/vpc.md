@@ -270,7 +270,7 @@ _Appears in:_
 | `recordName` _string_ | RecordName specifies the hostname portion of the FQDN (e.g., "api" for "api.coke.com"). |  | MaxLength: 255 <br />Required: \{\} <br /> |
 | `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA] <br />Required: \{\} <br /> |
 | `recordValues` _string array_ | RecordValues specifies the DNS record data values. |  | MinItems: 1 <br />Required: \{\} <br /> |
-| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br /> |
 
 
 #### DNSRecordStatus
@@ -286,8 +286,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  | Optional: \{\} <br /> |
+| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  |  |
 
 
 #### DNSRecordType
@@ -344,7 +344,8 @@ _Appears in:_
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified.<br />Supported starting with VCF 9.2.0. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
-| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  |  |
+| `usedFor` _string_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set, IPs are allocated from LoadBalancerVPC if configured in VPCNetworkConfiguration, otherwise from the namespace's default VPC. |  | Enum: [LB_FRONTEND] <br /> |
+| `ipBlockName` _string_ | IPBlockName specifies the name of the IPBlock to allocate IP addresses. |  |  |
 
 
 #### IPAddressAllocationStatus
@@ -476,12 +477,12 @@ NetworkInfo is used to report the network information for a Namespace.
 
 
 
-| Field | Description                                                                                            | Default | Validation |
-| --- |--------------------------------------------------------------------------------------------------------| --- | --- |
-| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1`                                                                          | | |
-| `kind` _string_ | `NetworkInfo`                                                                                          | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`.                                        |  |  |
-| `vpcs` _[VPCState](#vpcstate) array_ |                                                                                                        |  |  |
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `NetworkInfo` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `vpcs` _[VPCState](#vpcstate) array_ |  |  |  |
 | `allowedDNSRecordDomains` _string array_ | AllowedDNSRecordDomains specifies the permitted domain names for DNS records created in the Namespace. |  |  |
 
 
