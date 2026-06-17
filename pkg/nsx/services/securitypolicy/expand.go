@@ -320,6 +320,9 @@ func (service *SecurityPolicyService) getPodSelectors(obj *v1alpha1.SecurityPoli
 		outPeers := getRuleDestinationPeers(rule)
 		if len(outPeers) > 0 {
 			for _, target := range outPeers {
+				if target.PodSelector == nil && target.NamespaceSelector == nil {
+					continue
+				}
 				var namespaceSelectors []client.ListOptions // ResolveNamespace may return multiple namespaces
 				var labelSelector client.ListOptions
 				var namespaceSelector client.ListOptions
