@@ -7,11 +7,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// NSXServiceAccountProxyType defines the proxy type used for NSX connectivity
+// +kubebuilder:validation:Enum=VMCIProxy;SupervisorManagementProxy
+type NSXServiceAccountProxyType string
+
+const (
+	VMCIProxy                 NSXServiceAccountProxyType = "VMCIProxy"
+	SupervisorManagementProxy NSXServiceAccountProxyType = "SupervisorManagementProxy"
+)
+
 // NSXServiceAccountSpec defines the desired state of NSXServiceAccount
 type NSXServiceAccountSpec struct {
 	VPCName string `json:"vpcName,omitempty"`
 	// EnableCertRotation enables cert rotation feature in this cluster when NSXT >=4.1.3
 	EnableCertRotation bool `json:"enableCertRotation,omitempty"`
+	// Proxy specifies the proxy type for NSX connectivity
+	// Defaults to SupervisorManagementProxy if not specified
+	// +kubebuilder:default=SupervisorManagementProxy
+	Proxy NSXServiceAccountProxyType `json:"proxy,omitempty"`
 }
 
 type NSXProxyEndpointAddress struct {
