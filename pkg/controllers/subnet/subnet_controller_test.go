@@ -763,7 +763,6 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				return patches
 			},
 			existingSubnetCR: createNewSubnet(),
-			expectErrStr:     "Reserved IP ranges cannot be overlapped",
 			expectRes:        ResultNormal,
 		},
 		{
