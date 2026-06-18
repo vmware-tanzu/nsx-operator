@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 
+	"k8s.io/client-go/tools/cache"
+
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -258,7 +260,16 @@ func TestGetNSXSubnetBindingsBySubnet(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &SubnetSetReconciler{
-				SubnetService:  &subnet.SubnetService{},
+				SubnetService: &subnet.SubnetService{
+					SubnetStore: &subnet.SubnetStore{
+						ResourceStore: common.ResourceStore{Indexer: cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{
+							common.TagScopeSubnetSetCRUID: func(obj interface{}) ([]string, error) {
+								return []string{"uid"}, nil
+							},
+						}),
+						},
+					},
+				},
 				BindingService: &subnetbinding.BindingService{},
 			}
 			patches := tc.patches(r)
