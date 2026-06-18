@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -282,6 +283,45 @@ func TestBuildNSXVPC(t *testing.T) {
 			got, err := vpcSvc.buildNSXVPC(netInfoObj, tc.nsObj, nc, clusterStr, tc.existingVPC, tc.useAVILB, tc.lbProviderChanged, tc.serviceClusterReady)
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expVPC, got)
+		})
+	}
+}
+
+func Test_buildNSXLBServiceIPAllocation(t *testing.T) {
+	tests := []struct {
+		name  string
+		lbIP  string
+		check func(t *testing.T, alloc *model.VpcIpAddressAllocation)
+	}{
+		{
+			name: "builds allocation with correct fields",
+			lbIP: "10.0.0.5",
+			check: func(t *testing.T, alloc *model.VpcIpAddressAllocation) {
+				assert.Equal(t, common.LBServiceIPAllocationID, *alloc.Id)
+				assert.Equal(t, common.LBServiceIPAllocationID, *alloc.DisplayName)
+				assert.Equal(t, "10.0.0.5", *alloc.AllocationIp)
+				assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_BLOCK_VISIBILITY_EXTERNAL, *alloc.IpAddressBlockVisibility)
+				assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, *alloc.IpAddressType)
+				require.Len(t, alloc.Tags, 1)
+				assert.Equal(t, common.TagScopeVPCService, *alloc.Tags[0].Scope)
+				assert.Equal(t, common.TagValueUserSpecifiedIP, *alloc.Tags[0].Tag)
+			},
+		},
+		{
+			name: "AllocationIps field is nil (single IP uses AllocationIp)",
+			lbIP: "192.168.1.1",
+			check: func(t *testing.T, alloc *model.VpcIpAddressAllocation) {
+				assert.Nil(t, alloc.AllocationIps)
+				assert.NotNil(t, alloc.AllocationIp)
+				assert.Equal(t, "192.168.1.1", *alloc.AllocationIp)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			alloc := buildNSXLBServiceIPAllocation(tt.lbIP)
+			require.NotNil(t, alloc)
+			tt.check(t, alloc)
 		})
 	}
 }

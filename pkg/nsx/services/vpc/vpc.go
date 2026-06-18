@@ -566,6 +566,15 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 		}
 		createdLBS, _ = buildNSXLBS(obj, nsObj, s.NSXConfig.Cluster, lbsSize, vpcPath, relaxScaleValidation)
 	}
+	// In tepless (VLANBackedVPC) restore mode with NSX LB, pin the LB service IP that was previously allocated
+	// by embedding a VpcIpAddressAllocation child in the HAPI payload before the LBS.
+	var lbServiceIPAlloc *model.VpcIpAddressAllocation
+	if restoreMode {
+		lbServiceIPAlloc, err = s.buildLBServiceIPAllocForRestore(obj, nc, lbProvider)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// build HAPI request
 	createdAttachment, _ := buildVpcAttachment(obj, nsObj, s.NSXConfig.Cluster, nc.Spec.VPCConnectivityProfile, restoreMode)
 
@@ -592,7 +601,7 @@ func (s *VPCService) CreateOrUpdateVPC(ctx context.Context, obj *v1alpha1.Networ
 		return existingVPC[0], nil
 	}
 
-	orgRoot, err := s.WrapHierarchyVPC(org, project, createdVpc, createdLBS, createdAttachment)
+	orgRoot, err := s.WrapHierarchyVPC(org, project, createdVpc, lbServiceIPAlloc, createdLBS, createdAttachment)
 	if err != nil {
 		log.Error(err, "Failed to build HAPI request")
 		return nil, err
@@ -676,6 +685,28 @@ func (s *VPCService) checkVPCRealizationState(createdVpc *model.Vpc, newVpcPath 
 		return err
 	}
 	return nil
+}
+
+// buildLBServiceIPAllocForRestore returns the VpcIpAddressAllocation that should be embedded in the HAPI payload
+// when restoring a tepless (VLANBackedVPC) VPC with NSX LB. It returns nil if the conditions are not met.
+// An error is returned when the network stack is VLANBackedVPC + NSXLB but the previously allocated IP is missing
+// from the NetworkInfo CR, which means the allocation cannot be restored.
+func (s *VPCService) buildLBServiceIPAllocForRestore(obj *v1alpha1.NetworkInfo, nc *v1alpha1.VPCNetworkConfiguration, lbProvider LBProvider) (*model.VpcIpAddressAllocation, error) {
+	if lbProvider != NSXLB {
+		return nil, nil
+	}
+	networkStack, err := s.GetNetworkStackFromNC(nc)
+	if err != nil {
+		return nil, err
+	}
+	if networkStack != v1alpha1.VLANBackedVPC {
+		return nil, nil
+	}
+	if len(obj.VPCs) == 0 || len(obj.VPCs[0].LoadBalancerIPAddresses) == 0 {
+		return nil, fmt.Errorf("cannot restore LB service IP allocation for tepless VPC: LoadBalancerIPAddresses is not set in NetworkInfo %s", obj.Name)
+	}
+	log.Debug("Restoring LB service IP allocation for tepless VPC", "IP", obj.VPCs[0].LoadBalancerIPAddresses, "NetworkInfo", obj.Name)
+	return buildNSXLBServiceIPAllocation(obj.VPCs[0].LoadBalancerIPAddresses), nil
 }
 
 func (s *VPCService) checkLBSRealization(createdLBS *model.LBService, createdVpc *model.Vpc, nc *v1alpha1.VPCNetworkConfiguration, newVpcPath string) error {
