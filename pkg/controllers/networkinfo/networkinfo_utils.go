@@ -175,8 +175,8 @@ func setVPCNetworkConfigurationStatusWithLBCapability(ctx context.Context, clien
 			log.Error(err, "Update VPCNetworkConfiguration LBCapability status failed", "VPCNetworkConfiguration", nc.Name)
 			return
 		}
+		log.Info("Updated VPCNetworkConfiguration LBCapability status", "VPCNetworkConfiguration", nc.Name, "lbCapable", lbCapable)
 	}
-	log.Info("Updated VPCNetworkConfiguration LBCapability status", "VPCNetworkConfiguration", nc.Name, "lbCapable", lbCapable)
 }
 
 func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, hasExternalIPs bool) {
