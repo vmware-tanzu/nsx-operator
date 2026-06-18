@@ -256,7 +256,7 @@ spec:
                 is specified
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation)
                 && has(self.advancedConfig.staticIPAllocation.poolRanges) && size(self.advancedConfig.staticIPAllocation.poolRanges)>0)
-                || has(self.ipAddresses)'
+                || has(self.ipAddresses) || (has(self.ipAddressType) && self.ipAddressType==''IPv6'')'
             - message: staticIPAllocation.poolRanges is not supported when Subnet
                 DHCP mode is DHCPRelay
               rule: '!(has(self.advancedConfig) && has(self.advancedConfig.staticIPAllocation)
