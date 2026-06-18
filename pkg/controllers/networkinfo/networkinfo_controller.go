@@ -463,9 +463,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// LBCapability=False is informational only — namespace readiness is not blocked.
 	if ncName == commonservice.SystemVPCNetworkConfigurationName {
 		ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
-		lbCapable := !(networkStack == v1alpha1.VLANBackedVPC &&
-			lbProvider == vpc.NSXLB &&
-			util.IPAddressTypeIncludesIPv6(ipFamily))
+		lbCapable := networkStack != v1alpha1.VLANBackedVPC ||
+			lbProvider != vpc.NSXLB ||
+			!util.IPAddressTypeIncludesIPv6(ipFamily)
 		// When LBCapability is False, read NSX LBS realization alarms (best-effort) so
 		// manual testing can observe what NSX actually reports. The hardcoded reason string
 		// is always used for machine-readability; the NSX alarm goes into the message field.
