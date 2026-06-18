@@ -22,6 +22,20 @@ func Test_KeyFunc(t *testing.T) {
 	})
 }
 
+func Test_nodeIndexByNodeName(t *testing.T) {
+	nodeName := "Test-Node.Local"
+	node := model.HostTransportNode{
+		NodeDeploymentInfo: &model.FabricHostNode{
+			Fqdn: &nodeName,
+		},
+	}
+	t.Run("case_insensitive_fqdn", func(t *testing.T) {
+		got, err := nodeIndexByNodeName(&node)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"test-node.local"}, got)
+	})
+}
+
 func TestSubnetStore_Apply(t *testing.T) {
 	resourceStore := common.ResourceStore{
 		Indexer: cache.NewIndexer(
