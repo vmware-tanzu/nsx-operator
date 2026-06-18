@@ -10,6 +10,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -166,8 +167,9 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 			nsxSubnet.IpAddresses = o.Status.NetworkAddresses
 		}
 
-		// Set IP address type
-		if o.Spec.IPAddressType != "" {
+		// Set IP address type only when the connected NSX Manager supports the field
+		// (introduced in NSX 9.2.0). Sending it to older versions triggers error 287.
+		if o.Spec.IPAddressType != "" && nsx.SubnetIPAddressTypeFeatureEnabled(service.NSXClient) {
 			nsxSubnet.IpAddressType = String(controllerscommon.ConvertCRIPAddressTypeToNSX(o.Spec.IPAddressType))
 		}
 		// Support custom gateway addresses when provided
@@ -193,8 +195,9 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 				},
 			},
 		}
-		// Set IP address type
-		if o.Spec.IPAddressType != "" {
+		// Set IP address type only when the connected NSX Manager supports the field
+		// (introduced in NSX 9.2.0). Sending it to older versions triggers error 287.
+		if o.Spec.IPAddressType != "" && nsx.SubnetIPAddressTypeFeatureEnabled(service.NSXClient) {
 			nsxSubnet.IpAddressType = String(controllerscommon.ConvertCRIPAddressTypeToNSX(o.Spec.IPAddressType))
 		}
 
