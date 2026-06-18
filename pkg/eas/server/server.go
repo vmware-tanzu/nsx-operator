@@ -129,6 +129,7 @@ func (s *EASServer) buildGenericAPIServer() (*genericapiserver.GenericAPIServer,
 	}
 	servingOpts.ServerCert.CertKey.CertFile = certFile
 	servingOpts.ServerCert.CertKey.KeyFile = keyFile
+	servingOpts.MinTLSVersion = "VersionTLS13"
 
 	// ── Delegated authentication ─────────────────────────────────────────────
 	// SkipInClusterLookup=true prevents the generic apiserver from starting a
