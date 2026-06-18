@@ -216,7 +216,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				code == nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode ||
 				code == nsxutil.MixedModeNotSupportedErrorCode {
 				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
-				return ResultNormal, err
+				return ResultNormal, nil
 			}
 		}
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
