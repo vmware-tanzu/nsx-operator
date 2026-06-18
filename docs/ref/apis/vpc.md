@@ -20,6 +20,7 @@
 - [SubnetConnectionBindingMap](#subnetconnectionbindingmap)
 - [SubnetIPReservation](#subnetipreservation)
 - [SubnetPort](#subnetport)
+- [SubnetPortConfig](#subnetportconfig)
 - [SubnetSet](#subnetset)
 - [VPCNetworkConfiguration](#vpcnetworkconfiguration)
 
@@ -108,6 +109,7 @@ _Appears in:_
 - [StaticRouteCondition](#staticroutecondition)
 - [SubnetConnectionBindingMapStatus](#subnetconnectionbindingmapstatus)
 - [SubnetIPReservationStatus](#subnetipreservationstatus)
+- [SubnetPortConfigStatus](#subnetportconfigstatus)
 - [SubnetPortStatus](#subnetportstatus)
 - [SubnetSetStatus](#subnetsetstatus)
 - [SubnetStatus](#subnetstatus)
@@ -419,6 +421,8 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `logicalSwitchUUID` _string_ | NSX Logical Switch UUID of the Subnet. |  |  |
+| `subnetID` _string_ | ID of the Subnet. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1 |  |  |
+| `portConfigID` _string_ | ID of the SubnetPortConfig. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1/port-configs/port-config1 |  |  |
 | `ipAddresses` _[NetworkInterfaceIPAddress](#networkinterfaceipaddress) array_ |  |  |  |
 | `macAddress` _string_ | The MAC address. |  |  |
 | `dhcpDeactivatedOnSubnet` _boolean_ | DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet. |  |  |
@@ -1027,6 +1031,57 @@ SubnetPort is the Schema for the subnetports API.
 | `status` _[SubnetPortStatus](#subnetportstatus)_ |  |  |  |
 
 
+#### SubnetPortConfig
+
+
+
+SubnetPortConfig is the Schema for the subnetportconfigs API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `SubnetPortConfig` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[SubnetPortConfigSpec](#subnetportconfigspec)_ |  |  |  |
+| `status` _[SubnetPortConfigStatus](#subnetportconfigstatus)_ |  |  |  |
+
+
+#### SubnetPortConfigSpec
+
+
+
+SubnetPortConfigSpec defines the desired state of SubnetPortConfig.
+
+
+
+_Appears in:_
+- [SubnetPortConfig](#subnetportconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnet` _string_ | Subnet defines the parent Subnet name of the SubnetPortConfig. |  |  |
+
+
+#### SubnetPortConfigStatus
+
+
+
+SubnetPortConfigStatus defines the observed state of SubnetPortConfig.
+
+
+
+_Appears in:_
+- [SubnetPortConfig](#subnetportconfig)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](#condition) array_ | Conditions describes current state of SubnetPortConfig. |  |  |
+
+
 #### SubnetPortSpec
 
 
@@ -1045,6 +1100,7 @@ _Appears in:_
 | `addressBindings` _[PortAddressBinding](#portaddressbinding) array_ | AddressBindings defines static address bindings used for the SubnetPort. |  |  |
 | `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType<br />is set, IP families of InterfaceIPType should be a superset of<br />StaticIPAllocationType. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 | `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. If not specified, this field<br />will be back-filled based on InterfaceIPType and Subnet configuration. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
+| `portConfig` _string_ | Name of PortConfig associated with this SubnetPort. |  |  |
 
 
 #### SubnetPortStatus
