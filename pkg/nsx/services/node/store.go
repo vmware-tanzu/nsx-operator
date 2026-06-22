@@ -2,6 +2,7 @@ package node
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -65,7 +66,10 @@ func keyFunc(obj interface{}) (string, error) {
 func nodeIndexByNodeName(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.HostTransportNode:
-		return []string{*o.NodeDeploymentInfo.Fqdn}, nil
+		if o.NodeDeploymentInfo != nil && o.NodeDeploymentInfo.Fqdn != nil {
+			return []string{strings.ToLower(*o.NodeDeploymentInfo.Fqdn)}, nil
+		}
+		return nil, nil
 	default:
 		return nil, errors.New("nodeIndexByNodeName doesn't support unknown type")
 	}
