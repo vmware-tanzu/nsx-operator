@@ -135,6 +135,8 @@ type NsxConfig struct {
 	VpcWcpEnhance *bool `ini:"vpc_wcp_enhance"`
 	// RestoreVif controls whether SubnetPort vif should be restored during restore mode.
 	RestoreVif *bool `ini:"restore_vif"`
+	// TnIdCheckInterval is the interval in seconds to check TN ID for node.
+	TnIdCheckInterval int `ini:"tn_id_check_interval"`
 }
 
 type K8sConfig struct {
@@ -269,6 +271,7 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&NsxConfig{
 			InventoryBatchPeriod: 5,
 			InventoryBatchSize:   50,
+			TnIdCheckInterval:    300,
 		},
 		&K8sConfig{},
 		&VCConfig{},

@@ -2,7 +2,8 @@ package node
 
 import (
 	"fmt"
-	"sync"
+	"strings"
+	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/client-go/tools/cache"
@@ -21,15 +22,10 @@ var (
 type NodeService struct {
 	servicecommon.Service
 	NodeStore *NodeStore
+	stopChan  chan struct{}
 }
 
 func InitializeNode(service servicecommon.Service) (*NodeService, error) {
-	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
-
-	wg.Add(1)
-
 	nodeService := &NodeService{
 		Service: service,
 		NodeStore: &NodeStore{
@@ -43,79 +39,124 @@ func InitializeNode(service servicecommon.Service) (*NodeService, error) {
 				BindingType: model.HostTransportNodeBindingType(),
 			},
 		},
+		stopChan: make(chan struct{}),
 	}
-	// TODO: confirm whether we can remove the following initialization because node doesn't have the cluster tag so it's a dry run
-	go nodeService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeNode, nil, nodeService.NodeStore)
 
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
-		return nodeService, err
-	}
+	nodeService.startPeriodicSync()
 
 	return nodeService, nil
-
 }
 
-func (service *NodeService) GetNodeByName(nodeName string) []*model.HostTransportNode {
-	return service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, nodeName)
+func (service *NodeService) startPeriodicSync() {
+	checkInterval := time.Duration(service.NSXClient.NsxConfig.TnIdCheckInterval) * time.Second
+	if checkInterval <= 0 {
+		checkInterval = 5 * time.Minute
+	}
+	ticker := time.NewTicker(checkInterval)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				if err := service.syncAllNodes(); err != nil {
+					log.Error(err, "Failed to periodically sync nodes from NSX")
+				}
+			case <-service.stopChan:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
 }
 
-func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
-	nodes := service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, nodeName)
-	if len(nodes) > 1 {
-		return fmt.Errorf("multiple nodes found for node name %s", nodeName)
-	}
-	// TODO: confirm whether we need to resync the node info from NSX
-	if len(nodes) == 1 {
-		log.Info("node alreay cached", "node.Fqdn", nodes[0].NodeDeploymentInfo.Fqdn, "node.UniqueId", *nodes[0].UniqueId)
-		// updatedNode, err := service.NSXClient.HostTransPortNodesClient.Get("default", "default", nodes[0].Id)
-		// if err != nil {
-		// 	return fmt.Errorf("failed to get HostTransPortNode for node %s: %s", nodeName, err)
-		// }
-		// node.NodeStore.Apply(updatedNode)
-	}
+func (service *NodeService) syncAllNodes() error {
+	log.Info("Periodically syncing nodes from NSX")
 	nodeResults, err := service.NSXClient.HostTransPortNodesClient.List("default", "default", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		return fmt.Errorf("failed to list HostTransportNodes: %s", err)
 	}
-	if deleted {
-		nodes := service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, nodeName)
-		if len(nodes) == 0 {
-			log.Info("skip deleting node in store because the node is not in store", "nodeName", nodeName)
-			return nil
-		}
-		for _, node := range nodes {
-			node.MarkedForDelete = servicecommon.Bool(true)
-			service.NodeStore.Apply(node)
+
+	keys := service.NodeStore.ListIndexFuncValues(servicecommon.IndexKeyNodeName)
+
+	nsxNodeMap := make(map[string]*model.HostTransportNode)
+	for i := range nodeResults.Results {
+		node := nodeResults.Results[i]
+		if node.NodeDeploymentInfo != nil && node.NodeDeploymentInfo.Fqdn != nil {
+			nsxNodeMap[strings.ToLower(*node.NodeDeploymentInfo.Fqdn)] = &node
 		}
 	}
-	synced := false
-	for _, node := range nodeResults.Results {
-		node := node
-		if *node.NodeDeploymentInfo.Fqdn == nodeName {
-			if deleted {
-				// Retry until the NSX HostTransportNode is deleted.
-				return fmt.Errorf("node %s had beed deleted but HostTransportNodes still exists", nodeName)
+
+	for key := range keys {
+		if nsxNode, ok := nsxNodeMap[key]; ok {
+			// Node exists in NSX, update local store
+			if err := service.NodeStore.Apply(nsxNode); err != nil {
+				log.Error(err, "failed to apply node to store", "nodeName", key)
 			}
-			err = service.NodeStore.Apply(&node)
-			if err != nil {
-				return fmt.Errorf("failed to sync node %s: %s", nodeName, err)
+		} else {
+			// Node is in local store but no longer in NSX, mark for delete and remove
+			log.Info("Node found in local store but missing in NSX, deleting from store", "nodeName", key)
+			nodes := service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, key)
+			for _, node := range nodes {
+				node.MarkedForDelete = servicecommon.Bool(true)
+				if err := service.NodeStore.Apply(node); err != nil {
+					log.Error(err, "failed to delete node from store", "nodeName", key)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (service *NodeService) GetNodeByName(nodeName string) []*model.HostTransportNode {
+	return service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, strings.ToLower(nodeName))
+}
+
+func (service *NodeService) SyncNodeStore(nodeName string, deleted bool) error {
+	nodeNameLower := strings.ToLower(nodeName)
+
+	if deleted {
+		log.Info("Deleting node from store", "nodeName", nodeName)
+		nodes := service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, nodeNameLower)
+		for _, node := range nodes {
+			node.MarkedForDelete = servicecommon.Bool(true)
+			if err := service.NodeStore.Apply(node); err != nil {
+				return fmt.Errorf("failed to delete node %s from store: %s", nodeName, err)
+			}
+		}
+		return nil
+	}
+
+	nodes := service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, nodeNameLower)
+	if len(nodes) > 1 {
+		return fmt.Errorf("multiple nodes found for node name %s in store", nodeName)
+	}
+	if len(nodes) == 1 {
+		log.Debug("Node already cached, skipping NSX query in event handler", "nodeName", nodeName)
+		return nil
+	}
+
+	log.Info("Node cache missed, querying from NSX", "nodeName", nodeName)
+	nodeResults, err := service.NSXClient.HostTransPortNodesClient.List("default", "default", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		return fmt.Errorf("failed to list HostTransportNodes: %s", err)
+	}
+
+	synced := false
+	for i := range nodeResults.Results {
+		node := nodeResults.Results[i]
+		if node.NodeDeploymentInfo != nil && node.NodeDeploymentInfo.Fqdn != nil && strings.EqualFold(*node.NodeDeploymentInfo.Fqdn, nodeName) {
+			if err := service.NodeStore.Apply(&node); err != nil {
+				return fmt.Errorf("failed to apply node %s to store: %s", nodeName, err)
 			}
 			synced = true
+			log.Info("Successfully synced node from NSX", "nodeName", nodeName)
 			break
 		}
 	}
-	if !synced && !deleted {
-		// Retry until the NSX HostTransportNode is available.
-		return fmt.Errorf("node %s not found yet in NSX side", nodeName)
+
+	if !synced {
+		return fmt.Errorf("node %s not found in NSX", nodeName)
 	}
 	return nil
 }
