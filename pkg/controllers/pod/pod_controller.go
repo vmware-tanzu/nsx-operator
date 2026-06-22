@@ -58,7 +58,7 @@ type PodReconciler struct {
 }
 
 func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log.Info("Reconciling Pod", "Pod", req.NamespacedName)
+	log.Info("Reconciling Pod", "Pod", req.Name, "namespace", req.Namespace)
 	startTime := time.Now()
 	defer func() {
 		log.Info("Finished reconciling Pod", "Pod", req.NamespacedName, "duration", time.Since(startTime))
