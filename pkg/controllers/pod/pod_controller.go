@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -219,7 +218,7 @@ func updatePodStatusConditions(client client.Client, ctx context.Context, pod *v
 func mergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, pod.Status.Conditions)
 
-	if reflect.DeepEqual(matchedCondition, newCondition) {
+	if isConditionSemanticEqual(matchedCondition, newCondition) {
 		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
@@ -228,6 +227,7 @@ func mergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		pod.Status.Conditions = append(pod.Status.Conditions, *newCondition)
 	}
@@ -241,6 +241,11 @@ func getExistingConditionOfType(conditionType v1.PodConditionType, existingCondi
 		}
 	}
 	return nil
+}
+
+// isConditionSemanticEqual checks if two pod conditions are semantically equal.
+func isConditionSemanticEqual(matchedCondition, newCondition *v1.PodCondition) bool {
+	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
 }
 
 func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode, error) {

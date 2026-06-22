@@ -120,6 +120,9 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 		subnetInfo.DHCPServerAddresses = subnet.Status.DHCPServerAddresses
 		subnetInfoList = append(subnetInfoList, subnetInfo)
 	}
+	if reflect.DeepEqual(subnetsetCR.Status.Subnets, subnetInfoList) {
+		return nil
+	}
 	subnetsetCR.Status.Subnets = subnetInfoList
 	if err := r.Client.Status().Update(ctx, subnetsetCR); err != nil {
 		log.Error(err, "Failed to update SubnetSet status for SubnetNames")
@@ -413,7 +416,7 @@ func updateSubnetSetStatusConditions(client client.Client, ctx context.Context, 
 func mergeSubnetSetStatusCondition(subnetSet *v1alpha1.SubnetSet, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetSet.Status.Conditions)
 
-	if reflect.DeepEqual(matchedCondition, newCondition) {
+	if common.IsConditionSemanticEqual(matchedCondition, newCondition) {
 		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
@@ -422,6 +425,7 @@ func mergeSubnetSetStatusCondition(subnetSet *v1alpha1.SubnetSet, newCondition *
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		subnetSet.Status.Conditions = append(subnetSet.Status.Conditions, *newCondition)
 	}

@@ -147,7 +147,7 @@ func updateStaticRouteStatusConditions(client client.Client, ctx context.Context
 func mergeStaticRouteStatusCondition(staticRoute *v1alpha1.StaticRoute, newCondition *v1alpha1.StaticRouteCondition) bool {
 	matchedCondition := getExistingConditionOfType(v1alpha1.StaticRouteStatusCondition(newCondition.Type), staticRoute.Status.Conditions)
 
-	if reflect.DeepEqual(matchedCondition, newCondition) {
+	if isConditionSemanticEqual(matchedCondition, newCondition) {
 		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
@@ -156,6 +156,7 @@ func mergeStaticRouteStatusCondition(staticRoute *v1alpha1.StaticRoute, newCondi
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		staticRoute.Status.Conditions = append(staticRoute.Status.Conditions, *newCondition)
 	}
@@ -169,6 +170,11 @@ func getExistingConditionOfType(conditionType v1alpha1.StaticRouteStatusConditio
 		}
 	}
 	return nil
+}
+
+// isConditionSemanticEqual checks if two static route conditions are semantically equal.
+func isConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.StaticRouteCondition) bool {
+	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
 }
 
 func (r *StaticRouteReconciler) setupWithManager(mgr ctrl.Manager) error {

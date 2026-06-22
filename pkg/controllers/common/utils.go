@@ -708,3 +708,8 @@ func IntersectIPAddressTypes(types []v1alpha1.IPAddressType) (v1alpha1.IPAddress
 
 	return result, nil
 }
+
+// IsConditionSemanticEqual checks if two conditions are semantically equal.
+func IsConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.Condition) bool {
+	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
+}

@@ -2496,7 +2496,7 @@ func TestSubnetPortReconciler_setAddressBindingStatus(t *testing.T) {
 							Status:             corev1.ConditionFalse,
 							Message:            fmt.Sprintf("error occurred while processing the %s CR. Error: %v", resourceType, fmt.Errorf("mock error")),
 							Reason:             fmt.Sprintf("%sNotReady", resourceType),
-							LastTransitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+							LastTransitionTime: metav1.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
 						}},
 						IPAddress: "",
 					}},
