@@ -752,35 +752,3 @@ func TestBuildBasicTagsWithStatefulSetPod(t *testing.T) {
 	assert.True(t, foundStsUID, "should have statefulset uid tag")
 }
 
-func TestParseIPRange(t *testing.T) {
-	tests := []struct {
-		name      string
-		in        string
-		wantErr   bool
-		wantStart string
-		wantEnd   string
-	}{
-		{"single IPv4", "1.2.3.4", false, "1.2.3.4", "1.2.3.4"},
-		{"IPv4 range", "1.2.3.4-1.2.3.10", false, "1.2.3.4", "1.2.3.10"},
-		{"IPv4 range with spaces", " 1.2.3.4 - 1.2.3.10 ", false, "1.2.3.4", "1.2.3.10"},
-		{"single IPv6", "2001:db8::1", false, "2001:db8::1", "2001:db8::1"},
-		{"IPv6 range", "2001:db8::1-2001:db8::ff", false, "2001:db8::1", "2001:db8::ff"},
-		{"empty", "", true, "", ""},
-		{"invalid start", "garbage-1.2.3.4", true, "", ""},
-		{"invalid end", "1.2.3.4-garbage", true, "", ""},
-		{"mixed family", "1.2.3.4-2001:db8::1", true, "", ""},
-		{"end < start", "1.2.3.10-1.2.3.4", true, "", ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			start, end, err := ParseIPRange(tc.in)
-			if tc.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, tc.wantStart, start.String())
-			assert.Equal(t, tc.wantEnd, end.String())
-		})
-	}
-}

@@ -19,10 +19,6 @@ const (
 	// static_ip_allocation.enabled=true and subnet_dhcp_config.mode=DHCP_SERVER
 	// are set simultaneously and the NSX version does not support mixed-mode subnets.
 	MixedModeNotSupportedErrorCode = 508128
-	// PoolRangesOutOfSubnetRangeErrorCode is returned by NSX when
-	// staticIPAllocation.poolRanges contains addresses outside the subnet CIDR.
-	// It falls within the MixedModeIPAllocation error range (660000–660011).
-	PoolRangesOutOfSubnetRangeErrorCode = 660005
 	// mixedModeIPAllocationErrorMin and mixedModeIPAllocationErrorMax define the
 	// inclusive NSX error-code range reserved for VPC Subnet mixed IP allocation
 	// validation failures (overlapping pool ranges, ranges outside CIDR, conflicts

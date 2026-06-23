@@ -8,7 +8,6 @@ import (
 	"crypto/sha1" // #nosec G505: not used for security purposes
 	"fmt"
 	"math/big"
-	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -493,40 +492,6 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 		mode = string(o.Spec.SubnetDHCPConfig.Mode)
 	}
 	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
-}
-
-// ParseIPRange parses the NSX pool-range string form and returns the Start and
-// End addresses. Accepted forms: "1.2.3.4", "1.2.3.4-1.2.3.10",
-// "2001:db8::1", "2001:db8::1-2001:db8::ff" (whitespace around the dash is
-// tolerated to mirror the NSX spec example "startIp - endIp").
-// It enforces same address family and start <= end.
-func ParseIPRange(s string) (netip.Addr, netip.Addr, error) {
-	var zero netip.Addr
-	raw := strings.TrimSpace(s)
-	if raw == "" {
-		return zero, zero, fmt.Errorf("empty IP range")
-	}
-	parts := strings.SplitN(raw, "-", 2)
-	startStr := strings.TrimSpace(parts[0])
-	start, err := netip.ParseAddr(startStr)
-	if err != nil {
-		return zero, zero, fmt.Errorf("invalid start IP %q: %w", startStr, err)
-	}
-	if len(parts) == 1 {
-		return start, start, nil
-	}
-	endStr := strings.TrimSpace(parts[1])
-	end, err := netip.ParseAddr(endStr)
-	if err != nil {
-		return zero, zero, fmt.Errorf("invalid end IP %q: %w", endStr, err)
-	}
-	if start.Is4() != end.Is4() || start.Is6() != end.Is6() {
-		return zero, zero, fmt.Errorf("IP range %q mixes IPv4 and IPv6", raw)
-	}
-	if end.Less(start) {
-		return zero, zero, fmt.Errorf("IP range %q has end < start", raw)
-	}
-	return start, end, nil
 }
 
 // ValidateSubnetSize checks if the given subnet size is valid based on NSX version.

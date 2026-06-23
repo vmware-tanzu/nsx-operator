@@ -108,10 +108,8 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if o.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
 			staticIpAllocation = *o.Spec.AdvancedConfig.StaticIPAllocation.Enabled
 		}
-		// Trim whitespace from each poolRange entry before forwarding to NSX.
-		// The webhook accepts entries with surrounding whitespace (ParseIPRange
-		// trims internally), but NSX may reject raw strings that have leading
-		// or trailing spaces.
+		// Trim whitespace from each poolRange entry before forwarding to NSX,
+		// since NSX may reject strings with leading or trailing spaces.
 		var poolRanges []string
 		for _, r := range o.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges {
 			if t := strings.TrimSpace(r); t != "" {
