@@ -751,4 +751,3 @@ func TestBuildBasicTagsWithStatefulSetPod(t *testing.T) {
 	assert.True(t, foundStsName, "should have statefulset name tag")
 	assert.True(t, foundStsUID, "should have statefulset uid tag")
 }
-
