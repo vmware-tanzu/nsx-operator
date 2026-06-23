@@ -140,6 +140,7 @@ func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *NetworkPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&networkingv1.NetworkPolicy{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		Watches(
 			&v1.Pod{},
 			&EnqueueRequestForPod{

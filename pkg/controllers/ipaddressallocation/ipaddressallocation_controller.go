@@ -132,6 +132,7 @@ func (r *IPAddressAllocationReconciler) handleDeletion(req ctrl.Request, obj *v1
 func (r *IPAddressAllocationReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.IPAddressAllocation{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
