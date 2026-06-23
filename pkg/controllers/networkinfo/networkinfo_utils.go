@@ -155,10 +155,9 @@ func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client
 }
 
 // setVPCNetworkConfigurationStatusWithLBCapability sets the LBCapability condition on the
-// system VPCNetworkConfiguration. When lbCapable is false, reason is set to the spec-defined
-// constant and nsxAlarmMsg (if non-empty) is appended as the message field so manual testing
-// can observe the actual NSX alarm without changing the machine-readable reason string.
-func setVPCNetworkConfigurationStatusWithLBCapability(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, lbCapable bool, nsxAlarmMsg string) {
+// system VPCNetworkConfiguration. lbCapable is false when VNA + NSX-LB + IPv6/DualStack;
+// true otherwise.
+func setVPCNetworkConfigurationStatusWithLBCapability(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, lbCapable bool) {
 	newCondition := v1alpha1.Condition{
 		Type:               v1alpha1.LBCapability,
 		LastTransitionTime: metav1.Time{},
@@ -168,7 +167,6 @@ func setVPCNetworkConfigurationStatusWithLBCapability(ctx context.Context, clien
 	} else {
 		newCondition.Status = v1.ConditionFalse
 		newCondition.Reason = common.ReasonIPv6LBNotSupportedOnVNA
-		newCondition.Message = nsxAlarmMsg
 	}
 	if mergeStatusCondition(&nc.Status.Conditions, &newCondition) {
 		if err := client.Status().Update(ctx, nc); err != nil {

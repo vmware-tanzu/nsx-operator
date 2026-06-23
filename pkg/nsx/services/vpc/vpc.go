@@ -1051,6 +1051,25 @@ func IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool
 	return *vpcConnectivityProfile.ServiceGateway.NatConfig.EnableDefaultSnat
 }
 
+// IsVNAMode reports whether all ServiceGateway.EdgeClusterPaths are VNA cluster paths
+// (/infra/sites/.../virtual-network-appliance-clusters/...). Returns false when the
+// profile or its paths are absent — safe default, avoids false positives on LBCapability.
+func IsVNAMode(profile *model.VpcConnectivityProfile) bool {
+	if profile == nil || profile.ServiceGateway == nil {
+		return false
+	}
+	paths := profile.ServiceGateway.EdgeClusterPaths
+	if len(paths) == 0 {
+		return false
+	}
+	for _, p := range paths {
+		if !strings.Contains(p, "/virtual-network-appliance-clusters/") {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
@@ -1264,25 +1283,3 @@ func (s *VPCService) IsDefaultNSXProject(orgID, projectID string) (bool, error) 
 	return isDefault, nil
 }
 
-// GetLBSRealizationAlarmMessages reads the realization state of the given LBS policy path
-// and collects any alarm messages reported by NSX. Returns "" when no alarms are present
-// or when the realization state cannot be fetched (errors are logged, not propagated).
-// This is used for diagnostic logging when LBCapability is False, so callers can observe
-// what NSX actually reports rather than only seeing the hardcoded condition reason.
-func (s *VPCService) GetLBSRealizationAlarmMessages(lbsPath string) string {
-	results, err := s.NSXClient.RealizedEntitiesClient.List(lbsPath, nil)
-	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
-		log.Error(err, "Failed to read LBS realization state for alarm messages", "LBSPath", lbsPath)
-		return ""
-	}
-	var msgs []string
-	for _, result := range results.Results {
-		for _, alarm := range result.Alarms {
-			if alarm.Message != nil {
-				msgs = append(msgs, *alarm.Message)
-			}
-		}
-	}
-	return strings.Join(msgs, "; ")
-}

@@ -643,6 +643,66 @@ func TestIsEnableAutoSNAT(t *testing.T) {
 	assert.True(t, IsEnableAutoSNAT(vpcConnProfile))
 }
 
+func TestIsVNAMode(t *testing.T) {
+	// nil profile → false (safe default, no false positive on LBCapability=False)
+	assert.False(t, IsVNAMode(nil))
+
+	// ServiceGateway nil → false
+	assert.False(t, IsVNAMode(&model.VpcConnectivityProfile{}))
+
+	// ServiceGateway present but EdgeClusterPaths empty → false
+	assert.False(t, IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{},
+		},
+	}))
+
+	// regular edge cluster path → false
+	assert.False(t, IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/default/enforcement-points/default/edge-clusters/edge-cluster-1",
+			},
+		},
+	}))
+
+	// service cluster path (distributed TGW) → false
+	assert.False(t, IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{"/infra/sites/default/enforcement-points/default/service-clusters/sc-1"},
+		},
+	}))
+
+	// one VNA path, one regular path → false (not all VNA)
+	assert.False(t, IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/default/enforcement-points/default/virtual-network-appliance-clusters/vnac-1",
+				"/infra/sites/default/enforcement-points/default/edge-clusters/edge-cluster-1",
+			},
+		},
+	}))
+
+	// single VNA path → true
+	assert.True(t, IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/default/enforcement-points/default/virtual-network-appliance-clusters/vnac-1",
+			},
+		},
+	}))
+
+	// all paths are VNA → true
+	assert.True(t, IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/site-a/enforcement-points/ep-1/virtual-network-appliance-clusters/vnac-01",
+				"/infra/sites/site-b/enforcement-points/ep-2/virtual-network-appliance-clusters/vnac-02",
+			},
+		},
+	}))
+}
+
 func TestGetLbProvider(t *testing.T) {
 	vpcService := &VPCService{
 		Service: common.Service{
