@@ -994,6 +994,28 @@ func Test_UpdateMixedExpressionsMatchExpression(t *testing.T) {
 	assert.NotEqual(t, nil, err)
 }
 
+var securityPolicyWithManyPorts = v1alpha1.SecurityPolicy{
+	ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "spManyPorts", UID: "spManyPortsuidA"},
+	Spec: v1alpha1.SecurityPolicySpec{
+		Rules: []v1alpha1.SecurityPolicyRule{
+			{
+				Action:    &allowAction,
+				Direction: &directionIn,
+				Ports:     []v1alpha1.SecurityPolicyPort{},
+			},
+		},
+	},
+}
+
+func init() {
+	for i := 10001; i <= 10060; i++ {
+		securityPolicyWithManyPorts.Spec.Rules[0].Ports = append(securityPolicyWithManyPorts.Spec.Rules[0].Ports, v1alpha1.SecurityPolicyPort{
+			Protocol: "TCP",
+			Port:     intstr.IntOrString{Type: intstr.Int, IntVal: int32(i)},
+		})
+	}
+}
+
 var securityPolicyWithMultipleNormalPorts = v1alpha1.SecurityPolicy{
 	ObjectMeta: v1.ObjectMeta{Namespace: "ns1", Name: "spMulPorts", UID: "spMulPortsuidA"},
 	Spec: v1alpha1.SecurityPolicySpec{
@@ -1352,6 +1374,15 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 			ruleIdx:             0,
 			namedPort:           newPortInfoForNamedPort(nsxutil.PortAddress{Port: 80}, "TCP"),
 			expectedRuleID:      "sp_spNamedPortsuidA_3f7c7d8c8449687178002f23599add04bf0c3250_0_0_0",
+		},
+		{
+			name:                "build-ruleID-for-many-ports-exceed-255-chars-vpc",
+			vpcEnabled:          true,
+			inputSecurityPolicy: &securityPolicyWithManyPorts,
+			inputRule:           &securityPolicyWithManyPorts.Spec.Rules[0],
+			ruleIdx:             0,
+			namedPort:           nil,
+			expectedRuleID:      "spManyPorts-6a4a02aa_5b4f2_10001_10002_10003_10004_10005_10006_10007_10008_10009_10010_10011_10012_10013_10014_10015_10016_10017_10018_10019_10020_10021_10022_10023_10024_10025_10026_10027_10028_10029_10030_10031_10032_10033_10034_10035_10036_100-9133c868",
 		},
 	}
 

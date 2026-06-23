@@ -670,7 +670,7 @@ func (service *SecurityPolicyService) buildExpandedRuleID(obj *v1alpha1.Security
 		} else {
 			portNumberSuffix = service.buildRulePortsNumberString(obj.Spec.Rules[ruleIdx].Ports)
 		}
-		return strings.Join([]string{ruleBaseID, portNumberSuffix}, common.ConnectorUnderline)
+		return util.NormalizeId(strings.Join([]string{ruleBaseID, portNumberSuffix}, common.ConnectorUnderline))
 	}
 
 	// With T1 topology, the NSX Rule ID includes the index of the rule's SecurityPolicyPort and the
@@ -680,7 +680,7 @@ func (service *SecurityPolicyService) buildExpandedRuleID(obj *v1alpha1.Security
 	if namedPort != nil {
 		idSuffix = namedPort.idSuffix
 	}
-	return strings.Join([]string{ruleBaseID, idSuffix}, common.ConnectorUnderline)
+	return util.NormalizeId(strings.Join([]string{ruleBaseID, idSuffix}, common.ConnectorUnderline))
 }
 
 func (service *SecurityPolicyService) buildRuleDisplayName(rule *v1alpha1.SecurityPolicyRule, createdFor string, namedPortInfo *portInfo) (string, error) {
