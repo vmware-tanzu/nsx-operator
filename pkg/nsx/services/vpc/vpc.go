@@ -1282,4 +1282,3 @@ func (s *VPCService) IsDefaultNSXProject(orgID, projectID string) (bool, error) 
 	s.defaultProjectCache.Store(cacheKey, isDefault)
 	return isDefault, nil
 }
-
