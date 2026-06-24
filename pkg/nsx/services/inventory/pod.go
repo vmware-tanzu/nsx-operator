@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/antihax/optional"
 	nsxt "github.com/vmware/go-vmware-nsxt"
+	optional "github.com/vmware/go-vmware-nsxt/common/optional"
 	"github.com/vmware/go-vmware-nsxt/containerinventory"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,9 +47,9 @@ func (s *InventoryService) initContainerApplicationInstance(clusterId string) er
 	cursor := ""
 	log.Info("Retrieving ContainerApplicationInstances for cluster", "cluster id", clusterId)
 	for {
-		opts := &nsxt.ListContainerApplicationInstancesOpts{ContainerClusterId: optional.NewString(clusterId)}
+		opts := &nsxt.ListContainerApplicationInstancesOpts{ContainerClusterId: optional.New(clusterId)}
 		if cursor != "" {
-			opts.Cursor = optional.NewString(cursor)
+			opts.Cursor = optional.New(cursor)
 		}
 		applicationInstances, _, err := s.NSXClient.NsxApiClient.ContainerApplicationsApi.ListContainerApplicationInstances(context.Background(), opts)
 		if err != nil {

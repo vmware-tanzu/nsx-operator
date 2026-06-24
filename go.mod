@@ -1,6 +1,6 @@
 module github.com/vmware-tanzu/nsx-operator
 
-go 1.25.8
+go 1.25.9
 
 replace (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis => ./pkg/apis
@@ -15,7 +15,6 @@ exclude k8s.io/api v0.36.0
 
 require (
 	github.com/agiledragon/gomonkey/v2 v2.14.0
-	github.com/antihax/optional v1.0.0
 	github.com/apparentlymart/go-cidr v1.1.0
 	github.com/deckarep/golang-set v1.8.0
 	github.com/go-logr/logr v1.4.3
@@ -30,7 +29,7 @@ require (
 	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20241113082223-673d2e7ca974
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20260427183048-1a7a2f3398c7 // v1.8.x incompatible with controller-runtime v0.23.3 webhooks API
-	github.com/vmware/go-vmware-nsxt v0.0.0-20230223012718-d31b8a1ca05e
+	github.com/vmware/go-vmware-nsxt v0.0.0-20260605141659-71d9620e9c4e
 	github.com/vmware/govmomi v0.53.1
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.8.0
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.8.0
