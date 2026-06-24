@@ -152,8 +152,8 @@ func (s *DNSRecordService) validateEndpointRowConflict(zonePath string, ep *extd
 	}
 	fqdn := strings.ToLower(ep.DNSName)
 	recTypeForIdx := strings.ToLower(strings.TrimSpace(ep.RecordType))
-	idxKey := dnsRecordZonePathFQDNIndexKey(zonePath, fqdn, recTypeForIdx)
-	recs := s.DNSRecordStore.GetByIndex(indexKeyDNSRecordZonePathFQDN, idxKey)
+	idxKey := dnsRecordZonePathRecordNameIndexKey(zonePath, recordName, recTypeForIdx)
+	recs := s.DNSRecordStore.GetByIndex(indexKeyDNSRecordZonePathRecordName, idxKey)
 	log.Debug("Checking DNS record conflict", "fqdn", fqdn, "zone", zonePath, "type", recTypeForIdx, "existingCount", len(recs))
 	currentNNKey := ownerNNIndexKeyForResourceRef(owner)
 	for _, rec := range recs {
@@ -374,41 +374,6 @@ func (s *DNSRecordService) ListReferredGatewayNN() sets.Set[types.NamespacedName
 		gatewaySet.Insert(types.NamespacedName{Namespace: gwNamespace, Name: gwName})
 	}
 	return gatewaySet
-}
-
-// DeleteRecordsForOwnerOutsideAllowedZones deletes primary-owner DNS records whose zone_path is not in allowedZonePaths.
-func (s *DNSRecordService) DeleteRecordsForOwnerOutsideAllowedZones(ctx context.Context, kind, namespace, name string, allowedZonePaths sets.Set[string]) (bool, error) {
-	if allowedZonePaths == nil {
-		allowedZonePaths = sets.New[string]()
-	}
-	// Only delete the ProjectDnsRecord which is owned by the kind/namespace/name; the contributed records are
-	// deleted in the reconciliation by the record owner.
-	owned := s.DNSRecordStore.GetByOwnerResourceNamespacedName(kind, namespace, name)
-	var toDelete []*model.ProjectDnsRecord
-	for _, rec := range owned {
-		// rec.ZonePath is not nil which is guarded when creating the ProjectDnsRecord.
-		zp := strings.TrimSpace(*rec.ZonePath)
-		if allowedZonePaths.Has(zp) {
-			continue
-		}
-		cp := *rec
-		cp.MarkedForDelete = common.Bool(true)
-		toDelete = append(toDelete, &cp)
-	}
-	if len(toDelete) == 0 {
-		log.Debug("No out-of-zone DNS records to delete", "kind", kind, "namespace", namespace, "name", name)
-		return false, nil
-	}
-	log.Info("Deleting DNS records outside allowed zones", "kind", kind, "namespace", namespace, "name", name,
-		"toDelete", len(toDelete), "allowedZones", allowedZonePaths.Len())
-
-	toApply, syncErr := s.syncProjectDnsRecordsInNSX(ctx, nil, toDelete)
-	if len(toApply) > 0 {
-		if applyErr := s.DNSRecordStore.Apply(toApply); applyErr != nil {
-			return false, applyErr
-		}
-	}
-	return len(toApply) > 0, syncErr
 }
 
 func getCluster(s *DNSRecordService) string {

@@ -74,7 +74,7 @@ func (s *DNSRecordService) getZonePathForHostname(z extprovider.ZoneIDName, host
 	return recordName, zonePath, nil
 }
 
-// ValidateEndpointsByZone maps each endpoint to a zone and row; returns validated rows, path→domain map for permitted zones (from sync), and err. owner must be non-nil.
+// ValidateEndpointsByZone maps each endpoint to a zone and row; returns validated rows, invalid rows, path→domain map for permitted zones (from sync), and err. owner must be non-nil.
 func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *ResourceRef, eps []*extdns.Endpoint) ([]EndpointRow, map[string]string, error) {
 	log.Info("Validating DNS endpoints by zone", "namespace", namespace,
 		"owner", owner.GetName(), "endpoints", len(eps))
@@ -92,7 +92,9 @@ func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *Reso
 	}
 	z := generateZoneIdFromMap(allowedZones)
 
-	var rows []EndpointRow
+	var validRows []EndpointRow
+	var validationErr error
+
 	for i := range eps {
 		ep := eps[i]
 		if endpointDNSNameIsWildcard(ep.DNSName) {
@@ -101,16 +103,22 @@ func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *Reso
 		}
 		recName, zonePath, parseErr := s.getZonePathForHostname(z, ep.DNSName)
 		if parseErr != nil {
-			return nil, allowedZones, &DNSZoneValidationError{Msg: parseErr.Error()}
+			if validationErr == nil {
+				validationErr = &DNSZoneValidationError{Msg: parseErr.Error()}
+			}
+			continue
 		}
 		log.Debug("Mapped DNS endpoint to zone", "dnsName", ep.DNSName, "zonePath", zonePath, "recordName", recName)
 		row, validErr := s.validateEndpointRowConflict(zonePath, ep, recName, owner)
 		if validErr != nil {
-			return nil, allowedZones, &DNSZoneValidationError{Msg: "DNS endpoint validation failed for DNS zone policy", Cause: validErr}
+			if validationErr == nil {
+				validationErr = &DNSZoneValidationError{Msg: "DNS endpoint validation failed for DNS zone policy", Cause: validErr}
+			}
+			continue
 		}
-		rows = append(rows, *row)
+		validRows = append(validRows, *row)
 	}
-	return rows, allowedZones, nil
+	return validRows, allowedZones, validationErr
 }
 
 // SyncDNSZonesByVpcNetworkConfig ensures DNSZoneMap entries for vpcConfig.Spec.DNSZones; returns path→domain map or err.

@@ -73,8 +73,6 @@ type DNSRecordProvider interface {
 	CreateOrUpdateRecords(ctx context.Context, batch *AggregatedDNSEndpoints) (bool, error)
 	DeleteRecordByOwnerNN(ctx context.Context, kind, namespace, name string) (bool, error)
 	ValidateEndpointsByZone(namespace string, owner *ResourceRef, eps []*extdns.Endpoint) ([]EndpointRow, map[string]string, error)
-	// DeleteRecordsForOwnerOutsideAllowedZones deletes the DNS records whose zone_path is not in allowedZonePaths (NSX + store).
-	DeleteRecordsForOwnerOutsideAllowedZones(ctx context.Context, kind, namespace, name string, allowedZonePaths sets.Set[string]) (bool, error)
 	ListReferredGatewayNN() sets.Set[types.NamespacedName]
 	ListRecordOwnerResource() map[string]sets.Set[types.NamespacedName]
 }

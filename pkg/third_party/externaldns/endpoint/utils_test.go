@@ -4,6 +4,7 @@
 package endpoint
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,4 +75,14 @@ func TestEndpointsForHostname_table(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEndpointsForHostname(t *testing.T) {
+	targets := Targets{"1.2.3.4", "2001:db8::1", "cname.com"}
+	eps := EndpointsForHostname("foo.com", targets, TTL(300))
+	assert.Len(t, eps, 3)
+
+	longLabel := strings.Repeat("a", 64)
+	eps = EndpointsForHostname(longLabel+".com", targets, TTL(300))
+	assert.Len(t, eps, 0)
 }
