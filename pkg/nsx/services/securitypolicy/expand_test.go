@@ -191,6 +191,21 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 			},
 		},
 	}
+	rule4 := v1alpha1.SecurityPolicyRule{
+		Action:    &allowAction,
+		Direction: &directionOut,
+		Name:      "rule-with-ipblock",
+		AppliedTo: []v1alpha1.SecurityPolicyTarget{},
+		Destinations: []v1alpha1.SecurityPolicyPeer{
+			{
+				IPBlocks: []v1alpha1.IPBlock{
+					{
+						CIDR: "40.200.123.123/32",
+					},
+				},
+			},
+		},
+	}
 	type fields struct {
 		Client                     client.Client
 		NSXClient                  *nsx.Client
@@ -237,17 +252,21 @@ func TestSecurityPolicyService_getPodSelectors(t *testing.T) {
 		args    args
 		want    client.ListOptions
 		wantErr assert.ErrorAssertionFunc
+		wantLen int
 	}{
-		{"1", fields{}, args{&sp, &rule}, client.ListOptions{LabelSelector: labelSelector, Namespace: "ns1"}, nil},
-		{"2", fields{}, args{&sp1, &rule2}, client.ListOptions{LabelSelector: labelSelector2, Namespace: "ns1"}, nil},
-		{"3", fields{}, args{&sp1, &rule3}, client.ListOptions{LabelSelector: labelSelector, Namespace: "ns1"}, nil},
+		{"1", fields{}, args{&sp, &rule}, client.ListOptions{LabelSelector: labelSelector, Namespace: "ns1"}, nil, 1},
+		{"2", fields{}, args{&sp1, &rule2}, client.ListOptions{LabelSelector: labelSelector2, Namespace: "ns1"}, nil, 1},
+		{"3", fields{}, args{&sp1, &rule3}, client.ListOptions{LabelSelector: labelSelector, Namespace: "ns1"}, nil, 2},
+		{"4", fields{}, args{&sp1, &rule4}, client.ListOptions{}, nil, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &SecurityPolicyService{}
 			got, _ := service.getPodSelectors(tt.args.obj, tt.args.rule)
-			assert.Equal(t, true, len(got) > 0, "getPodSelector(%v, %v) should return 1 selector", tt.args.obj, tt.args.rule)
-			assert.Equalf(t, tt.want, got[0], "getPodSelector(%v, %v)", tt.args.obj, tt.args.rule)
+			assert.Equal(t, tt.wantLen, len(got), "getPodSelector(%v, %v) should return %d selector", tt.args.obj, tt.args.rule, tt.wantLen)
+			if tt.wantLen > 0 {
+				assert.Equalf(t, tt.want, got[0], "getPodSelector(%v, %v)", tt.args.obj, tt.args.rule)
+			}
 		})
 	}
 }
