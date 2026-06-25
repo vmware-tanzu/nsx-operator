@@ -199,6 +199,10 @@ func TestCluster_enableFeature(t *testing.T) {
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.False(t, nsxVersion.featureSupported(IPv6))
+
+	nsxVersion.NodeVersion = "9.2.0"
+	assert.True(t, nsxVersion.featureSupported(IPv6))
 
 	// Test case for invalid feature
 	feature := 3

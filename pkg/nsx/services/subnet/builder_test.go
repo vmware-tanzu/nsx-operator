@@ -19,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -30,6 +31,7 @@ var (
 func TestBuildSubnetName(t *testing.T) {
 	svc := &SubnetService{
 		Service: common.Service{
+			NSXClient: &nsx.Client{},
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "cluster1",
@@ -55,6 +57,7 @@ func TestBuildSubnetName(t *testing.T) {
 func TestBuildSubnetSetName(t *testing.T) {
 	svc := &SubnetService{
 		Service: common.Service{
+			NSXClient: &nsx.Client{},
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "b720ee2c-5788-4680-9796-0f93db33d8a9",
@@ -89,11 +92,15 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -229,11 +236,15 @@ func TestBuildSubnetForSubnet(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -353,7 +364,8 @@ func TestBuildSubnetWithConnectivityState(t *testing.T) {
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -399,6 +411,9 @@ func TestBuildSubnetWithConnectivityState(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 	subnet, err := service.buildSubnet(subnetConnected, tags, []string{})
 	assert.Nil(t, err)
@@ -457,11 +472,15 @@ func TestBuildSubnetWithCustomGatewayAddresses(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -540,11 +559,15 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -646,7 +669,8 @@ func TestBuildSubnetWithExceedTagsLimit(t *testing.T) {
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -688,6 +712,9 @@ func TestBuildSubnetWithExceedTagsLimit(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 	nsxSubnet, err := service.buildSubnet(subnet, tags, []string{})
 	assert.Nil(t, nsxSubnet)
@@ -706,7 +733,8 @@ func TestBuildSubnetTags(t *testing.T) {
 
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -768,6 +796,9 @@ func TestBuildSubnetTags(t *testing.T) {
 					}
 					return tc.isTepLess, nil
 				})
+			patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+				return true
+			})
 			defer patches.Reset()
 
 			subnet := &v1alpha1.Subnet{
@@ -804,7 +835,8 @@ func TestBuildSubnetTagsExceedMaxTags(t *testing.T) {
 
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -817,6 +849,9 @@ func TestBuildSubnetTagsExceedMaxTags(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	// Create more than MaxTagsCount (26) tags to trigger the error
@@ -854,11 +889,15 @@ func TestBuildSubnetForSubnet_IPv6(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",

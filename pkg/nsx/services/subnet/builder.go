@@ -10,6 +10,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -167,7 +168,8 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		}
 
 		// Set IP address type
-		if o.Spec.IPAddressType != "" {
+		// For backward compatibility, only set IpAddressType for 9.2+
+		if o.Spec.IPAddressType != "" && service.Service.NSXClient.NSXCheckVersion(nsx.IPv6) {
 			nsxSubnet.IpAddressType = String(controllerscommon.ConvertCRIPAddressTypeToNSX(o.Spec.IPAddressType))
 		}
 		// Support custom gateway addresses when provided
@@ -194,7 +196,8 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 			},
 		}
 		// Set IP address type
-		if o.Spec.IPAddressType != "" {
+		// For backward compatibility, only set IpAddressType for 9.2+
+		if o.Spec.IPAddressType != "" && service.Service.NSXClient.NSXCheckVersion(nsx.IPv6) {
 			nsxSubnet.IpAddressType = String(controllerscommon.ConvertCRIPAddressTypeToNSX(o.Spec.IPAddressType))
 		}
 
