@@ -4,6 +4,7 @@ IMG ?= controller:latest
 ENVTEST_K8S_VERSION = 1.22
 LDFLAGS            :=
 GOFLAGS            :=
+COVERAGE	       ?= false
 BINDIR             ?= $(CURDIR)/bin
 GO_FILES           := $(shell find . -type d -name '.cache' -prune -o -type f -name '*.go' -print)
 
@@ -93,7 +94,11 @@ test: manifests generate fmt vet envtest .coverage ## Run tests with clean outpu
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
 	@mkdir -p $(BINDIR)
+ifeq ($(COVERAGE), true)
+	GOOS=linux go build -o $(BINDIR)/manager -covermode atomic $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
+else
 	GOOS=linux go build -o $(BINDIR)/manager $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
+endif
 
 .PHONY: build-clean
 build-clean: generate fmt vet ## Build clean binary.
