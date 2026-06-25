@@ -18,10 +18,11 @@ var (
 	bm1ID       = "binding1_7lupl"
 	bm2ID       = "binding1_i6zuf"
 	bindingMap1 = &model.SubnetConnectionBindingMap{
-		Id:             String(bm1ID),
-		DisplayName:    String("binding1"),
-		SubnetPath:     String(parentSubnetPath1),
-		VlanTrafficTag: Int64(201),
+		Id:                String(bm1ID),
+		DisplayName:       String("binding1"),
+		SubnetPath:        String(parentSubnetPath1),
+		SubnetAssociation: String(model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK),
+		VlanTrafficTag:    Int64(201),
 		Tags: []model.Tag{
 			{
 				Scope: String(common.TagScopeCluster),
@@ -46,10 +47,11 @@ var (
 		},
 	}
 	bindingMap2 = &model.SubnetConnectionBindingMap{
-		Id:             String(bm2ID),
-		DisplayName:    String("binding1"),
-		SubnetPath:     String(parentSubnetPath2),
-		VlanTrafficTag: Int64(201),
+		Id:                String(bm2ID),
+		DisplayName:       String("binding1"),
+		SubnetPath:        String(parentSubnetPath2),
+		SubnetAssociation: String(model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK),
+		VlanTrafficTag:    Int64(201),
 		Tags: []model.Tag{
 			{
 				Scope: String(common.TagScopeCluster),
@@ -96,6 +98,29 @@ func TestBuildSubnetBindings(t *testing.T) {
 		bindingMap1, bindingMap2,
 	}
 	require.ElementsMatch(t, expBindingMaps, bindingMaps)
+}
+
+func TestBuildSubnetBindingsBranch(t *testing.T) {
+	service := mockService()
+	branchBinding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "cross-vpc-binding",
+			Namespace: "ns-vpc-b",
+			UID:       "uuid-cross",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:        "parent-subnet",
+			TargetSubnetName:  "child-subnet",
+			SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+			VLANTrafficTag:    201,
+		},
+	}
+	peerPaths := []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"}
+	bindingMaps := service.buildSubnetBindings(branchBinding, peerPaths)
+	require.Len(t, bindingMaps, 1)
+	require.NotNil(t, bindingMaps[0].SubnetAssociation)
+	assert.Equal(t, model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH, *bindingMaps[0].SubnetAssociation)
+	assert.Equal(t, peerPaths[0], *bindingMaps[0].SubnetPath)
 }
 
 func TestBuildSubnetConnectionBindingMapCR(t *testing.T) {
