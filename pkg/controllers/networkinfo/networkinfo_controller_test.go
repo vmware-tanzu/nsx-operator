@@ -2449,7 +2449,6 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 		hasIPv4CIDR        bool
 		hasIPv6CIDR        bool
 		expected           v1alpha1.IPAddressType
-		expectedErr        bool
 	}{
 		{
 			name:               "Both supervisor and VPC support IPv4 and IPv6",
@@ -2457,7 +2456,6 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 			hasIPv4CIDR:        true,
 			hasIPv6CIDR:        true,
 			expected:           v1alpha1.IPAddressTypeIPv4IPv6,
-			expectedErr:        false,
 		},
 		{
 			name:               "Supervisor IPv4IPv6 with VPC IPv4 only",
@@ -2465,7 +2463,6 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 			hasIPv4CIDR:        true,
 			hasIPv6CIDR:        false,
 			expected:           v1alpha1.IPAddressTypeIPv4,
-			expectedErr:        false,
 		},
 		{
 			name:               "Supervisor IPv4IPv6 with VPC IPv6 only",
@@ -2473,7 +2470,6 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 			hasIPv4CIDR:        false,
 			hasIPv6CIDR:        true,
 			expected:           v1alpha1.IPAddressTypeIPv6,
-			expectedErr:        false,
 		},
 		{
 			name:               "Supervisor IPv4 with VPC IPv4 and IPv6",
@@ -2481,23 +2477,20 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 			hasIPv4CIDR:        true,
 			hasIPv6CIDR:        true,
 			expected:           v1alpha1.IPAddressTypeIPv4,
-			expectedErr:        false,
 		},
 		{
 			name:               "Supervisor IPv4 with VPC IPv6 only - no intersection",
 			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4,
 			hasIPv4CIDR:        false,
 			hasIPv6CIDR:        true,
-			expected:           "",
-			expectedErr:        true,
+			expected:           IPAddressTypeNone,
 		},
 		{
 			name:               "Supervisor IPv6 with VPC IPv4 only - no intersection",
 			supervisorIPFamily: v1alpha1.IPAddressTypeIPv6,
 			hasIPv4CIDR:        true,
 			hasIPv6CIDR:        false,
-			expected:           "",
-			expectedErr:        true,
+			expected:           IPAddressTypeNone,
 		},
 		{
 			name:               "Supervisor IPv4 with VPC IPv4 only",
@@ -2505,7 +2498,6 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 			hasIPv4CIDR:        true,
 			hasIPv6CIDR:        false,
 			expected:           v1alpha1.IPAddressTypeIPv4,
-			expectedErr:        false,
 		},
 		{
 			name:               "Supervisor IPv6 with VPC IPv6 only",
@@ -2513,15 +2505,13 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 			hasIPv4CIDR:        false,
 			hasIPv6CIDR:        true,
 			expected:           v1alpha1.IPAddressTypeIPv6,
-			expectedErr:        false,
 		},
 		{
 			name:               "VPC has no CIDR blocks",
 			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
 			hasIPv4CIDR:        false,
 			hasIPv6CIDR:        false,
-			expected:           v1alpha1.IPAddressTypeIPv4IPv6,
-			expectedErr:        false,
+			expected:           IPAddressTypeNone,
 		},
 	}
 
@@ -2550,12 +2540,7 @@ func TestNetworkInfoReconciler_ComputeSubnetSetIPAddressType(t *testing.T) {
 			defer patches.Reset()
 
 			result := reconciler.computeSubnetSetIPAddressType(tt.hasIPv4CIDR, tt.hasIPv6CIDR)
-
-			if tt.expectedErr {
-				assert.Equal(t, v1alpha1.IPAddressType(""), result, "Expected empty result for error case")
-			} else {
-				assert.Equal(t, tt.expected, result)
-			}
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
