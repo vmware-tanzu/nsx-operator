@@ -39,7 +39,7 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 			log.Info("Invalid object", "type", reflect.TypeOf(obj))
 			return []string{}
 		} else {
-			return []string{sr.Spec.NetworkIPAllocation}
+			return []string{sr.Spec.NetworkIPAllocationName}
 		}
 	}
 	reqDelete, _ := json.Marshal(&v1alpha1.IPAddressAllocation{
@@ -127,7 +127,7 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 				client.Create(ctx, &v1alpha1.StaticRoute{
 					ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "sr1"},
 					Spec: v1alpha1.StaticRouteSpec{
-						NetworkIPAllocation: "ip1",
+						NetworkIPAllocationName: "ip1",
 					},
 				})
 				return nil

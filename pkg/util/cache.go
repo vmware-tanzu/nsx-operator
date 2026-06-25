@@ -7,4 +7,4 @@ const AddressBindingIPAddressAllocationNameIndexKey = "spec.ipAddressAllocationN
 const SubnetPortMACInNeed = "index/subnetport/macInNeed"
 const SubnetAssociatedResource = "index/subnet/associatedResource"
 
-const StaticRouteIPAddressAllocationNameIndexKey = "spec.networkIpAllocation"
+const StaticRouteIPAddressAllocationNameIndexKey = "spec.networkIpAllocationName"

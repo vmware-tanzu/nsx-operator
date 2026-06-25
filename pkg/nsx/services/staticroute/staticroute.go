@@ -101,9 +101,9 @@ func (service *StaticRouteService) CreateOrUpdateStaticRoute(ctx context.Context
 	// Resolve the network: either a static CIDR (spec.network) or a reference to an
 	// IPAddressAllocation CR whose NSX policy path becomes the network_ip_allocation_path.
 	var networkIPAllocationPath string
-	if obj.Spec.NetworkIPAllocation != "" {
+	if obj.Spec.NetworkIPAllocationName != "" {
 		var err error
-		networkIPAllocationPath, err = service.resolveNetworkIPAllocationPath(ctx, namespace, obj.Spec.NetworkIPAllocation)
+		networkIPAllocationPath, err = service.resolveNetworkIPAllocationPath(ctx, namespace, obj.Spec.NetworkIPAllocationName)
 		if err != nil {
 			return err
 		}

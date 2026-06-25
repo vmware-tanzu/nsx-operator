@@ -820,10 +820,10 @@ func TestResolveNetworkIPAllocationPath(t *testing.T) {
 	})
 }
 
-// TestCreateOrUpdateStaticRoute_WithNetworkIPAllocation verifies that when
-// spec.networkIpAllocation is set, CreateOrUpdateStaticRoute resolves the
+// TestCreateOrUpdateStaticRoute_WithNetworkIPAllocationName verifies that when
+// spec.networkIpAllocationName is set, CreateOrUpdateStaticRoute resolves the
 // IPAddressAllocation CR before calling buildStaticRoute.
-func TestCreateOrUpdateStaticRoute_WithNetworkIPAllocation(t *testing.T) {
+func TestCreateOrUpdateStaticRoute_WithNetworkIPAllocationName(t *testing.T) {
 	const ns = "test-ns"
 	const crName = "my-alloc"
 	const nsxPath = "/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/alloc-1"
@@ -834,8 +834,8 @@ func TestCreateOrUpdateStaticRoute_WithNetworkIPAllocation(t *testing.T) {
 	staticRouteCR := &v1alpha1.StaticRoute{
 		ObjectMeta: v1.ObjectMeta{Name: "sr1", Namespace: ns},
 		Spec: v1alpha1.StaticRouteSpec{
-			NetworkIPAllocation: crName,
-			NextHops:            []v1alpha1.NextHop{{IPAddress: "10.1.1.1"}},
+			NetworkIPAllocationName: crName,
+			NextHops:                []v1alpha1.NextHop{{IPAddress: "10.1.1.1"}},
 		},
 	}
 

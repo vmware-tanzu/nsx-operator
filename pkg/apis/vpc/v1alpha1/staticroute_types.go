@@ -13,17 +13,17 @@ type StaticRouteStatusCondition string
 type StaticRouteCondition Condition
 
 // StaticRouteSpec defines static routes configuration on VPC.
-// +kubebuilder:validation:XValidation:rule="!has(self.network) || !has(self.networkIpAllocation)",message="spec.network and spec.networkIpAllocation are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(self.network) || !has(self.networkIpAllocationName)",message="spec.network and spec.networkIpAllocationName are mutually exclusive"
 type StaticRouteSpec struct {
 	// Specify network address in CIDR format.
-	// Mutually exclusive with networkIpAllocation.
+	// Mutually exclusive with networkIpAllocationName.
 	// +kubebuilder:validation:Format=cidr
 	// +optional
 	Network string `json:"network,omitempty"`
 	// Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as
 	// the static route network. Mutually exclusive with network.
 	// +optional
-	NetworkIPAllocation string `json:"networkIpAllocation,omitempty"`
+	NetworkIPAllocationName string `json:"networkIpAllocationName,omitempty"`
 	// Next hop gateway
 	// +kubebuilder:validation:MinItems=1
 	NextHops []NextHop `json:"nextHops"`
@@ -48,7 +48,7 @@ type StaticRouteStatus struct {
 
 // StaticRoute is the Schema for the staticroutes API.
 // +kubebuilder:printcolumn:name="Network",type=string,JSONPath=`.spec.network`,description="Network in CIDR format"
-// +kubebuilder:printcolumn:name="NetworkIPAllocation",type=string,JSONPath=`.spec.networkIpAllocation`,description="IPAddressAllocation CR name"
+// +kubebuilder:printcolumn:name="NetworkIPAllocationName",type=string,JSONPath=`.spec.networkIpAllocationName`,description="IPAddressAllocation CR name"
 // +kubebuilder:printcolumn:name="NextHops",type=string,JSONPath=`.spec.nextHops[*].ipAddress`,description="Next Hops"
 type StaticRoute struct {
 	metav1.TypeMeta   `json:",inline"`
