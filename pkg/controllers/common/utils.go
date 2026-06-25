@@ -326,7 +326,7 @@ type StatusUpdater struct {
 }
 
 func (u *StatusUpdater) UpdateSuccess(ctx context.Context, obj k8sclient.Object, setStatusFn UpdateSuccessStatusFn, args ...interface{}) {
-	log.Info(fmt.Sprintf("Successfully created or updated %s CR", u.ResourceType), u.ResourceType, obj)
+	log.Info(fmt.Sprintf("Successfully created or updated %s CR", u.ResourceType), "Namespace", obj.GetNamespace(), "Name", obj.GetName())
 	if setStatusFn != nil {
 		setStatusFn(u.Client, ctx, obj, metav1.Now(), args...)
 	}
@@ -335,7 +335,7 @@ func (u *StatusUpdater) UpdateSuccess(ctx context.Context, obj k8sclient.Object,
 }
 
 func (u *StatusUpdater) UpdateFail(ctx context.Context, obj k8sclient.Object, err error, msg string, setStatusFn UpdateFailStatusFn, args ...interface{}) {
-	log.Error(err, fmt.Sprintf("Failed to create or update %s CR", u.ResourceType), "Reason", msg, u.ResourceType, obj)
+	log.Error(err, fmt.Sprintf("Failed to create or update %s CR", u.ResourceType), "Reason", msg, "Namespace", obj.GetNamespace(), "Name", obj.GetName())
 	if setStatusFn != nil {
 		setStatusFn(u.Client, ctx, obj, metav1.Now(), err, args...)
 	}
