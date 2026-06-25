@@ -34,7 +34,7 @@ func validateStaticRoute(obj *v1alpha1.StaticRoute) error {
 
 // buildStaticRoute converts a StaticRoute CR into a model.StaticRoutes for the NSX API.
 // networkIPAllocationPath, when non-empty, is the NSX policy path of a VpcIpAddressAllocation
-// (spec.networkIpAllocation mode): NSX resolves the allocated IP and treats it as a /32 network.
+// (spec.networkIpAllocationName mode): NSX resolves the allocated IP and treats it as a /32 network.
 // When empty, spec.network (a CIDR string) is used directly (spec.network mode).
 // The two fields are mutually exclusive on the NSX side.
 func (service *StaticRouteService) buildStaticRoute(obj *v1alpha1.StaticRoute, networkIPAllocationPath string) (*model.StaticRoutes, error) {

@@ -490,27 +490,27 @@ func Test_staticrouteAssociatedResourceIndexFunc(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "Valid StaticRoute with NetworkIPAllocation",
+			name: "Valid StaticRoute with NetworkIPAllocationName",
 			obj: &v1alpha1.StaticRoute{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-route",
 					Namespace: "default",
 				},
 				Spec: v1alpha1.StaticRouteSpec{
-					NetworkIPAllocation: "/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/ipa-1",
+					NetworkIPAllocationName: "/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/ipa-1",
 				},
 			},
 			want: []string{"/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/ipa-1"},
 		},
 		{
-			name: "StaticRoute with empty NetworkIPAllocation",
+			name: "StaticRoute with empty NetworkIPAllocationName",
 			obj: &v1alpha1.StaticRoute{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-route-empty",
 					Namespace: "default",
 				},
 				Spec: v1alpha1.StaticRouteSpec{
-					NetworkIPAllocation: "",
+					NetworkIPAllocationName: "",
 				},
 			},
 			want: []string{},

@@ -20,8 +20,8 @@ spec:
       name: Network
       type: string
     - description: IPAddressAllocation CR name
-      jsonPath: .spec.networkIpAllocation
-      name: NetworkIPAllocation
+      jsonPath: .spec.networkIpAllocationName
+      name: NetworkIPAllocationName
       type: string
     - description: Next Hops
       jsonPath: .spec.nextHops[*].ipAddress
@@ -55,10 +55,10 @@ spec:
               network:
                 description: |-
                   Specify network address in CIDR format.
-                  Mutually exclusive with networkIpAllocation.
+                  Mutually exclusive with networkIpAllocationName.
                 format: cidr
                 type: string
-              networkIpAllocation:
+              networkIpAllocationName:
                 description: |-
                   Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as
                   the static route network. Mutually exclusive with network.
@@ -81,8 +81,9 @@ spec:
             - nextHops
             type: object
             x-kubernetes-validations:
-            - message: spec.network and spec.networkIpAllocation are mutually exclusive
-              rule: '!has(self.network) || !has(self.networkIpAllocation)'
+            - message: spec.network and spec.networkIpAllocationName are mutually
+                exclusive
+              rule: '!has(self.network) || !has(self.networkIpAllocationName)'
           status:
             description: StaticRouteStatus defines the observed state of StaticRoute.
             properties:

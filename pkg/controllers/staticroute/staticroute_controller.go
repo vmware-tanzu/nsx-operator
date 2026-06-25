@@ -282,10 +282,10 @@ func staticrouteAssociatedResourceIndexFunc(obj client.Object) []string {
 		log.Info("Invalid object", "type", reflect.TypeOf(obj))
 		return []string{}
 	} else {
-		if staticRoute.Spec.NetworkIPAllocation == "" {
+		if staticRoute.Spec.NetworkIPAllocationName == "" {
 			return []string{}
 		}
-		return []string{staticRoute.Spec.NetworkIPAllocation}
+		return []string{staticRoute.Spec.NetworkIPAllocationName}
 	}
 }
 

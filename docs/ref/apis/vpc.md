@@ -784,8 +784,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocation. |  | Format: cidr <br /> |
-| `networkIpAllocation` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  |  |
+| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br /> |
+| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  |  |
 | `nextHops` _[NextHop](#nexthop) array_ | Next hop gateway |  | MinItems: 1 <br /> |
 
 
