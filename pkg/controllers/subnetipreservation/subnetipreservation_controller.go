@@ -239,6 +239,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultNormal, nil
 	}
 
+	// For dynamic reservations (numberOfIPs), validate that the requested IP address family is
+	// supported by the parent Subnet.
+	if ipReservationCR.Spec.NumberOfIPs > 0 {
+		if err := validateIPAddressTypeCompatibility(subnetCR.Spec.IPAddressType, ipReservationCR.Spec.IPAddressType); err != nil {
+			r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, err.Error(), setReadyStatusFalse)
+			return common.ResultNormal, nil
+		}
+	}
+
 	nsxSubnet, err := r.SubnetService.GetSubnetByCR(subnetCR)
 	if err != nil {
 		log.Error(err, "failed to get NSX Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
@@ -299,6 +308,23 @@ func (r *Reconciler) validateSubnet(ctx context.Context, ns, name string) (*v1al
 		}
 	}
 	return subnetCR, nil
+}
+
+func validateIPAddressTypeCompatibility(subnetIPAddressType, reservationIPAddressType v1alpha1.IPAddressType) error {
+	if subnetIPAddressType == "" {
+		subnetIPAddressType = v1alpha1.IPAddressTypeIPv4
+	}
+	if reservationIPAddressType == "" {
+		reservationIPAddressType = v1alpha1.IPAddressTypeIPv4
+	}
+	// A dual-stack Subnet supports all reservation IP families.
+	if subnetIPAddressType == v1alpha1.IPAddressTypeIPv4IPv6 {
+		return nil
+	}
+	if subnetIPAddressType != reservationIPAddressType {
+		return fmt.Errorf("SubnetIPReservation IPAddressType %q is incompatible with Subnet IPAddressType %q", reservationIPAddressType, subnetIPAddressType)
+	}
+	return nil
 }
 
 func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {

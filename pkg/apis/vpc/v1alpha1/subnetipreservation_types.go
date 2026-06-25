@@ -45,8 +45,9 @@ type SubnetIPReservationStatus struct {
 	// Conditions described if the SubnetIPReservation is configured on NSX or not.
 	// Condition type ""
 	Conditions []Condition `json:"conditions,omitempty"`
-	// List of reserved IPs.
-	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28"]
+	// List of reserved IPs for both IPv4 and IPv6.
+	// Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28",
+	// "2001:db8::1", "2001:db8::1-2001:db8::ff", "2001:db8::/64"]
 	IPs []string `json:"ips,omitempty"`
 }
 
