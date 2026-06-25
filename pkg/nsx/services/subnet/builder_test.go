@@ -668,7 +668,8 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 func newIPv6BuildSubnetService(k8sClient client.Client) *SubnetService {
 	return &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			Client:    k8sClient,
+			NSXClient: &nsx.Client{},
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{Cluster: "k8scl-one:test"},
 			},
@@ -694,6 +695,9 @@ func TestBuildSubnetWithIPv6(t *testing.T) {
 
 	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
 		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := newIPv6BuildSubnetService(k8sClient)
@@ -730,6 +734,9 @@ func TestBuildSubnetWithDualStack(t *testing.T) {
 
 	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
 		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := newIPv6BuildSubnetService(k8sClient)
@@ -765,6 +772,9 @@ func TestBuildSubnetIPv4DefaultAndExplicit(t *testing.T) {
 
 	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
 		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := newIPv6BuildSubnetService(k8sClient)
@@ -802,6 +812,9 @@ func TestBuildSubnetWithDHCPv6Config(t *testing.T) {
 
 	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
 		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := newIPv6BuildSubnetService(k8sClient)
