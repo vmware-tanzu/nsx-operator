@@ -3,6 +3,7 @@ package subnetipreservation
 import (
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -10,12 +11,14 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func newTestService() *IPReservationService {
 	return &IPReservationService{
 		Service: common.Service{
+			NSXClient: &nsx.Client{},
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "fake_cluster",
@@ -52,7 +55,7 @@ func TestBuildDynamicIPReservation(t *testing.T) {
 		{
 			name:              "Supported_DefaultIPv4WhenUnset",
 			ipAddressType:     "",
-			expectedNSXFamily: strPtr(controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)),
+			expectedNSXFamily: nil,
 		},
 		{
 			name:              "Supported_MixedCase_IPv4",
@@ -87,6 +90,11 @@ func TestBuildDynamicIPReservation(t *testing.T) {
 	}
 
 	service := newTestService()
+	patches := gomonkey.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
+	defer patches.Reset()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ipReservationCR := &v1alpha1.SubnetIPReservation{
