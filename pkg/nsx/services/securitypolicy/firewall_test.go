@@ -2984,8 +2984,8 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 
 	serviceEntry := getRuleServiceEntries(53, 0, "UDP")
 
-	ruleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "1e510e8a", "spA-1e510e8a_re0bz")
-	ruleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "304ea84a", "spA-304ea84a_re0bz")
+	ruleTags1 := appendRuleIDAndHashTags(vpcBasicTags, "1e510e8ad94c103f4727e2bfc28bc637cb752831", "spA-1e510e8ad94c103f4727e2bfc28bc637cb752831_re0bz")
+	ruleTags2 := appendRuleIDAndHashTags(vpcBasicTags, "304ea84a85a12eae03f799a546ec5bfe1ffaaa64", "spA-304ea84a85a12eae03f799a546ec5bfe1ffaaa64_re0bz")
 
 	type args struct {
 		spObj      *v1alpha1.SecurityPolicy
@@ -3030,25 +3030,25 @@ func Test_GetFinalSecurityPolicyResourceForVPC(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("rule-with-pod-ns-selector_ingress_allow"),
-						Id:                common.String("spA-1e510e8a_re0bz_all"),
+						Id:                common.String("spA-1e510e8ad94c103f4727e2bfc28bc637cb752831_re0bz_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
-						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-1e510e8a-scope_re0bz"},
+						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/spA-1e510e8ad94c103f4727e2bfc28bc637cb752831-scope_re0bz"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-1e510e8a-src_re0bz"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-1e510e8ad94c103f4727e2bfc28bc637cb752831-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						Tags:              ruleTags1,
 					},
 					{
 						DisplayName:       common.String("rule-with-ns-selector_ingress_allow"),
-						Id:                common.String("spA-304ea84a_re0bz_53"),
+						Id:                common.String("spA-304ea84a85a12eae03f799a546ec5bfe1ffaaa64_re0bz_53"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-304ea84a-src_re0bz"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/spA-304ea84a85a12eae03f799a546ec5bfe1ffaaa64-src_re0bz"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{serviceEntry},
 						Tags:              ruleTags2,
@@ -3241,11 +3241,11 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 	ingressServiceEntry := getRuleServiceEntries(6001, 0, "TCP")
 	egressServiceEntry := getRuleServiceEntries(3366, 0, "TCP")
 
-	allowRuleTags1 := appendRuleIDAndHashTags(npAllowBasicTags, "41134081", "np-app-access-allow-41134081_aoqj8")
-	allowRuleTags2 := appendRuleIDAndHashTags(npAllowBasicTags, "d66432a3", "np-app-access-allow-d66432a3_aoqj8")
+	allowRuleTags1 := appendRuleIDAndHashTags(npAllowBasicTags, "411340818595b23e32e713f0737ff9ec3e777dd2", "np-app-access-allow-411340818595b23e32e713f0737ff9ec3e777dd2_aoqj8")
+	allowRuleTags2 := appendRuleIDAndHashTags(npAllowBasicTags, "d66432a3d57a030336da5b01097ea3157436b396", "np-app-access-allow-d66432a3d57a030336da5b01097ea3157436b396_aoqj8")
 
-	isolationRuleTags1 := appendRuleIDAndHashTags(npIsolationBasicTags, "114fed10", "np-app-access-isolation-114fed10_aoqj8")
-	isolationRuleTags2 := appendRuleIDAndHashTags(npIsolationBasicTags, "8cae63ab", "np-app-access-isolation-8cae63ab_aoqj8")
+	isolationRuleTags1 := appendRuleIDAndHashTags(npIsolationBasicTags, "114fed106ef3b5eae2a583f312435e84c02ca97f", "np-app-access-isolation-114fed106ef3b5eae2a583f312435e84c02ca97f_aoqj8")
+	isolationRuleTags2 := appendRuleIDAndHashTags(npIsolationBasicTags, "8cae63abb024b98f33fcd199b0e9fd40552f8c15", "np-app-access-isolation-8cae63abb024b98f33fcd199b0e9fd40552f8c15_aoqj8")
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeService.Service), "GetNamespaceUID",
 		func(s *common.Service, ns string) types.UID {
@@ -3280,21 +3280,21 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("TCP.6001_ingress_allow"),
-						Id:                common.String("np-app-access-allow-41134081_aoqj8_6001"),
+						Id:                common.String("np-app-access-allow-411340818595b23e32e713f0737ff9ec3e777dd2_aoqj8_6001"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq0,
 						Services:          []string{"ANY"},
-						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-41134081-src_aoqj8"},
+						SourceGroups:      []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-411340818595b23e32e713f0737ff9ec3e777dd2-src_aoqj8"},
 						Action:            &nsxRuleActionAllow,
 						ServiceEntries:    []*data.StructValue{ingressServiceEntry},
 						Tags:              allowRuleTags1,
 					},
 					{
 						DisplayName:       common.String("TCP.3366_egress_allow"),
-						Id:                common.String("np-app-access-allow-d66432a3_aoqj8_3366"),
-						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-d66432a3-dst_aoqj8"},
+						Id:                common.String("np-app-access-allow-d66432a3d57a030336da5b01097ea3157436b396_aoqj8_3366"),
+						DestinationGroups: []string{"/orgs/default/projects/projectQuality/infra/domains/default/groups/np-app-access-allow-d66432a3d57a030336da5b01097ea3157436b396-dst_aoqj8"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"ANY"},
 						SequenceNumber:    &seq1,
@@ -3315,7 +3315,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 				Rules: []model.Rule{
 					{
 						DisplayName:       common.String("ingress_isolation"),
-						Id:                common.String("np-app-access-isolation-114fed10_aoqj8_all"),
+						Id:                common.String("np-app-access-isolation-114fed106ef3b5eae2a583f312435e84c02ca97f_aoqj8_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionIn,
 						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},
@@ -3327,7 +3327,7 @@ func Test_GetFinalSecurityPolicyResourceFromNetworkPolicy(t *testing.T) {
 					},
 					{
 						DisplayName:       common.String("egress_isolation"),
-						Id:                common.String("np-app-access-isolation-8cae63ab_aoqj8_all"),
+						Id:                common.String("np-app-access-isolation-8cae63abb024b98f33fcd199b0e9fd40552f8c15_aoqj8_all"),
 						DestinationGroups: []string{"ANY"},
 						Direction:         &nsxRuleDirectionOut,
 						Scope:             []string{"/orgs/default/projects/projectQuality/vpcs/vpc1/groups/np-app-access-isolation-scope_aoqj8"},

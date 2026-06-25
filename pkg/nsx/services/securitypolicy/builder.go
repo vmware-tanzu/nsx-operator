@@ -418,7 +418,7 @@ func (service *SecurityPolicyService) buildAppliedGroupIDAndName(obj *v1alpha1.S
 	if IsVPCEnabled(service) {
 		ruleHash := ""
 		if ruleIdx != -1 {
-			ruleHash = service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+			ruleHash = service.buildRuleHashString(&(obj.Spec.Rules[ruleIdx]))
 		}
 		group := service.getAppliedGroupByRuleID(createdFor, string(obj.GetUID()), ruleBaseID)
 		if group != nil {
@@ -453,7 +453,7 @@ func (service *SecurityPolicyService) buildAppliedGroupPath(obj *v1alpha1.Securi
 // build appliedTo group display name for both policy and rule levels.
 func (service *SecurityPolicyService) buildAppliedGroupName(obj *v1alpha1.SecurityPolicy, ruleIdx int) string {
 	if ruleIdx != -1 {
-		ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+		ruleHash := service.buildRuleHashString(&(obj.Spec.Rules[ruleIdx]))
 		suffix := strings.Join([]string{ruleHash, common.TargetGroupSuffix}, common.ConnectorUnderline)
 		return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", suffix, "", "")
 	}
@@ -642,7 +642,6 @@ func (service *SecurityPolicyService) buildRuleID(obj *v1alpha1.SecurityPolicy, 
 	ruleIndexHash := service.buildRuleHashString(&(obj.Spec.Rules[ruleIdx]))
 
 	if IsVPCEnabled(service) {
-		ruleIndexHash = service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
 		ruleID := service.getRuleIDByUUIDAndRuleHash(obj.GetUID(), ruleIndexHash, createdFor)
 		if ruleID != nil {
 			return *ruleID
@@ -821,7 +820,7 @@ func (service *SecurityPolicyService) buildRulePeerGroupID(obj *v1alpha1.Securit
 			return *peerGroup.Id
 		}
 
-		ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+		ruleHash := service.buildRuleHashString(&(obj.Spec.Rules[ruleIdx]))
 		return service.buildVpcGroupIdByRuleAndGroupType(obj, ruleHash, suffix, func(id string) bool {
 			return service.groupStore.GetByKey(id) != nil
 		})
@@ -835,7 +834,7 @@ func (service *SecurityPolicyService) buildRulePeerGroupName(obj *v1alpha1.Secur
 	if isSource {
 		suffix = common.SrcGroupSuffix
 	}
-	ruleHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+	ruleHash := service.buildRuleHashString(&(obj.Spec.Rules[ruleIdx]))
 	suffix = strings.Join([]string{ruleHash, suffix}, common.ConnectorUnderline)
 
 	return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", suffix, "", "")
@@ -1049,7 +1048,7 @@ func (service *SecurityPolicyService) buildRuleBasicInfo(obj *v1alpha1.SecurityP
 
 	basicTags := service.buildBasicTags(obj, createdFor)
 	if IsVPCEnabled(service) {
-		ruleIndexHash := service.buildLimitedRuleHashString(&(obj.Spec.Rules[ruleIdx]))
+		ruleIndexHash := service.buildRuleHashString(&(obj.Spec.Rules[ruleIdx]))
 		basicTags = append(basicTags,
 			[]model.Tag{
 				{
@@ -2005,11 +2004,6 @@ func (service *SecurityPolicyService) buildRulePortsNumberString(ports []v1alpha
 		portNumStrings[idx] = service.buildRulePortNumberString(port)
 	}
 	return strings.Join(portNumStrings, common.ConnectorUnderline)
-}
-
-func (service *SecurityPolicyService) buildLimitedRuleHashString(rule *v1alpha1.SecurityPolicyRule) string {
-	serializedBytes, _ := json.Marshal(rule)
-	return util.Sha1(string(serializedBytes))[:common.HashLength]
 }
 
 func (service *SecurityPolicyService) buildRuleHashString(rule *v1alpha1.SecurityPolicyRule) string {
