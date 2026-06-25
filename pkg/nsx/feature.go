@@ -30,3 +30,14 @@ func RestoreVifFeatureEnabled(client *Client, operatorConfig *config.NSXOperator
 	}
 	return operatorConfig.NsxConfig.RestoreVifEnabled()
 }
+
+// SubnetIPAddressTypeFeatureEnabled reports whether the connected NSX Manager supports
+// the ip_address_type field in the VpcSubnet API payload. This field was introduced
+// alongside IPv6 subnet support in NSX 9.2.0; sending it to older versions causes
+// a JSON de-serialization error (NSX error code 287).
+func SubnetIPAddressTypeFeatureEnabled(client *Client) bool {
+	if client == nil {
+		return false
+	}
+	return client.NSXCheckVersion(SubnetIPAddressType)
+}

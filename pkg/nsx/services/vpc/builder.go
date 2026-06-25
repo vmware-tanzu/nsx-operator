@@ -120,9 +120,9 @@ func buildNSXLBS(obj *v1alpha1.NetworkInfo, nsObj *v1.Namespace, cluster, lbsSiz
 	return lbs, nil
 }
 
-// buildNSXLBServiceIPAllocation builds the VpcIpAddressAllocation used to pin the LB service IP in tepless (VLANBackedVPC)
-// restore mode. The allocation uses the fixed well-known ID "_DEFAULT--VPC_SERVICE_IP" and carries the IP that was
-// previously reported in NetworkInfo.VPCs[0].LoadBalancerIPAddresses so that NSX re-uses the same address.
+// buildNSXLBServiceIPAllocation builds the VpcIpAddressAllocation used to pin the LB service IPv4 IP in tepless
+// (VLANBackedVPC) restore mode. The allocation uses the fixed well-known ID "_DEFAULT--VPC_SERVICE_IP" and carries
+// the IP that was previously reported in NetworkInfo so that NSX re-uses the same address.
 func buildNSXLBServiceIPAllocation(lbIP string) *model.VpcIpAddressAllocation {
 	visibility := model.VpcIpAddressAllocation_IP_ADDRESS_BLOCK_VISIBILITY_EXTERNAL
 	ipType := model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
@@ -136,6 +136,27 @@ func buildNSXLBServiceIPAllocation(lbIP string) *model.VpcIpAddressAllocation {
 			{
 				Scope: common.String(common.TagScopeVPCService),
 				Tag:   common.String(common.TagValueUserSpecifiedIP),
+			},
+		},
+	}
+}
+
+// buildNSXLBServiceIPv6Allocation builds the VpcIpAddressAllocation to re-pin the LB service IPv6 SNAT IP
+// during tepless (VLANBackedVPC) restore. Ipv6AllocationPrefixLength must be 128 to request a single /128
+// host address; without it NSX defaults to /64 and rejects the allocation. IpAddressBlockVisibility is
+// omitted because the NSX API does not accept it for IPv6 allocations.
+func buildNSXLBServiceIPv6Allocation(lbIP string) *model.VpcIpAddressAllocation {
+	ipType := model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
+	return &model.VpcIpAddressAllocation{
+		Id:                         common.String(common.LBServiceIPAllocationIDV6),
+		DisplayName:                common.String(common.LBServiceIPAllocationIDV6),
+		AllocationIp:               common.String(lbIP),
+		IpAddressType:              &ipType,
+		Ipv6AllocationPrefixLength: common.Int64(128),
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeVPCService),
+				Tag:   common.String(common.TagValueUserSpecifiedIPV6),
 			},
 		},
 	}

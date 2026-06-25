@@ -19,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -89,6 +90,9 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyFunc(nsx.SubnetIPAddressTypeFeatureEnabled, func(_ *nsx.Client) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := &SubnetService{
@@ -854,6 +858,9 @@ func TestBuildSubnetForSubnet_IPv6(t *testing.T) {
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	patches.ApplyFunc(nsx.SubnetIPAddressTypeFeatureEnabled, func(_ *nsx.Client) bool {
+		return true
+	})
 	defer patches.Reset()
 
 	service := &SubnetService{

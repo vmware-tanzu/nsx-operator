@@ -8,17 +8,19 @@ import (
 )
 
 // WrapHierarchyVPC assembles the HAPI OrgRoot payload for creating/updating a VPC and its children.
-// lbServiceIPAlloc, when non-nil, is added as the first VPC child (before LBS) and is used in tepless
-// restore mode to pin the LB service IP to the previously allocated address.
-func (s *VPCService) WrapHierarchyVPC(org, nsxtProject string, vpc *model.Vpc, lbServiceIPAlloc *model.VpcIpAddressAllocation, lbs *model.LBService, attachment *model.VpcAttachment) (*model.OrgRoot, error) {
+// lbServiceIPAllocs, when non-empty, are added as the first VPC children (before LBS) and are used in
+// tepless restore mode to pin the LB service IPs (IPv4 and/or IPv6) to their previously allocated addresses.
+func (s *VPCService) WrapHierarchyVPC(org, nsxtProject string, vpc *model.Vpc, lbServiceIPAllocs []*model.VpcIpAddressAllocation, lbs *model.LBService, attachment *model.VpcAttachment) (*model.OrgRoot, error) {
 	var vpcChildren []*data.StructValue
-	if lbServiceIPAlloc != nil {
-		log.Debug("Wrapping LB Service IP Allocation", "LB Service IP Allocation", lbServiceIPAlloc.Id, "Allocation IP", lbServiceIPAlloc.AllocationIp)
-		childIPAlloc, err := common.WrapVpcIpAddressAllocation(lbServiceIPAlloc)
+	for _, alloc := range lbServiceIPAllocs {
+		log.Debug("Wrapping LB Service IP Allocation", "LB Service IP Allocation", alloc.Id, "Allocation IP", alloc.AllocationIp)
+		childIPAlloc, err := common.WrapVpcIpAddressAllocation(alloc)
 		if err != nil {
 			return nil, err
 		}
 		vpcChildren = append(vpcChildren, childIPAlloc)
+	}
+	if len(lbServiceIPAllocs) > 0 {
 		vpc.Children = vpcChildren
 	}
 	if lbs != nil {
