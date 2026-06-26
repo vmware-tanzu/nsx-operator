@@ -19,6 +19,20 @@ func StatefulSetPodSubnetPortFeatureEnabled(client *Client, operatorConfig *conf
 	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
 }
 
+// MacPoolDHCPFeatureEnabled is true when NSX supports MAC_POOL allocateAddresses for DHCP
+// subnets (NSX 9.2+ with vpc_wcp_enhance enabled). When false, DHCP ports use NONE.
+//
+//go:noinline
+func MacPoolDHCPFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
+	if client == nil || !client.NSXCheckVersion(StatefulSetPod) {
+		return false
+	}
+	if operatorConfig == nil || operatorConfig.NsxConfig == nil {
+		return false
+	}
+	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
+}
+
 // RestoreVifFeatureEnabled is true when NSX supports restoring SubnetPort vif and
 // operator config set restore_vif to true.
 func RestoreVifFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {

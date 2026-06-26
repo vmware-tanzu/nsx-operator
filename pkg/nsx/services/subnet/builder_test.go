@@ -947,6 +947,131 @@ func TestBuildSubnetMixedModeIPAM(t *testing.T) {
 	})
 }
 
+// TestBuildSubnetIPv6StaticIPAllocation verifies that the builder correctly derives
+// staticIpAllocation for IPv6-only and dual-stack Subnets based on DHCP config,
+// not just IPv4 DHCP state (regression test for the bug where an IPv6-only Subnet
+// with DHCPv6 Server got staticIpAllocation=true because only IPv4 DHCP was checked).
+func TestBuildSubnetIPv6StaticIPAllocation(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) { return false, nil })
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool { return true })
+	defer patches.Reset()
+
+	service := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "k8scl-one:test"},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+	tags := []model.Tag{{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns-1")}}
+
+	testCases := []struct {
+		name                  string
+		ipAddressType         v1alpha1.IPAddressType
+		dhcpMode              v1alpha1.DHCPConfigMode
+		dhcpv6Mode            v1alpha1.DHCPv6ConfigMode
+		explicitStaticEnabled *bool
+		wantStaticEnabled     bool
+	}{
+		{
+			name:              "IPv6-only with DHCPv6 Server → staticIpAllocation false",
+			ipAddressType:     v1alpha1.IPAddressTypeIPv6,
+			dhcpv6Mode:        v1alpha1.DHCPv6ConfigModeServer,
+			wantStaticEnabled: false,
+		},
+		{
+			name:              "IPv6-only with DHCPv6 Deactivated → staticIpAllocation true",
+			ipAddressType:     v1alpha1.IPAddressTypeIPv6,
+			dhcpv6Mode:        v1alpha1.DHCPv6ConfigModeDeactivated,
+			wantStaticEnabled: true,
+		},
+		{
+			name:              "IPv6-only with empty DHCPv6 mode (defaults to deactivated) → staticIpAllocation true",
+			ipAddressType:     v1alpha1.IPAddressTypeIPv6,
+			wantStaticEnabled: true,
+		},
+		{
+			name:              "dual-stack both DHCP active → staticIpAllocation false",
+			ipAddressType:     v1alpha1.IPAddressTypeIPv4IPv6,
+			dhcpMode:          v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			dhcpv6Mode:        v1alpha1.DHCPv6ConfigModeServer,
+			wantStaticEnabled: false,
+		},
+		{
+			name:              "dual-stack only IPv4 DHCP active → staticIpAllocation false",
+			ipAddressType:     v1alpha1.IPAddressTypeIPv4IPv6,
+			dhcpMode:          v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+			dhcpv6Mode:        v1alpha1.DHCPv6ConfigModeDeactivated,
+			wantStaticEnabled: false,
+		},
+		{
+			name:              "dual-stack only IPv6 DHCP active → staticIpAllocation false",
+			ipAddressType:     v1alpha1.IPAddressTypeIPv4IPv6,
+			dhcpMode:          v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			dhcpv6Mode:        v1alpha1.DHCPv6ConfigModeServer,
+			wantStaticEnabled: false,
+		},
+		{
+			name:              "dual-stack both DHCP deactivated → staticIpAllocation true",
+			ipAddressType:     v1alpha1.IPAddressTypeIPv4IPv6,
+			dhcpMode:          v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			dhcpv6Mode:        v1alpha1.DHCPv6ConfigModeDeactivated,
+			wantStaticEnabled: true,
+		},
+		{
+			name:                  "explicit override takes precedence over computed default",
+			ipAddressType:         v1alpha1.IPAddressTypeIPv6,
+			dhcpv6Mode:            v1alpha1.DHCPv6ConfigModeServer,
+			explicitStaticEnabled: common.Bool(true),
+			wantStaticEnabled:     true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			subnet := &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{Name: "test-subnet", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSpec{
+					IPAddressType: tc.ipAddressType,
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: tc.dhcpMode,
+					},
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: tc.dhcpv6Mode,
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: tc.explicitStaticEnabled,
+						},
+					},
+				},
+			}
+			got, err := service.buildSubnet(subnet, tags, []string{})
+			assert.NoError(t, err)
+			assert.NotNil(t, got.AdvancedConfig.StaticIpAllocation.Enabled)
+			assert.Equal(t, tc.wantStaticEnabled, *got.AdvancedConfig.StaticIpAllocation.Enabled)
+		})
+	}
+}
+
 func TestBuildSubnetWithExceedTagsLimit(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)
