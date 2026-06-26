@@ -105,6 +105,13 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 	var nsxSubnet *model.VpcSubnet
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:
+		// Override the IPv4-only default for IPv6 and dual-stack subnets.
+		switch o.Spec.IPAddressType {
+		case v1alpha1.IPAddressTypeIPv6:
+			staticIpAllocation = !util.CRSubnetDHCPv6Enabled(obj)
+		case v1alpha1.IPAddressTypeIPv4IPv6:
+			staticIpAllocation = !util.CRSubnetDHCPEnabled(obj) && !util.CRSubnetDHCPv6Enabled(obj)
+		}
 		if o.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
 			staticIpAllocation = *o.Spec.AdvancedConfig.StaticIPAllocation.Enabled
 		}
