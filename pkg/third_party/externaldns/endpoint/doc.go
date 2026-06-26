@@ -8,14 +8,10 @@
 //	NewEndpointWithTTL
 //	(Endpoint).Key — upstream Key(); here returns EndpointKey struct (subset of fields).
 //	(EndpointKey).String
-//	(Endpoint).WithSetIdentifier
-//	(Endpoint).WithProviderSpecific
 //	(Endpoint).GetProviderSpecificProperty
 //	(Endpoint).SetProviderSpecificProperty
 //	(Endpoint).WithLabel
 //	(Endpoint).GetBoolProviderSpecificProperty
-//	(Endpoint).CheckEndpoint
-//	(Endpoint).RetainProviderProperties
 //	supportsAlias, isAlias — unexported; same as upstream.
 //	EndpointsForHostname
 //
