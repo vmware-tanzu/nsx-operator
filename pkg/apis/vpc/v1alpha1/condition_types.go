@@ -14,6 +14,7 @@ const (
 	ServiceClusterReady        ConditionType = "ServiceClusterReady"
 	AutoSnatEnabled            ConditionType = "AutoSnatEnabled"
 	ExternalIPBlocksConfigured ConditionType = "ExternalIPBlocksConfigured"
+	LBCapability               ConditionType = "LBCapability"
 	DeleteFailure              ConditionType = "DeletionFailed"
 	UpdateFailure              ConditionType = "UpdateFailed"
 )
