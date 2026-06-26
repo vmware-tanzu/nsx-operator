@@ -20,12 +20,14 @@ type CrdV1alpha1Interface interface {
 	IPBlocksInfosGetter
 	NetworkInfosGetter
 	SecurityPoliciesGetter
+	ServiceEndpointsGetter
 	StaticRoutesGetter
 	SubnetsGetter
 	SubnetConnectionBindingMapsGetter
 	SubnetIPReservationsGetter
 	SubnetPortsGetter
 	SubnetSetsGetter
+	VPCEndpointsGetter
 	VPCNetworkConfigurationsGetter
 }
 
@@ -54,6 +56,10 @@ func (c *CrdV1alpha1Client) SecurityPolicies(namespace string) SecurityPolicyInt
 	return newSecurityPolicies(c, namespace)
 }
 
+func (c *CrdV1alpha1Client) ServiceEndpoints(namespace string) ServiceEndpointInterface {
+	return newServiceEndpoints(c, namespace)
+}
+
 func (c *CrdV1alpha1Client) StaticRoutes(namespace string) StaticRouteInterface {
 	return newStaticRoutes(c, namespace)
 }
@@ -76,6 +82,10 @@ func (c *CrdV1alpha1Client) SubnetPorts(namespace string) SubnetPortInterface {
 
 func (c *CrdV1alpha1Client) SubnetSets(namespace string) SubnetSetInterface {
 	return newSubnetSets(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) VPCEndpoints(namespace string) VPCEndpointInterface {
+	return newVPCEndpoints(c, namespace)
 }
 
 func (c *CrdV1alpha1Client) VPCNetworkConfigurations() VPCNetworkConfigurationInterface {

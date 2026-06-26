@@ -15,6 +15,8 @@ type NetworkInfoExpansion interface{}
 
 type SecurityPolicyExpansion interface{}
 
+type ServiceEndpointExpansion interface{}
+
 type StaticRouteExpansion interface{}
 
 type SubnetExpansion interface{}
@@ -26,5 +28,7 @@ type SubnetIPReservationExpansion interface{}
 type SubnetPortExpansion interface{}
 
 type SubnetSetExpansion interface{}
+
+type VPCEndpointExpansion interface{}
 
 type VPCNetworkConfigurationExpansion interface{}

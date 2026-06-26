@@ -21,6 +21,8 @@ type Interface interface {
 	NetworkInfos() NetworkInfoInformer
 	// SecurityPolicies returns a SecurityPolicyInformer.
 	SecurityPolicies() SecurityPolicyInformer
+	// ServiceEndpoints returns a ServiceEndpointInformer.
+	ServiceEndpoints() ServiceEndpointInformer
 	// StaticRoutes returns a StaticRouteInformer.
 	StaticRoutes() StaticRouteInformer
 	// Subnets returns a SubnetInformer.
@@ -33,6 +35,8 @@ type Interface interface {
 	SubnetPorts() SubnetPortInformer
 	// SubnetSets returns a SubnetSetInformer.
 	SubnetSets() SubnetSetInformer
+	// VPCEndpoints returns a VPCEndpointInformer.
+	VPCEndpoints() VPCEndpointInformer
 	// VPCNetworkConfigurations returns a VPCNetworkConfigurationInformer.
 	VPCNetworkConfigurations() VPCNetworkConfigurationInformer
 }
@@ -73,6 +77,11 @@ func (v *version) SecurityPolicies() SecurityPolicyInformer {
 	return &securityPolicyInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
+// ServiceEndpoints returns a ServiceEndpointInformer.
+func (v *version) ServiceEndpoints() ServiceEndpointInformer {
+	return &serviceEndpointInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // StaticRoutes returns a StaticRouteInformer.
 func (v *version) StaticRoutes() StaticRouteInformer {
 	return &staticRouteInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
@@ -101,6 +110,11 @@ func (v *version) SubnetPorts() SubnetPortInformer {
 // SubnetSets returns a SubnetSetInformer.
 func (v *version) SubnetSets() SubnetSetInformer {
 	return &subnetSetInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// VPCEndpoints returns a VPCEndpointInformer.
+func (v *version) VPCEndpoints() VPCEndpointInformer {
+	return &vPCEndpointInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // VPCNetworkConfigurations returns a VPCNetworkConfigurationInformer.
