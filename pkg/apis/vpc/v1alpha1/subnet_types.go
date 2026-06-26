@@ -150,18 +150,14 @@ type SubnetAdvancedConfig struct {
 type StaticIPAllocation struct {
 	// Activate or deactivate static IP allocation for VPC Subnet Ports.
 	// If the DHCP mode is DHCPDeactivated or not set, its default value is true.
-	// If the DHCP mode is DHCPServer, its default value is false. When enabled
-	// together with DHCPServer, the Subnet operates in mixed mode.
+	// If the DHCP mode is DHCPServer, its default value is false.
 	// If the DHCP mode is DHCPRelay, its default value is false.
 	Enabled *bool `json:"enabled,omitempty"`
 	// PoolRanges specifies the IP address ranges for static IP allocation.
 	// Each entry is either a single IP address (e.g. "192.168.1.5") or a
 	// dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and
 	// IPv6 entries may appear in a single list.
-	// When specified with DHCPServer mode, enables mixed mode where the DHCP
-	// pool is derived from the Subnet CIDR minus poolRanges, reservedIPRanges
-	// and system-reserved IPs (gateway, network, broadcast, DHCP server IP).
-	// Supported formats: ["192.168.1.1", "192.168.1.3-192.168.1.100"]
+	// Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"]
 	// +optional
 	PoolRanges []string `json:"poolRanges,omitempty"`
 }
