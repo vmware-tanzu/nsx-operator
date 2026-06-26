@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -107,6 +108,14 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if o.Spec.AdvancedConfig.StaticIPAllocation.Enabled != nil {
 			staticIpAllocation = *o.Spec.AdvancedConfig.StaticIPAllocation.Enabled
 		}
+		// Trim whitespace from each poolRange entry before forwarding to NSX,
+		// since NSX may reject strings with leading or trailing spaces.
+		var poolRanges []string
+		for _, r := range o.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges {
+			if t := strings.TrimSpace(r); t != "" {
+				poolRanges = append(poolRanges, t)
+			}
+		}
 		nsxSubnet = &model.VpcSubnet{
 			Id:          String(service.BuildSubnetID(objForIdGeneration)),
 			AccessMode:  String(convertAccessMode(util.Capitalize(string(o.Spec.AccessMode)))),
@@ -114,7 +123,8 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 			Tags:        tags,
 			AdvancedConfig: &model.SubnetAdvancedConfig{
 				StaticIpAllocation: &model.StaticIpAllocation{
-					Enabled: &staticIpAllocation,
+					Enabled:    &staticIpAllocation,
+					PoolRanges: poolRanges,
 				},
 			},
 		}
@@ -176,8 +186,10 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if len(o.Spec.AdvancedConfig.GatewayAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.GatewayAddresses = o.Spec.AdvancedConfig.GatewayAddresses
 		}
-		// Support custom DHCP server addresses only when static IP allocation is disabled and dhcp mode is v1alpha1.DHCPConfigModeServer
-		if !staticIpAllocation && string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer && len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
+		// Support custom DHCP server addresses whenever DHCP mode is DHCPServer,
+		// regardless of staticIPAllocation. In mixed mode (Static + DHCPServer),
+		// the operator still needs to forward user-provided DHCP server IPs.
+		if string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer && len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.DhcpServerAddresses = o.Spec.AdvancedConfig.DHCPServerAddresses
 		}
 	case *v1alpha1.SubnetSet:

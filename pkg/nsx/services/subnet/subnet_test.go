@@ -1021,6 +1021,57 @@ func TestBuildSubnetCR(t *testing.T) {
 			},
 		},
 		{
+			// Shared subnet with mixed mode (DHCPServer + static pool ranges).
+			// Verifies that BuildSubnetCR correctly propagates StaticIpAllocation.Enabled
+			// and StaticIpAllocation.PoolRanges from the pre-created NSX subnet into the
+			// Subnet CR created under the namespace, and that the AnnotationAssociatedResource
+			// annotation is set.
+			name:           "Build Subnet CR for shared subnet with mixed mode (DHCPServer + poolRanges)",
+			ns:             "target-ns",
+			subnetName:     "mixed-shared-subnet",
+			vpcFullID:      "proj-1:vpc-1",
+			associatedName: "proj-1:vpc-1:mixed-shared-subnet",
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Private"),
+				Ipv4SubnetSize: common.Int64(27),
+				IpAddresses:    []string{"172.26.0.0/27"},
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{
+					Mode: common.String("DHCP_SERVER"),
+				},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"172.26.0.10-172.26.0.12"},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mixed-shared-subnet",
+					Namespace: "target-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "proj-1:vpc-1:mixed-shared-subnet",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName:        "proj-1:vpc-1",
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+					IPv4SubnetSize: 27,
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					IPAddresses:    []string{"172.26.0.0/27"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: []string{"172.26.0.10-172.26.0.12"},
+						},
+					},
+				},
+			},
+		},
+		{
 			name:           "Build Subnet CR with nil NSX Subnet",
 			ns:             "test-ns",
 			subnetName:     "test-subnet",
@@ -1112,6 +1163,87 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled: common.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "Map NSX Subnet with StaticIpAllocation enabled + PoolRanges",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{"192.168.1.10-192.168.1.20", "192.168.1.30"},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: []string{"192.168.1.10-192.168.1.20", "192.168.1.30"},
+						},
+					},
+				},
+			},
+		},
+		{
+			// Regression test: when NSX clears PoolRanges (returns nil/empty), a CR
+			// that previously had pool ranges must be updated to empty, not left stale.
+			name: "Map NSX Subnet with StaticIpAllocation enabled + PoolRanges cleared by NSX",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: []string{"192.168.1.10-192.168.1.20"},
+						},
+					},
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled:    common.Bool(true),
+						PoolRanges: []string{},
+					},
+				},
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: nil,
 						},
 					},
 				},

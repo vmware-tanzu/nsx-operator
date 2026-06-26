@@ -289,6 +289,17 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want: admission.Errored(http.StatusBadRequest, errors.New("failed to list SubnetSet: list failure")),
 		},
 		{
+			name:      "ListSubnetIPReservationFailure",
+			operation: admissionv1.Delete,
+			oldObject: req1,
+			prepareFunc: func(t *testing.T) {
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				k8sClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("list failure"))
+			},
+			want: admission.Errored(http.StatusBadRequest, errors.New("failed to list SubnetIPReservations: list failure")),
+		},
+		{
 			name:            "DecodeOldSubnetFailure",
 			operation:       admissionv1.Delete,
 			want:            admission.Errored(http.StatusBadRequest, errors.New("there is no content to decode")),

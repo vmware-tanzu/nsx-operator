@@ -15,7 +15,26 @@ const (
 	IPAllocationErrorCode                     = 8212
 	ReservedIPRangesOverlappedErrorCode       = 508134
 	ReservedIPRangesOutOfSubnetRangeErrorCode = 508135
+	// MixedModeNotSupportedErrorCode is returned by NSX when both
+	// static_ip_allocation.enabled=true and subnet_dhcp_config.mode=DHCP_SERVER
+	// are set simultaneously and the NSX version does not support mixed-mode subnets.
+	MixedModeNotSupportedErrorCode = 508128
+	// mixedModeIPAllocationErrorMin and mixedModeIPAllocationErrorMax define the
+	// inclusive NSX error-code range reserved for VPC Subnet mixed IP allocation
+	// validation failures (overlapping pool ranges, ranges outside CIDR, conflicts
+	// with reserved ranges, etc.). All codes in this range are permanent user-
+	// configuration errors; the controller should not requeue on them.
+	mixedModeIPAllocationErrorMin = 660000
+	mixedModeIPAllocationErrorMax = 660011
 )
+
+// IsMixedModeIPAllocationError reports whether code is an NSX error in the
+// 660000–660011 range (VPC Subnet mixed IP allocation validation failures).
+// These are permanent user-configuration errors that the controller must not
+// requeue.
+func IsMixedModeIPAllocationError(code int64) bool {
+	return code >= mixedModeIPAllocationErrorMin && code <= mixedModeIPAllocationErrorMax
+}
 
 type NsxError interface {
 	setDetail(detail *ErrorDetail)

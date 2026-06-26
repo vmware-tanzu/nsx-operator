@@ -204,11 +204,19 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return ResultNormal, nil
 		}
 		var nsxErr *nsxutil.NSXApiError
-		if errors.As(err, &nsxErr) {
-			if *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOverlappedErrorCode || *(nsxErr.ApiError.ErrorCode) == nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode {
-				// No need to requeue for invalid reservedIPRanges
+		if errors.As(err, &nsxErr) && nsxErr.ApiError != nil && nsxErr.ApiError.ErrorCode != nil {
+			code := *(nsxErr.ApiError.ErrorCode)
+			// User-configuration errors and NSX-version incompatibilities are
+			// permanent: no benefit in requeuing until the spec is fixed or
+			// NSX is upgraded. The 660000–660011 range covers all mixed-mode
+			// IP allocation validation failures (pool range overlap, out-of-CIDR,
+			// conflict with reserved ranges, etc.).
+			if nsxutil.IsMixedModeIPAllocationError(code) ||
+				code == nsxutil.ReservedIPRangesOverlappedErrorCode ||
+				code == nsxutil.ReservedIPRangesOutOfSubnetRangeErrorCode ||
+				code == nsxutil.MixedModeNotSupportedErrorCode {
 				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
-				return ResultNormal, err
+				return ResultNormal, nil
 			}
 		}
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)

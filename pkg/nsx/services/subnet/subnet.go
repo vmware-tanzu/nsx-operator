@@ -188,7 +188,8 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
 				updatedSubnet.SubnetDhcpv6Config = nsxSubnet.SubnetDhcpv6Config
 				updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
-				// Only update gateway_addresses, dhcp_server_address, and connectivity_state from AdvancedConfig
+				// Only update gateway_addresses, dhcp_server_address, connectivity_state
+				// and static_ip_allocation (enabled + pool_ranges) from AdvancedConfig.
 				if nsxSubnet.AdvancedConfig != nil {
 					updatedSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{
 						GatewayAddresses:    nsxSubnet.AdvancedConfig.GatewayAddresses,
@@ -663,7 +664,8 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		switch dhcpMode {
 		case "DHCP_SERVER":
 			subnetCR.Spec.SubnetDHCPConfig.Mode = v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)
-			if len(nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges) > 0 {
+			if nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig != nil &&
+				len(nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges) > 0 {
 				subnetCR.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges = nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges
 			}
 
@@ -718,9 +720,19 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 			}
 		}
 
-		// Map StaticIpAllocation from NSX Subnet
-		if nsxSubnet.AdvancedConfig.StaticIpAllocation != nil && nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
-			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled
+		// Map StaticIpAllocation (Enabled + PoolRanges) from NSX Subnet.
+		if nsxSubnet.AdvancedConfig.StaticIpAllocation != nil {
+			if nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled != nil {
+				subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled
+			}
+			// Always assign PoolRanges (even when nil/empty) so that a CR with
+			// stale pool ranges is cleared when NSX no longer reports any.
+			// Normalise empty slice to nil so the CR field stays clean.
+			poolRanges := nsxSubnet.AdvancedConfig.StaticIpAllocation.PoolRanges
+			if len(poolRanges) == 0 {
+				poolRanges = nil
+			}
+			subnetCR.Spec.AdvancedConfig.StaticIPAllocation.PoolRanges = poolRanges
 		}
 
 		// Map GatewayAddresses from NSX Subnet for shared subnets

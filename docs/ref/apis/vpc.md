@@ -304,7 +304,6 @@ _Appears in:_
 | `IPv6` |  |
 | `IPv4IPv6` |  |
 
-
 #### IPAddressVisibility
 
 _Underlying type:_ _string_
@@ -710,7 +709,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer or DHCPRelay, its default value is false.<br />The value cannot be set to true when the DHCP mode is DHCPServer or DHCPRelay. |  |  |
+| `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false.<br />If the DHCP mode is DHCPRelay, its default value is false. |  |  |
+| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
 
 
 #### StaticIPAllocationType
