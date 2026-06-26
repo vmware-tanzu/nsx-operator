@@ -512,7 +512,8 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 	defer mockCtl.Finish()
 	service := &SubnetService{
 		Service: common.Service{
-			Client: k8sClient,
+			Client:    k8sClient,
+			NSXClient: &nsx.Client{},
 			NSXConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -573,6 +574,10 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 			return &model.VpcSubnet{Path: &fakeSubnetPath}, nil
 		})
 	defer patchesCreateOrUpdateSubnet.Reset()
+	patchesNSXCheckVersion := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return true
+	})
+	defer patchesNSXCheckVersion.Reset()
 	gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil

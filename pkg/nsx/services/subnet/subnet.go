@@ -20,6 +20,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -560,7 +561,9 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		// is only updated after the updating succeeds.
 		updatedSubnet := *vpcSubnets[i] // #nosec G602
 		updatedSubnet.Tags = newTags
-		updatedSubnet.IpAddressType = String(controllercommon.ConvertCRIPAddressTypeToNSX(subnetsetCR.Spec.IPAddressType))
+		if service.Service.NSXClient.NSXCheckVersion(nsx.IPv6) {
+			updatedSubnet.IpAddressType = String(controllercommon.ConvertCRIPAddressTypeToNSX(subnetsetCR.Spec.IPAddressType))
+		}
 		// Update the SubnetSet DHCP Config
 		if updatedSubnet.SubnetDhcpConfig != nil {
 			// Generate a new SubnetDhcpConfig for updatedSubnet to
