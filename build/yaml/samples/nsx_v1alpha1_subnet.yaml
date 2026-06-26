@@ -6,7 +6,7 @@ spec:
   accessMode: Private
   ipv4SubnetSize: 64
 ---
-# Subnet CR sample for DHCP Service mode Subnet with reservedIPRanges
+# Subnet CR sample for DHCP Server mode Subnet with reservedIPRanges
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: Subnet
 metadata:
@@ -20,6 +20,24 @@ spec:
     dhcpServerAdditionalConfig:
       reservedIPRanges:
       - 172.26.2.4-172.26.2.10
+---
+# Subnet CR sample for DHCP Server mode Subnet with custom gateway address and dhcp server address
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: Subnet
+metadata:
+  name: subnet-sample-b
+spec:
+  accessMode: Private
+  ipAddresses:
+  - 172.26.2.0/28
+  advancedConfig:
+    connectivityState: Connected
+    gatewayAddresses:
+    - 172.26.2.2
+    dhcpServerAddresses:
+    - 172.26.2.3
+  subnetDHCPConfig:
+    mode: DHCPServer
 ---
 # Subnet CR sample for assigned VLAN extension Subnet
 apiVersion: crd.nsx.vmware.com/v1alpha1
