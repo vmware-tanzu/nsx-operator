@@ -118,6 +118,8 @@ func TestSubnetSet(t *testing.T) {
 		RunSubtest(t, "case=SubnetValidate", SubnetValidate)
 		RunSubtest(t, "case=SubnetPortWithIPAM", SubnetPortWithIPAM)
 		RunSubtest(t, "case=SubnetPortWithDHCP", SubnetPortWithDHCP)
+		RunSubtest(t, "case=SubnetBindingAutoVLANWithExistingBinding", SubnetBindingAutoVLANWithExistingBinding)
+		RunSubtest(t, "case=SubnetBindingAutoVLANAllocation", SubnetBindingAutoVLANAllocation)
 	})
 }
 
@@ -1445,4 +1447,141 @@ func SubnetWithAssociatedResourceAnnotation(t *testing.T) {
 	require.Contains(t, err.Error(), "denied", "Error message should mention the denied")
 
 	log.Info("Verified that creating a subnet with associated-resource annotation is refused", "error", err.Error())
+}
+
+// SubnetBindingAutoVLANWithExistingBinding verifies that when a BindingMap has already
+// allocated a VLAN on the target parent Subnet, a new BindingMap receives a different VLAN.
+func SubnetBindingAutoVLANWithExistingBinding(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 2)
+	childSubnetName1, childSubnetName2 := childSubnetNames[0], childSubnetNames[1]
+	bindingName1 := "binding-existing-1-" + getRandomString()
+	bindingName2 := "binding-existing-2-" + getRandomString()
+
+	vlan1 := createBindingMapAndWaitForVlan(t, bindingName1, childSubnetName1, parentSubnetName)
+	assert.True(t, vlan1 >= 1 && vlan1 <= 4094, "Allocated VLAN should be between 1 and 4094")
+
+	vlan2 := createBindingMapAndWaitForVlan(t, bindingName2, childSubnetName2, parentSubnetName)
+	assert.True(t, vlan2 >= 1 && vlan2 <= 4094, "Allocated VLAN should be between 1 and 4094")
+	assert.NotEqual(t, vlan1, vlan2, "BindingMap 2 should receive a different VLAN when BindingMap 1 already holds one on the same parent Subnet")
+}
+
+// SubnetBindingAutoVLANAllocation tests VLAN recycle after a BindingMap is deleted.
+func SubnetBindingAutoVLANAllocation(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 2)
+	childSubnetName1 := childSubnetNames[0]
+	bindingName1 := "binding-auto-1-" + getRandomString()
+
+	vlan1 := createBindingMapAndWaitForVlan(t, bindingName1, childSubnetName1, parentSubnetName)
+
+	// Delete BindingMap 1 and verify VLAN recycle
+	err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName1, v1.DeleteOptions{})
+	require.NoError(t, err)
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Get(context.TODO(), bindingName1, v1.GetOptions{})
+		return errors.IsNotFound(err), nil
+	})
+	require.NoError(t, err)
+
+	// Wait for the controller to process the deletion event and clear the NSX/cache
+	time.Sleep(5 * time.Second)
+
+	bindingName3 := "binding-auto-3-" + getRandomString()
+	vlan3 := createBindingMapAndWaitForVlan(t, bindingName3, childSubnetName1, parentSubnetName)
+	assert.Equal(t, vlan1, vlan3, "BindingMap 3 should reuse the recycled VLAN ID from BindingMap 1")
+}
+
+func createBindingTestSubnets(t *testing.T, numChildren int) (parentSubnetName string, childSubnetNames []string) {
+	t.Helper()
+
+	parentSubnetName = "parent-subnet-" + getRandomString()
+	parentSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: parentSubnetName, Namespace: subnetTestNamespace},
+		Spec:       v1alpha1.SubnetSpec{IPv4SubnetSize: 16},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), parentSubnet, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), parentSubnetName, v1.DeleteOptions{})
+	})
+	require.NoError(t, waitForSubnetReady(subnetTestNamespace, parentSubnetName))
+
+	childSubnetNames = make([]string, numChildren)
+	for i := range childSubnetNames {
+		childSubnetName := fmt.Sprintf("child-subnet-%d-%s", i+1, getRandomString())
+		childSubnet := &v1alpha1.Subnet{
+			ObjectMeta: v1.ObjectMeta{Name: childSubnetName, Namespace: subnetTestNamespace},
+			Spec:       v1alpha1.SubnetSpec{IPv4SubnetSize: 16},
+		}
+		_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), childSubnet, v1.CreateOptions{})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), childSubnetName, v1.DeleteOptions{})
+		})
+		require.NoError(t, waitForSubnetReady(subnetTestNamespace, childSubnetName))
+		childSubnetNames[i] = childSubnetName
+	}
+	return parentSubnetName, childSubnetNames
+}
+
+func createBindingMapAndWaitForVlan(t *testing.T, bindingName, childSubnetName, parentSubnetName string) int64 {
+	t.Helper()
+
+	binding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{Name: bindingName, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       childSubnetName,
+			TargetSubnetName: parentSubnetName,
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Create(context.TODO(), binding, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName, v1.DeleteOptions{})
+	})
+
+	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName)
+	require.NoError(t, err, "BindingMap %s should be ready and have an auto-allocated status.vlanID", bindingName)
+	return vlan
+}
+
+func waitForBindingMapVlan(namespace, bindingName string) (int64, error) {
+	var vlan int64
+	err := wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		b, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).Get(context.TODO(), bindingName, v1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		if isBindingMapReady(b) && b.Status.VLANID != nil {
+			vlan = *b.Status.VLANID
+			return true, nil
+		}
+		return false, nil
+	})
+	return vlan, err
+}
+
+// Helper functions
+func waitForSubnetReady(namespace, name string) error {
+	return wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		s, err := testData.crdClientset.CrdV1alpha1().Subnets(namespace).Get(context.TODO(), name, v1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		for _, cond := range s.Status.Conditions {
+			if cond.Type == v1alpha1.Ready && cond.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+}
+
+func isBindingMapReady(b *v1alpha1.SubnetConnectionBindingMap) bool {
+	for _, cond := range b.Status.Conditions {
+		if cond.Type == v1alpha1.Ready && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }

@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
+	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vlanpool"
 )
 
 type fakeRecorder struct{}
@@ -76,7 +77,7 @@ func newMockManager(objs ...client.Object) ctrl.Manager {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).WithStatusSubresource(&v1alpha1.SubnetConnectionBindingMap{}).Build()
 	return &MockManager{
 		client:   fakeClient,
 		scheme:   newScheme,
@@ -102,7 +103,7 @@ func TestReconcile(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parentSubnetSet",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 	for _, tc := range []struct {
@@ -110,6 +111,7 @@ func TestReconcile(t *testing.T) {
 		objects   []client.Object
 		expectRes ctrl.Result
 		patches   func(t *testing.T, r *Reconciler) *gomonkey.Patches
+		verify    func(t *testing.T, r *Reconciler)
 	}{
 		{
 			name: "Failed to reconcile due to an error getting the SubnetConnectionBindingMap CR",
@@ -184,8 +186,11 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
 					return "/subnet-child", []string{"/subnet-parent"}, nil
 				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, *errorWithRetry) {
+					return 0, nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
-					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, childSubnetPath string, parentSubnetPaths []string) error {
+					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, childSubnetPath string, parentSubnetPaths []string) error {
 						return fmt.Errorf("failed to configure NSX")
 					})
 				return patches
@@ -198,13 +203,50 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
 					return "/subnet-child", []string{"/subnet-parent"}, nil
 				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, *errorWithRetry) {
+					return 0, nil
+				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
-					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, childSubnetPath string, parentSubnetPaths []string) error {
+					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, childSubnetPath string, parentSubnetPaths []string) error {
 						return nil
 					})
 				return patches
 			},
 			expectRes: controllerscommon.ResultNormal,
+		}, {
+			name: "Auto-allocate VLAN and set status.vlanID",
+			objects: []client.Object{&v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:       "binding-uuid-auto",
+					Namespace: crNS,
+					Name:      crName,
+				},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:          "child",
+					TargetSubnetSetName: "parentSubnetSet",
+				},
+			}},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+					return "/subnet-child", []string{"/subnet-parent"}, nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, *errorWithRetry) {
+					return 301, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
+					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, childSubnetPath string, parentSubnetPaths []string) error {
+						assert.Equal(t, int64(301), vlanID)
+						return nil
+					})
+				return patches
+			},
+			expectRes: controllerscommon.ResultNormal,
+			verify: func(t *testing.T, r *Reconciler) {
+				got := &v1alpha1.SubnetConnectionBindingMap{}
+				require.NoError(t, r.Client.Get(context.Background(), request.NamespacedName, got))
+				require.NotNil(t, got.Status.VLANID)
+				assert.Equal(t, int64(301), *got.Status.VLANID)
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -215,6 +257,9 @@ func TestReconcile(t *testing.T) {
 
 			rst, _ := r.Reconcile(ctx, request)
 			assert.Equal(t, tc.expectRes, rst)
+			if tc.verify != nil {
+				tc.verify(t, r)
+			}
 		})
 	}
 }
@@ -287,7 +332,7 @@ func TestValidateDependency(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:       childSubnet,
 			TargetSubnetName: targetSubnet,
-			VLANTrafficTag:   101,
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 	bindingCR2 := &v1alpha1.SubnetConnectionBindingMap{
@@ -298,7 +343,7 @@ func TestValidateDependency(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          childSubnet,
 			TargetSubnetSetName: targetSubnetSet,
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 
@@ -740,7 +785,7 @@ func TestUpdateBindingMapStatusWithConditions(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 	bindingMap2 := &v1alpha1.SubnetConnectionBindingMap{
@@ -751,7 +796,7 @@ func TestUpdateBindingMapStatusWithConditions(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 		Status: v1alpha1.SubnetConnectionBindingMapStatus{
 			Conditions: []v1alpha1.Condition{
@@ -770,7 +815,7 @@ func TestUpdateBindingMapStatusWithConditions(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 		Status: v1alpha1.SubnetConnectionBindingMapStatus{
 			Conditions: []v1alpha1.Condition{
@@ -792,7 +837,7 @@ func TestUpdateBindingMapStatusWithConditions(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 		Status: v1alpha1.SubnetConnectionBindingMapStatus{
 			Conditions: []v1alpha1.Condition{
@@ -880,7 +925,7 @@ func TestUpdateBindingMapConditionWithRetry(t *testing.T) {
 				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 					SubnetName:          "child",
 					TargetSubnetSetName: "parent",
-					VLANTrafficTag:      101,
+					VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 				},
 			},
 			condition: v1alpha1.Condition{
@@ -903,7 +948,7 @@ func TestUpdateBindingMapConditionWithRetry(t *testing.T) {
 				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 					SubnetName:          "child",
 					TargetSubnetSetName: "parent",
-					VLANTrafficTag:      101,
+					VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 				},
 				Status: v1alpha1.SubnetConnectionBindingMapStatus{
 					Conditions: []v1alpha1.Condition{
@@ -936,7 +981,7 @@ func TestUpdateBindingMapConditionWithRetry(t *testing.T) {
 				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 					SubnetName:          "child",
 					TargetSubnetSetName: "parent",
-					VLANTrafficTag:      101,
+					VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 				},
 				Status: v1alpha1.SubnetConnectionBindingMapStatus{
 					Conditions: []v1alpha1.Condition{
@@ -1082,7 +1127,7 @@ func TestPredicateFuncsBindingMaps(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 		Status: v1alpha1.SubnetConnectionBindingMapStatus{
 			Conditions: []v1alpha1.Condition{
@@ -1101,7 +1146,7 @@ func TestPredicateFuncsBindingMaps(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      102,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(102),
 		},
 		Status: v1alpha1.SubnetConnectionBindingMapStatus{
 			Conditions: []v1alpha1.Condition{
@@ -1120,7 +1165,7 @@ func TestPredicateFuncsBindingMaps(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
 			TargetSubnetSetName: "parent",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 		Status: v1alpha1.SubnetConnectionBindingMapStatus{
 			Conditions: []v1alpha1.Condition{
@@ -1264,4 +1309,155 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 	}
 
 	return NewReconciler(mgr, subnetService, bindingService)
+}
+
+func TestReconcileVlanTrafficTag(t *testing.T) {
+	bm1 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-1",
+			UID:       "uuid-1",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-1",
+			TargetSubnetName: "subnet-parent-1",
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(201),
+		},
+	}
+	bm2 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-2",
+			UID:       "uuid-2",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-2",
+			TargetSubnetName: "subnet-parent-2",
+		},
+	}
+	bm3 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-3",
+			UID:       "uuid-3",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-3",
+			TargetSubnetName: "subnet-parent-3",
+		},
+	}
+	childSubnet := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "subnet-child-2",
+		},
+		Status: v1alpha1.SubnetStatus{
+			VLANExtension: v1alpha1.VLANExtension{
+				VLANID: 300,
+			},
+		},
+	}
+	childSubnetNoVlan := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "subnet-child-3",
+		},
+		Status: v1alpha1.SubnetStatus{
+			VLANExtension: v1alpha1.VLANExtension{
+				VLANID: 0,
+			},
+		},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		bindingMap *v1alpha1.SubnetConnectionBindingMap
+		objects    []client.Object
+		patches    func(t *testing.T, r *Reconciler) *gomonkey.Patches
+		expErr     bool
+		expVlan    *int64
+	}{
+		{
+			name:       "Manual VLAN successfully validated",
+			bindingMap: bm1,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "ValidateManualVlan", func(_ *vlanpool.Service, parentSubnetPaths []string, vlan int64, excludeCRUID string, fromNSX bool) error {
+					return nil
+				})
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(201),
+		},
+		{
+			name:       "Manual VLAN validation failed",
+			bindingMap: bm1,
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "ValidateManualVlan", func(_ *vlanpool.Service, parentSubnetPaths []string, vlan int64, excludeCRUID string, fromNSX bool) error {
+					return fmt.Errorf("conflict")
+				})
+			},
+			expErr: true,
+		},
+		{
+			name:       "Auto allocate VLAN successfully with VLAN ext subnet (preferred VLAN ID is used)",
+			bindingMap: bm2,
+			objects:    []client.Object{childSubnet, bm2},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.Equal(t, int64(300), preferred)
+					return 300, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(300),
+		},
+		{
+			name:       "Auto allocate VLAN successfully when child Subnet is not a VLAN ext subnet",
+			bindingMap: bm3,
+			objects:    []client.Object{childSubnetNoVlan, bm3},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.Equal(t, int64(-1), preferred)
+					return 100, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(100),
+		},
+		{
+			name:       "Auto allocate VLAN successfully when child Subnet does not exist",
+			bindingMap: bm2,
+			objects:    []client.Object{bm2},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.Equal(t, int64(-1), preferred)
+					return 100, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(100),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.TODO()
+			bm := tc.bindingMap.DeepCopy()
+			r := createFakeReconciler(tc.objects...)
+			if tc.patches != nil {
+				patches := tc.patches(t, r)
+				defer patches.Reset()
+			}
+			vlanID, err := r.reconcileVlanTrafficTag(ctx, bm, []string{"/parent"}, false)
+			if tc.expErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Nil(t, err)
+				if tc.expVlan != nil {
+					assert.Equal(t, *tc.expVlan, vlanID)
+				}
+			}
+		})
+	}
 }

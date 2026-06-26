@@ -18,7 +18,7 @@ var (
 	Bool   = common.Bool
 )
 
-func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string) []*model.SubnetConnectionBindingMap {
+func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, parentSubnetPaths []string) []*model.SubnetConnectionBindingMap {
 	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
 	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(parentSubnetPaths))
 	for i := range parentSubnetPaths {
@@ -31,7 +31,7 @@ func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionB
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{
 			Id:             String(s.buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
 			DisplayName:    String(binding.Name),
-			VlanTrafficTag: Int64(binding.Spec.VLANTrafficTag),
+			VlanTrafficTag: Int64(vlanID),
 			SubnetPath:     &path,
 			Tags:           tags,
 		}

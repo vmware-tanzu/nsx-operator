@@ -18,11 +18,11 @@ type SubnetConnectionBindingMapSpec struct {
 	// +kubebuilder:validation:Optional
 	TargetSubnetName string `json:"targetSubnetName,omitempty"`
 	// VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be
-	// unique on the target Subnet or SubnetSet.
+	// unique on the target Subnet or SubnetSet. When omitted, the operator auto-allocates a VLAN ID.
 	// +kubebuilder:validation:Maximum:=4094
-	// +kubebuilder:validation:Minimum:=0
-	// +kubebuilder:validation:Required
-	VLANTrafficTag int64 `json:"vlanTrafficTag"`
+	// +kubebuilder:validation:Minimum:=1
+	// +kubebuilder:validation:Optional
+	VLANTrafficTag *int64 `json:"vlanTrafficTag,omitempty"`
 }
 
 // SubnetConnectionBindingMapStatus defines the observed state of SubnetConnectionBindingMap.
@@ -30,6 +30,8 @@ type SubnetConnectionBindingMapStatus struct {
 	// Conditions described if the SubnetConnectionBindingMaps is configured on NSX or not.
 	// Condition type ""
 	Conditions []Condition `json:"conditions,omitempty"`
+	// VLANID is the VLAN ID realized in NSX for this binding.
+	VLANID *int64 `json:"vlanID,omitempty"`
 }
 
 // +genclient
@@ -43,7 +45,7 @@ type SubnetConnectionBindingMapStatus struct {
 // +kubebuilder:printcolumn:name="subnet",type=string,JSONPath=`.spec.subnetName`,description="The Subnet which the SubnetConnectionBindingMap is associated"
 // +kubebuilder:printcolumn:name="targetSubnet",type=string,JSONPath=`.spec.targetSubnetName`,description="The target Subnet which the SubnetConnectionBindingMap is connected to"
 // +kubebuilder:printcolumn:name="targetSubnetSet",type=string,JSONPath=`.spec.targetSubnetSetName`,description="The target SubnetSet which the SubnetConnectionBindingMap is connected to"
-// +kubebuilder:printcolumn:name="vlanTrafficTag",type=integer,JSONPath=`.spec.vlanTrafficTag`,description="Vlan used in the NSX SubnetConnectionBindingMap"
+// +kubebuilder:printcolumn:name="vlanID",type=integer,JSONPath=`.status.vlanID`,description="Vlan used in the NSX SubnetConnectionBindingMap"
 type SubnetConnectionBindingMap struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -58,6 +60,16 @@ type SubnetConnectionBindingMapList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []SubnetConnectionBindingMap `json:"items,omitempty"`
+}
+
+// VLANTrafficTagPtr returns a pointer to the given VLAN traffic tag value.
+func VLANTrafficTagPtr(v int64) *int64 {
+	return &v
+}
+
+// HasVlanTrafficTag reports whether spec.vlanTrafficTag is set.
+func (s *SubnetConnectionBindingMapSpec) HasVlanTrafficTag() bool {
+	return s.VLANTrafficTag != nil
 }
 
 func init() {
