@@ -29,7 +29,7 @@ var (
 )
 
 // NSX Policy path: /orgs/{org}/projects/{project}/dns-records/{record-id}
-var projectDNSRecordPathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-records/([^/]+)$`)
+var dnsRecordPathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-records/([^/]+)$`)
 
 // dnsZoneCache is a thread-safe zone path → DNS domain name cache.
 type dnsZoneCache struct {
@@ -66,10 +66,10 @@ func (c *dnsZoneCache) set(key, value string) {
 // DNSRecordService reconciles DNS rows against NSX (store + future HAPI); optional VPCService and DNSZoneMap for zone validation.
 type DNSRecordService struct {
 	common.Service
-	VPCService              common.VPCServiceProvider
-	DNSRecordStore          *RecordStore
-	DNSZoneMap              *dnsZoneCache
-	ProjectDnsRecordBuilder *common.PolicyTreeBuilder[*model.ProjectDnsRecord]
+	VPCService       common.VPCServiceProvider
+	DNSRecordStore   *RecordStore
+	DNSZoneMap       *dnsZoneCache
+	DnsRecordBuilder *common.PolicyTreeBuilder[*model.DnsRecord]
 }
 
 // CreateOrUpdateRecords upserts batch rows into the store and NSX placeholder. Returns (storeMutated, err).
@@ -81,7 +81,7 @@ func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *Agg
 	if len(toUpsert) == 0 && len(toRemove) == 0 {
 		return false, nil
 	}
-	toApply, syncErr := s.syncProjectDnsRecordsInNSX(ctx, toUpsert, toRemove)
+	toApply, syncErr := s.syncDnsRecordsInNSX(ctx, toUpsert, toRemove)
 	// Apply whichever records were successfully processed to keep the local store in sync even on
 	// partial realization failures; this prevents re-sending already-realized records next reconcile.
 	if len(toApply) > 0 {
@@ -92,52 +92,52 @@ func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *Agg
 	return len(toApply) > 0, syncErr
 }
 
-// syncProjectDnsRecordsInNSX sends upserts then deletes via OrgRoot hierarchy patch. For each upsert it checks
+// syncDnsRecordsInNSX sends upserts then deletes via OrgRoot hierarchy patch. For each upsert it checks
 // realization on the patched record path (like Subnet), then GETs the record from NSX for the store; on realization
 // failure it deletes the record via Policy API.
-func (s *DNSRecordService) syncProjectDnsRecordsInNSX(ctx context.Context, toUpsert, toRemove []*model.ProjectDnsRecord) ([]*model.ProjectDnsRecord, error) {
-	removeOps := make([]*model.ProjectDnsRecord, 0, len(toRemove))
+func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, toRemove []*model.DnsRecord) ([]*model.DnsRecord, error) {
+	removeOps := make([]*model.DnsRecord, 0, len(toRemove))
 	for _, rec := range toRemove {
 		cp := *rec
 		cp.MarkedForDelete = common.Bool(true)
 		removeOps = append(removeOps, &cp)
 	}
 
-	batch := append(append([]*model.ProjectDnsRecord(nil), toUpsert...), removeOps...)
+	batch := append(append([]*model.DnsRecord(nil), toUpsert...), removeOps...)
 
 	if len(batch) == 0 {
 		return nil, nil
 	}
-	log.Info("Patching ProjectDnsRecord batch on NSX", "upsert", len(toUpsert), "remove", len(toRemove))
-	if err := s.ProjectDnsRecordBuilder.PagingUpdateResources(ctx, batch, common.DefaultHAPIChildrenCount, s.NSXClient, nil); err != nil {
+	log.Info("Patching DnsRecord batch on NSX", "upsert", len(toUpsert), "remove", len(toRemove))
+	if err := s.DnsRecordBuilder.PagingUpdateResources(ctx, batch, common.DefaultHAPIChildrenCount, s.NSXClient, nil); err != nil {
 		return nil, err
 	}
 	if len(toUpsert) == 0 {
 		return removeOps, nil
 	}
-	refreshed := make([]*model.ProjectDnsRecord, 0, len(toUpsert))
+	refreshed := make([]*model.DnsRecord, 0, len(toUpsert))
 	var realizeErrs []error
 	for _, rec := range toUpsert {
-		orgID, projectID, recordID, perr := parseProjectDNSRecordPolicyPath(*rec.Path)
+		orgID, projectID, recordID, perr := parseDnsRecordPolicyPath(*rec.Path)
 		if perr != nil {
-			log.Error(perr, "Failed to parse ProjectDnsRecord path, skipping record", "path", *rec.Path)
+			log.Error(perr, "Failed to parse DnsRecord path, skipping record", "path", *rec.Path)
 			realizeErrs = append(realizeErrs, perr)
 			continue
 		}
 		live, gerr := s.NSXClient.DnsRecordsClient.Get(orgID, projectID, recordID)
 		gerr = nsxutil.TransNSXApiError(gerr)
 		if gerr != nil {
-			log.Error(gerr, "Failed to get realized ProjectDnsRecord from NSX", "Id", recordID)
+			log.Error(gerr, "Failed to get realized DnsRecord from NSX", "Id", recordID)
 			realizeErrs = append(realizeErrs, fmt.Errorf("failed to get record %s from NSX after realization: %w", recordID, gerr))
 			continue
 		}
-		log.Debug("ProjectDnsRecord realized and refreshed", "Id", recordID)
+		log.Debug("DnsRecord realized and refreshed", "Id", recordID)
 		lc := live
 		refreshed = append(refreshed, &lc)
 	}
-	toApply := append(append([]*model.ProjectDnsRecord(nil), refreshed...), removeOps...)
+	toApply := append(append([]*model.DnsRecord(nil), refreshed...), removeOps...)
 	if len(realizeErrs) > 0 {
-		log.Error(errors.Join(realizeErrs...), "Some ProjectDnsRecords failed realization",
+		log.Error(errors.Join(realizeErrs...), "Some DnsRecords failed realization",
 			"failed", len(realizeErrs), "succeeded", len(refreshed))
 		return toApply, errors.Join(realizeErrs...)
 	}
@@ -193,7 +193,7 @@ func (s *DNSRecordService) validateEndpointRowConflict(zonePath string, ep *extd
 //   - primary owner, no contributors → mark for delete
 //   - primary owner, has contributors → promote first contributor, append promoted record to toUpdate
 //   - contributing owner → drop key from contributing tag, append updated record to toUpdate
-func (s *DNSRecordService) classifyOwnerRemoval(rec *model.ProjectDnsRecord, deletedOwnerKey string, toDelete, toUpdate *[]*model.ProjectDnsRecord) error {
+func (s *DNSRecordService) classifyOwnerRemoval(rec *model.DnsRecord, deletedOwnerKey string, toDelete, toUpdate *[]*model.DnsRecord) error {
 	contribs := parseContributingOwnersFromRecord(rec) // already sorted
 	if getDNSRecordOwnerNamespacedName(rec) == deletedOwnerKey {
 		if len(contribs) == 0 {
@@ -219,7 +219,7 @@ func (s *DNSRecordService) classifyOwnerRemoval(rec *model.ProjectDnsRecord, del
 //   - desired rows: build the target record, compare with store, enqueue update if changed.
 //   - stale rows: records once owned by batch.Owner that are no longer in the desired set
 //     are either deleted (sole owner) or re-tagged (promote/remove-contributor).
-func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]*model.ProjectDnsRecord, []*model.ProjectDnsRecord, error) {
+func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]*model.DnsRecord, []*model.DnsRecord, error) {
 	if batch.Owner == nil {
 		if len(batch.Rows) > 0 {
 			return nil, nil, fmt.Errorf("aggregated DNS batch has rows but Owner is nil")
@@ -229,7 +229,7 @@ func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]
 	log.Debug("Computing DNS record diff", "kind", batch.Owner.Kind,
 		"namespace", batch.Owner.GetNamespace(), "name", batch.Owner.GetName(), "rows", len(batch.Rows))
 
-	desiredRecs := make([]*model.ProjectDnsRecord, 0, len(batch.Rows))
+	desiredRecs := make([]*model.DnsRecord, 0, len(batch.Rows))
 	for _, row := range batch.Rows {
 		if rec := s.BuildProjectDnsRecord(batch.Owner, row); rec != nil {
 			desiredRecs = append(desiredRecs, rec)
@@ -243,7 +243,7 @@ func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]
 	// compareRecords: new/content-changed records go to toUpsert; stale go to staleRecs.
 	toUpsert, staleRecs := compareRecords(desiredRecs, ownedRecs)
 
-	var toRemove []*model.ProjectDnsRecord
+	var toRemove []*model.DnsRecord
 	for _, rec := range staleRecs {
 		if err := s.classifyOwnerRemoval(rec, ownerNNKey, &toRemove, &toUpsert); err != nil {
 			return nil, nil, err
@@ -253,7 +253,7 @@ func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]
 	return toUpsert, toRemove, nil
 }
 
-func (s *DNSRecordService) collectRecordsByOwner(ownerKind, ownerNamespace, ownerName string) (string, []*model.ProjectDnsRecord) {
+func (s *DNSRecordService) collectRecordsByOwner(ownerKind, ownerNamespace, ownerName string) (string, []*model.DnsRecord) {
 	createdFor := resourceKindToCreatedFor(ownerKind)
 	if createdFor == "" {
 		return "", nil
@@ -277,7 +277,7 @@ func (s *DNSRecordService) DeleteRecordByOwnerNN(ctx context.Context, kind, name
 	if !cacheChanged {
 		return false, nil
 	}
-	toApply, syncErr := s.syncProjectDnsRecordsInNSX(ctx, toUpdate, toDelete)
+	toApply, syncErr := s.syncDnsRecordsInNSX(ctx, toUpdate, toDelete)
 	if len(toApply) > 0 {
 		if applyErr := s.DNSRecordStore.Apply(toApply); applyErr != nil {
 			return false, applyErr
@@ -286,7 +286,7 @@ func (s *DNSRecordService) DeleteRecordByOwnerNN(ctx context.Context, kind, name
 	return len(toApply) > 0, syncErr
 }
 
-func (s *DNSRecordService) calculateRecordsForDeletion(kind, namespace, name string) (toUpdate []*model.ProjectDnsRecord, toDelete []*model.ProjectDnsRecord, err error) {
+func (s *DNSRecordService) calculateRecordsForDeletion(kind, namespace, name string) (toUpdate []*model.DnsRecord, toDelete []*model.DnsRecord, err error) {
 	deletedNNKey, all := s.collectRecordsByOwner(kind, namespace, name)
 	if deletedNNKey == "" || len(all) == 0 {
 		log.Debug("No owned DNS records found, skipping delete", "kind", kind, "namespace", namespace, "name", name)
@@ -302,12 +302,12 @@ func (s *DNSRecordService) calculateRecordsForDeletion(kind, namespace, name str
 	return toUpdate, toDelete, nil
 }
 
-func gatewayIndexTagFromRecord(rec *model.ProjectDnsRecord) string {
+func gatewayIndexTagFromRecord(rec *model.DnsRecord) string {
 	return firstTagValue(rec.Tags, common.TagScopeDNSRecordGatewayIndexList)
 }
 
 // recordAfterPrimaryDeletePromotion returns the updated record when the primary owner is removed but contributors remain.
-func (s *DNSRecordService) recordAfterPrimaryDeletePromotion(rec *model.ProjectDnsRecord, sortedContribNNKeys []string) (*model.ProjectDnsRecord, error) {
+func (s *DNSRecordService) recordAfterPrimaryDeletePromotion(rec *model.DnsRecord, sortedContribNNKeys []string) (*model.DnsRecord, error) {
 	promotedNN := sortedContribNNKeys[0]
 	remaining := append([]string(nil), sortedContribNNKeys[1:]...)
 	createdFor, ns, name, ok := parseOwnerNNIndexKey(promotedNN)
@@ -326,7 +326,7 @@ func (s *DNSRecordService) recordAfterPrimaryDeletePromotion(rec *model.ProjectD
 }
 
 // recordAfterContributingRemoval removes deletedNNKey from the contributing tag; returns (updatedRecord, changed).
-func recordAfterContributingRemoval(rec *model.ProjectDnsRecord, deletedNNKey string) (*model.ProjectDnsRecord, bool) {
+func recordAfterContributingRemoval(rec *model.DnsRecord, deletedNNKey string) (*model.DnsRecord, bool) {
 	keys := parseContributingOwnersFromRecord(rec)
 	if !slices.Contains(keys, deletedNNKey) {
 		return nil, false
@@ -338,8 +338,8 @@ func recordAfterContributingRemoval(rec *model.ProjectDnsRecord, deletedNNKey st
 	return &out, true
 }
 
-func dedupeRecordsByPath(recs []*model.ProjectDnsRecord) []*model.ProjectDnsRecord {
-	seen := make(map[string]*model.ProjectDnsRecord)
+func dedupeRecordsByPath(recs []*model.DnsRecord) []*model.DnsRecord {
+	seen := make(map[string]*model.DnsRecord)
 	for _, r := range recs {
 		if r == nil || r.Path == nil {
 			continue
@@ -350,7 +350,7 @@ func dedupeRecordsByPath(recs []*model.ProjectDnsRecord) []*model.ProjectDnsReco
 		}
 		seen[p] = r
 	}
-	out := make([]*model.ProjectDnsRecord, 0, len(seen))
+	out := make([]*model.DnsRecord, 0, len(seen))
 	for _, r := range seen {
 		out = append(out, r)
 	}
@@ -380,29 +380,29 @@ func getCluster(s *DNSRecordService) string {
 	return s.NSXConfig.Cluster
 }
 
-// parseProjectDNSRecordPolicyPath splits a Policy ProjectDnsRecord path into org, project, and record id.
-func parseProjectDNSRecordPolicyPath(path string) (orgID, projectID, recordID string, err error) {
+// parseDnsRecordPolicyPath splits a Policy DnsRecord path into org, project, and record id.
+func parseDnsRecordPolicyPath(path string) (orgID, projectID, recordID string, err error) {
 	p := strings.TrimSpace(path)
 	if p == "" {
-		return "", "", "", fmt.Errorf("empty ProjectDnsRecord path")
+		return "", "", "", fmt.Errorf("empty DnsRecord path")
 	}
-	matches := projectDNSRecordPathRe.FindStringSubmatch(p)
+	matches := dnsRecordPathRe.FindStringSubmatch(p)
 	if len(matches) != 4 {
-		return "", "", "", fmt.Errorf("invalid ProjectDnsRecord path %q: expected /orgs/{org}/projects/{project}/dns-records/{record-id}", path)
+		return "", "", "", fmt.Errorf("invalid DnsRecord path %q: expected /orgs/{org}/projects/{project}/dns-records/{record-id}", path)
 	}
 	orgID, projectID, recordID = matches[1], matches[2], matches[3]
 	if strings.TrimSpace(recordID) == "" {
-		return "", "", "", fmt.Errorf("empty record id in ProjectDnsRecord path %q", path)
+		return "", "", "", fmt.Errorf("empty record id in DnsRecord path %q", path)
 	}
 	return orgID, projectID, recordID, nil
 }
 
-func (s *DNSRecordService) deleteProjectDnsRecordOnNSX(live *model.ProjectDnsRecord) error {
-	orgID, projectID, recordID, err := parseProjectDNSRecordPolicyPath(*live.Path)
+func (s *DNSRecordService) deleteDnsRecordOnNSX(live *model.DnsRecord) error {
+	orgID, projectID, recordID, err := parseDnsRecordPolicyPath(*live.Path)
 	if err != nil {
 		return err
 	}
-	log.Info("Deleting ProjectDnsRecord from NSX", "Id", recordID)
+	log.Info("Deleting DnsRecord from NSX", "Id", recordID)
 	err = s.NSXClient.DnsRecordsClient.Delete(orgID, projectID, recordID)
 	return nsxutil.TransNSXApiError(err)
 }
