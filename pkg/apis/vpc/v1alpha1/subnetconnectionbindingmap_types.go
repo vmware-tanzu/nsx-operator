@@ -30,6 +30,8 @@ type SubnetConnectionBindingMapStatus struct {
 	// Conditions described if the SubnetConnectionBindingMaps is configured on NSX or not.
 	// Condition type ""
 	Conditions []Condition `json:"conditions,omitempty"`
+	// VLANID is the VLAN ID realized in NSX for this binding.
+	VLANID *int64 `json:"vlanID,omitempty"`
 }
 
 // +genclient
@@ -43,7 +45,7 @@ type SubnetConnectionBindingMapStatus struct {
 // +kubebuilder:printcolumn:name="subnet",type=string,JSONPath=`.spec.subnetName`,description="The Subnet which the SubnetConnectionBindingMap is associated"
 // +kubebuilder:printcolumn:name="targetSubnet",type=string,JSONPath=`.spec.targetSubnetName`,description="The target Subnet which the SubnetConnectionBindingMap is connected to"
 // +kubebuilder:printcolumn:name="targetSubnetSet",type=string,JSONPath=`.spec.targetSubnetSetName`,description="The target SubnetSet which the SubnetConnectionBindingMap is connected to"
-// +kubebuilder:printcolumn:name="vlanTrafficTag",type=integer,JSONPath=`.spec.vlanTrafficTag`,description="Vlan used in the NSX SubnetConnectionBindingMap"
+// +kubebuilder:printcolumn:name="vlanID",type=integer,JSONPath=`.status.vlanID`,description="Vlan used in the NSX SubnetConnectionBindingMap"
 type SubnetConnectionBindingMap struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

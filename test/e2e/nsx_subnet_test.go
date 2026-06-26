@@ -1541,7 +1541,7 @@ func createBindingMapAndWaitForVlan(t *testing.T, bindingName, childSubnetName, 
 	})
 
 	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName)
-	require.NoError(t, err, "BindingMap %s should be ready and have an auto-allocated vlanTrafficTag", bindingName)
+	require.NoError(t, err, "BindingMap %s should be ready and have an auto-allocated status.vlanID", bindingName)
 	return vlan
 }
 
@@ -1552,8 +1552,8 @@ func waitForBindingMapVlan(namespace, bindingName string) (int64, error) {
 		if err != nil {
 			return false, nil
 		}
-		if isBindingMapReady(b) && b.Spec.VLANTrafficTag != nil {
-			vlan = *b.Spec.VLANTrafficTag
+		if isBindingMapReady(b) && b.Status.VLANID != nil {
+			vlan = *b.Status.VLANID
 			return true, nil
 		}
 		return false, nil

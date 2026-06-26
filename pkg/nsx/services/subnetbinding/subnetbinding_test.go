@@ -118,7 +118,7 @@ func TestGetSubnetConnectionBindingMapCRsBySubnet(t *testing.T) {
 	require.Equal(t, 0, len(gotBMs1))
 
 	// Case: success.
-	bindingMaps := svc.buildSubnetBindings(binding1, []string{*parentSubnet1.Path})
+	bindingMaps := svc.buildSubnetBindings(binding1, 101, []string{*parentSubnet1.Path})
 	require.Equal(t, 1, len(bindingMaps))
 	bm := bindingMaps[0]
 	bm.ParentPath = childSubnet.Path
@@ -148,10 +148,10 @@ func TestListSubnetConnectionBindingMapCRUIDsInStore(t *testing.T) {
 	require.Equal(t, 0, crIDs.Len())
 
 	// Case: success
-	bm := svc.buildSubnetBindings(binding1, []string{*parentSubnet1.Path})[0]
+	bm := svc.buildSubnetBindings(binding1, 101, []string{*parentSubnet1.Path})[0]
 	bm.ParentPath = String(childSubnetPath1)
 	bm.Path = String(fmt.Sprintf("%s/subnet-connection-binding-maps/%s", *bm.ParentPath, *bm.Id))
-	bm2 := svc.buildSubnetBindings(binding2, []string{*parentSubnet2.Path})[0]
+	bm2 := svc.buildSubnetBindings(binding2, 101, []string{*parentSubnet2.Path})[0]
 	bm2.ParentPath = String(childSubnetPath2)
 	bm2.Path = String(fmt.Sprintf("%s/subnet-connection-binding-maps/%s", *bm2.ParentPath, *bm2.Id))
 	svc.BindingStore.Apply(bm)
@@ -370,7 +370,7 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 			}
 			tc.prepareFunc()
 
-			err := svc.CreateOrUpdateSubnetConnectionBindingMap(binding1, *childSubnet.Path, []string{*parentSubnet2.Path})
+			err := svc.CreateOrUpdateSubnetConnectionBindingMap(binding1, 101, *childSubnet.Path, []string{*parentSubnet2.Path})
 			if tc.expErr != "" {
 				require.EqualError(t, err, tc.expErr)
 			} else {
