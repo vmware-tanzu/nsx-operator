@@ -90,7 +90,7 @@ var (
 func TestBuildSubnetBindings(t *testing.T) {
 	service := mockService()
 	parentSubnetPaths := []string{parentSubnetPath1, parentSubnetPath2}
-	bindingMaps := service.buildSubnetBindings(binding1, 101, parentSubnetPaths)
+	bindingMaps := service.buildSubnetBindings(binding1, 201, parentSubnetPaths)
 	require.Equal(t, 2, len(bindingMaps))
 	expBindingMaps := []*model.SubnetConnectionBindingMap{
 		bindingMap1, bindingMap2,

@@ -77,7 +77,7 @@ func newMockManager(objs ...client.Object) ctrl.Manager {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).WithStatusSubresource(&v1alpha1.SubnetConnectionBindingMap{}).Build()
 	return &MockManager{
 		client:   fakeClient,
 		scheme:   newScheme,
