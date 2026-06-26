@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -187,29 +188,29 @@ func (r *ServiceLbReconciler) Start(mgr ctrl.Manager) error {
 	return nil
 }
 
-func isServiceLbStatusIpModeSupported(c *rest.Config) bool {
+func isServiceLbStatusIpModeSupported(c *rest.Config) (bool, error) {
 	version129, _ := version.ParseGeneric("v1.29.0")
 
 	clientset, err := clientset.NewForConfig(c)
 	if err != nil {
 		log.Error(err, "Failed to create clientset")
-		return false
+		return false, err
 	}
 
 	serverVersion, err := clientset.Discovery().ServerVersion()
 	if err != nil {
 		log.Error(err, "Failed to get server Kubernetes version")
-		return false
+		return false, err
 	}
 
 	runningVersion, err := version.ParseGeneric(serverVersion.String())
 	if err != nil {
 		log.Error(err, "Failed to parse server Kubernetes version", "K8sVersion", runningVersion.String())
-		return false
+		return false, err
 	}
 
 	log.Info("Running server Kubernetes version is", "K8sVersion", runningVersion.String())
-	return runningVersion.AtLeast(version129)
+	return runningVersion.AtLeast(version129), nil
 }
 
 func (r *ServiceLbReconciler) RestoreReconcile() error {
@@ -242,7 +243,13 @@ func (r *ServiceLbReconciler) CollectGarbage(ctx context.Context) error {
 }
 
 func NewServiceLbReconciler(mgr ctrl.Manager, commonService servicecommon.Service, dnsRecordService *dns.DNSRecordService) *ServiceLbReconciler {
-	if isServiceLbStatusIpModeSupported(mgr.GetConfig()) {
+	supported, err := isServiceLbStatusIpModeSupported(mgr.GetConfig())
+	if err != nil {
+		log.Error(err, "Failed to check if Service LB status ipMode is supported")
+		os.Exit(1)
+	}
+
+	if supported {
 		var dnsProv dns.DNSRecordProvider
 		if dnsRecordService != nil {
 			dnsProv = dnsRecordService
