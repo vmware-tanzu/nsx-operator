@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
@@ -449,7 +448,7 @@ func updateSubnetStatusConditions(client client.Client, ctx context.Context, sub
 func mergeSubnetStatusCondition(subnet *v1alpha1.Subnet, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnet.Status.Conditions)
 
-	if reflect.DeepEqual(matchedCondition, newCondition) {
+	if common.IsConditionSemanticEqual(matchedCondition, newCondition) {
 		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
@@ -458,6 +457,7 @@ func mergeSubnetStatusCondition(subnet *v1alpha1.Subnet, newCondition *v1alpha1.
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		subnet.Status.Conditions = append(subnet.Status.Conditions, *newCondition)
 	}

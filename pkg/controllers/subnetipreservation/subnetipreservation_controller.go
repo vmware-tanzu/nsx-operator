@@ -352,7 +352,7 @@ func updateStatusConditions(client client.Client, ctx context.Context, ipReserva
 
 func mergeStatusCondition(ipReservation *v1alpha1.SubnetIPReservation, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, ipReservation.Status.Conditions)
-	if reflect.DeepEqual(matchedCondition, newCondition) {
+	if common.IsConditionSemanticEqual(matchedCondition, newCondition) {
 		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
@@ -361,6 +361,7 @@ func mergeStatusCondition(ipReservation *v1alpha1.SubnetIPReservation, newCondit
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		ipReservation.Status.Conditions = append(ipReservation.Status.Conditions, *newCondition)
 	}

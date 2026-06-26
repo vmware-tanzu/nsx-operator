@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -282,7 +281,7 @@ func updateSecurityPolicyStatusConditions(client client.Client, ctx context.Cont
 func mergeSecurityPolicyStatusCondition(secPolicy *v1alpha1.SecurityPolicy, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, secPolicy.Status.Conditions)
 
-	if reflect.DeepEqual(matchedCondition, newCondition) {
+	if isConditionSemanticEqual(matchedCondition, newCondition) {
 		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
@@ -291,6 +290,7 @@ func mergeSecurityPolicyStatusCondition(secPolicy *v1alpha1.SecurityPolicy, newC
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		secPolicy.Status.Conditions = append(secPolicy.Status.Conditions, *newCondition)
 	}
@@ -304,6 +304,11 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 		}
 	}
 	return nil
+}
+
+// isConditionSemanticEqual checks if two legacy conditions are semantically equal.
+func isConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.Condition) bool {
+	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
 }
 
 func (r *SecurityPolicyReconciler) setupWithManager(mgr ctrl.Manager) error {

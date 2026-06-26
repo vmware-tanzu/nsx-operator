@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -373,6 +374,9 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 			}
 		}
 		subnetInfoList = append(subnetInfoList, subnetInfo)
+	}
+	if reflect.DeepEqual(obj.Status.Subnets, subnetInfoList) {
+		return nil
 	}
 	obj.Status.Subnets = subnetInfoList
 	if err := service.Client.Status().Update(context.Background(), obj); err != nil {

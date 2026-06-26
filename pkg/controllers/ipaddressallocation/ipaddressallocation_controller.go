@@ -47,7 +47,7 @@ type IPAddressAllocationReconciler struct {
 
 func setReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, _ ...interface{}) {
 	ipaddressallocation := obj.(*v1alpha1.IPAddressAllocation)
-	conditions := []v1alpha1.Condition{
+	newConditions := []v1alpha1.Condition{
 		{
 			Type:   v1alpha1.Ready,
 			Status: v1.ConditionFalse,
@@ -59,16 +59,12 @@ func setReadyStatusFalse(client client.Client, ctx context.Context, obj client.O
 			LastTransitionTime: transitionTime,
 		},
 	}
-	ipaddressallocation.Status.Conditions = conditions
-	e := client.Status().Update(ctx, ipaddressallocation)
-	if e != nil {
-		log.Error(e, "Unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
-	}
+	updateIPAddressAllocationStatusConditions(client, ctx, ipaddressallocation, newConditions)
 }
 
 func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
 	ipaddressallocation := obj.(*v1alpha1.IPAddressAllocation)
-	conditions := []v1alpha1.Condition{
+	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
 			Status:             v1.ConditionTrue,
@@ -77,11 +73,51 @@ func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Ob
 			LastTransitionTime: transitionTime,
 		},
 	}
-	ipaddressallocation.Status.Conditions = conditions
-	e := client.Status().Update(ctx, ipaddressallocation)
-	if e != nil {
-		log.Error(e, "Unable to update IPAddressAllocation status", "IPAddressAllocation", ipaddressallocation)
+	updateIPAddressAllocationStatusConditions(client, ctx, ipaddressallocation, newConditions)
+}
+
+func updateIPAddressAllocationStatusConditions(client client.Client, ctx context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, newConditions []v1alpha1.Condition) {
+	conditionsUpdated := false
+	for i := range newConditions {
+		if mergeIPAddressAllocationStatusCondition(ipaddressallocation, &newConditions[i]) {
+			conditionsUpdated = true
+		}
 	}
+	if conditionsUpdated {
+		if err := client.Status().Update(ctx, ipaddressallocation); err != nil {
+			log.Error(err, "Failed to update status", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace)
+		} else {
+			log.Info("Updated IPAddressAllocation", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace, "New Conditions", newConditions)
+		}
+	}
+}
+
+func mergeIPAddressAllocationStatusCondition(ipaddressallocation *v1alpha1.IPAddressAllocation, newCondition *v1alpha1.Condition) bool {
+	matchedCondition := getExistingConditionOfType(newCondition.Type, ipaddressallocation.Status.Conditions)
+
+	if common.IsConditionSemanticEqual(matchedCondition, newCondition) {
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		return false
+	}
+
+	if matchedCondition != nil {
+		matchedCondition.Reason = newCondition.Reason
+		matchedCondition.Message = newCondition.Message
+		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
+	} else {
+		ipaddressallocation.Status.Conditions = append(ipaddressallocation.Status.Conditions, *newCondition)
+	}
+	return true
+}
+
+func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingConditions []v1alpha1.Condition) *v1alpha1.Condition {
+	for i := range existingConditions {
+		if existingConditions[i].Type == conditionType {
+			return &existingConditions[i]
+		}
+	}
+	return nil
 }
 
 func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

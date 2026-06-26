@@ -178,12 +178,8 @@ func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, 
 // TODO: abstract the logic of merging condition for common, which can be used by the other controller, e.g. security policy
 func mergeStatusCondition(conditions *[]v1alpha1.Condition, newCondition *v1alpha1.Condition) bool {
 	existingCondition := getExistingConditionOfType(newCondition.Type, *conditions)
-	if existingCondition != nil {
-		// Don't compare the timestamp.
-		existingCondition.LastTransitionTime = metav1.Time{}
-	}
 
-	if reflect.DeepEqual(existingCondition, newCondition) {
+	if existingCondition != nil && existingCondition.Status == newCondition.Status && existingCondition.Reason == newCondition.Reason && existingCondition.Message == newCondition.Message {
 		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", existingCondition)
 		return false
 	}

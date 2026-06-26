@@ -826,7 +826,7 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 func mergeSubnetPortStatusCondition(subnetPort *v1alpha1.SubnetPort, newCondition *v1alpha1.Condition) bool {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, subnetPort.Status.Conditions)
 
-	if reflect.DeepEqual(matchedCondition, newCondition) {
+	if common.IsConditionSemanticEqual(matchedCondition, newCondition) {
 		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return false
 	}
@@ -835,6 +835,7 @@ func mergeSubnetPortStatusCondition(subnetPort *v1alpha1.SubnetPort, newConditio
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		subnetPort.Status.Conditions = append(subnetPort.Status.Conditions, *newCondition)
 	}
@@ -1323,14 +1324,8 @@ func newReadyCondition(resourceType string, transitionTime metav1.Time, e error)
 
 func mergeCondition(existingConditions []v1alpha1.Condition, newCondition *v1alpha1.Condition) ([]v1alpha1.Condition, bool) {
 	matchedCondition := getExistingConditionOfType(newCondition.Type, existingConditions)
-
-	newConditionCopy := newCondition.DeepCopy()
-	if matchedCondition != nil {
-		// Ignore LastTransitionTime mismatch
-		newConditionCopy.LastTransitionTime = matchedCondition.LastTransitionTime
-	}
-	if reflect.DeepEqual(matchedCondition, newConditionCopy) {
-		log.Trace("conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+	if common.IsConditionSemanticEqual(matchedCondition, newCondition) {
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
 		return existingConditions, false
 	}
 
@@ -1338,6 +1333,7 @@ func mergeCondition(existingConditions []v1alpha1.Condition, newCondition *v1alp
 		matchedCondition.Reason = newCondition.Reason
 		matchedCondition.Message = newCondition.Message
 		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
 	} else {
 		existingConditions = append(existingConditions, *newCondition)
 	}

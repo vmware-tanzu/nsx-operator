@@ -73,12 +73,14 @@ func cleanNetworkPolicyErrorAnnotation(client client.Client, ctx context.Context
 	if networkPolicy.Annotations == nil {
 		return
 	}
-	delete(networkPolicy.Annotations, common.NSXOperatorError)
-	updateErr := client.Update(ctx, networkPolicy)
-	if updateErr != nil {
-		log.Error(updateErr, "Failed to clean NetworkPolicy annotation")
+	if _, exists := networkPolicy.Annotations[common.NSXOperatorError]; exists {
+		delete(networkPolicy.Annotations, common.NSXOperatorError)
+		updateErr := client.Update(ctx, networkPolicy)
+		if updateErr != nil {
+			log.Error(updateErr, "Failed to clean NetworkPolicy annotation")
+		}
+		log.Info("Clean NetworkPolicy annotation")
 	}
-	log.Info("Clean NetworkPolicy annotation")
 }
 
 func (r *NetworkPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

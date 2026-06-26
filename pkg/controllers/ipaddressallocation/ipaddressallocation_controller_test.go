@@ -68,6 +68,75 @@ func TestIPAddressAllocationController_setReadyStatusTrue(t *testing.T) {
 	}
 }
 
+func TestIPAddressAllocationController_updateIPAddressAllocationStatusConditions(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	ctx := context.TODO()
+
+	transitionTime := metav1.Now()
+
+	// Case 1: Matched condition found with no change
+	dummyIPAddressAllocation1 := &v1alpha1.IPAddressAllocation{
+		Status: v1alpha1.IPAddressAllocationStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:               v1alpha1.Ready,
+					Status:             v1.ConditionTrue,
+					Message:            "NSX IPAddressAllocation has been successfully created/updated",
+					Reason:             "IPAddressAllocationReady",
+					LastTransitionTime: transitionTime,
+				},
+			},
+		},
+	}
+	newConditions1 := []v1alpha1.Condition{
+		{
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionTrue,
+			Message:            "NSX IPAddressAllocation has been successfully created/updated",
+			Reason:             "IPAddressAllocationReady",
+			LastTransitionTime: transitionTime,
+		},
+	}
+
+	// EXPECT Status() should not be called because conditionsUpdated should be false
+	k8sClient.EXPECT().Status().Times(0)
+	updateIPAddressAllocationStatusConditions(k8sClient, ctx, dummyIPAddressAllocation1, newConditions1)
+
+	// Case 2: Matched condition found with change
+	dummyIPAddressAllocation2 := &v1alpha1.IPAddressAllocation{
+		Status: v1alpha1.IPAddressAllocationStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:               v1alpha1.Ready,
+					Status:             v1.ConditionTrue,
+					Message:            "NSX IPAddressAllocation has been successfully created/updated",
+					Reason:             "IPAddressAllocationReady",
+					LastTransitionTime: transitionTime,
+				},
+			},
+		},
+	}
+	newConditions2 := []v1alpha1.Condition{
+		{
+			Type:               v1alpha1.Ready,
+			Status:             v1.ConditionFalse,
+			Message:            "NSX IPAddressAllocation failed",
+			Reason:             "IPAddressAllocationNotReady",
+			LastTransitionTime: transitionTime,
+		},
+	}
+
+	fakewriter := fakeStatusWriter{}
+	k8sClient.EXPECT().Status().Return(fakewriter).Times(1)
+	updateIPAddressAllocationStatusConditions(k8sClient, ctx, dummyIPAddressAllocation2, newConditions2)
+
+	assert.Equal(t, v1.ConditionFalse, dummyIPAddressAllocation2.Status.Conditions[0].Status)
+	assert.Equal(t, "NSX IPAddressAllocation failed", dummyIPAddressAllocation2.Status.Conditions[0].Message)
+	assert.Equal(t, "IPAddressAllocationNotReady", dummyIPAddressAllocation2.Status.Conditions[0].Reason)
+}
+
 type fakeStatusWriter struct {
 }
 
