@@ -1052,22 +1052,23 @@ func IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool
 }
 
 // IsVNAMode reports whether all ServiceGateway.EdgeClusterPaths are VNA cluster paths
-// (/infra/sites/.../virtual-network-appliance-clusters/...). Returns false when the
-// profile or its paths are absent — safe default, avoids false positives on LBCapability.
-func IsVNAMode(profile *model.VpcConnectivityProfile) bool {
+// (/infra/sites/.../virtual-network-appliance-clusters/...).
+// Returns (false, nil) when profile or ServiceGateway is nil — not a VNA deployment.
+// Returns (false, error) when EdgeClusterPaths is empty — ServiceGateway exists but paths
+// are not yet populated; callers should not set LBCapability and should retry.
+func IsVNAMode(profile *model.VpcConnectivityProfile) (bool, error) {
 	if profile == nil || profile.ServiceGateway == nil {
-		return false
+		return false, nil
 	}
-	paths := profile.ServiceGateway.EdgeClusterPaths
-	if len(paths) == 0 {
-		return false
+	if len(profile.ServiceGateway.EdgeClusterPaths) == 0 {
+		return false, fmt.Errorf("VPC connectivity profile has no EdgeClusterPaths, cannot determine VNA mode")
 	}
-	for _, p := range paths {
+	for _, p := range profile.ServiceGateway.EdgeClusterPaths {
 		if !strings.Contains(p, "/virtual-network-appliance-clusters/") {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 func (s *VPCService) GetLBProvider() (LBProvider, error) {

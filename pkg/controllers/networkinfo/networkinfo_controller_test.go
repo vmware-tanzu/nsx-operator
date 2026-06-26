@@ -239,7 +239,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil},
-					Times:  1,
+					Times:  2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -314,7 +314,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil},
-					Times:  1,
+					Times:  2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -517,13 +517,14 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					Values: gomonkey.Params{model.VpcConnectivityProfile{
 						ExternalIpBlocks: []string{"fake-ip-block"},
 						ServiceGateway: &model.VpcServiceGatewayConfig{
-							Enable: servicecommon.Bool(true),
+							Enable:           servicecommon.Bool(true),
+							EdgeClusterPaths: []string{"fake-edge-cluster-path"},
 							NatConfig: &model.VpcNatConfig{
 								EnableDefaultSnat: servicecommon.Bool(true),
 							},
 						},
 					}, nil},
-					Times: 1,
+					Times: 2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
@@ -610,7 +611,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						ExternalIpBlocks: []string{"fake-ip-block"},
 						ServiceGateway:   nil,
 					}, nil},
-					Times: 1,
+					Times: 2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
@@ -692,7 +693,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						ExternalIpBlocks: []string{"fake-ip-block"},
 						ServiceGateway:   nil,
 					}, nil},
-					Times: 1,
+					Times: 2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
@@ -1209,7 +1210,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 							EdgeClusterPaths: []string{"fake-edge-cluster-path"},
 						},
 					}, nil},
-					Times: 1,
+					Times: 2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultNSXLBSPathByVPC", func(_ *vpc.VPCService, _ string) string {
 					return "lbs-path"
@@ -1396,6 +1397,68 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			want:    common.ResultRequeueAfter10sec,
 			wantErr: true,
 		},
+		{
+			name: "LBCapabilitySetBeforeVPCCreationFailure",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{Name: "system"},
+					Status: v1alpha1.VPCNetworkConfigurationStatus{
+						Conditions: []v1alpha1.Condition{
+							{Type: v1alpha1.GatewayConnectionReady, Status: corev1.ConditionTrue},
+							{Type: v1alpha1.ServiceClusterReady, Status: corev1.ConditionTrue},
+						},
+					},
+				}))
+				r.Service.NSXConfig.K8sConfig.IPFamily = "IPv6"
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ context.Context, _ string) (string, error) {
+					return servicecommon.SystemVPCNetworkConfigurationName, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						ObjectMeta: metav1.ObjectMeta{Name: servicecommon.SystemVPCNetworkConfigurationName},
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
+							NSXProject:             "/orgs/default/projects/project-quality",
+						},
+					}, true, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+					return vpc.NSXLB, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVpcConnectivityProfile", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*model.VpcConnectivityProfile, error) {
+					return &model.VpcConnectivityProfile{
+						ServiceGateway: &model.VpcServiceGatewayConfig{
+							EdgeClusterPaths: []string{
+								"/infra/sites/default/enforcement-points/default/virtual-network-appliance-clusters/vnac-1",
+							},
+						},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider, _ bool, _ bool) (*model.Vpc, error) {
+					return nil, fmt.Errorf("VPC LBS creation failed: VNA mode does not support IPv6 LB")
+				})
+				lbCapabilitySet := false
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBCapability, func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, lbCapable bool) {
+					assert.False(t, lbCapable, "LBCapability must be False for VNA+NSX-LB+IPv6")
+					lbCapabilitySet = true
+				})
+				patches.ApplyFunc(setNSNetworkReadyCondition, func(_ context.Context, _ client.Client, _ string, _ *corev1.NamespaceCondition) {})
+				patches.ApplyFunc((*common.StatusUpdater).UpdateFail, func(_ *common.StatusUpdater, _ context.Context, _ client.Object, _ error, _ string, _ common.UpdateFailStatusFn, _ ...interface{}) {})
+				t.Cleanup(func() {
+					assert.True(t, lbCapabilitySet, "setVPCNetworkConfigurationStatusWithLBCapability must be called before CreateOrUpdateVPC fails")
+				})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultRequeueAfter10sec,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1497,7 +1560,7 @@ func TestNetworkInfoReconciler_Reconcile_ExternalIPBlockInSystemVPC(t *testing.T
 
 			patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 				Values: gomonkey.Params{model.VpcConnectivityProfile{ServiceGateway: nil}, nil},
-				Times:  1,
+				Times:  2,
 			}})
 
 			patches.ApplyFunc(setVPCNetworkConfigurationStatusWithNoExternalIPBlock, func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, _ bool) {
