@@ -416,10 +416,10 @@ func Test_ExpandRule(t *testing.T) {
 		}
 	}
 
-	npRuleTags1 := appendRuleIDAndHashTags(npRuleTags, "26e848bd", "p1-26e848bd_ogcol")
-	npRuleTags2 := appendRuleIDAndHashTags(npRuleTags, "2a54787a", "p1-2a54787a_ogcol")
-	npRuleTags3 := appendRuleIDAndHashTags(npRuleTags, "94b44028", "p1-94b44028_ogcol")
-	spVPCRuleTags1 := appendRuleIDAndHashTags(spVPCRuleTags, "94b44028", "p1-94b44028_ogcol")
+	npRuleTags1 := appendRuleIDAndHashTags(npRuleTags, "26e848bd5724c09acc141b8c30b05d59533e694b", "p1-26e848bd5724c09acc141b8c30b05d59533e694b_ogcol")
+	npRuleTags2 := appendRuleIDAndHashTags(npRuleTags, "2a54787ab7a813c379d67051283b4de550d38360", "p1-2a54787ab7a813c379d67051283b4de550d38360_ogcol")
+	npRuleTags3 := appendRuleIDAndHashTags(npRuleTags, "94b44028488f3e719879abbc27c75e5cb44872b7", "p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol")
+	spVPCRuleTags1 := appendRuleIDAndHashTags(spVPCRuleTags, "94b44028488f3e719879abbc27c75e5cb44872b7", "p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol")
 
 	for _, tc := range []struct {
 		name        string
@@ -438,7 +438,7 @@ func Test_ExpandRule(t *testing.T) {
 			createdFor: common.ResourceTypeNetworkPolicy,
 			expRules: []*model.Rule{
 				{
-					Id:             common.String("p1-26e848bd_ogcol_all"),
+					Id:             common.String("p1-26e848bd5724c09acc141b8c30b05d59533e694b_ogcol_all"),
 					DisplayName:    common.String("rule1"),
 					Direction:      common.String(string("IN")),
 					SequenceNumber: Int64(int64(0)),
@@ -454,7 +454,7 @@ func Test_ExpandRule(t *testing.T) {
 			createdFor: common.ResourceTypeNetworkPolicy,
 			expRules: []*model.Rule{
 				{
-					Id:             common.String("p1-2a54787a_ogcol_1000_1234.1235"),
+					Id:             common.String("p1-2a54787ab7a813c379d67051283b4de550d38360_ogcol_1000_1234.1235"),
 					DisplayName:    common.String("rule2"),
 					Direction:      common.String(string("IN")),
 					SequenceNumber: Int64(int64(1)),
@@ -473,11 +473,11 @@ func Test_ExpandRule(t *testing.T) {
 			ruleIdx:    2,
 			createdFor: common.ResourceTypeNetworkPolicy,
 			expGroups: []*model.Group{
-				getTestIPsetGroup("p1-94b44028_ogcol_8080_ipset", "TCP.http_UDP.1236.1237.TCP.8080_ingress_allow_ipset", "p1-94b44028_ogcol", true, "network_policy"),
+				getTestIPsetGroup("p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_8080_ipset", "TCP.http_UDP.1236.1237.TCP.8080_ingress_allow_ipset", "p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol", true, "network_policy"),
 			},
 			expRules: []*model.Rule{
 				{
-					Id:                common.String("p1-94b44028_ogcol_8080"),
+					Id:                common.String("p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_8080"),
 					DisplayName:       common.String("TCP.http_UDP.1236.1237.TCP.8080_ingress_allow"),
 					Direction:         common.String("IN"),
 					SequenceNumber:    Int64(int64(2)),
@@ -485,9 +485,9 @@ func Test_ExpandRule(t *testing.T) {
 					Services:          []string{"ANY"},
 					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(8080, 0, "TCP")},
 					Tags:              npRuleTags3,
-					DestinationGroups: []string{"/orgs/default/projects/pro1/vpcs/vpc1/groups/p1-94b44028_ogcol_8080_ipset"},
+					DestinationGroups: []string{"/orgs/default/projects/pro1/vpcs/vpc1/groups/p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_8080_ipset"},
 				}, {
-					Id:             common.String("p1-94b44028_ogcol_1236.1237"),
+					Id:             common.String("p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_1236.1237"),
 					DisplayName:    common.String("TCP.http_UDP.1236.1237.UDP.1236.1237_ingress_allow"),
 					Direction:      common.String("IN"),
 					SequenceNumber: Int64(int64(2)),
@@ -503,11 +503,11 @@ func Test_ExpandRule(t *testing.T) {
 			ruleIdx:    2,
 			createdFor: common.ResourceTypeSecurityPolicy,
 			expGroups: []*model.Group{
-				getTestIPsetGroup("p1-94b44028_ogcol_8080_ipset", "TCP.http_UDP.1236.1237.TCP.8080_ingress_allow_ipset", "p1-94b44028_ogcol", true, "security_policy"),
+				getTestIPsetGroup("p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_8080_ipset", "TCP.http_UDP.1236.1237.TCP.8080_ingress_allow_ipset", "p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol", true, "security_policy"),
 			},
 			expRules: []*model.Rule{
 				{
-					Id:                common.String("p1-94b44028_ogcol_8080"),
+					Id:                common.String("p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_8080"),
 					DisplayName:       common.String("TCP.http_UDP.1236.1237.TCP.8080_ingress_allow"),
 					Direction:         common.String("IN"),
 					SequenceNumber:    Int64(int64(2)),
@@ -515,9 +515,9 @@ func Test_ExpandRule(t *testing.T) {
 					Services:          []string{"ANY"},
 					ServiceEntries:    []*data.StructValue{getRuleServiceEntries(8080, 0, "TCP")},
 					Tags:              spVPCRuleTags1,
-					DestinationGroups: []string{"/orgs/default/projects/pro1/vpcs/vpc1/groups/p1-94b44028_ogcol_8080_ipset"},
+					DestinationGroups: []string{"/orgs/default/projects/pro1/vpcs/vpc1/groups/p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_8080_ipset"},
 				}, {
-					Id:             common.String("p1-94b44028_ogcol_1236.1237"),
+					Id:             common.String("p1-94b44028488f3e719879abbc27c75e5cb44872b7_ogcol_1236.1237"),
 					DisplayName:    common.String("TCP.http_UDP.1236.1237.UDP.1236.1237_ingress_allow"),
 					Direction:      common.String("IN"),
 					SequenceNumber: Int64(int64(2)),
