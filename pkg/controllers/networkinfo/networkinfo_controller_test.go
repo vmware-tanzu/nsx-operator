@@ -1449,7 +1449,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					lbCapabilitySet = true
 				})
 				patches.ApplyFunc(setNSNetworkReadyCondition, func(_ context.Context, _ client.Client, _ string, _ *corev1.NamespaceCondition) {})
-				patches.ApplyFunc((*common.StatusUpdater).UpdateFail, func(_ *common.StatusUpdater, _ context.Context, _ client.Object, _ error, _ string, _ common.UpdateFailStatusFn, _ ...interface{}) {})
+				patches.ApplyFunc((*common.StatusUpdater).UpdateFail, func(_ *common.StatusUpdater, _ context.Context, _ client.Object, _ error, _ string, _ common.UpdateFailStatusFn, _ ...interface{}) {
+				})
 				t.Cleanup(func() {
 					assert.True(t, lbCapabilitySet, "setVPCNetworkConfigurationStatusWithLBCapability must be called before CreateOrUpdateVPC fails")
 				})
