@@ -696,7 +696,8 @@ func Test_MergeSelectorMatchExpression(t *testing.T) {
 	assert.Equal(t, 1, len(*mergedMatchExpressions))
 	assert.Equal(t, v1.LabelSelectorOpIn, (*mergedMatchExpressions)[0].Operator)
 	assert.Equal(t, "k1", (*mergedMatchExpressions)[0].Key)
-	assert.Equal(t, 3, len((*mergedMatchExpressions)[0].Values))
+	assert.Equal(t, 1, len((*mergedMatchExpressions)[0].Values))
+	assert.Equal(t, "a2", (*mergedMatchExpressions)[0].Values[0])
 
 	// Case: the same key with different operator will not merge
 	matchExpressions = []v1.LabelSelectorRequirement{

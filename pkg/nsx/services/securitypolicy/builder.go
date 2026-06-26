@@ -1208,12 +1208,12 @@ func (service *SecurityPolicyService) updateTargetExpressions(obj *v1alpha1.Secu
 		matchLabelsCount += ClusterTagCount + NameSpaceTagCount
 
 		if matchExpressions != nil {
-			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
-			matchExpressionsCount = len(*mergedMatchExpressions)
-			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions, matchLabels)
+			opInValueCount, err = service.validateSelectorOpIn(*matchExpressions, matchLabels)
 			if err != nil {
 				return 0, 0, err
 			}
+			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
+			matchExpressionsCount = len(*mergedMatchExpressions)
 			err = service.updateExpressionsMatchExpression(*mergedMatchExpressions, matchLabels,
 				&group.Expression, clusterExpression, tagValueExpression, memberType, expressions)
 			if err != nil {
@@ -1278,6 +1278,20 @@ func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels m
 //   - {key: k1, operator: NotIn, values: [a1, a2, a3]}
 //   - {key: k1, operator: NotIn, values: [a2, a3, a4]}
 //     => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
+func intersectStr(a, b []string) []string {
+	set := make(map[string]bool)
+	for _, v := range a {
+		set[v] = true
+	}
+	var res []string
+	for _, v := range b {
+		if set[v] {
+			res = append(res, v)
+		}
+	}
+	return util.RemoveDuplicateStr(res)
+}
+
 func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressions []v1.LabelSelectorRequirement) *[]v1.LabelSelectorRequirement {
 	mergedMatchExpressions := make([]v1.LabelSelectorRequirement, 0)
 	var mergedSelector v1.LabelSelectorRequirement
@@ -1289,14 +1303,20 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 			labelSelectorMap[d.Operator] = map[string][]string{}
 		}
 		_, exists = labelSelectorMap[d.Operator][d.Key]
-		labelSelectorMap[d.Operator][d.Key] = append(
-			labelSelectorMap[d.Operator][d.Key],
-			d.Values...)
 
-		if exists {
-			labelSelectorMap[d.Operator][d.Key] = util.RemoveDuplicateStr(
-				labelSelectorMap[d.Operator][d.Key],
-			)
+		if !exists {
+			labelSelectorMap[d.Operator][d.Key] = d.Values
+		} else {
+			if d.Operator == v1.LabelSelectorOpIn {
+				labelSelectorMap[d.Operator][d.Key] = intersectStr(labelSelectorMap[d.Operator][d.Key], d.Values)
+			} else {
+				labelSelectorMap[d.Operator][d.Key] = append(
+					labelSelectorMap[d.Operator][d.Key],
+					d.Values...)
+				labelSelectorMap[d.Operator][d.Key] = util.RemoveDuplicateStr(
+					labelSelectorMap[d.Operator][d.Key],
+				)
+			}
 		}
 	}
 
@@ -1320,17 +1340,23 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1
 	mexprInValueCount := 0
 	var err error
 	errorMsg := ""
-	exists := false
-	var opInIndex int
 
-	for i, expr := range matchExpressions {
+	for _, expr := range matchExpressions {
 		if expr.Operator == v1.LabelSelectorOpIn {
-			_, exists = matchLabels[expr.Key]
-			if exists {
-				opInIndex = i
-			}
 			mexprInOpCount++
 			mexprInValueCount += len(expr.Values)
+
+			if _, exists := matchLabels[expr.Key]; exists {
+				// matchLabels can only be duplicated with matchExpressions operator 'In' expression
+				// Since only operator 'In' is equivalent to key-value condition
+				for _, value := range expr.Values {
+					if matchLabels[expr.Key] == value {
+						errorMsg = fmt.Sprintf("duplicate expression - %s:%s specified in both matchLabels and matchExpressions operator 'In'",
+							expr.Key, value)
+						break
+					}
+				}
+			}
 		}
 	}
 	if mexprInOpCount > MaxMatchExpressionInOp {
@@ -1339,16 +1365,6 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1
 	} else if mexprInValueCount > MaxMatchExpressionInValues {
 		errorMsg = fmt.Sprintf("count of values list for operator 'In' expressions %d exceed limit of %d",
 			mexprInValueCount, MaxMatchExpressionInValues)
-	} else if exists {
-		// matchLabels can only be duplicated with matchExpressions operator 'In' expression
-		// Since only operator 'In' is equivalent to key-value condition
-		for _, value := range matchExpressions[opInIndex].Values {
-			if matchLabels[matchExpressions[opInIndex].Key] == value {
-				errorMsg = fmt.Sprintf("duplicate expression - %s:%s specified in both matchLabels and matchExpressions operator 'In'",
-					matchExpressions[opInIndex].Key, value)
-				break
-			}
-		}
 	}
 
 	if len(errorMsg) != 0 {
@@ -1737,17 +1753,17 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 			}
 
 			// Validate expressions for POD/VM Selectors
-			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
-			opInValueCount, err = service.validateSelectorOpIn(*mergedMatchExpressions, matchLabels)
+			opInValueCount, err = service.validateSelectorOpIn(*matchExpressions, matchLabels)
 			if err != nil {
 				return 0, 0, err
 			}
+			mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
 
-			nsMergedMatchExpressions := service.mergeSelectorMatchExpression(*nsMatchExpressions)
-			nsOpInValCount, opErr := service.validateSelectorOpIn(*nsMergedMatchExpressions, nsMatchLabels)
+			nsOpInValCount, opErr := service.validateSelectorOpIn(*nsMatchExpressions, nsMatchLabels)
 			if opErr != nil {
 				return 0, 0, opErr
 			}
+			nsMergedMatchExpressions := service.mergeSelectorMatchExpression(*nsMatchExpressions)
 
 			if opInValueCount > 0 && nsOpInValCount > 0 {
 				errorMsg = "operator 'In' is set in both Pod/VM selector and NamespaceSelector"
@@ -1783,15 +1799,15 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 					}
 				}
 
-				mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
-				matchExpressionsCount = len(*mergedMatchExpressions)
 				opInValueCount, err = service.validateSelectorOpIn(
-					*mergedMatchExpressions,
+					*matchExpressions,
 					matchLabels,
 				)
 				if err != nil {
 					return 0, 0, err
 				}
+				mergedMatchExpressions = service.mergeSelectorMatchExpression(*matchExpressions)
+				matchExpressionsCount = len(*mergedMatchExpressions)
 
 				err = service.updateExpressionsMatchExpression(
 					*mergedMatchExpressions,
