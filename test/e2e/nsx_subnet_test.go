@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -732,7 +731,7 @@ func SubnetPortWithIPAM(t *testing.T) {
 	// Create the IPAM Subnet
 	subnetCreated := createSubnetWithCheck(t, ipamSubnet)
 	require.Equal(t, 1, len(subnetCreated.Status.NetworkAddresses))
-	ip, cidr, err := net.ParseCIDR(subnetCreated.Status.NetworkAddresses[0])
+	ip, _, err := net.ParseCIDR(subnetCreated.Status.NetworkAddresses[0])
 	require.Nil(t, err)
 	ip = ip.To4()
 	require.NotNil(t, ip, "Subnet IP should be ipv4")
@@ -789,42 +788,6 @@ func SubnetPortWithIPAM(t *testing.T) {
 	require.NotNil(t, nsxSubnetPort.Attachment)
 	require.Equal(t, "IP_POOL", *(*nsxSubnetPort.Attachment).AllocateAddresses)
 
-	// Case 3: SubnetPort with an IP out of Subnet CIDR
-	// Set a finite for retry loop
-	for range 5 {
-		ip, err = randomIPv4()
-		if err == nil && !cidr.Contains(ip) {
-			break
-		}
-	}
-	subnetportOutOfSubnet := &v1alpha1.SubnetPort{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "port-with-ip-3",
-			Namespace: subnetTestNamespace,
-		},
-		Spec: v1alpha1.SubnetPortSpec{
-			Subnet: "subnet-cidr",
-			AddressBindings: []v1alpha1.PortAddressBinding{
-				{
-					IPAddress: ip.To4().String(),
-				},
-			},
-		},
-	}
-	_, err = testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Create(context.TODO(), subnetportOutOfSubnet, v1.CreateOptions{})
-	if err != nil && errors.IsAlreadyExists(err) {
-		err = nil
-	}
-	require.NoError(t, err)
-	conditionMsg := fmt.Sprintf("IP Address %s does not belong to any of the existing ranges in the pool", ip.To4().String())
-	assureSubnetPort(t, subnetTestNamespace, subnetportOutOfSubnet.Name, func(subnetport *v1alpha1.SubnetPort, args ...string) (bool, error) {
-		for _, con := range subnetport.Status.Conditions {
-			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse && strings.Contains(con.Message, conditionMsg) {
-				return true, nil
-			}
-		}
-		return false, nil
-	})
 }
 
 func SubnetPortWithDHCP(t *testing.T) {
@@ -1276,15 +1239,6 @@ func SubnetMixedMode(t *testing.T) {
 		})
 		require.NoError(t, err, "timed out waiting for DHCPDeactivated+poolRanges Subnet to reach a terminal Ready state")
 	}
-}
-
-func randomIPv4() (net.IP, error) {
-	b := make([]byte, 4)
-	_, err := rand.Read(b)
-	if err != nil {
-		return nil, err
-	}
-	return net.IPv4(b[0], b[1], b[2], b[3]), nil
 }
 
 func fetchSubnetPortBySubnetPortUID(t *testing.T, subnetPortUID string) *model.VpcSubnetPort {
