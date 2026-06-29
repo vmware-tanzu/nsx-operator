@@ -10,6 +10,10 @@ import (
 	"reflect"
 	"testing"
 
+	machineryversion "k8s.io/apimachinery/pkg/version"
+	"k8s.io/client-go/discovery"
+	clientset "k8s.io/client-go/kubernetes"
+
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -248,8 +252,8 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
 				})
-				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
-					return true
+				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) (bool, error) {
+					return true, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(&ServiceLbReconciler{}), "Start", func(_ *ServiceLbReconciler, r ctrl.Manager) error {
 					return nil
@@ -263,8 +267,8 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(os.Exit, func(code int) {
 				})
-				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) bool {
-					return true
+				patches.ApplyFunc(isServiceLbStatusIpModeSupported, func(c *rest.Config) (bool, error) {
+					return true, nil
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(&ServiceLbReconciler{}), "setupWithManager", func(_ *ServiceLbReconciler, mgr ctrl.Manager) error {
 					return errors.New("failed to setupWithManager")
@@ -289,4 +293,64 @@ func TestServiceLbReconciler_StartController(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsServiceLbStatusIpModeSupported(t *testing.T) {
+	c := &rest.Config{}
+
+	t.Run("NewForConfig returns error", func(t *testing.T) {
+		patches := gomonkey.ApplyFunc(clientset.NewForConfig, func(_ *rest.Config) (*clientset.Clientset, error) {
+			return nil, errors.New("mock NewForConfig error")
+		})
+		defer patches.Reset()
+
+		supported, err := isServiceLbStatusIpModeSupported(c)
+		assert.False(t, supported)
+		assert.ErrorContains(t, err, "mock NewForConfig error")
+	})
+
+	t.Run("ServerVersion returns error", func(t *testing.T) {
+		// Mock discovery client's ServerVersion method
+		patches := gomonkey.ApplyMethodFunc(reflect.TypeOf(&discovery.DiscoveryClient{}), "ServerVersion", func() (*machineryversion.Info, error) {
+			return nil, errors.New("mock ServerVersion error")
+		})
+		defer patches.Reset()
+
+		supported, err := isServiceLbStatusIpModeSupported(c)
+		assert.False(t, supported)
+		assert.ErrorContains(t, err, "mock ServerVersion error")
+	})
+
+	t.Run("ParseGeneric returns error", func(t *testing.T) {
+		patches := gomonkey.ApplyMethodFunc(reflect.TypeOf(&discovery.DiscoveryClient{}), "ServerVersion", func() (*machineryversion.Info, error) {
+			return &machineryversion.Info{GitVersion: "invalid"}, nil
+		})
+		defer patches.Reset()
+
+		supported, err := isServiceLbStatusIpModeSupported(c)
+		assert.False(t, supported)
+		assert.ErrorContains(t, err, "could not parse")
+	})
+
+	t.Run("version less than 1.29.0", func(t *testing.T) {
+		patches := gomonkey.ApplyMethodFunc(reflect.TypeOf(&discovery.DiscoveryClient{}), "ServerVersion", func() (*machineryversion.Info, error) {
+			return &machineryversion.Info{GitVersion: "v1.28.0"}, nil
+		})
+		defer patches.Reset()
+
+		supported, err := isServiceLbStatusIpModeSupported(c)
+		assert.False(t, supported)
+		assert.NoError(t, err)
+	})
+
+	t.Run("version greater than 1.29.0", func(t *testing.T) {
+		patches := gomonkey.ApplyMethodFunc(reflect.TypeOf(&discovery.DiscoveryClient{}), "ServerVersion", func() (*machineryversion.Info, error) {
+			return &machineryversion.Info{GitVersion: "v1.30.0"}, nil
+		})
+		defer patches.Reset()
+
+		supported, err := isServiceLbStatusIpModeSupported(c)
+		assert.True(t, supported)
+		assert.NoError(t, err)
+	})
 }
