@@ -246,10 +246,12 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
 			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
-			service.NewServiceLbReconciler(mgr, commonService),
 			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
 			subnetipreservationcontroller.NewReconciler(mgr, subnetIPReservationService, subnetService),
 		)
+		if lbReconciler := service.NewServiceLbReconciler(mgr, commonService); lbReconciler != nil {
+			reconcilerList = append(reconcilerList, lbReconciler)
+		}
 		if cf.EnableInventory {
 			reconcilerList = append(reconcilerList, inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf))
 		}
