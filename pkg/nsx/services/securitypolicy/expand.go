@@ -51,6 +51,12 @@ func (service *SecurityPolicyService) expandRule(obj *v1alpha1.SecurityPolicy, r
 		return nil, []*model.Rule{nsxRule}, nil
 	}
 
+	// The rule contains at least one named port. Named ports can only be resolved when the
+	// target pods are determinable, so reject rule shapes that make resolution impossible.
+	if err := validateNamedPortRule(rule); err != nil {
+		return nil, nil, err
+	}
+
 	var nsxRules []*model.Rule
 	// nsxGroups is a slice for the IPSet groups referred by a security Rule if named port is configured.
 	var nsxGroups []*model.Group
@@ -154,6 +160,33 @@ func (service *SecurityPolicyService) expandRuleByService(obj *v1alpha1.Security
 	}
 	log.Debug("Built rule by service entry", "nsxRule", nsxRule)
 	return nsxGroups, nsxRule, nil
+}
+
+// validateNamedPortRule rejects rule shapes whose named ports cannot be resolved. A named port is
+// resolved by looking up the target pods, so for an egress (OUT) rule the destination must select
+// pods. An allow-all egress rule (no destination peers) or one whose destinations are ipBlocks
+// provides no pods to resolve against, which would otherwise result in no NSX rule being realized.
+// This aligns with NCP's validation behavior. The caller must only invoke this for rules that
+// contain a named port.
+func validateNamedPortRule(rule *v1alpha1.SecurityPolicyRule) error {
+	ruleDirection, err := getRuleDirection(rule)
+	if err != nil {
+		return err
+	}
+	if ruleDirection != "OUT" {
+		return nil
+	}
+
+	outPeers := getRuleDestinationPeers(rule)
+	if len(outPeers) == 0 {
+		return &nsxutil.ValidationError{Desc: "Allow-all egress rules are not supported with named port"}
+	}
+	for _, peer := range outPeers {
+		if len(peer.IPBlocks) > 0 {
+			return &nsxutil.ValidationError{Desc: "ipBlock selectors in egress rules are not supported with named port"}
+		}
+	}
+	return nil
 }
 
 // Resolve a named port to port number by rule and policy selector.
