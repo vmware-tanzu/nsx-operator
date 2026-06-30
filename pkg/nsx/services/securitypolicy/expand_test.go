@@ -5,6 +5,7 @@ package securitypolicy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -28,6 +29,7 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestSecurityPolicyService_buildRuleIPGroup(t *testing.T) {
@@ -324,6 +326,37 @@ var secPolicy = &v1alpha1.SecurityPolicy{
 }
 
 func Test_ExpandRule(t *testing.T) {
+	testSecPolicy := secPolicy.DeepCopy()
+	testSecPolicy.Spec.Rules = append(testSecPolicy.Spec.Rules, v1alpha1.SecurityPolicyRule{
+		Name:      "rule4",
+		Action:    &allowAction,
+		Direction: &directionOut,
+		Ports: []v1alpha1.SecurityPolicyPort{
+			{
+				Protocol: "TCP",
+				Port:     intstr.IntOrString{Type: intstr.String, StrVal: "http"},
+			},
+		},
+		To: []v1alpha1.SecurityPolicyPeer{},
+	})
+	testSecPolicy.Spec.Rules = append(testSecPolicy.Spec.Rules, v1alpha1.SecurityPolicyRule{
+		Name:      "rule5",
+		Action:    &allowAction,
+		Direction: &directionOut,
+		Ports: []v1alpha1.SecurityPolicyPort{
+			{
+				Protocol: "TCP",
+				Port:     intstr.IntOrString{Type: intstr.String, StrVal: "http"},
+			},
+		},
+		To: []v1alpha1.SecurityPolicyPeer{
+			{
+				IPBlocks: []v1alpha1.IPBlock{
+					{CIDR: "192.168.1.0/24"},
+				},
+			},
+		},
+	})
 	ruleTagsFn := func(policyType string) []model.Tag {
 		return []model.Tag{
 			{Scope: common.String("nsx-op/cluster"), Tag: common.String("k8scl-one")},
@@ -557,6 +590,18 @@ func Test_ExpandRule(t *testing.T) {
 					Tags:           spT1RuleTags,
 				},
 			},
+		}, {
+			name:       "VPC: rule with named ports for SecurityPolicy but empty To (Egress)",
+			vpcEnabled: true,
+			ruleIdx:    3,
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expErr:     "Allow-all egress rules are not supported with named port",
+		}, {
+			name:       "VPC: rule with named ports for SecurityPolicy but IPBlocks in To (Egress)",
+			vpcEnabled: true,
+			ruleIdx:    4,
+			createdFor: common.ResourceTypeSecurityPolicy,
+			expErr:     "ipBlock selectors in egress rules are not supported with named port",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -582,12 +627,16 @@ func Test_ExpandRule(t *testing.T) {
 				vpcService: &mockVPCService,
 			}
 			svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
-			ruleBaseID := svc.buildRuleID(secPolicy, tc.ruleIdx, tc.createdFor)
+			ruleBaseID := svc.buildRuleID(testSecPolicy, tc.ruleIdx, tc.createdFor)
 
-			rule := secPolicy.Spec.Rules[tc.ruleIdx]
-			nsxGroups, nsxRules, err := svc.expandRule(secPolicy, &rule, tc.ruleIdx, ruleBaseID, tc.createdFor, &VPCInfo[0])
+			rule := testSecPolicy.Spec.Rules[tc.ruleIdx]
+			nsxGroups, nsxRules, err := svc.expandRule(testSecPolicy, &rule, tc.ruleIdx, ruleBaseID, tc.createdFor, &VPCInfo[0])
 			if tc.expErr != "" {
 				require.EqualError(t, err, tc.expErr)
+				// The error must be a *ValidationError so that controllers matching it via
+				// errors.As can surface a validation failure to the user.
+				var validationErr *nsxutil.ValidationError
+				assert.True(t, errors.As(err, &validationErr))
 			} else {
 				require.NoError(t, err)
 			}
