@@ -20,7 +20,7 @@ const (
 	MaxTagsCount                       int    = 26
 	MaxTagScopeLength                  int    = 128
 	MaxTagValueLength                  int    = 256
-	MaxIdLength                        int    = 255
+	MaxIdLength                        int    = 150
 	MaxNameLength                      int    = 255
 	MaxSubnetNameLength                int    = 80
 	VPCLbResourcePathMinSegments       int    = 8
