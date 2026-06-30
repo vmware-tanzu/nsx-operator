@@ -492,7 +492,7 @@ func (s *VPCService) GetVpcConnectivityProfile(nc *v1alpha1.VPCNetworkConfigurat
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return nil, err
 	}
-	vpcConnectivityProfile, err := s.Service.NSXClient.VPCConnectivityProfilesClient.Get(org, project, vpcConnectivityProfileName)
+	vpcConnectivityProfile, err := s.NSXClient.VPCConnectivityProfilesClient.Get(org, project, vpcConnectivityProfileName)
 	if err != nil {
 		log.Error(err, "Failed to get NSX VPCConnectivityProfile object", "vpcConnectivityProfileName", vpcConnectivityProfileName)
 		return nil, err
@@ -881,7 +881,7 @@ func (s *VPCService) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (str
 		return "", err
 	}
 	// pre created VPC may have more than one attachment, list all the attachment and select the first one
-	vpcAttachmentsListResult, err := s.Service.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil)
+	vpcAttachmentsListResult, err := s.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		log.Error(err, "Failed to list VPC attachment", "VPC Path", vpcPath)
 		return "", err
@@ -1139,7 +1139,7 @@ func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
 				return false
 			}
 		}, func() error {
-			return GetAlbEndpoint(s.Service.NSXClient.Cluster)
+			return GetAlbEndpoint(s.NSXClient.Cluster)
 		}); err == nil {
 			albEndpointFound = true
 		}

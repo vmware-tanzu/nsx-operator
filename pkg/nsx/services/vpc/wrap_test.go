@@ -74,7 +74,7 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 				lbs:        &model.LBService{},
 				attachment: &model.VpcAttachment{},
 			},
-			want:            &model.OrgRoot{ResourceType: pointy.String("OrgRoot")},
+			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
 			wantVPCChildren: 4, // IPv4 IPAlloc + IPv6 IPAlloc + LBS + Attachment
 			wantErr:         assert.NoError,

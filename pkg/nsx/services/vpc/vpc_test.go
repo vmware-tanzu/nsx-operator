@@ -939,8 +939,8 @@ func TestValidateConnectionStatus(t *testing.T) {
 	}
 
 	service, _, _, _, _ := createService(t)
-	service.NSXClient.VPCConnectivityProfilesClient = fakeVPCConnectivityProfilesClient{}
-	service.NSXClient.TransitGatewayAttachmentClient = fakeTransitGatewayAttachmentClient{}
+	service.NSXClient.VPCConnectivityProfilesClient = &fakeVPCConnectivityProfilesClient{}
+	service.NSXClient.TransitGatewayAttachmentClient = &fakeTransitGatewayAttachmentClient{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(*testing.T) {
 			if tt.prepareFunc != nil {
@@ -3343,11 +3343,11 @@ func TestVPCService_buildLBServiceIPAllocsForRestore(t *testing.T) {
 			wantEmpty:  true,
 		},
 		{
-			name:       "NSXLB + VLANBackedVPC + empty VPCs returns error",
-			lbProvider: NSXLB,
-			obj:        &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "ni-test"}, VPCs: nil},
-			nc:         &v1alpha1.VPCNetworkConfiguration{},
-			mockStack:  mockVLANBacked,
+			name:        "NSXLB + VLANBackedVPC + empty VPCs returns error",
+			lbProvider:  NSXLB,
+			obj:         &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "ni-test"}, VPCs: nil},
+			nc:          &v1alpha1.VPCNetworkConfiguration{},
+			mockStack:   mockVLANBacked,
 			wantErrLike: "no VPC state in NetworkInfo ni-test",
 		},
 		{
