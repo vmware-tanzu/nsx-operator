@@ -134,6 +134,13 @@ func TestPreCreatedVPC(t *testing.T) {
 			RunSubtest(t, tt.name, func(t *testing.T) {
 				orgID, projectID, vpcID := setupVPC(t, tt.enableNat, tt.createLb, tt.noProfile)
 				nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
+				var namespaceDeleted bool
+				defer func() {
+					if !namespaceDeleted {
+						log.Info("Test failed or aborted, cleaning up residual VPC namespace", "namespace", nsName)
+						deleteVPCNamespace(nsName, useVCAPI)
+					}
+				}()
 				projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
 				defer func() {
 					path := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
@@ -181,6 +188,7 @@ func TestPreCreatedVPC(t *testing.T) {
 				}
 
 				deleteVPCNamespace(nsName, useVCAPI)
+				namespaceDeleted = true
 				_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
 				require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
 			})

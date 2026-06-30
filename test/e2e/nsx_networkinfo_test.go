@@ -113,6 +113,13 @@ func testCustomizedNetworkInfo(t *testing.T) {
 	require.NoError(t, err)
 
 	ns := fmt.Sprintf("customized-ns-%s", getRandomString())
+	var namespaceDeleted bool
+	defer func() {
+		if !namespaceDeleted {
+			log.Info("Test failed or aborted, cleaning up customized VPC namespace", "namespace", ns)
+			_ = testData.deleteNamespace(ns, defaultTimeout)
+		}
+	}()
 	namespace := &v12.Namespace{
 		ObjectMeta: v1.ObjectMeta{
 			Name: ns,
@@ -134,6 +141,7 @@ func testCustomizedNetworkInfo(t *testing.T) {
 	// Delete namespace and wait for VPC to be cleaned up from VPCNetworkConfiguration status
 	// This is important because the next test (testSharedNSXVPC) uses the same VPCNetworkConfiguration
 	require.NoError(t, testData.deleteNamespace(ns, defaultTimeout))
+	namespaceDeleted = true
 	assureNetworkInfoDeleted(t, ns)
 	assureNamespaceDeleted(t, ns)
 	// Wait for VPC to be deleted from NSX and VPCNetworkConfiguration status to be cleared
