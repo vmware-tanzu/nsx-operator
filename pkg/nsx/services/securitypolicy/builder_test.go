@@ -1376,13 +1376,13 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 			expectedRuleID:      "sp_spNamedPortsuidA_3f7c7d8c8449687178002f23599add04bf0c3250_0_0_0",
 		},
 		{
-			name:                "build-ruleID-for-many-ports-exceed-255-chars-vpc",
+			name:                "build-ruleID-for-many-ports-exceed-150-chars-vpc",
 			vpcEnabled:          true,
 			inputSecurityPolicy: &securityPolicyWithManyPorts,
 			inputRule:           &securityPolicyWithManyPorts.Spec.Rules[0],
 			ruleIdx:             0,
 			namedPort:           nil,
-			expectedRuleID:      "spManyPorts-6a4a02aa_5b4f2_10001_10002_10003_10004_10005_10006_10007_10008_10009_10010_10011_10012_10013_10014_10015_10016_10017_10018_10019_10020_10021_10022_10023_10024_10025_10026_10027_10028_10029_10030_10031_10032_10033_10034_10035_10036_100-9133c868",
+			expectedRuleID:      "spManyPorts-6a4a02aa_5b4f2_10001_10002_10003_10004_10005_10006_10007_10008_10009_10010_10011_10012_10013_10014_10015_10016_10017_10018_10019-9133c868",
 		},
 	}
 
