@@ -1278,20 +1278,6 @@ func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels m
 //   - {key: k1, operator: NotIn, values: [a1, a2, a3]}
 //   - {key: k1, operator: NotIn, values: [a2, a3, a4]}
 //     => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
-func intersectStr(a, b []string) []string {
-	set := make(map[string]bool)
-	for _, v := range a {
-		set[v] = true
-	}
-	var res []string
-	for _, v := range b {
-		if set[v] {
-			res = append(res, v)
-		}
-	}
-	return util.RemoveDuplicateStr(res)
-}
-
 func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressions []v1.LabelSelectorRequirement) *[]v1.LabelSelectorRequirement {
 	mergedMatchExpressions := make([]v1.LabelSelectorRequirement, 0)
 	var mergedSelector v1.LabelSelectorRequirement
@@ -1308,7 +1294,7 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 			labelSelectorMap[d.Operator][d.Key] = d.Values
 		} else {
 			if d.Operator == v1.LabelSelectorOpIn {
-				labelSelectorMap[d.Operator][d.Key] = intersectStr(labelSelectorMap[d.Operator][d.Key], d.Values)
+				labelSelectorMap[d.Operator][d.Key] = util.IntersectStr(labelSelectorMap[d.Operator][d.Key], d.Values)
 			} else {
 				labelSelectorMap[d.Operator][d.Key] = append(
 					labelSelectorMap[d.Operator][d.Key],
