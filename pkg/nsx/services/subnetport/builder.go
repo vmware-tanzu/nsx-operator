@@ -74,9 +74,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				if len(ab.IPAddress) > 0 {
 					addressBinding.IpAddress = &ab.IPAddress
 				}
-				// If StaticIPAllocation is disabled and no IP is specified, we do not specify the MAC in the NSX SubnetPort AddressBinding
-				if (util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(ab.IPAddress) > 0) &&
-					len(ab.MACAddress) > 0 {
+				if len(ab.MACAddress) > 0 {
 					addressBinding.MacAddress = &ab.MACAddress
 					hasMacSpecified = true
 				}
@@ -101,24 +99,46 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				log.Error(nil, "MAC address annotation not found in Pod", "Pod", o)
 			}
 		}
-		if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
-			staticIpAllocationType = controllercommon.ConvertCRIPAddressTypeToNSX(interfaceIPType)
-		} else {
-			staticIpAllocationType = controllercommon.NSXIPAddressTypeNone
-		}
+		staticIpAllocationType = controllercommon.ConvertCRStaticIPAddressTypeToNSX(
+			util.ComputeDefaultStaticIPAllocationType(nsxSubnet, interfaceIPType),
+		)
 	}
 
-	if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
-		// Subnet with Static IPAM.
+	// Compute allocateAddresses from staticIpAllocationType × hasMacSpecified matrix:
+	//   static non-None + MAC → IP_POOL
+	//   static non-None + no MAC → BOTH
+	//   static None + MAC → NONE
+	//   static None + no MAC → MAC_POOL (guarded below)
+	isStaticEnabled := staticIpAllocationType != controllercommon.NSXIPAddressTypeNone
+	if isStaticEnabled {
 		if hasMacSpecified {
 			allocateAddresses = "IP_POOL"
 		} else {
 			allocateAddresses = "BOTH"
 		}
 	} else {
-		// For Subnet with DHCPServer/DHCPRelay or Subnet with no IP, we use NONE
-		// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
-		allocateAddresses = "NONE"
+		if hasMacSpecified {
+			allocateAddresses = "NONE"
+		} else {
+			allocateAddresses = "MAC_POOL"
+		}
+	}
+	// MAC_POOL for DHCP subnets requires NSX 9.2+ with VpcWcpEnhance. On older versions
+	// or when the feature is disabled, fall back to NONE (current behavior).
+	if allocateAddresses == "MAC_POOL" {
+		if !nsx.MacPoolDHCPFeatureEnabled(service.NSXClient, service.NSXConfig) {
+			allocateAddresses = "NONE"
+		} else if len(addressBindings) == 0 {
+			// No user-specified bindings. On upgrade (NONE→MAC_POOL), include the existing
+			// NSX-allocated MAC from status to preserve it. Without it NSX picks a new MAC.
+			// NSX also rejects MAC_POOL with empty bindings unconditionally (SwitchingValidator).
+			if sp, ok := obj.(*v1alpha1.SubnetPort); ok && !restoreMode && len(sp.Status.NetworkInterfaceConfig.MACAddress) > 0 {
+				mac := sp.Status.NetworkInterfaceConfig.MACAddress
+				addressBindings = append(addressBindings, model.PortAddressBindingEntry{MacAddress: &mac})
+			} else {
+				allocateAddresses = "NONE"
+			}
+		}
 	}
 
 	var nsxCIFID uuid.UUID

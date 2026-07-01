@@ -334,17 +334,15 @@ func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subne
 		subnetPort.Spec.InterfaceIPType = interfaceIPType
 		specChanged = true
 	}
-	// If staticIPAllocationType are not set
-	//     staticIPAllocationType is the same as interfaceIPType if static ip allocation is enabled
-	//     staticIPAllocationType is None if static ip allocation is disabled
-	// TODO: Add check for DHCP/SLAAC when mixed mode Subnet is supported
 	if subnetPort.Spec.StaticIPAllocationType == "" {
-		if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
-			subnetPort.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationType(subnetPort.Spec.InterfaceIPType)
-		} else {
-			subnetPort.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationTypeNone
-		}
+		subnetPort.Spec.StaticIPAllocationType = util.ComputeDefaultStaticIPAllocationType(nsxSubnet, subnetPort.Spec.InterfaceIPType)
 		specChanged = true
+	} else if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
+		// User-set StaticIPAllocationType must be a subset of InterfaceIPType.
+		if err := validateStaticIPSubsetOfInterface(subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.InterfaceIPType); err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "SubnetPort spec is invalid", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			return err
+		}
 	}
 	if specChanged {
 		err := r.Client.Update(ctx, subnetPort)
@@ -352,6 +350,28 @@ func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subne
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to update SubnetPort InterfaceIPType or StaticIPAllocationType", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return err
 		}
+	}
+	return nil
+}
+
+// validateStaticIPSubsetOfInterface returns an error when the user-set StaticIPAllocationType
+// requests an address family that the SubnetPort's interface does not support.
+func validateStaticIPSubsetOfInterface(staticType v1alpha1.StaticIPAllocationType, interfaceType v1alpha1.IPAddressType) error {
+	switch staticType {
+	case v1alpha1.StaticIPAllocationTypeIPv4:
+		if interfaceType != v1alpha1.IPAddressTypeIPv4 && interfaceType != v1alpha1.IPAddressTypeIPv4IPv6 {
+			return fmt.Errorf("StaticIPAllocationType %s is not supported by InterfaceIPType %s", staticType, interfaceType)
+		}
+	case v1alpha1.StaticIPAllocationTypeIPv6:
+		if interfaceType != v1alpha1.IPAddressTypeIPv6 && interfaceType != v1alpha1.IPAddressTypeIPv4IPv6 {
+			return fmt.Errorf("StaticIPAllocationType %s is not supported by InterfaceIPType %s", staticType, interfaceType)
+		}
+	case v1alpha1.StaticIPAllocationTypeIPv4IPv6:
+		if interfaceType != v1alpha1.IPAddressTypeIPv4IPv6 {
+			return fmt.Errorf("StaticIPAllocationType %s is not supported by InterfaceIPType %s", staticType, interfaceType)
+		}
+	default:
+		return fmt.Errorf("unknown StaticIPAllocationType %s", staticType)
 	}
 	return nil
 }
