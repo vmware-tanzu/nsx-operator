@@ -27,5 +27,5 @@ metadata:
 spec:
   subnetName: parent-vlan-subnet
   targetSubnetName: child-vlan-subnet
-  subnetAssociation: BRANCH
+  subnetAssociation: Branch
   vlanTrafficTag: 201

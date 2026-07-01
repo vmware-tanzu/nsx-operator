@@ -229,10 +229,11 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 		hostCheckUsedAsTarget, hostCheckUsedAsHost = false, false
 	} else {
 		// Legacy: subnetName is the child; it must not already be a target in another binding.
-		hostCheckUsedAsTarget, hostCheckUsedAsHost = true, false
+		// Also, a child can only be bound to one parent, so it should not be a host in another binding.
+		hostCheckUsedAsTarget, hostCheckUsedAsHost = true, true
 	}
 
-	hostSubnetPaths, hostSubnetCR, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, hostCheckUsedAsTarget, hostCheckUsedAsHost)
+	hostSubnetPaths, hostSubnetCR, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, hostCheckUsedAsTarget, hostCheckUsedAsHost, bindingMap.Name)
 	if err != nil {
 		return "", nil, err
 	}
@@ -241,7 +242,7 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	var peerSubnetPaths []string
 	if bindingMap.Spec.TargetSubnetName != "" {
 		var peerSubnetCR *v1alpha1.Subnet
-		peerSubnetPaths, peerSubnetCR, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, false, true)
+		peerSubnetPaths, peerSubnetCR, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, false, true, bindingMap.Name)
 		if err != nil {
 			return "", nil, err
 		}
@@ -257,8 +258,8 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	} else {
 		if isBranch {
 			return "", nil, &errorWithRetry{
-				message: "subnetAssociation BRANCH requires targetSubnetName",
-				error:   fmt.Errorf("targetSubnetSetName is not supported with subnetAssociation BRANCH"),
+				message: "subnetAssociation Branch requires targetSubnetName",
+				error:   fmt.Errorf("targetSubnetSetName is not supported with subnetAssociation Branch"),
 				retry:   false,
 			}
 		}
@@ -268,7 +269,7 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 		}
 	}
 
-	// Legacy TRUNK workflow: a shared (pre-created) child must stay in the same VPC as the parent target.
+	// Legacy Trunk workflow: a shared (pre-created) child must stay in the same VPC as the parent target.
 	if !isBranch {
 		if _, ok := hostSubnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
 			hostVpcPath, vpcErr := getVpcPath(hostSubnetPath)
@@ -291,7 +292,7 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	return hostSubnetPath, peerSubnetPaths, nil
 }
 
-func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, checkNotUsedAsTarget, checkNotUsedAsHost bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, checkNotUsedAsTarget, checkNotUsedAsHost bool, currentBindingMapName string) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
 	subnetCR := &v1alpha1.Subnet{}
 	subnetKey := types.NamespacedName{Namespace: namespace, Name: name}
 	// Check the Subnet CR existence.
@@ -315,10 +316,16 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 				error:   err,
 			}
 		}
-		if len(bms) > 0 {
+		var otherBms []types.NamespacedName
+		for _, bm := range bms {
+			if bm.Name != currentBindingMapName {
+				otherBms = append(otherBms, bm)
+			}
+		}
+		if len(otherBms) > 0 {
 			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Subnet CR %s is working as target by %s", name, bms),
-				error:   fmt.Errorf("Subnet %s already works as target in SubnetConnectionBindingMap %s", name, bms),
+				message: fmt.Sprintf("Subnet CR %s is working as target by %s", name, otherBms),
+				error:   fmt.Errorf("Subnet %s already works as target in SubnetConnectionBindingMap %s", name, otherBms),
 				retry:   true,
 			}
 		}
@@ -333,10 +340,16 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 				error:   err,
 			}
 		}
-		if len(bms) > 0 {
+		var otherBms []types.NamespacedName
+		for _, bm := range bms {
+			if bm.Name != currentBindingMapName {
+				otherBms = append(otherBms, bm)
+			}
+		}
+		if len(otherBms) > 0 {
 			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Target Subnet CR %s is associated by %s", name, bms),
-				error:   fmt.Errorf("target Subnet %s is already associated by SubnetConnectionBindingMap %s", name, bms),
+				message: fmt.Sprintf("Target Subnet CR %s is associated by %s", name, otherBms),
+				error:   fmt.Errorf("target Subnet %s is already associated by SubnetConnectionBindingMap %s", name, otherBms),
 				retry:   true,
 			}
 		}
