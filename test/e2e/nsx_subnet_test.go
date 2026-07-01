@@ -788,6 +788,35 @@ func SubnetPortWithIPAM(t *testing.T) {
 	require.NotNil(t, nsxSubnetPort.Attachment)
 	require.Equal(t, "IP_POOL", *(*nsxSubnetPort.Attachment).AllocateAddresses)
 
+	// Case 3: SubnetPort with an IP outside the Subnet CIDR is rejected by NSX.
+	// Use 203.0.113.1 (TEST-NET-3, RFC 5737) — guaranteed outside any VPC private range.
+	outOfSubnetIP := "203.0.113.1"
+	subnetportOutOfSubnet := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "port-with-ip-3",
+			Namespace: subnetTestNamespace,
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-cidr",
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{IPAddress: outOfSubnetIP},
+			},
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().SubnetPorts(subnetTestNamespace).Create(context.TODO(), subnetportOutOfSubnet, v1.CreateOptions{})
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
+	require.NoError(t, err)
+	conditionMsg := fmt.Sprintf("IP Address %s does not belong to any of the existing ranges in the pool", outOfSubnetIP)
+	assureSubnetPort(t, subnetTestNamespace, subnetportOutOfSubnet.Name, func(subnetport *v1alpha1.SubnetPort, args ...string) (bool, error) {
+		for _, con := range subnetport.Status.Conditions {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse && strings.Contains(con.Message, conditionMsg) {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
 }
 
 func SubnetPortWithDHCP(t *testing.T) {
@@ -1024,7 +1053,8 @@ func SubnetMixedMode(t *testing.T) {
 	staticPort := &v1alpha1.SubnetPort{
 		ObjectMeta: v1.ObjectMeta{Name: "mixed-static-port", Namespace: subnetTestNamespace},
 		Spec: v1alpha1.SubnetPortSpec{
-			Subnet: mixed.Name,
+			Subnet:                 mixed.Name,
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			AddressBindings: []v1alpha1.PortAddressBinding{
 				{IPAddress: staticPortIP.String()},
 			},
