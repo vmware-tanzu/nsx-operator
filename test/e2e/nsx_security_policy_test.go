@@ -85,7 +85,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	deploymentName := "server-client"
 	_, err := testData.createDeployment(ns, deploymentName, containerName, podImage, corev1.ProtocolTCP, podPort, 2)
 	require.NoErrorf(t, err, "Deloyment '%s/%s' should be created", ns, deploymentName)
-	serverClientIPs, serverClientNames, err := testData.deploymentWaitForIPsOrNames(2*defaultTimeout, ns, deploymentName, 2)
+	serverClientIPs, serverClientNames, err := testData.deploymentWaitForIPsOrNames(resourceReadyTime, ns, deploymentName, 2)
 	require.NoError(t, err, "Error when waiting for IP for Deployment '%s/%s'", ns, deploymentName)
 
 	serverPodName := serverClientNames[0]
@@ -217,12 +217,12 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	clientB := "client-b"
 	podA := "pod-a"
 	// Wait for pods
-	_, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
-	_, err = testData.podWaitForIPs(defaultTimeout, clientB, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
-	iPs, err := testData.podWaitForIPs(defaultTimeout, podA, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", podA)
+	_, err := testData.podWaitForIPs(resourceReadyTime, clientA, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
+	_, err = testData.podWaitForIPs(resourceReadyTime, clientB, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
+	iPs, err := testData.podWaitForIPs(resourceReadyTime, podA, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", podA)
 
 	// Test traffic from clientA to podA
 	require.True(t, checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
@@ -293,15 +293,15 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	require.NoError(t, applyYAML(podsPath, ns))
 	defer deleteYAML(podsPath, ns)
 
-	srvIP, err := testData.podWaitForIPs(defaultTimeout, "fr-srv", ns)
+	srvIP, err := testData.podWaitForIPs(resourceReadyTime, "fr-srv", ns)
 	require.NoError(t, err, "wait for fr-srv IP")
-	_, err = testData.podWaitForIPs(defaultTimeout, "frclient-allow", ns)
+	_, err = testData.podWaitForIPs(resourceReadyTime, "frclient-allow", ns)
 	require.NoError(t, err, "wait for frclient-allow")
-	_, err = testData.podWaitForIPs(defaultTimeout, "frclient-deny", ns)
+	_, err = testData.podWaitForIPs(resourceReadyTime, "frclient-deny", ns)
 	require.NoError(t, err, "wait for frclient-deny")
 
 	// Pods may be Running before the HTTP process is actually listening; gate on server readiness.
-	require.NoError(t, waitForHTTPEndpointReady(ns, "fr-srv", "fr-srv", srvIP.ipv4.String(), podPort, defaultTimeout), "fr-srv http endpoint should be ready")
+	require.NoError(t, waitForHTTPEndpointReady(ns, "fr-srv", "fr-srv", srvIP.ipv4.String(), podPort, resourceReadyTime), "fr-srv http endpoint should be ready")
 
 	require.True(t, checkTrafficByCurl(ns, "frclient-allow", "frclient-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server before policy")
 	require.True(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, true), "deny client -> server before policy")
@@ -353,16 +353,16 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	require.NoError(t, applyYAML(podsPath, ns))
 	defer deleteYAML(podsPath, ns)
 
-	srvIP, err := testData.podWaitForIPs(defaultTimeout, "te-srv", ns)
+	srvIP, err := testData.podWaitForIPs(resourceReadyTime, "te-srv", ns)
 	require.NoError(t, err, "wait for te-srv IP")
-	otherIP, err := testData.podWaitForIPs(defaultTimeout, "te-other", ns)
+	otherIP, err := testData.podWaitForIPs(resourceReadyTime, "te-other", ns)
 	require.NoError(t, err, "wait for te-other IP")
-	_, err = testData.podWaitForIPs(defaultTimeout, "te-cli", ns)
+	_, err = testData.podWaitForIPs(resourceReadyTime, "te-cli", ns)
 	require.NoError(t, err, "wait for te-cli")
 
 	// Ensure both peers are actually serving HTTP before asserting baseline reachability.
-	require.NoError(t, waitForHTTPEndpointReady(ns, "te-srv", "te-srv", srvIP.ipv4.String(), podPort, defaultTimeout), "te-srv http endpoint should be ready")
-	require.NoError(t, waitForHTTPEndpointReady(ns, "te-other", "te-other", otherIP.ipv4.String(), podPort, defaultTimeout), "te-other http endpoint should be ready")
+	require.NoError(t, waitForHTTPEndpointReady(ns, "te-srv", "te-srv", srvIP.ipv4.String(), podPort, resourceReadyTime), "te-srv http endpoint should be ready")
+	require.NoError(t, waitForHTTPEndpointReady(ns, "te-other", "te-other", otherIP.ipv4.String(), podPort, resourceReadyTime), "te-other http endpoint should be ready")
 
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", srvIP.ipv4.String(), podPort, true), "client -> server before policy")
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, true), "client -> other before policy")
@@ -422,7 +422,7 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	require.NoError(t, applyYAML(yamlPath, nsWeb))
 	defer deleteYAML(yamlPath, nsWeb)
 
-	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	psb, err := testData.deploymentWaitForNames(resourceReadyTime, nsWeb, labelWeb)
 	log.Trace("Pods", "pods", psb)
 	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
@@ -465,10 +465,10 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 	webA := "web"
 	labelWeb := "tcp-deployment"
 	// Wait for pods
-	clientPodIPs, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
+	clientPodIPs, err := testData.podWaitForIPs(resourceReadyTime, clientA, nsClient)
 	t.Logf("client Pods are %v", clientPodIPs)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
-	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb, 2)
+	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(resourceReadyTime, nsWeb, labelWeb, 2)
 	t.Logf("NamedPort Pods are %v", namedPortPodIPs)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)

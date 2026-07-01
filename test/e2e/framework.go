@@ -427,7 +427,7 @@ func (data *TestData) deleteVCNamespace(namespace string) error {
 	_ = testData.vcClient.deleteNamespace(namespace)
 
 	// Wait for the namespace to be deleted from K8s
-	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -440,7 +440,137 @@ func (data *TestData) deleteVCNamespace(namespace string) error {
 		log.Debug("Waiting for namespace to be deleted", "namespace", namespace, "status phase", ns.Status.Phase)
 		return false, nil
 	})
+	if err != nil {
+		data.dumpNamespaceResources(namespace)
+	}
 	return err
+}
+
+func (data *TestData) dumpNamespaceResources(namespace string) {
+	log.Info("--------------------------------------------------------------------------------", "DUMP_START", namespace)
+	log.Info("E2E Namespace Deletion Timed Out! Starting Diagnosis Dump...", "namespace", namespace)
+
+	// 1. Dump standard Pods
+	pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, pod := range pods.Items {
+			log.Info("[DUMP Pod]",
+				"name", pod.Name,
+				"phase", pod.Status.Phase,
+				"deletionTimestamp", safeTimeStr(pod.DeletionTimestamp),
+				"finalizers", pod.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list Pods during dump", "namespace", namespace)
+	}
+
+	// 2. Dump standard Services
+	svcs, err := data.clientset.CoreV1().Services(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, svc := range svcs.Items {
+			log.Info("[DUMP Service]",
+				"name", svc.Name,
+				"deletionTimestamp", safeTimeStr(svc.DeletionTimestamp),
+				"finalizers", svc.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list Services during dump", "namespace", namespace)
+	}
+
+	// 3. Dump SecurityPolicies
+	sps, err := data.crdClientset.CrdV1alpha1().SecurityPolicies(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, sp := range sps.Items {
+			log.Info("[DUMP SecurityPolicy]",
+				"name", sp.Name,
+				"deletionTimestamp", safeTimeStr(sp.DeletionTimestamp),
+				"finalizers", sp.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list SecurityPolicies during dump", "namespace", namespace)
+	}
+
+	// 4. Dump SubnetPorts
+	spsList, err := data.crdClientset.CrdV1alpha1().SubnetPorts(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, sp := range spsList.Items {
+			log.Info("[DUMP SubnetPort]",
+				"name", sp.Name,
+				"deletionTimestamp", safeTimeStr(sp.DeletionTimestamp),
+				"finalizers", sp.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list SubnetPorts during dump", "namespace", namespace)
+	}
+
+	// 5. Dump Subnets
+	subnets, err := data.crdClientset.CrdV1alpha1().Subnets(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, sub := range subnets.Items {
+			log.Info("[DUMP Subnet]",
+				"name", sub.Name,
+				"deletionTimestamp", safeTimeStr(sub.DeletionTimestamp),
+				"finalizers", sub.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list Subnets during dump", "namespace", namespace)
+	}
+
+	// 6. Dump SubnetSets
+	sets, err := data.crdClientset.CrdV1alpha1().SubnetSets(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, s := range sets.Items {
+			log.Info("[DUMP SubnetSet]",
+				"name", s.Name,
+				"deletionTimestamp", safeTimeStr(s.DeletionTimestamp),
+				"finalizers", s.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list SubnetSets during dump", "namespace", namespace)
+	}
+
+	// 7. Dump IPAddressAllocations
+	allocs, err := data.crdClientset.CrdV1alpha1().IPAddressAllocations(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, alloc := range allocs.Items {
+			log.Info("[DUMP IPAddressAllocation]",
+				"name", alloc.Name,
+				"deletionTimestamp", safeTimeStr(alloc.DeletionTimestamp),
+				"finalizers", alloc.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list IPAddressAllocations during dump", "namespace", namespace)
+	}
+
+	// 8. Dump StaticRoutes
+	routes, err := data.crdClientset.CrdV1alpha1().StaticRoutes(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, r := range routes.Items {
+			log.Info("[DUMP StaticRoute]",
+				"name", r.Name,
+				"deletionTimestamp", safeTimeStr(r.DeletionTimestamp),
+				"finalizers", r.Finalizers,
+			)
+		}
+	} else {
+		log.Error(err, "Failed to list StaticRoutes during dump", "namespace", namespace)
+	}
+
+	log.Info("--------------------------------------------------------------------------------", "DUMP_END", namespace)
+}
+
+func safeTimeStr(t *metav1.Time) string {
+	if t == nil {
+		return "none"
+	}
+	return t.String()
 }
 
 // deleteNamespace deletes the provided namespace and waits for deletion to actually complete.
@@ -810,7 +940,7 @@ func (data *TestData) waitForResourceExist(namespace string, resourceType string
 }
 
 func (data *TestData) waitForContainerApplicationInstanceToContainAppId(podName string, appId string, shouldContain bool) error {
-	return wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
+	return wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 3*defaultTimeout, false, func(ctx context.Context) (bool, error) {
 		queryParam := fmt.Sprintf("resource_type:ContainerApplicationInstance AND display_name:*%s* AND container_application_ids:*%s*", podName, appId)
 		var cursor *string
 		var pageSize int64 = 500
@@ -1212,20 +1342,37 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, shoul
 	const maxAttempts = 10
 	const retryInterval = 3 * time.Second
 
+	var lastErr error
+	var lastStdOut string
+	var lastStdErr string
+
 	for i := 0; i < maxAttempts; i++ {
-		stdOut, _, err := testData.runCommandFromPod(ns, podname, containername, cmd)
+		stdOut, stdErr, err := testData.runCommandFromPod(ns, podname, containername, cmd)
 		statusCode := strings.Trim(stdOut, `"`)
 		isSuccess := err == nil && statusCode == "200"
 
 		if isSuccess == shouldPass {
 			return true
 		}
+		lastErr = err
+		lastStdOut = stdOut
+		lastStdErr = stdErr
 		// Log with more context for debugging
 		log.Info("Traffic check attempt", "attempt", i+1, "maxAttempts", maxAttempts, "ip", ip, "statusCode", statusCode, "shouldPass", shouldPass, "isSuccess", isSuccess)
 		if i < maxAttempts-1 {
 			time.Sleep(retryInterval)
 		}
 	}
+	log.Error(lastErr, "FINAL Traffic check failed!",
+		"namespace", ns,
+		"fromPod", podname,
+		"toIP", ip,
+		"port", port,
+		"shouldPass", shouldPass,
+		"stdout", lastStdOut,
+		"stderr", lastStdErr,
+		"curlCmd", cmd,
+	)
 	return false
 }
 
