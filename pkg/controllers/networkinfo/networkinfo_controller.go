@@ -74,6 +74,7 @@ var (
 	nsMsgVPCGetExtIPBlockError    = newNsUnreadyMessage("Error happened to get external IP blocks: %v", NSReasonVPCNotReady)
 	nsMsgVPCNoExternalIPBlock     = newNsUnreadyMessage("System VPC has no external IP blocks", NSReasonVPCNotReady)
 	nsMsgVPCAutoSNATDisabled      = newNsUnreadyMessage("SNAT is not enabled in System VPC", NSReasonVPCSnatNotReady)
+	nsMsgVPCConnProfileNotReady   = newNsUnreadyMessage("VPC connectivity profile EdgeClusterPaths are not available", NSReasonVPCNetConfigNotReady)
 	nsMsgVPCDefaultSNATIPGetError = newNsUnreadyMessage("Default SNAT IP is not allocated in VPC: %v", NSReasonVPCSnatNotReady)
 	nsMsgVPCIsReady               = newNsUnreadyMessage("", "")
 	nsMsgVPCDNSZonesSyncError     = newNsUnreadyMessage("Failed to sync permitted DNS zones from NSX: %v", NSReasonVPCNotReady)
@@ -330,6 +331,26 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "Failed to get LB Provider")
 		return common.ResultRequeue, nil
 	}
+	// For non-pre-created system VPC, set LBCapability before VPC creation.
+	// CreateOrUpdateVPC fails in VNA + NSX-LB + IPv6/DualStack, so without this early
+	// check the condition would never be reported when VPC creation errors out.
+	if ncName == commonservice.SystemVPCNetworkConfigurationName && !vpc.IsPreCreatedVPC(nc) && len(nc.Spec.VPCConnectivityProfile) > 0 {
+		if earlyProfile, profileErr := r.Service.GetVpcConnectivityProfile(nc, nc.Spec.VPCConnectivityProfile); profileErr == nil {
+			ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
+			isVNA, vnaErr := vpc.IsVNAMode(earlyProfile)
+			if vnaErr != nil {
+				log.Info("Requeue NetworkInfo CR because VPC connectivity profile EdgeClusterPaths are not available", "req", req)
+				if !retryWithSystemVPC {
+					retryWithSystemVPC = true
+					systemNSCondition = nsMsgVPCConnProfileNotReady.getNSNetworkCondition()
+				}
+			} else {
+				lbCapable := !isVNA || lbProvider != vpc.NSXLB || !util.IPAddressTypeIncludesIPv6(ipFamily)
+				setVPCNetworkConfigurationStatusWithLBCapability(ctx, r.Client, systemVpcNetCfg, lbCapable)
+			}
+		}
+	}
+
 	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider, serviceClusterReady, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
@@ -457,6 +478,26 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 				return common.ResultNormal, err
 			}
+		}
+	}
+
+	// Set LBCapability condition on the system VPC config.
+	// Condition is False when VNA (all ServiceGateway.EdgeClusterPaths are VNA clusters) +
+	// NSX-LB + IPv6/DualStack, True otherwise.
+	// LBCapability=False is informational only — namespace readiness is not blocked.
+	if ncName == commonservice.SystemVPCNetworkConfigurationName {
+		ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
+		isVNA, err := vpc.IsVNAMode(vpcConnectivityProfile)
+		if err != nil {
+			// EdgeClusterPaths not yet populated — can't determine LBCapability; retry.
+			log.Info("Requeue NetworkInfo CR because VPC connectivity profile EdgeClusterPaths are not available", "req", req)
+			if !retryWithSystemVPC {
+				retryWithSystemVPC = true
+				systemNSCondition = nsMsgVPCConnProfileNotReady.getNSNetworkCondition()
+			}
+		} else {
+			lbCapable := !isVNA || lbProvider != vpc.NSXLB || !util.IPAddressTypeIncludesIPv6(ipFamily)
+			setVPCNetworkConfigurationStatusWithLBCapability(ctx, r.Client, systemVpcNetCfg, lbCapable)
 		}
 	}
 
