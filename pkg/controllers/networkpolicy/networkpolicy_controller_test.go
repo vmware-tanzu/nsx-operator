@@ -111,6 +111,7 @@ func fakeService() *securitypolicy.SecurityPolicyService {
 				},
 			},
 		},
+		VPCMode: true,
 	}
 	return service
 }
@@ -559,7 +560,7 @@ func TestStartNetworkPolicyController(t *testing.T) {
 				patches.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
 				})
-				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
+				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
 				patches.ApplyMethod(reflect.TypeOf(&NetworkPolicyReconciler{}), "Start", func(_ *NetworkPolicyReconciler, r ctrl.Manager) error {
@@ -574,7 +575,7 @@ func TestStartNetworkPolicyController(t *testing.T) {
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 				})
-				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
+				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(&NetworkPolicyReconciler{}), "setupWithManager", func(_ *NetworkPolicyReconciler, mgr ctrl.Manager) error {
