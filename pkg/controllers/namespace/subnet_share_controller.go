@@ -371,16 +371,16 @@ func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns stri
 
 	// Check if there are any SubnetConnectionBindingMap CRs referencing this Subnet CR as host or target.
 	subnetBindingList := &v1alpha1.SubnetConnectionBindingMapList{}
-	if err = r.Client.List(ctx, subnetBindingList); err != nil {
+	if err = r.Client.List(ctx, subnetBindingList, client.InNamespace(ns)); err != nil {
 		return false, fmt.Errorf("failed to list SubnetConnectionBindingMap CRs: %w", err)
 	}
 	for _, bm := range subnetBindingList.Items {
-		if bm.Spec.SubnetName == subnet.Name && bm.Namespace == ns {
+		if bm.Spec.SubnetName == subnet.Name {
 			log.Info("Cannot delete Subnet CR for shared subnet because it is referenced by a SubnetConnectionBindingMap CR",
 				"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
 			return true, nil
 		}
-		if bm.Spec.TargetSubnetName == subnet.Name && bm.Namespace == ns {
+		if bm.Spec.TargetSubnetName == subnet.Name {
 			log.Info("Cannot delete Subnet CR for shared subnet because it is used as targetSubnetName by a SubnetConnectionBindingMap CR",
 				"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
 			return true, nil

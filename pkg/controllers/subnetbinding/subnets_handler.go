@@ -64,14 +64,14 @@ func requeueBindingMapsBySubnetUpdate(ctx context.Context, c client.Client, _, o
 
 func requeueSubnetConnectionBindingMapsBySubnet(ctx context.Context, c client.Client, namespace string, subnet string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	bindingMapList := &v1alpha1.SubnetConnectionBindingMapList{}
-	err := c.List(ctx, bindingMapList)
+	err := c.List(ctx, bindingMapList, client.InNamespace(namespace))
 	if err != nil {
 		log.Error(err, "Failed to list SubnetConnectionBindingMaps with Subnet event", "Namespace", namespace, "Subnet", subnet)
 		return
 	}
 	for _, bm := range bindingMapList.Items {
-		isHost := bm.Spec.SubnetName == subnet && bm.Namespace == namespace
-		isTarget := bm.Spec.TargetSubnetName == subnet && bm.Namespace == namespace
+		isHost := bm.Spec.SubnetName == subnet
+		isTarget := bm.Spec.TargetSubnetName == subnet
 		if !isHost && !isTarget {
 			continue
 		}
