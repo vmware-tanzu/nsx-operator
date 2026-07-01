@@ -654,7 +654,7 @@ func ConvertCRStaticIPAddressTypeToNSX(crType v1alpha1.StaticIPAllocationType) s
 		return NSXIPAddressTypeIPv6
 	case v1alpha1.StaticIPAllocationTypeIPv4IPv6:
 		return NSXIPAddressTypeIPv4IPv6
-	case v1alpha1.StaticIPAllocationTypeNone:
+	case v1alpha1.StaticIPAllocationTypeNone, "":
 		return NSXIPAddressTypeNone
 	default:
 		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(crType))

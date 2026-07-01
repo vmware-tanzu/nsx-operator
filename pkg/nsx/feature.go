@@ -35,6 +35,8 @@ func MacPoolDHCPFeatureEnabled(client *Client, operatorConfig *config.NSXOperato
 
 // RestoreVifFeatureEnabled is true when NSX supports restoring SubnetPort vif and
 // operator config set restore_vif to true.
+//
+//go:noinline
 func RestoreVifFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
 	if client == nil || !client.NSXCheckVersion(RestoreVIF) {
 		return false

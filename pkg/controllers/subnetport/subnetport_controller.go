@@ -370,6 +370,8 @@ func validateStaticIPSubsetOfInterface(staticType v1alpha1.StaticIPAllocationTyp
 		if interfaceType != v1alpha1.IPAddressTypeIPv4IPv6 {
 			return fmt.Errorf("StaticIPAllocationType %s is not supported by InterfaceIPType %s", staticType, interfaceType)
 		}
+	default:
+		return fmt.Errorf("unknown StaticIPAllocationType %s", staticType)
 	}
 	return nil
 }
