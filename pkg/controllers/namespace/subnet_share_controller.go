@@ -369,17 +369,22 @@ func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns stri
 		return true, nil
 	}
 
-	// Check if there are any SubnetConnectionBindingMap CRs referencing this Subnet CR
+	// Check if there are any SubnetConnectionBindingMap CRs referencing this Subnet CR as host or target.
 	subnetBindingList := &v1alpha1.SubnetConnectionBindingMapList{}
-	err = r.Client.List(ctx, subnetBindingList, client.InNamespace(ns), client.MatchingFields{"spec.subnetName": subnet.Name})
-	if err != nil {
+	if err = r.Client.List(ctx, subnetBindingList, client.InNamespace(ns)); err != nil {
 		return false, fmt.Errorf("failed to list SubnetConnectionBindingMap CRs: %w", err)
 	}
-
-	if len(subnetBindingList.Items) > 0 {
-		log.Info("Cannot delete Subnet CR for shared subnet because it is referenced by a SubnetConnectionBindingMap CR",
-			"Namespace", ns, "Name", subnet.Name, "SubnetBinding", subnetBindingList.Items[0].Name)
-		return true, nil
+	for _, bm := range subnetBindingList.Items {
+		if bm.Spec.SubnetName == subnet.Name {
+			log.Info("Cannot delete Subnet CR for shared subnet because it is referenced by a SubnetConnectionBindingMap CR",
+				"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
+			return true, nil
+		}
+		if bm.Spec.TargetSubnetName == subnet.Name {
+			log.Info("Cannot delete Subnet CR for shared subnet because it is used as targetSubnetName by a SubnetConnectionBindingMap CR",
+				"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
+			return true, nil
+		}
 	}
 
 	// Check if there are any SubnetIPReservation CRs referencing this Subnet CR

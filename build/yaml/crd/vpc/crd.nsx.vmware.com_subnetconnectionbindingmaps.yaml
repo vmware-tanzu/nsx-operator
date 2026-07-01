@@ -36,6 +36,10 @@ spec:
       jsonPath: .spec.vlanTrafficTag
       name: vlanTrafficTag
       type: integer
+    - description: Trunk or Branch association for targetSubnetName
+      jsonPath: .spec.subnetAssociation
+      name: subnetAssociation
+      type: string
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -61,6 +65,18 @@ spec:
             type: object
           spec:
             properties:
+              subnetAssociation:
+                description: |-
+                  SubnetAssociation indicates the role of targetSubnetName in the binding.
+                  Trunk: targetSubnetName is the parent Subnet (default, legacy behavior).
+                  Branch: targetSubnetName is the child Subnet; subnetName is the parent and hosts the NSX binding map.
+                enum:
+                - Trunk
+                - Branch
+                type: string
+                x-kubernetes-validations:
+                - message: subnetAssociation is immutable
+                  rule: self == oldSelf
               subnetName:
                 description: SubnetName is the Subnet name which this SubnetConnectionBindingMap
                   is associated.
