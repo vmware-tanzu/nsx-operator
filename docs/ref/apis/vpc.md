@@ -20,6 +20,7 @@
 - [SubnetConnectionBindingMap](#subnetconnectionbindingmap)
 - [SubnetIPReservation](#subnetipreservation)
 - [SubnetPort](#subnetport)
+- [SubnetPortSetting](#subnetportsetting)
 - [SubnetSet](#subnetset)
 - [VPCNetworkConfiguration](#vpcnetworkconfiguration)
 
@@ -108,6 +109,7 @@ _Appears in:_
 - [StaticRouteCondition](#staticroutecondition)
 - [SubnetConnectionBindingMapStatus](#subnetconnectionbindingmapstatus)
 - [SubnetIPReservationStatus](#subnetipreservationstatus)
+- [SubnetPortSettingStatus](#subnetportsettingstatus)
 - [SubnetPortStatus](#subnetportstatus)
 - [SubnetSetStatus](#subnetsetstatus)
 - [SubnetStatus](#subnetstatus)
@@ -303,6 +305,7 @@ _Appears in:_
 | `IPv4` |  |
 | `IPv6` |  |
 | `IPv4IPv6` |  |
+
 
 #### IPAddressVisibility
 
@@ -710,7 +713,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false.<br />If the DHCP mode is DHCPRelay, its default value is false. |  |  |
-| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
+| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
 
 
 #### StaticIPAllocationType
@@ -1025,6 +1028,57 @@ SubnetPort is the Schema for the subnetports API.
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[SubnetPortSpec](#subnetportspec)_ |  |  |  |
 | `status` _[SubnetPortStatus](#subnetportstatus)_ |  |  |  |
+
+
+#### SubnetPortSetting
+
+
+
+SubnetPortSetting is the Schema for the subnetportsettings API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `SubnetPortSetting` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[SubnetPortSettingSpec](#subnetportsettingspec)_ |  |  |  |
+| `status` _[SubnetPortSettingStatus](#subnetportsettingstatus)_ |  |  |  |
+
+
+#### SubnetPortSettingSpec
+
+
+
+SubnetPortSettingSpec defines the desired state of SubnetPortSetting.
+
+
+
+_Appears in:_
+- [SubnetPortSetting](#subnetportsetting)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnetName` _string_ | SubnetName defines the Subnet name of the SubnetPortSetting. |  |  |
+
+
+#### SubnetPortSettingStatus
+
+
+
+SubnetPortSettingStatus defines the observed state of SubnetPortSetting.
+
+
+
+_Appears in:_
+- [SubnetPortSetting](#subnetportsetting)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](#condition) array_ | Conditions describes current state of SubnetPortSetting. |  |  |
 
 
 #### SubnetPortSpec

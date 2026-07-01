@@ -60,6 +60,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetIPReservations().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("subnetports"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetPorts().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("subnetportsettings"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetPortSettings().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("subnetsets"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().SubnetSets().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vpcnetworkconfigurations"):

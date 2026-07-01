@@ -25,6 +25,7 @@ type CrdV1alpha1Interface interface {
 	SubnetConnectionBindingMapsGetter
 	SubnetIPReservationsGetter
 	SubnetPortsGetter
+	SubnetPortSettingsGetter
 	SubnetSetsGetter
 	VPCNetworkConfigurationsGetter
 }
@@ -72,6 +73,10 @@ func (c *CrdV1alpha1Client) SubnetIPReservations(namespace string) SubnetIPReser
 
 func (c *CrdV1alpha1Client) SubnetPorts(namespace string) SubnetPortInterface {
 	return newSubnetPorts(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) SubnetPortSettings(namespace string) SubnetPortSettingInterface {
+	return newSubnetPortSettings(c, namespace)
 }
 
 func (c *CrdV1alpha1Client) SubnetSets(namespace string) SubnetSetInterface {
