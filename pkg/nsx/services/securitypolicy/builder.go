@@ -1270,13 +1270,20 @@ func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels m
 	}
 }
 
-// NSX understand the multiple values w.r.t a key in a joined string manner
-// this function iterates over input matchExpressions LabelSelectorRequirement
-// with same operator and Key, and merges them into one and values to a joined string
+// NSX understand the multiple values w.r.t a key in a joined string manner.
+// This function iterates over input matchExpressions LabelSelectorRequirement
+// with same operator and Key, and merges them into one.
+// For NotIn operator, it merges values by taking the union:
 // e.g.
 //   - {key: k1, operator: NotIn, values: [a1, a2, a3]}
 //   - {key: k1, operator: NotIn, values: [a2, a3, a4]}
 //     => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
+//
+// For In operator, it merges values by taking the intersection:
+// e.g.
+//   - {key: k1, operator: In, values: [a1, a2, a3]}
+//   - {key: k1, operator: In, values: [a2, a3, a4]}
+//     => {key: k1, operator: In, values: [a2, a3]}
 func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressions []v1.LabelSelectorRequirement) *[]v1.LabelSelectorRequirement {
 	mergedMatchExpressions := make([]v1.LabelSelectorRequirement, 0)
 	var mergedSelector v1.LabelSelectorRequirement
@@ -1288,14 +1295,20 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 			labelSelectorMap[d.Operator] = map[string][]string{}
 		}
 		_, exists = labelSelectorMap[d.Operator][d.Key]
-		labelSelectorMap[d.Operator][d.Key] = append(
-			labelSelectorMap[d.Operator][d.Key],
-			d.Values...)
 
-		if exists {
-			labelSelectorMap[d.Operator][d.Key] = util.RemoveDuplicateStr(
-				labelSelectorMap[d.Operator][d.Key],
-			)
+		if !exists {
+			labelSelectorMap[d.Operator][d.Key] = d.Values
+		} else {
+			if d.Operator == v1.LabelSelectorOpIn {
+				labelSelectorMap[d.Operator][d.Key] = util.IntersectStr(labelSelectorMap[d.Operator][d.Key], d.Values)
+			} else {
+				labelSelectorMap[d.Operator][d.Key] = append(
+					labelSelectorMap[d.Operator][d.Key],
+					d.Values...)
+				labelSelectorMap[d.Operator][d.Key] = util.RemoveDuplicateStr(
+					labelSelectorMap[d.Operator][d.Key],
+				)
+			}
 		}
 	}
 
@@ -1313,41 +1326,37 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 
 // Todo, refactor code when NSX support 'In' LabelSelector.
 // Given NSX currently doesn't support 'In' LabelSelector, to keep design simple,
-// only allow just one 'In' LabelSelector in matchExpressions with at most of five values in it.
+// only allow just one 'In' LabelSelector in matchExpressions with same key and totally maximum five values.
 func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1.LabelSelectorRequirement, matchLabels map[string]string) (int, error) {
 	mexprInOpCount := 0
 	mexprInValueCount := 0
 	var err error
 	errorMsg := ""
-	exists := false
-	var opInIndex int
 
-	for i, expr := range matchExpressions {
+	for _, expr := range matchExpressions {
 		if expr.Operator == v1.LabelSelectorOpIn {
-			_, exists = matchLabels[expr.Key]
-			if exists {
-				opInIndex = i
-			}
 			mexprInOpCount++
 			mexprInValueCount += len(expr.Values)
+
+			if _, exists := matchLabels[expr.Key]; exists {
+				// matchLabels can only be duplicated with matchExpressions operator 'In' expression
+				// Since only operator 'In' is equivalent to key-value condition
+				for _, value := range expr.Values {
+					if matchLabels[expr.Key] == value {
+						errorMsg = fmt.Sprintf("duplicate expression - %s:%s specified in both matchLabels and matchExpressions operator 'In'",
+							expr.Key, value)
+						break
+					}
+				}
+			}
 		}
 	}
 	if mexprInOpCount > MaxMatchExpressionInOp {
-		errorMsg = fmt.Sprintf("count of operator 'In' expressions %d exceed limit of %d",
+		errorMsg = fmt.Sprintf("count of operator 'In' expressions %d with the same key exceed maximum limit of %d",
 			mexprInOpCount, MaxMatchExpressionIn)
 	} else if mexprInValueCount > MaxMatchExpressionInValues {
-		errorMsg = fmt.Sprintf("count of values list for operator 'In' expressions %d exceed limit of %d",
+		errorMsg = fmt.Sprintf("count of values list for operator 'In' expressions %d  with the same key exceed maximum limit of %d",
 			mexprInValueCount, MaxMatchExpressionInValues)
-	} else if exists {
-		// matchLabels can only be duplicated with matchExpressions operator 'In' expression
-		// Since only operator 'In' is equivalent to key-value condition
-		for _, value := range matchExpressions[opInIndex].Values {
-			if matchLabels[matchExpressions[opInIndex].Key] == value {
-				errorMsg = fmt.Sprintf("duplicate expression - %s:%s specified in both matchLabels and matchExpressions operator 'In'",
-					matchExpressions[opInIndex].Key, value)
-				break
-			}
-		}
 	}
 
 	if len(errorMsg) != 0 {
@@ -1763,7 +1772,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 
 			// NamespaceSelector AND with PodSelector or VMSelector expressions to produce final expressions
 			err = service.updateMixedExpressionsMatchExpression(*nsMergedMatchExpressions, nsMatchLabels,
-				*matchExpressions, matchLabels, &group.Expression, clusterExpression, tagValueExpression, expressions)
+				*mergedMatchExpressions, matchLabels, &group.Expression, clusterExpression, tagValueExpression, expressions)
 			if err != nil {
 				return 0, 0, err
 			}

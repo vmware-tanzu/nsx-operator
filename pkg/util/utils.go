@@ -20,6 +20,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	t1v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
@@ -150,6 +151,12 @@ func RemoveDuplicateStr(strSlice []string) []string {
 	}
 
 	return resultStr
+}
+
+func IntersectStr(a, b []string) []string {
+	setA := sets.New(a...)
+	setB := sets.New(b...)
+	return sets.List(setA.Intersection(setB))
 }
 
 func ToUpper(obj interface{}) string {

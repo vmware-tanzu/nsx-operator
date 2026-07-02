@@ -719,7 +719,8 @@ func Test_MergeSelectorMatchExpression(t *testing.T) {
 	assert.Equal(t, 1, len(*mergedMatchExpressions))
 	assert.Equal(t, v1.LabelSelectorOpIn, (*mergedMatchExpressions)[0].Operator)
 	assert.Equal(t, "k1", (*mergedMatchExpressions)[0].Key)
-	assert.Equal(t, 3, len((*mergedMatchExpressions)[0].Values))
+	assert.Equal(t, 1, len((*mergedMatchExpressions)[0].Values))
+	assert.Equal(t, "a2", (*mergedMatchExpressions)[0].Values[0])
 
 	// Case: the same key with different operator will not merge
 	matchExpressions = []v1.LabelSelectorRequirement{
@@ -2513,5 +2514,5 @@ func Test_updatePeerExpressions_NamespaceSelector_OpIn_Limit(t *testing.T) {
 	_, _, err := s.updatePeerExpressions(sp, peer, group, 0, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "count of values list for operator 'In' expressions")
-	assert.Contains(t, err.Error(), "exceed limit of 5")
+	assert.Contains(t, err.Error(), "exceed maximum limit of 5")
 }
