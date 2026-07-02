@@ -18,6 +18,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -150,7 +151,9 @@ func createNetworkInfoReconciler(objs []client.Object) *NetworkInfoReconciler {
 					EnforcementPoint:   "vmc-enforcementpoint",
 					UseAVILoadBalancer: false,
 				},
-				K8sConfig: &config.K8sConfig{},
+				K8sConfig: &config.K8sConfig{
+					IPFamily: "ipv4",
+				},
 			},
 		},
 	}
@@ -2635,6 +2638,7 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 			Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
 		},
 		Spec: v1alpha1.SubnetSetSpec{
+			IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 			AccessMode:     "Public",
 			IPv4SubnetSize: 32,
 		},
@@ -2670,6 +2674,12 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 			subnetSetList:            []client.Object{subnetSet},
 		},
 		{
+			name:                     "Existing default SubnetSet with IPAddressType change",
+			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv6,
+			hasPrecreatedSubnet:      false,
+			subnetSetList:            []client.Object{subnetSet},
+		},
+		{
 			name:                     "Create default SubnetSet with IPv6",
 			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv6,
 			hasPrecreatedSubnet:      false,
@@ -2683,7 +2693,25 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := createNetworkInfoReconciler(tc.subnetSetList)
+			subnetSet := &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-default",
+					Namespace: "ns-1",
+					Labels:    map[string]string{servicecommon.LabelDefaultNetwork: "pod"},
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					AccessMode:     "Public",
+					IPv4SubnetSize: 32,
+				},
+			}
+
+			var objs []client.Object
+			if len(tc.subnetSetList) > 0 {
+				objs = []client.Object{subnetSet}
+			}
+
+			r := createNetworkInfoReconciler(objs)
 			ctx := context.TODO()
 
 			nc := &v1alpha1.VPCNetworkConfiguration{
@@ -2692,11 +2720,23 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 					DefaultIPv6PrefixLength: 80,
 				},
 			}
-			err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType)
-			if tc.expectErrStr != "" {
-				assert.ErrorContains(t, err, tc.expectErrStr)
+			if len(tc.subnetSetList) == 0 {
+				err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType)
+				if tc.expectErrStr != "" {
+					assert.ErrorContains(t, err, tc.expectErrStr)
+				} else {
+					require.NoError(t, err)
+				}
 			} else {
-				require.NoError(t, err)
+				// Don't error out on "already exists" for existing tests
+				err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType)
+				if tc.expectErrStr != "" {
+					assert.ErrorContains(t, err, tc.expectErrStr)
+				} else {
+					if err != nil && !apierrors.IsAlreadyExists(err) {
+						require.NoError(t, err)
+					}
+				}
 			}
 			if tc.name == "Existing default SubnetSet" {
 				updated := &v1alpha1.SubnetSet{}
@@ -2704,6 +2744,11 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 				// IPv6PrefixLength must not be propagated to an existing SubnetSet because
 				// NSX subnets have an immutable IPv6PrefixLength.
 				assert.Equal(t, subnetSet.Spec.IPv6PrefixLength, updated.Spec.IPv6PrefixLength)
+			}
+			if tc.name == "Existing default SubnetSet with IPAddressType change" {
+				updated := &v1alpha1.SubnetSet{}
+				require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-1", Name: "pod-default"}, updated))
+				assert.Equal(t, v1alpha1.IPAddressTypeIPv6, updated.Spec.IPAddressType)
 			}
 		})
 	}

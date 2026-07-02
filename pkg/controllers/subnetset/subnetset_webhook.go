@@ -116,7 +116,7 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 		if subnetSet.Spec.SubnetNames != nil && subnetSet.Spec.IPAddressType != "" && req.UserInfo.Username != NSXOperatorSA {
 			return admission.Denied("Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator")
 		}
-		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
+		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name, subnetSet.Spec.IPAddressType)
 		if err != nil {
 			if deny {
 				return admission.Denied(err.Error())
@@ -141,7 +141,25 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			log.Debug("Pre-created SubnetSet spec.ipAddressType is updated by user", "oldIPAddressType", oldSubnetSet.Spec.IPAddressType, "newIPAddressType", subnetSet.Spec.IPAddressType, "username", req.UserInfo.Username)
 			return admission.Denied("Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator")
 		}
-		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name)
+		if subnetSet.Spec.SubnetNames == nil {
+			// SubnetSet IPAddressType can be changed from empty to the default value;
+			// or be converted from IPv4/IPv6 to IPv4IPv6.
+			if oldSubnetSet.Spec.IPAddressType != subnetSet.Spec.IPAddressType {
+				ipAddressTypeWiden := subnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4IPv6 && (oldSubnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4 || oldSubnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv6)
+				if oldSubnetSet.Spec.IPAddressType != "" && !ipAddressTypeWiden {
+					return admission.Denied(fmt.Sprintf("SubnetSet IPAddressType converting from %s to %s is not supported", oldSubnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType))
+				}
+			}
+			if oldSubnetSet.Spec.AccessMode != subnetSet.Spec.AccessMode {
+				// AccessMode can only be changed when IPAddressType is converted from IPv6 to IPv4IPv6;
+				// or set from empty to a default value
+				if oldSubnetSet.Spec.AccessMode != "" && (subnetSet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv4IPv6 || oldSubnetSet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv6) {
+					return admission.Denied("SubnetSet accessMode is immutable")
+				}
+			}
+		}
+
+		deny, err := v.validateSubnets(ctx, subnetSet.Namespace, subnetSet.Spec.SubnetNames, subnetSet.Name, subnetSet.Spec.IPAddressType)
 		if err != nil {
 			if deny {
 				return admission.Denied(err.Error())
@@ -191,6 +209,15 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			}
 			log.Error(err, "AccessMode not supported", "AccessMode", subnetSet.Spec.AccessMode, "namespace", subnetSet.Namespace)
 			return admission.Denied(err.Error())
+		}
+		if subnetSet.Spec.IPAddressType != "" {
+			if v.nsxClient != nil && v.nsxClient.NsxConfig != nil && v.nsxClient.NsxConfig.K8sConfig != nil {
+				supervisorIPFamily := v.nsxClient.NsxConfig.K8sConfig.GetIPAddressType()
+				_, err := controllercommon.IntersectIPAddressTypes([]v1alpha1.IPAddressType{subnetSet.Spec.IPAddressType, supervisorIPFamily})
+				if err != nil {
+					return admission.Denied(fmt.Sprintf("SubnetSet IPAddressType %s does not intersect with supervisor IP family %s", subnetSet.Spec.IPAddressType, supervisorIPFamily))
+				}
+			}
 		}
 	}
 
@@ -329,7 +356,7 @@ func getEffectiveStaticIPAllocation(subnet *v1alpha1.Subnet) bool {
 	return util.GetDefaultStaticIPAllocation(subnet)
 }
 
-func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, subnetNames *[]string, subnetSet string) (bool, error) {
+func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, subnetNames *[]string, subnetSet string, subnetSetIPAddressType v1alpha1.IPAddressType) (bool, error) {
 	var namespaceVpc string
 	var existingVPC string
 	firstAccessMode := ""
@@ -346,11 +373,16 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 		if err != nil {
 			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
 		}
+		if subnetSetIPAddressType != "" {
+			if !controllercommon.IsSupersetIPAddressTypes(crdSubnet.Spec.IPAddressType, subnetSetIPAddressType) {
+				return true, fmt.Errorf("Subnet %s with IPAddressType %s cannot be added to SubnetSet of IPAddressType %s", crdSubnet.Name, crdSubnet.Spec.IPAddressType, subnetSetIPAddressType)
+			}
+		}
 		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
-		if crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay) {
-			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
+		if crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay) || crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless) {
+			return true, fmt.Errorf("DHCPRelay or DHCPServerStateless Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		if isFirstSubnet {
 			firstAccessMode = string(crdSubnet.Spec.AccessMode)

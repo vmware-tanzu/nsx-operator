@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	pkgmock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -251,6 +252,38 @@ func TestSubnetSetValidator(t *testing.T) {
 			},
 		},
 	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcpv6-stateless",
+			Namespace:   "ns-dhcp",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcpv6-stateless"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+				Mode: v1alpha1.DHCPv6ConfigModeServerStateless,
+			},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-ipv4-only",
+			Namespace:   "ns-ipaddress-type",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-ipaddress-type:subnet-ipv4-only"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-ipv6-only",
+			Namespace:   "ns-ipaddress-type",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-ipaddress-type:subnet-ipv6-only"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv6,
+		},
+	})
 	trueVal := true
 	falseVal := false
 	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
@@ -469,6 +502,56 @@ func TestSubnetSetValidator(t *testing.T) {
 			},
 			user:      "fake-user",
 			isAllowed: false,
+		},
+		{
+			name: "Create SubnetSet with DHCPServerStateless Subnets",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-dhcp",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-dhcpv6-stateless"},
+				},
+			},
+			user:      "fake-user",
+			isAllowed: false,
+			msg:       "DHCPRelay or DHCPServerStateless Subnet ns-dhcp/subnet-dhcpv6-stateless is not supported in SubnetSet",
+		},
+		{
+			name: "Create SubnetSet of IPAddressType IPv4IPv6 with Subnet of IPAddressType IPv4",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-ipaddress-type",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-ipv4-only"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+				},
+			},
+			user:      NSXOperatorSA,
+			isAllowed: false,
+			msg:       "Subnet subnet-ipv4-only with IPAddressType IPv4 cannot be added to SubnetSet of IPAddressType IPv4IPv6",
+		},
+		{
+			name: "Create SubnetSet of IPAddressType IPv4 with Subnet of IPAddressType IPv4",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-1",
+					Namespace: "ns-ipaddress-type",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames:   &[]string{"subnet-ipv4-only"},
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			user:            NSXOperatorSA,
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
 			name: "Create SubnetSet with different AccessModes",
@@ -1394,10 +1477,109 @@ func TestSubnetSetValidator_IPAddressTypeValidation(t *testing.T) {
 			},
 			isAllowed: true,
 		},
+		{
+			name:      "Update - IPAddressType conversion from IPv4 to IPv6 is not supported",
+			username:  "user-1",
+			operation: admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv6,
+				},
+			},
+			isAllowed: false,
+			msg:       "SubnetSet IPAddressType converting from IPv4 to IPv6 is not supported",
+		},
+		{
+			name:      "Update - IPAddressType conversion from IPv4 to IPv4IPv6 is supported",
+			username:  "user-1",
+			operation: admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+				},
+			},
+			isAllowed: true,
+		},
+		{
+			name:      "Update - AccessMode change on IPv4 SubnetSet is not supported",
+			username:  "user-1",
+			operation: admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+				},
+			},
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+				},
+			},
+			isAllowed: false,
+			msg:       "SubnetSet accessMode is immutable",
+		},
+		{
+			name:      "Update - AccessMode change when converting from IPv6 to IPv4IPv6 is supported",
+			username:  "user-1",
+			operation: admissionv1.Update,
+			oldSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv6,
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+				},
+			},
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+				},
+			},
+			isAllowed: true,
+		},
+		{
+			name:      "Create - IPAddressType non-intersecting with supervisor IP family (IPv6 subnetset on IPv4 supervisor)",
+			username:  "user-1",
+			operation: admissionv1.Create,
+			newSubnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-set", Namespace: "ns-1"},
+				Spec: v1alpha1.SubnetSetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv6,
+				},
+			},
+			isAllowed: false,
+			msg:       "SubnetSet IPAddressType IPv6 does not intersect with supervisor IP family IPv4",
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			validator.nsxClient.NsxConfig = nil
+			if testCase.name == "Create - IPAddressType non-intersecting with supervisor IP family (IPv6 subnetset on IPv4 supervisor)" {
+				validator.nsxClient.NsxConfig = &config.NSXOperatorConfig{
+					K8sConfig: &config.K8sConfig{
+						IPFamily: "IPv4",
+					},
+				}
+			}
 			req := admission.Request{}
 			jsonData, err := json.Marshal(testCase.newSubnetSet)
 			assert.NoError(t, err)

@@ -185,14 +185,19 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 			return err
 		}
 		if subnetSetCR != nil {
-			// Delete the default SubnetSet if it is created with auto-created Subnets and there is no cidr
-			if autoCreatedIPAddressType == IPAddressTypeNone && subnetSetCR.Spec.SubnetNames == nil {
-				log.Debug("Delete default SubnetSet", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns)
-				return r.Client.Delete(ctx, subnetSetCR)
+			// Delete the default SubnetSet if it is created with auto-created Subnets and the current supported IP address type is not a superset of the SubnetSet IP address type.
+			// e.g. if the current supported IP address type is IPv4 or IPv6, and the SubnetSet IP address type is IPv4IPv6, then the SubnetSet shall be deleted and recreated
+			if !common.IsSupersetIPAddressTypes(autoCreatedIPAddressType, subnetSetCR.Spec.IPAddressType) {
+				log.Info("Delete default SubnetSet", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "existingIPAddressType", subnetSetCR.Spec.IPAddressType, "desiredIPAddressType", autoCreatedIPAddressType)
+				err = r.Client.Delete(ctx, subnetSetCR)
+				if err != nil {
+					return err
+				}
+			} else {
+				// Do nothing if the default SubnetSet already exists and match the desired IP address type.
+				log.Debug("Default SubnetSet already exists", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "auto-created", subnetSetCR.Spec.SubnetNames == nil)
+				return nil
 			}
-			// Do nothing if the default SubnetSet already exists.
-			log.Debug("Default SubnetSet already exists", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "auto-created", subnetSetCR.Spec.SubnetNames == nil)
-			return nil
 		}
 		// Only create the auto-created SubnetSet if there is no pre-created Subnet for default network
 		if !hasPrecreatedSubnet && autoCreatedIPAddressType != IPAddressTypeNone {

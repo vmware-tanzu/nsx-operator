@@ -724,6 +724,18 @@ func IntersectIPAddressTypes(types []v1alpha1.IPAddressType) (v1alpha1.IPAddress
 	return result, nil
 }
 
+// IsSupersetIPAddressTypes checks if the base IPAddressType encompasses the target.
+// IPv4IPv6 is a superset of IPv4, IPv6, and IPv4IPv6.
+func IsSupersetIPAddressTypes(base, target v1alpha1.IPAddressType) bool {
+	if base == target {
+		return true
+	}
+	if base == v1alpha1.IPAddressTypeIPv4IPv6 && (target == v1alpha1.IPAddressTypeIPv4 || target == v1alpha1.IPAddressTypeIPv6) {
+		return true
+	}
+	return false
+}
+
 // IsConditionSemanticEqual checks if two conditions are semantically equal.
 func IsConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.Condition) bool {
 	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message

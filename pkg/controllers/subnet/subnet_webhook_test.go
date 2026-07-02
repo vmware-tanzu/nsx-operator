@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -184,6 +185,96 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 		Spec: v1alpha1.SubnetSpec{
 			IPv4SubnetSize: 8,
+		},
+	})
+
+	// Subnet with IPAddressType IPv4
+	subnetIPv4, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-ipv4",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+		},
+	})
+
+	// Subnet with IPAddressType IPv6
+	subnetIPv6, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-ipv6",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv6,
+		},
+	})
+
+	// Subnet with IPAddressType IPv4IPv6
+	subnetDualStack, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-dualstack",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+		},
+	})
+
+	// Subnet with IPAddressType empty
+	subnetEmptyIPType, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-empty-iptype",
+		},
+		Spec: v1alpha1.SubnetSpec{},
+	})
+
+	// Subnet with AccessMode Public and IPv4
+	subnetIPv4Public, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-ipv4-public",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+		},
+	})
+
+	// Subnet with AccessMode Private and IPv4
+	subnetIPv4Private, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-ipv4-private",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+		},
+	})
+
+	// Subnet with AccessMode Public and IPv6
+	subnetIPv6Public, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-ipv6-public",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv6,
+			AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+		},
+	})
+
+	// Subnet with AccessMode Private and IPv4IPv6
+	subnetDualStackPrivate, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-dualstack-private",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
 		},
 	})
 
@@ -477,9 +568,70 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			want:            admission.Allowed(""),
 			accessModeCheck: true,
 		},
+		{
+			name:            "Update subnet IPAddressType - invalid conversion (IPv4 to IPv6)",
+			operation:       admissionv1.Update,
+			object:          subnetIPv6,
+			oldObject:       subnetIPv4,
+			user:            "non-nsx-operator",
+			want:            admission.Denied("Subnet IPAddressType converting from IPv4 to IPv6 is not supported"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "Update subnet IPAddressType - valid conversion (IPv4 to IPv4IPv6)",
+			operation:       admissionv1.Update,
+			object:          subnetDualStack,
+			oldObject:       subnetIPv4,
+			user:            "non-nsx-operator",
+			want:            admission.Allowed(""),
+			accessModeCheck: true,
+		},
+		{
+			name:            "Update subnet IPAddressType - valid conversion (empty to IPv4)",
+			operation:       admissionv1.Update,
+			object:          subnetIPv4,
+			oldObject:       subnetEmptyIPType,
+			user:            "non-nsx-operator",
+			want:            admission.Allowed(""),
+			accessModeCheck: true,
+		},
+		{
+			name:            "Update subnet AccessMode - invalid change (Public to Private on IPv4)",
+			operation:       admissionv1.Update,
+			object:          subnetIPv4Private,
+			oldObject:       subnetIPv4Public,
+			user:            "non-nsx-operator",
+			want:            admission.Denied("Subnet accessMode is immutable"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "Update subnet AccessMode - valid change (AccessMode changed when converting from IPv6 to IPv4IPv6)",
+			operation:       admissionv1.Update,
+			object:          subnetDualStackPrivate,
+			oldObject:       subnetIPv6Public,
+			user:            "non-nsx-operator",
+			want:            admission.Allowed(""),
+			accessModeCheck: true,
+		},
+		{
+			name:      "Create subnet IPAddressType - non-intersecting with supervisor IP family (IPv6 subnet on IPv4 supervisor)",
+			operation: admissionv1.Create,
+			object:    subnetIPv6,
+			user:      "non-nsx-operator",
+			prepareFunc: func(t *testing.T) {
+				v.nsxClient.NsxConfig = &config.NSXOperatorConfig{
+					K8sConfig: &config.K8sConfig{
+						IPFamily: "IPv4",
+					},
+				}
+			},
+			want:            admission.Denied("Subnet IPAddressType IPv6 does not intersect with supervisor IP family IPv4"),
+			accessModeCheck: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			v.nsxClient.NsxConfig = nil
 			if tt.prepareFunc != nil {
 				tt.prepareFunc(t)
 			}

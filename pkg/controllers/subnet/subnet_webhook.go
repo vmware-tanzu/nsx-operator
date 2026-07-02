@@ -57,7 +57,6 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			return admission.Denied(fmt.Sprintf("Shared Subnet %s/%s can only be created by NSX Operator", subnet.Namespace, subnet.Name))
 		}
 
-		// Prevent users from setting spec.vpcName and spec.vlanConnectionName
 		if req.UserInfo.Username != NSXOperatorSA {
 			if subnet.Spec.VPCName != "" {
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vpcName can only be set by NSX Operator", subnet.Namespace, subnet.Name))
@@ -99,6 +98,24 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			}
 			if !nsxutil.CompareArraysWithoutOrder(oldSubnet.Spec.IPAddresses, subnet.Spec.IPAddresses) {
 				return admission.Denied("ipAddresses is immutable")
+			}
+		}
+
+		if !common.IsSharedSubnet(subnet) {
+			// Subnet IPAddressType can be updated from empty to the default value;
+			// or be converted from IPv4/IPv6 to IPv4IPv6.
+			if oldSubnet.Spec.IPAddressType != subnet.Spec.IPAddressType {
+				ipAddressTypeWiden := subnet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4IPv6 && (oldSubnet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4 || oldSubnet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv6)
+				if oldSubnet.Spec.IPAddressType != "" && !ipAddressTypeWiden {
+					return admission.Denied(fmt.Sprintf("Subnet IPAddressType converting from %s to %s is not supported", oldSubnet.Spec.IPAddressType, subnet.Spec.IPAddressType))
+				}
+			}
+			if oldSubnet.Spec.AccessMode != subnet.Spec.AccessMode {
+				// AccessMode can only be changed when IPAddressType is converted from IPv6 to IPv4IPv6;
+				// or set from empty to a default value
+				if oldSubnet.Spec.AccessMode != "" && (subnet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv4IPv6 || oldSubnet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv6) {
+					return admission.Denied("Subnet accessMode is immutable")
+				}
 			}
 		}
 	case admissionv1.Delete:
@@ -146,6 +163,15 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			}
 			log.Error(err, "AccessMode not supported", "AccessMode", subnet.Spec.AccessMode, "namespace", subnet.Namespace)
 			return admission.Denied(err.Error())
+		}
+		if subnet.Spec.IPAddressType != "" {
+			if v.nsxClient != nil && v.nsxClient.NsxConfig != nil && v.nsxClient.NsxConfig.K8sConfig != nil {
+				supervisorIPFamily := v.nsxClient.NsxConfig.K8sConfig.GetIPAddressType()
+				_, err := controllercommon.IntersectIPAddressTypes([]v1alpha1.IPAddressType{subnet.Spec.IPAddressType, supervisorIPFamily})
+				if err != nil {
+					return admission.Denied(fmt.Sprintf("Subnet IPAddressType %s does not intersect with supervisor IP family %s", subnet.Spec.IPAddressType, supervisorIPFamily))
+				}
+			}
 		}
 	}
 	return admission.Allowed("")

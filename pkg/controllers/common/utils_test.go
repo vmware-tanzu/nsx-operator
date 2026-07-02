@@ -1325,3 +1325,57 @@ func TestIntersectIPAddressTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSupersetIPAddressTypes(t *testing.T) {
+	tests := []struct {
+		name   string
+		base   v1alpha1.IPAddressType
+		target v1alpha1.IPAddressType
+		want   bool
+	}{
+		{
+			name:   "IPv4 contains IPv4",
+			base:   v1alpha1.IPAddressTypeIPv4,
+			target: v1alpha1.IPAddressTypeIPv4,
+			want:   true,
+		},
+		{
+			name:   "IPv4 does not contain IPv6",
+			base:   v1alpha1.IPAddressTypeIPv4,
+			target: v1alpha1.IPAddressTypeIPv6,
+			want:   false,
+		},
+		{
+			name:   "Dual-stack contains IPv4",
+			base:   v1alpha1.IPAddressTypeIPv4IPv6,
+			target: v1alpha1.IPAddressTypeIPv4,
+			want:   true,
+		},
+		{
+			name:   "Dual-stack contains IPv6",
+			base:   v1alpha1.IPAddressTypeIPv4IPv6,
+			target: v1alpha1.IPAddressTypeIPv6,
+			want:   true,
+		},
+		{
+			name:   "Dual-stack contains Dual-stack",
+			base:   v1alpha1.IPAddressTypeIPv4IPv6,
+			target: v1alpha1.IPAddressTypeIPv4IPv6,
+			want:   true,
+		},
+		{
+			name:   "IPv4 does not contain Dual-stack",
+			base:   v1alpha1.IPAddressTypeIPv4,
+			target: v1alpha1.IPAddressTypeIPv4IPv6,
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSupersetIPAddressTypes(tt.base, tt.target); got != tt.want {
+				t.Errorf("IsSupersetIPAddressTypes() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

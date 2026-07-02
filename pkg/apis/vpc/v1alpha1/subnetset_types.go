@@ -14,7 +14,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPConfig) || has(self.subnetDHCPConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) || has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig) && !has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges)", message="reservedIPRanges is not supported in SubnetSet"
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPv6Config) || has(self.subnetDHCPv6Config) && !has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) || has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) && !has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)", message="reservedIPRanges is not supported in SubnetSet"
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode) || self.subnetDHCPConfig.mode!='DHCPRelay'", message="DHCPRelay is not supported in SubnetSet"
-// +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode) || self.subnetDHCPv6Config.mode!='DHCPRelay'", message="DHCPRelay is not supported in SubnetSet"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode) || self.subnetDHCPv6Config.mode!='DHCPRelay' && self.subnetDHCPv6Config.mode!='DHCPServerStateless'", message="DHCPRelay or DHCPServerStateless is not supported in SubnetSet"
 type SubnetSetSpec struct {
 	// IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
@@ -30,7 +30,6 @@ type SubnetSetSpec struct {
 	IPv6PrefixLength int `json:"ipv6PrefixLength,omitempty"`
 	// Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC.
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet DHCP configuration.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
