@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,6 +51,7 @@ func TestSecurityPolicy(t *testing.T) {
 		RunSubtest(t, "testSecurityPolicyVPCFromFieldIngress", func(t *testing.T) { testSecurityPolicyVPCFromFieldIngress(t) })
 		RunSubtest(t, "testSecurityPolicyVPCToFieldEgress", func(t *testing.T) { testSecurityPolicyVPCToFieldEgress(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
+		RunSubtest(t, "testNetworkPolicyEgressNamedPortWithIPBlock", func(t *testing.T) { testNetworkPolicyEgressNamedPortWithIPBlock(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
 	})
 
@@ -489,6 +491,56 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 	// Test traffic from clientA to pod1
 	require.True(t, checkTrafficByCurl(nsClient, clientA, clientA, namedPortPodIPs[1], podPort, true), "testSecurityPolicyNamedPort traffic should work")
 	log.Info("Verified traffic from client Pod to Pod1")
+}
+
+func testNetworkPolicyEgressNamedPortWithIPBlock(t *testing.T) {
+	ns := "egress-named-port-ipblock-np-ns"
+	networkPolicyCRName := "test-np-egress-ipblock"
+	yamlPath, _ := filepath.Abs("./manifest/testNetworkPolicy/egress-named-port-ipblock.yaml")
+	_ = applyYAML(yamlPath, ns)
+	defer deleteYAML(yamlPath, ns)
+
+	// Wait for pod
+	podName := "db-pod"
+	_, err := testData.podWaitForIPs(defaultTimeout, podName, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", podName)
+
+	// Check nsx-t resource existing. NetworkPolicy is translated to SecurityPolicy
+	err = testData.waitForResourceExistOrNot(ns, common.ResourceTypeNetworkPolicy, networkPolicyCRName, true)
+	assert.NoError(t, err)
+
+	// Verify that exactly 1 allow rule is generated (for TCP 6000), and no rule is generated for the named port
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
+		queryParam := fmt.Sprintf("resource_type:Rule AND tags.tag:%s AND action:ALLOW", networkPolicyCRName)
+		var cursor *string
+		var pageSize int64 = 500
+		response, err := testData.nsxClient.QueryClient.List(queryParam, cursor, nil, &pageSize, nil, nil)
+		if err != nil {
+			return false, err
+		}
+
+		if len(response.Results) == 1 {
+			obj, errs := common.NewConverter().ConvertToGolang(response.Results[0], model.RuleBindingType())
+			if len(errs) > 0 {
+				return false, fmt.Errorf("%v", errs)
+			}
+			if rule, ok := obj.(model.Rule); ok {
+				if len(rule.ServiceEntries) > 0 {
+					obj, errs := common.NewConverter().ConvertToGolang(rule.ServiceEntries[0], model.L4PortSetServiceEntryBindingType())
+					if len(errs) > 0 {
+						return false, fmt.Errorf("%v", errs)
+					}
+					if entry, ok := obj.(model.L4PortSetServiceEntry); ok {
+						if len(entry.DestinationPorts) > 0 && entry.DestinationPorts[0] == "6000" {
+							return true, nil
+						}
+					}
+				}
+			}
+		}
+		return false, nil
+	})
+	assert.NoError(t, err, "Should have exactly 1 allow rule with destination port 6000")
 }
 
 func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
