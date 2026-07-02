@@ -49,10 +49,10 @@ func (mr *MockDnsRecordsClientMockRecorder) Delete(arg0, arg1, arg2 interface{})
 }
 
 // Get mocks base method.
-func (m *MockDnsRecordsClient) Get(arg0, arg1, arg2 string) (model.ProjectDnsRecord, error) {
+func (m *MockDnsRecordsClient) Get(arg0, arg1, arg2 string) (model.DnsRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0, arg1, arg2)
-	ret0, _ := ret[0].(model.ProjectDnsRecord)
+	ret0, _ := ret[0].(model.DnsRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -64,10 +64,10 @@ func (mr *MockDnsRecordsClientMockRecorder) Get(arg0, arg1, arg2 interface{}) *g
 }
 
 // List mocks base method.
-func (m *MockDnsRecordsClient) List(arg0, arg1 string, arg2 *string, arg3 *bool, arg4 *string, arg5 *int64, arg6 *bool, arg7, arg8 *string) (model.ProjectDnsRecordListResult, error) {
+func (m *MockDnsRecordsClient) List(arg0, arg1 string, arg2 *string, arg3 *bool, arg4 *string, arg5 *int64, arg6 *bool, arg7, arg8 *string) (model.DnsRecordListResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
-	ret0, _ := ret[0].(model.ProjectDnsRecordListResult)
+	ret0, _ := ret[0].(model.DnsRecordListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -79,7 +79,7 @@ func (mr *MockDnsRecordsClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, a
 }
 
 // Patch mocks base method.
-func (m *MockDnsRecordsClient) Patch(arg0, arg1, arg2 string, arg3 model.ProjectDnsRecord) error {
+func (m *MockDnsRecordsClient) Patch(arg0, arg1, arg2 string, arg3 model.DnsRecord) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Patch", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)
@@ -93,10 +93,10 @@ func (mr *MockDnsRecordsClientMockRecorder) Patch(arg0, arg1, arg2, arg3 interfa
 }
 
 // Update mocks base method.
-func (m *MockDnsRecordsClient) Update(arg0, arg1, arg2 string, arg3 model.ProjectDnsRecord) (model.ProjectDnsRecord, error) {
+func (m *MockDnsRecordsClient) Update(arg0, arg1, arg2 string, arg3 model.DnsRecord) (model.DnsRecord, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].(model.ProjectDnsRecord)
+	ret0, _ := ret[0].(model.DnsRecord)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

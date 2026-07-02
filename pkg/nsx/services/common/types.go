@@ -172,9 +172,9 @@ const (
 	GatewayInterfaceId = "gateway-interface"
 	VPCKey             = "/orgs/%s/projects/%s/vpcs/%s"
 
-	// PathSegmentProjectDnsRecords is the NSX Policy URL path segment for project-scoped DNS records
-	// (full path: /orgs/{org}/projects/{project}/dns-records/{id}). Must match PolicyResourceProjectDnsRecord.PathKey.
-	PathSegmentProjectDnsRecords = "dns-records"
+	// PathSegmentDnsRecords is the NSX Policy URL path segment for project-scoped DNS records
+	// (full path: /orgs/{org}/projects/{project}/dns-records/{id}). Must match PolicyResourceDnsRecord.PathKey.
+	PathSegmentDnsRecords = "dns-records"
 )
 
 var (
@@ -216,7 +216,7 @@ var (
 	ResourceTypeChildSubnetConnectionBindingMap  = "ChildSubnetConnectionBindingMap"
 	ResourceTypeChildVpcAttachment               = "ChildVpcAttachment"
 	ResourceTypeChildVpcIPAddressAllocation      = "ChildVpcIpAddressAllocation"
-	ResourceTypeChildProjectDnsRecord            = "ChildProjectDnsRecord"
+	ResourceTypeChildDnsRecord                   = "ChildDnsRecord"
 	ResourceTypeChildVpcSubnet                   = "ChildVpcSubnet"
 	ResourceTypeChildVpcSubnetPort               = "ChildVpcSubnetPort"
 	ResourceTypeChildDynamicIpAddressReservation = "ChildDynamicIpAddressReservation"
@@ -235,7 +235,7 @@ var (
 	ResourceTypeSubnetConnectionBindingMap       = "SubnetConnectionBindingMap"
 	ResourceTypeDynamicIpAddressReservation      = "DynamicIpAddressReservation"
 	ResourceTypeStaticIpAddressReservation       = "StaticIpAddressReservation"
-	ResourceTypeProjectDnsRecord                 = "ProjectDnsRecord"
+	ResourceTypeDnsRecord                        = "DnsRecord"
 
 	// ResourceTypeClusterControlPlane is used by NSXServiceAccountController
 	ResourceTypeClusterControlPlane = "clustercontrolplane"

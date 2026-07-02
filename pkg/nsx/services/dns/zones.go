@@ -17,15 +17,15 @@ import (
 )
 
 // NSX Policy path: /orgs/{org}/projects/{project}/dns-services/{dnsService}/zones/{zoneId}
-var projectDNSZonePathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-services/([^/]+)/zones/([^/]+)$`)
+var dnsZonePathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-services/([^/]+)/zones/([^/]+)$`)
 
-// parseProjectDNSZonePath splits a Policy zone path into org, project, DNS service, and zone ID.
-func parseProjectDNSZonePath(zonePath string) (orgID, projectID, dnsServiceID, zoneID string, err error) {
+// parseDnsZonePath splits a Policy zone path into org, project, DNS service, and zone ID.
+func parseDnsZonePath(zonePath string) (orgID, projectID, dnsServiceID, zoneID string, err error) {
 	p := strings.TrimSpace(zonePath)
 	if p == "" {
 		return "", "", "", "", fmt.Errorf("empty DNS zone path")
 	}
-	matches := projectDNSZonePathRe.FindStringSubmatch(p)
+	matches := dnsZonePathRe.FindStringSubmatch(p)
 	if len(matches) != 5 {
 		return "", "", "", "", fmt.Errorf("invalid DNS zone path %q: expected /orgs/{org}/projects/{project}/dns-services/{dns-service}/zones/{zone}", zonePath)
 	}
@@ -154,12 +154,12 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 	return dnsZoneDomainMapping, nil
 }
 
-func (s *DNSRecordService) getDNSZoneFromNSX(zonePath string) (*model.ProjectDnsZone, error) {
-	orgID, projectID, dnsServiceID, zoneID, err := parseProjectDNSZonePath(zonePath)
+func (s *DNSRecordService) getDNSZoneFromNSX(zonePath string) (*model.DnsZone, error) {
+	orgID, projectID, dnsServiceID, zoneID, err := parseDnsZonePath(zonePath)
 	if err != nil {
 		return nil, err
 	}
-	z, err := s.NSXClient.ProjectDnsZoneClient.Get(orgID, projectID, dnsServiceID, zoneID)
+	z, err := s.NSXClient.DnsZoneClient.Get(orgID, projectID, dnsServiceID, zoneID)
 	if err != nil {
 		return nil, nsxutil.TransNSXApiError(err)
 	}

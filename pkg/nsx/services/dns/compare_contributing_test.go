@@ -28,8 +28,8 @@ func TestDNSRecordComparable_Key_table(t *testing.T) {
 		want string
 	}{
 		{"nil receiver", nil, ""},
-		{"nil Path field", (*dnsRecordComparable)(&model.ProjectDnsRecord{}), ""},
-		{"valid path", (*dnsRecordComparable)(&model.ProjectDnsRecord{Path: &path}), path},
+		{"nil Path field", (*dnsRecordComparable)(&model.DnsRecord{}), ""},
+		{"valid path", (*dnsRecordComparable)(&model.DnsRecord{Path: &path}), path},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,12 +55,12 @@ func TestSortedNormalizedTagsForCompare_nilFields(t *testing.T) {
 	require.Nil(t, got[0].Scope)
 }
 
-func TestComparableToProjectDnsRecord_table(t *testing.T) {
+func TestComparableToDnsRecord_table(t *testing.T) {
 	t.Run("nil interface returns nil", func(t *testing.T) {
-		require.Nil(t, comparableToProjectDnsRecord(nil))
+		require.Nil(t, comparableToDnsRecord(nil))
 	})
 	t.Run("wrong type returns nil", func(t *testing.T) {
-		require.Nil(t, comparableToProjectDnsRecord(&wrongComparable{}))
+		require.Nil(t, comparableToDnsRecord(&wrongComparable{}))
 	})
 }
 
@@ -77,7 +77,7 @@ func TestResourceRefFromDNSRecord_table(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		rec      *model.ProjectDnsRecord
+		rec      *model.DnsRecord
 		wantOk   bool
 		wantKind string
 		wantNS   string
@@ -90,12 +90,12 @@ func TestResourceRefFromDNSRecord_table(t *testing.T) {
 		},
 		{
 			name:   "no owner tags",
-			rec:    &model.ProjectDnsRecord{Tags: []model.Tag{}},
+			rec:    &model.DnsRecord{Tags: []model.Tag{}},
 			wantOk: false,
 		},
 		{
 			name: "missing name tag",
-			rec: &model.ProjectDnsRecord{Tags: []model.Tag{
+			rec: &model.DnsRecord{Tags: []model.Tag{
 				modelTag(servicecommon.TagScopeDNSRecordFor, servicecommon.TagValueDNSRecordForService),
 				modelTag(servicecommon.TagScopeDNSRecordOwnerNamespace, "ns"),
 				// TagScopeDNSRecordOwnerName is missing
@@ -104,7 +104,7 @@ func TestResourceRefFromDNSRecord_table(t *testing.T) {
 		},
 		{
 			name: "unknown dns_for kind",
-			rec: &model.ProjectDnsRecord{Tags: []model.Tag{
+			rec: &model.DnsRecord{Tags: []model.Tag{
 				modelTag(servicecommon.TagScopeDNSRecordFor, "custom_unknown_kind"),
 				modelTag(servicecommon.TagScopeDNSRecordOwnerNamespace, "ns"),
 				modelTag(servicecommon.TagScopeDNSRecordOwnerName, "svc"),
@@ -113,7 +113,7 @@ func TestResourceRefFromDNSRecord_table(t *testing.T) {
 		},
 		{
 			name:     "valid Service record",
-			rec:      &model.ProjectDnsRecord{Tags: validTags(ResourceKindService, "ns1", "svcA")},
+			rec:      &model.DnsRecord{Tags: validTags(ResourceKindService, "ns1", "svcA")},
 			wantOk:   true,
 			wantKind: ResourceKindService,
 			wantNS:   "ns1",
@@ -121,7 +121,7 @@ func TestResourceRefFromDNSRecord_table(t *testing.T) {
 		},
 		{
 			name:     "valid HTTPRoute record",
-			rec:      &model.ProjectDnsRecord{Tags: validTags(ResourceKindHTTPRoute, "app", "route1")},
+			rec:      &model.DnsRecord{Tags: validTags(ResourceKindHTTPRoute, "app", "route1")},
 			wantOk:   true,
 			wantKind: ResourceKindHTTPRoute,
 			wantNS:   "app",
@@ -147,17 +147,17 @@ func TestResourceRefFromDNSRecord_table(t *testing.T) {
 func TestPrimaryOwnerNNIndexKeyFromRecord_table(t *testing.T) {
 	tests := []struct {
 		name    string
-		rec     *model.ProjectDnsRecord
+		rec     *model.DnsRecord
 		wantKey string
 	}{
 		{
 			name:    "record with no owner tags returns empty",
-			rec:     &model.ProjectDnsRecord{Tags: []model.Tag{}},
+			rec:     &model.DnsRecord{Tags: []model.Tag{}},
 			wantKey: "",
 		},
 		{
 			name: "record with valid owner tags returns index key",
-			rec: &model.ProjectDnsRecord{Tags: []model.Tag{
+			rec: &model.DnsRecord{Tags: []model.Tag{
 				modelTag(servicecommon.TagScopeDNSRecordFor, servicecommon.TagValueDNSRecordForService),
 				modelTag(servicecommon.TagScopeDNSRecordOwnerNamespace, "ns"),
 				modelTag(servicecommon.TagScopeDNSRecordOwnerName, "svc"),
@@ -166,7 +166,7 @@ func TestPrimaryOwnerNNIndexKeyFromRecord_table(t *testing.T) {
 		},
 		{
 			name: "HTTPRoute owner returns correct key",
-			rec: &model.ProjectDnsRecord{Tags: []model.Tag{
+			rec: &model.DnsRecord{Tags: []model.Tag{
 				modelTag(servicecommon.TagScopeDNSRecordFor, servicecommon.TagValueDNSRecordForHTTPRoute),
 				modelTag(servicecommon.TagScopeDNSRecordOwnerNamespace, "app"),
 				modelTag(servicecommon.TagScopeDNSRecordOwnerName, "route1"),
