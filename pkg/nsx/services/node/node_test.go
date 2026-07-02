@@ -1,14 +1,10 @@
 package node
 
 import (
-	"reflect"
-	"sync"
+	"strings"
 	"testing"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
-	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/sites/enforcement_points"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/client-go/tools/cache"
@@ -57,6 +53,9 @@ func createMockNodeService() *NodeService {
 					CoeConfig: &config.CoeConfig{
 						Cluster: "k8scl-one:test",
 					},
+					NsxConfig: &config.NsxConfig{
+						TnIdCheckInterval: 300,
+					},
 				},
 			},
 		},
@@ -76,26 +75,6 @@ func createMockNodeService() *NodeService {
 
 func TestInitializeNode(t *testing.T) {
 	mockService := createMockNodeService()
-
-	var tc *bindings.TypeConverter
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(tc), "ConvertToGolang",
-		func(_ *bindings.TypeConverter, d data.DataValue, b bindings.BindingType) (interface{}, []error) {
-			mId, mTag, mScope := "11111", "11111", "11111"
-			m := model.HostTransportNode{
-				Id:   &mId,
-				Tags: []model.Tag{{Tag: &mTag, Scope: &mScope}},
-			}
-			var j interface{} = m
-			return j, nil
-		})
-	defer patches.Reset()
-
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(&mockService.Service), "InitializeResourceStore", func(_ *servicecommon.Service, wg *sync.WaitGroup,
-		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store servicecommon.Store,
-	) {
-		wg.Done()
-	})
-	defer patch.Reset()
 
 	nodeService, err := InitializeNode(mockService.Service)
 	assert.NoError(t, err)
@@ -119,18 +98,24 @@ func TestNodeService_GetNodeByName(t *testing.T) {
 	nodes := service.GetNodeByName(nodeName)
 	assert.Len(t, nodes, 1)
 	assert.Equal(t, nodeName, *nodes[0].NodeDeploymentInfo.Fqdn)
+
+	// Test case-insensitive
+	nodesUpper := service.GetNodeByName("TEST-NODE")
+	assert.Len(t, nodesUpper, 1)
+	assert.Equal(t, nodeName, *nodesUpper[0].NodeDeploymentInfo.Fqdn)
 }
 
 func TestNodeService_SyncNodeStore(t *testing.T) {
 	logf.SetLogger(logger.ZapCustomLogger(false, 0).Logger)
 	service := createMockNodeService()
 	nodeName := "test-node"
+
 	// Test case: Node not found
 	err := service.SyncNodeStore("non-existent-node", false)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "node non-existent-node not found yet in NSX side")
+	assert.Contains(t, err.Error(), "node non-existent-node not found in NSX")
 
-	err = service.SyncNodeStore(nodeName, false)
+	err = service.SyncNodeStore("TEST-NODE", false)
 	assert.NoError(t, err)
 
 	nodes := service.GetNodeByName(nodeName)
@@ -139,9 +124,52 @@ func TestNodeService_SyncNodeStore(t *testing.T) {
 
 	// Test case: Node deletion
 	err = service.SyncNodeStore(nodeName, true)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 
-	nodes = service.GetNodeByName(nodeName)
+	nodes = service.NodeStore.GetByIndex(servicecommon.IndexKeyNodeName, strings.ToLower(nodeName))
+	assert.Len(t, nodes, 0)
+}
+
+func TestNodeService_SyncAllNodes(t *testing.T) {
+	logf.SetLogger(logger.ZapCustomLogger(false, 0).Logger)
+	service := createMockNodeService()
+	nodeName := "test-node"
+
+	// First, add a node to the store (simulating K8s Node Add event)
+	err := service.SyncNodeStore(nodeName, false)
+	assert.NoError(t, err)
+
+	// Now run syncAllNodes
+	err = service.syncAllNodes()
+	assert.NoError(t, err)
+
+	nodes := service.GetNodeByName(nodeName)
+	assert.Len(t, nodes, 1)
+	assert.Equal(t, nodeName, *nodes[0].NodeDeploymentInfo.Fqdn)
+
+	// Test case: Node deleted from NSX side
+	// Add a dummy node to local store that doesn't exist in the mocked NSX List response
+	dummyNodeName := "dummy-node"
+	dummyNodeId := "dummy-id"
+	dummyNode := &model.HostTransportNode{
+		UniqueId: &dummyNodeId,
+		NodeDeploymentInfo: &model.FabricHostNode{
+			Fqdn: &dummyNodeName,
+		},
+	}
+	err = service.NodeStore.Add(dummyNode)
+	assert.NoError(t, err)
+
+	// Verify dummy node is in store
+	nodes = service.GetNodeByName(dummyNodeName)
+	assert.Len(t, nodes, 1)
+
+	// Run syncAllNodes, it should detect dummy-node is missing in NSX and delete it from local store
+	err = service.syncAllNodes()
+	assert.NoError(t, err)
+
+	// Verify dummy node is deleted
+	nodes = service.GetNodeByName(dummyNodeName)
 	assert.Len(t, nodes, 0)
 }
 
