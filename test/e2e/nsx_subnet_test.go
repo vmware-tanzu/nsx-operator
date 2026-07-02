@@ -736,8 +736,8 @@ func SubnetPortWithIPAM(t *testing.T) {
 	require.Nil(t, err)
 	ip = ip.To4()
 	require.NotNil(t, ip, "Subnet IP should be ipv4")
-	// get the first available IP from the Subnet cidr
-	ip[3] += 4
+	// get an available IP from the Subnet cidr (offset by 10 to avoid NSX reserved IPs like .1, .2, .3)
+	ip[3] += 10
 
 	// Case 1: SubnetPort with a valid IP
 	subnetportInMACPool := &v1alpha1.SubnetPort{
@@ -853,11 +853,11 @@ func SubnetPortWithDHCP(t *testing.T) {
 	// get the first available IP from the Subnet cidr
 	ip := subnetCIDR.IP.To4()
 	require.NotNil(t, ip, "Subnet IP should be ipv4")
-	ip[3] += 4
+	ip[3] += 5
 	// ipEnd is a deep copy of ip
 	ipEnd := make(net.IP, len(ip))
 	copy(ipEnd, ip)
-	ipEnd[3] += 9 // reserve 10 IPs
+	ipEnd[3] += 5 // reserve 6 IPs
 	ipRange := fmt.Sprintf("%s-%s", ip.String(), ipEnd.String())
 	dhcpSubnet.Spec.IPAddresses = []string{ipAddresses}
 	dhcpSubnet.Spec.SubnetDHCPConfig.DHCPServerAdditionalConfig.ReservedIPRanges = []string{ipRange}
