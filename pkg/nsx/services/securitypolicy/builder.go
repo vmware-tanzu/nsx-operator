@@ -1279,6 +1279,7 @@ func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels m
 //   - {key: k1, operator: NotIn, values: [a1, a2, a3]}
 //   - {key: k1, operator: NotIn, values: [a2, a3, a4]}
 //     => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
+//
 // For In operator, it merges values by taking the intersection:
 // e.g.
 //   - {key: k1, operator: In, values: [a1, a2, a3]}
