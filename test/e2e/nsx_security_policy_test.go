@@ -51,6 +51,7 @@ func TestSecurityPolicy(t *testing.T) {
 		RunSubtest(t, "testSecurityPolicyVPCToFieldEgress", func(t *testing.T) { testSecurityPolicyVPCToFieldEgress(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPortWithoutPod", func(t *testing.T) { testSecurityPolicyNamedPortWithoutPod(t) })
 		RunSubtest(t, "testSecurityPolicyNamedPorWithPod", func(t *testing.T) { testSecurityPolicyNamedPorWithPod(t) })
+		RunSubtest(t, "testNetworkPolicyMultipleIn", func(t *testing.T) { testNetworkPolicyMultipleIn(t) })
 	})
 
 	// IPv6-only tests: run only when cluster has IPv6 Pod CIDR configured.
@@ -508,4 +509,74 @@ func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 		return false, nil
 	})
 	require.NoError(t, err)
+}
+
+// testNetworkPolicyMultipleIn verifies that multiple In expressions on the same key are properly intersected.
+func testNetworkPolicyMultipleIn(t *testing.T) {
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer deadlineCancel()
+
+	ns := NsSecurityPolicy
+	npName := "test-np-multiple-in"
+
+	// Create pods
+	podPath, _ := filepath.Abs("./manifest/testNetworkPolicy/np_multiple_in_pods.yaml")
+	require.NoError(t, applyYAML(podPath, ns))
+	defer deleteYAML(podPath, "")
+
+	frontend := "frontend"
+	backend := "backend"
+	db := "db"
+	target := "target-pod"
+
+	// Wait for pods
+	_, err := testData.podWaitForIPs(defaultTimeout, frontend, ns)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", frontend)
+	_, err = testData.podWaitForIPs(defaultTimeout, backend, ns)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", backend)
+	_, err = testData.podWaitForIPs(defaultTimeout, db, ns)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", db)
+	iPs, err := testData.podWaitForIPs(defaultTimeout, target, ns)
+	assert.NoError(t, err, "Error when waiting for IP for Pod %s", target)
+
+	// Test traffic before policy
+	require.True(t, checkTrafficByCurl(ns, frontend, frontend, iPs.ipv4.String(), podPort, true), "Traffic should work before policy")
+	require.True(t, checkTrafficByCurl(ns, backend, backend, iPs.ipv4.String(), podPort, true), "Traffic should work before policy")
+	require.True(t, checkTrafficByCurl(ns, db, db, iPs.ipv4.String(), podPort, true), "Traffic should work before policy")
+
+	// Create NetworkPolicy
+	npPath, _ := filepath.Abs("./manifest/testNetworkPolicy/np_multiple_in.yaml")
+	require.NoError(t, applyYAML(npPath, ns))
+	defer deleteYAML(npPath, ns)
+
+	// Wait for NetworkPolicy -> SecurityPolicy to be created
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, npName, true))
+
+	// Test traffic after policy
+	// Only backend should be allowed because intersection of ["frontend", "backend"] and ["backend", "db"] is ["backend"]
+	require.True(t, checkTrafficByCurl(ns, frontend, frontend, iPs.ipv4.String(), podPort, false), "Traffic from frontend should be blocked")
+	require.True(t, checkTrafficByCurl(ns, backend, backend, iPs.ipv4.String(), podPort, true), "Traffic from backend should be allowed")
+	require.True(t, checkTrafficByCurl(ns, db, db, iPs.ipv4.String(), podPort, false), "Traffic from db should be blocked")
+
+	// Delete NetworkPolicy
+	_ = deleteYAML(npPath, ns)
+
+	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		_, err = testData.clientset.NetworkingV1().NetworkPolicies(ns).Get(ctx, npName, v1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				return true, nil
+			}
+			return false, err
+		}
+		return false, nil
+	})
+	require.NoError(t, err)
+
+	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeSecurityPolicy, npName, false))
+
+	// Test traffic after delete
+	require.True(t, checkTrafficByCurl(ns, frontend, frontend, iPs.ipv4.String(), podPort, true), "Traffic from frontend should work after delete")
+	require.True(t, checkTrafficByCurl(ns, backend, backend, iPs.ipv4.String(), podPort, true), "Traffic from backend should work after delete")
+	require.True(t, checkTrafficByCurl(ns, db, db, iPs.ipv4.String(), podPort, true), "Traffic from db should work after delete")
 }

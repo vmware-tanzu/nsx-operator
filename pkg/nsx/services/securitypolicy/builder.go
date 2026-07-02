@@ -1289,14 +1289,20 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 			labelSelectorMap[d.Operator] = map[string][]string{}
 		}
 		_, exists = labelSelectorMap[d.Operator][d.Key]
-		labelSelectorMap[d.Operator][d.Key] = append(
-			labelSelectorMap[d.Operator][d.Key],
-			d.Values...)
 
-		if exists {
-			labelSelectorMap[d.Operator][d.Key] = util.RemoveDuplicateStr(
-				labelSelectorMap[d.Operator][d.Key],
-			)
+		if !exists {
+			labelSelectorMap[d.Operator][d.Key] = d.Values
+		} else {
+			if d.Operator == v1.LabelSelectorOpIn {
+				labelSelectorMap[d.Operator][d.Key] = util.IntersectStr(labelSelectorMap[d.Operator][d.Key], d.Values)
+			} else {
+				labelSelectorMap[d.Operator][d.Key] = append(
+					labelSelectorMap[d.Operator][d.Key],
+					d.Values...)
+				labelSelectorMap[d.Operator][d.Key] = util.RemoveDuplicateStr(
+					labelSelectorMap[d.Operator][d.Key],
+				)
+			}
 		}
 	}
 
@@ -1320,17 +1326,23 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1
 	mexprInValueCount := 0
 	var err error
 	errorMsg := ""
-	exists := false
-	var opInIndex int
 
-	for i, expr := range matchExpressions {
+	for _, expr := range matchExpressions {
 		if expr.Operator == v1.LabelSelectorOpIn {
-			_, exists = matchLabels[expr.Key]
-			if exists {
-				opInIndex = i
-			}
 			mexprInOpCount++
 			mexprInValueCount += len(expr.Values)
+
+			if _, exists := matchLabels[expr.Key]; exists {
+				// matchLabels can only be duplicated with matchExpressions operator 'In' expression
+				// Since only operator 'In' is equivalent to key-value condition
+				for _, value := range expr.Values {
+					if matchLabels[expr.Key] == value {
+						errorMsg = fmt.Sprintf("duplicate expression - %s:%s specified in both matchLabels and matchExpressions operator 'In'",
+							expr.Key, value)
+						break
+					}
+				}
+			}
 		}
 	}
 	if mexprInOpCount > MaxMatchExpressionInOp {
@@ -1339,16 +1351,6 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1
 	} else if mexprInValueCount > MaxMatchExpressionInValues {
 		errorMsg = fmt.Sprintf("count of values list for operator 'In' expressions %d exceed limit of %d",
 			mexprInValueCount, MaxMatchExpressionInValues)
-	} else if exists {
-		// matchLabels can only be duplicated with matchExpressions operator 'In' expression
-		// Since only operator 'In' is equivalent to key-value condition
-		for _, value := range matchExpressions[opInIndex].Values {
-			if matchLabels[matchExpressions[opInIndex].Key] == value {
-				errorMsg = fmt.Sprintf("duplicate expression - %s:%s specified in both matchLabels and matchExpressions operator 'In'",
-					matchExpressions[opInIndex].Key, value)
-				break
-			}
-		}
 	}
 
 	if len(errorMsg) != 0 {
@@ -1764,7 +1766,7 @@ func (service *SecurityPolicyService) updatePeerExpressions(obj *v1alpha1.Securi
 
 			// NamespaceSelector AND with PodSelector or VMSelector expressions to produce final expressions
 			err = service.updateMixedExpressionsMatchExpression(*nsMergedMatchExpressions, nsMatchLabels,
-				*matchExpressions, matchLabels, &group.Expression, clusterExpression, tagValueExpression, expressions)
+				*mergedMatchExpressions, matchLabels, &group.Expression, clusterExpression, tagValueExpression, expressions)
 			if err != nil {
 				return 0, 0, err
 			}

@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: frontend
+  labels:
+    tier: frontend
+spec:
+  restartPolicy: Never
+  containers:
+  - name: frontend
+    image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: backend
+  labels:
+    tier: backend
+spec:
+  restartPolicy: Never
+  containers:
+    - name: backend
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db
+  labels:
+    tier: db
+spec:
+  restartPolicy: Never
+  containers:
+    - name: db
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: target-pod
+  labels:
+    nptcp1: tcp1
+spec:
+  restartPolicy: Never
+  containers:
+    - name: target-pod
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
