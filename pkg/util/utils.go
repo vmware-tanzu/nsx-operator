@@ -292,13 +292,8 @@ func TruncateUIDHash(uid string) string {
 	return Sha1WithCustomizedCharset(uid)[:common.UUIDHashLength]
 }
 
-// GenerateIDByObject generate string id for NSX resource using the provided Object's name and the hash of CR uid.
-// Note, this function is used on the resources with VPC scenario, and the provided obj is the K8s CR which is
-// used to generate the NSX resource.
-// Note: This function may use hash(obj.UID)[:5] as the return string's suffix. Since the hash suffix is short,
-// it may have collision with the existing NSX resources, the corresponding handle is provided by nsx services layer.
-func GenerateIDByObject(obj metav1.Object) string {
-	limit := common.MaxIdLength
+// GenerateIDByObjectWithLimit generate string id for NSX resource with a specified limit.
+func GenerateIDByObjectWithLimit(obj metav1.Object, limit int) string {
 	uidStr := string(obj.GetUID())
 	suffix := TruncateUIDHash(uidStr)
 	desiredName := connectStrings(common.ConnectorUnderline, obj.GetName(), suffix)
@@ -307,6 +302,15 @@ func GenerateIDByObject(obj metav1.Object) string {
 		desiredName = connectStrings(common.ConnectorUnderline, obj.GetName()[:valueLen], suffix)
 	}
 	return desiredName
+}
+
+// GenerateIDByObject generate string id for NSX resource using the provided Object's name and the hash of CR uid.
+// Note, this function is used on the resources with VPC scenario, and the provided obj is the K8s CR which is
+// used to generate the NSX resource.
+// Note: This function may use hash(obj.UID)[:5] as the return string's suffix. Since the hash suffix is short,
+// it may have collision with the existing NSX resources, the corresponding handle is provided by nsx services layer.
+func GenerateIDByObject(obj metav1.Object) string {
+	return GenerateIDByObjectWithLimit(obj, common.MaxIdLength)
 }
 
 // GenerateID generate id for NSX resource, some resources has complex index, so set its type to string.

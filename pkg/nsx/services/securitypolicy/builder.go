@@ -53,7 +53,7 @@ func (service *SecurityPolicyService) buildSecurityPolicyName(obj *v1alpha1.Secu
 	return util.GenerateTruncName(common.MaxNameLength, obj.Name, "", "", "", "")
 }
 
-func (service *SecurityPolicyService) buildSecurityPolicyIDAndName(obj *v1alpha1.SecurityPolicy, createdFor string) (string, string) {
+func (service *SecurityPolicyService) buildSecurityPolicyIDAndName(obj *v1alpha1.SecurityPolicy, createdFor string, vpcInfo *common.VPCResourceInfo) (string, string) {
 	indexScope := common.TagValueScopeSecurityPolicyUID
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
@@ -76,7 +76,14 @@ func (service *SecurityPolicyService) buildSecurityPolicyIDAndName(obj *v1alpha1
 			Name: obj.GetName(),
 			UID:  types.UID(spUID),
 		}
-		return common.BuildUniqueIDWithSuffix(objForIdGeneration, suffixInUid, common.MaxIdLength, util.GenerateIDByObject, func(id string) bool {
+		limit := common.MaxIdLength
+		if vpcInfo != nil {
+			basePath := fmt.Sprintf("%s/security-policies", vpcInfo.GetVPCPath())
+			limit = 255 - len(basePath) - 1
+		}
+		return common.BuildUniqueIDWithSuffix(objForIdGeneration, suffixInUid, limit, func(o v1.Object) string {
+			return util.GenerateIDByObjectWithLimit(o, limit)
+		}, func(id string) bool {
 			return service.securityPolicyStore.GetByKey(id) != nil
 		}), service.buildSecurityPolicyName(obj)
 	}
@@ -120,7 +127,7 @@ func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.Security
 	nsxSecurityPolicy := &model.SecurityPolicy{}
 	tags := service.buildBasicTags(obj, createdFor)
 
-	policyID, policyName := service.buildSecurityPolicyIDAndName(obj, createdFor)
+	policyID, policyName := service.buildSecurityPolicyIDAndName(obj, createdFor, vpcInfo)
 	nsxSecurityPolicy.Id = String(policyID)
 	nsxSecurityPolicy.DisplayName = String(policyName)
 	// TODO: confirm the sequence number: offset
