@@ -126,6 +126,7 @@ type NsxConfig struct {
 	InventoryBatchPeriod      int      `ini:"inventory_batch_period"`
 	InventoryBatchSize        int      `ini:"inventory_batch_size"`
 	EnableInventory           bool     `ini:"enable_inventory"`
+	TnIdCheckInterval int `ini:"tn_id_check_interval"`
 }
 
 type K8sConfig struct {
@@ -234,6 +235,7 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&NsxConfig{
 			InventoryBatchPeriod: 5,
 			InventoryBatchSize:   50,
+			TnIdCheckInterval:    300,
 		},
 		&K8sConfig{},
 		&VCConfig{},
