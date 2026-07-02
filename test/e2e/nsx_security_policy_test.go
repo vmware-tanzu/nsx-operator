@@ -211,18 +211,18 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testSecurityPolicy/allow-client-a-via-pod-selector-with-match-expressions.yaml")
 	require.NoError(t, applyYAML(podPath, ns))
-	defer deleteYAML(podPath, "")
+	defer deleteYAML(podPath, ns)
 
 	clientA := "client-a"
 	clientB := "client-b"
 	podA := "pod-a"
 	// Wait for pods
 	_, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
 	_, err = testData.podWaitForIPs(defaultTimeout, clientB, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
 	iPs, err := testData.podWaitForIPs(defaultTimeout, podA, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", podA)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", podA)
 
 	// Test traffic from clientA to podA
 	require.True(t, checkTrafficByCurl(ns, clientA, clientA, iPs.ipv4.String(), podPort, true), "TestSecurityPolicyMatchExpression traffic should work")
@@ -424,7 +424,7 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 
 	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
 	log.Trace("Pods", "pods", psb)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
 
 	// Check NSX resource existing
