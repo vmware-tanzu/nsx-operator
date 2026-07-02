@@ -1271,13 +1271,19 @@ func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels m
 	}
 }
 
-// NSX understand the multiple values w.r.t a key in a joined string manner
-// this function iterates over input matchExpressions LabelSelectorRequirement
-// with same operator and Key, and merges them into one and values to a joined string
+// NSX understand the multiple values w.r.t a key in a joined string manner.
+// This function iterates over input matchExpressions LabelSelectorRequirement
+// with same operator and Key, and merges them into one.
+// For NotIn operator, it merges values by taking the union:
 // e.g.
 //   - {key: k1, operator: NotIn, values: [a1, a2, a3]}
 //   - {key: k1, operator: NotIn, values: [a2, a3, a4]}
 //     => {key: k1, operator: NotIn, values: [a1, a2, a3, a4]}
+// For In operator, it merges values by taking the intersection:
+// e.g.
+//   - {key: k1, operator: In, values: [a1, a2, a3]}
+//   - {key: k1, operator: In, values: [a2, a3, a4]}
+//     => {key: k1, operator: In, values: [a2, a3]}
 func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressions []v1.LabelSelectorRequirement) *[]v1.LabelSelectorRequirement {
 	mergedMatchExpressions := make([]v1.LabelSelectorRequirement, 0)
 	var mergedSelector v1.LabelSelectorRequirement
@@ -1320,7 +1326,7 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 
 // Todo, refactor code when NSX support 'In' LabelSelector.
 // Given NSX currently doesn't support 'In' LabelSelector, to keep design simple,
-// only allow just one 'In' LabelSelector in matchExpressions with at most of five values in it.
+// only allow just one 'In' LabelSelector in matchExpressions with same key and totally maximum five values.
 func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1.LabelSelectorRequirement, matchLabels map[string]string) (int, error) {
 	mexprInOpCount := 0
 	mexprInValueCount := 0
@@ -1346,10 +1352,10 @@ func (service *SecurityPolicyService) validateSelectorOpIn(matchExpressions []v1
 		}
 	}
 	if mexprInOpCount > MaxMatchExpressionInOp {
-		errorMsg = fmt.Sprintf("count of operator 'In' expressions %d exceed limit of %d",
+		errorMsg = fmt.Sprintf("count of operator 'In' expressions %d with the same key exceed maximum limit of %d",
 			mexprInOpCount, MaxMatchExpressionIn)
 	} else if mexprInValueCount > MaxMatchExpressionInValues {
-		errorMsg = fmt.Sprintf("count of values list for operator 'In' expressions %d exceed limit of %d",
+		errorMsg = fmt.Sprintf("count of values list for operator 'In' expressions %d  with the same key exceed maximum limit of %d",
 			mexprInValueCount, MaxMatchExpressionInValues)
 	}
 

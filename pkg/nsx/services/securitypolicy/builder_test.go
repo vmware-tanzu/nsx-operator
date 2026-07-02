@@ -2514,5 +2514,5 @@ func Test_updatePeerExpressions_NamespaceSelector_OpIn_Limit(t *testing.T) {
 	_, _, err := s.updatePeerExpressions(sp, peer, group, 0, false)
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "count of values list for operator 'In' expressions")
-	assert.Contains(t, err.Error(), "exceed limit of 5")
+	assert.Contains(t, err.Error(), "exceed maximum limit of 5")
 }
