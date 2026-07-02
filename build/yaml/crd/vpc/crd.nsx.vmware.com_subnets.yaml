@@ -69,9 +69,6 @@ spec:
                 - PrivateTGW
                 - L2Only
                 type: string
-                x-kubernetes-validations:
-                - message: Value is immutable
-                  rule: self == oldSelf
               advancedConfig:
                 description: VPC Subnet advanced configuration.
                 properties:
@@ -213,8 +210,7 @@ spec:
                 x-kubernetes-validations:
                 - message: DHCPv6ServerAdditionalConfig must be cleared when Subnet
                     has DHCP relay enabled or DHCP is deactivated.
-                  rule: (!has(self.mode) || self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay')
-                    && (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)
+                  rule: (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
               vlanConnectionName:

@@ -1410,9 +1410,9 @@ _Appears in:_
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
-| `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
+| `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets. |  | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
-| `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Defaults to 64. | 64 | Maximum: 127 <br />Minimum: 2 <br /> |
+| `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets. |  | Maximum: 127 <br />Minimum: 2 <br /> |
 | `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
 
 

@@ -68,9 +68,6 @@ spec:
                 - Public
                 - PrivateTGW
                 type: string
-                x-kubernetes-validations:
-                - message: Value is immutable
-                  rule: self == oldSelf
               ipAddressType:
                 description: IPAddressType defines the IP address type that will be
                   allocated for subnets in the SubnetSet.
@@ -152,8 +149,7 @@ spec:
                 x-kubernetes-validations:
                 - message: DHCPv6ServerAdditionalConfig must be cleared when Subnet
                     has DHCP relay enabled or DHCP is deactivated.
-                  rule: (!has(self.mode) || self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay')
-                    && (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)
+                  rule: (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)
                     || size(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
               subnetNames:
@@ -183,9 +179,9 @@ spec:
             - message: DHCPRelay is not supported in SubnetSet
               rule: '!has(self.subnetDHCPConfig) || !has(self.subnetDHCPConfig.mode)
                 || self.subnetDHCPConfig.mode!=''DHCPRelay'''
-            - message: DHCPRelay is not supported in SubnetSet
+            - message: DHCPRelay or DHCPServerStateless is not supported in SubnetSet
               rule: '!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode)
-                || self.subnetDHCPv6Config.mode!=''DHCPRelay'''
+                || self.subnetDHCPv6Config.mode!=''DHCPRelay'' && self.subnetDHCPv6Config.mode!=''DHCPServerStateless'''
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
             properties:
