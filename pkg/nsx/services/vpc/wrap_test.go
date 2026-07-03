@@ -14,12 +14,12 @@ import (
 
 func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 	type args struct {
-		org              string
-		nsxtProject      string
-		vpc              *model.Vpc
-		lbServiceIPAlloc *model.VpcIpAddressAllocation
-		lbs              *model.LBService
-		attachment       *model.VpcAttachment
+		org               string
+		nsxtProject       string
+		vpc               *model.Vpc
+		lbServiceIPAllocs []*model.VpcIpAddressAllocation
+		lbs               *model.LBService
+		attachment        *model.VpcAttachment
 	}
 	tests := []struct {
 		name            string
@@ -30,14 +30,14 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 		wantErr         assert.ErrorAssertionFunc
 	}{
 		{
-			name: "without lbServiceIPAlloc",
+			name: "no lbServiceIPAllocs (nil slice)",
 			args: args{
-				org:              "testorg",
-				nsxtProject:      "testproject",
-				vpc:              &model.Vpc{},
-				lbServiceIPAlloc: nil,
-				lbs:              &model.LBService{},
-				attachment:       &model.VpcAttachment{},
+				org:               "testorg",
+				nsxtProject:       "testproject",
+				vpc:               &model.Vpc{},
+				lbServiceIPAllocs: nil,
+				lbs:               &model.LBService{},
+				attachment:        &model.VpcAttachment{},
 			},
 			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
@@ -45,29 +45,49 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 			wantErr:         assert.NoError,
 		},
 		{
-			name: "with lbServiceIPAlloc",
+			name: "single IPv4 lbServiceIPAlloc",
 			args: args{
-				org:              "testorg",
-				nsxtProject:      "testproject",
-				vpc:              &model.Vpc{},
-				lbServiceIPAlloc: &model.VpcIpAddressAllocation{Id: common.String(common.LBServiceIPAllocationID)},
-				lbs:              &model.LBService{},
-				attachment:       &model.VpcAttachment{},
+				org:         "testorg",
+				nsxtProject: "testproject",
+				vpc:         &model.Vpc{},
+				lbServiceIPAllocs: []*model.VpcIpAddressAllocation{
+					{Id: common.String(common.LBServiceIPAllocationID)},
+				},
+				lbs:        &model.LBService{},
+				attachment: &model.VpcAttachment{},
 			},
 			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
-			wantVPCChildren: 3, // IPAlloc + LBS + Attachment
+			wantVPCChildren: 3, // IPv4 IPAlloc + LBS + Attachment
 			wantErr:         assert.NoError,
 		},
 		{
-			name: "nil lbs and nil attachment",
+			name: "dual-stack lbServiceIPAllocs (IPv4 + IPv6)",
 			args: args{
-				org:              "testorg",
-				nsxtProject:      "testproject",
-				vpc:              &model.Vpc{},
-				lbServiceIPAlloc: nil,
-				lbs:              nil,
-				attachment:       nil,
+				org:         "testorg",
+				nsxtProject: "testproject",
+				vpc:         &model.Vpc{},
+				lbServiceIPAllocs: []*model.VpcIpAddressAllocation{
+					{Id: common.String(common.LBServiceIPAllocationID)},
+					{Id: common.String(common.LBServiceIPAllocationIDV6)},
+				},
+				lbs:        &model.LBService{},
+				attachment: &model.VpcAttachment{},
+			},
+			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
+			wantOrgChildren: 1,
+			wantVPCChildren: 4, // IPv4 IPAlloc + IPv6 IPAlloc + LBS + Attachment
+			wantErr:         assert.NoError,
+		},
+		{
+			name: "nil lbs and nil attachment, no allocs",
+			args: args{
+				org:               "testorg",
+				nsxtProject:       "testproject",
+				vpc:               &model.Vpc{},
+				lbServiceIPAllocs: nil,
+				lbs:               nil,
+				attachment:        nil,
 			},
 			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
@@ -75,33 +95,52 @@ func TestVPCService_WrapHierarchyVPC(t *testing.T) {
 			wantErr:         assert.NoError,
 		},
 		{
-			name: "only lbServiceIPAlloc, no lbs or attachment",
+			name: "only IPv4 lbServiceIPAlloc, no lbs or attachment",
 			args: args{
-				org:              "testorg",
-				nsxtProject:      "testproject",
-				vpc:              &model.Vpc{},
-				lbServiceIPAlloc: &model.VpcIpAddressAllocation{Id: common.String(common.LBServiceIPAllocationID)},
-				lbs:              nil,
-				attachment:       nil,
+				org:         "testorg",
+				nsxtProject: "testproject",
+				vpc:         &model.Vpc{},
+				lbServiceIPAllocs: []*model.VpcIpAddressAllocation{
+					{Id: common.String(common.LBServiceIPAllocationID)},
+				},
+				lbs:        nil,
+				attachment: nil,
 			},
 			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
 			wantOrgChildren: 1,
-			wantVPCChildren: 1, // only IPAlloc
+			wantVPCChildren: 1, // only IPv4 IPAlloc
+			wantErr:         assert.NoError,
+		},
+		{
+			name: "only IPv6 lbServiceIPAlloc, no lbs or attachment",
+			args: args{
+				org:         "testorg",
+				nsxtProject: "testproject",
+				vpc:         &model.Vpc{},
+				lbServiceIPAllocs: []*model.VpcIpAddressAllocation{
+					{Id: common.String(common.LBServiceIPAllocationIDV6)},
+				},
+				lbs:        nil,
+				attachment: nil,
+			},
+			want:            &model.OrgRoot{ResourceType: util.Ptr("OrgRoot")},
+			wantOrgChildren: 1,
+			wantVPCChildren: 1, // only IPv6 IPAlloc
 			wantErr:         assert.NoError,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &VPCService{}
-			got, err := s.WrapHierarchyVPC(tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbServiceIPAlloc, tt.args.lbs, tt.args.attachment)
-			if !tt.wantErr(t, err, fmt.Sprintf("WrapHierarchyVPC(%v, %v, %v, %v, %v)", tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbServiceIPAlloc, tt.args.lbs)) {
+			got, err := s.WrapHierarchyVPC(tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbServiceIPAllocs, tt.args.lbs, tt.args.attachment)
+			if !tt.wantErr(t, err, fmt.Sprintf("WrapHierarchyVPC(%v, %v, %v, %v, %v)", tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbServiceIPAllocs, tt.args.lbs)) {
 				return
 			}
 			require.NotNil(t, got)
 			assert.Equalf(t, tt.wantOrgChildren, len(got.Children), "OrgRoot children count")
 			assert.Equalf(t, tt.wantVPCChildren, len(tt.args.vpc.Children), "VPC children count")
 			got.Children = nil
-			assert.Equalf(t, tt.want, got, "WrapHierarchyVPC(%v, %v, %v, %v, %v)", tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbServiceIPAlloc, tt.args.lbs)
+			assert.Equalf(t, tt.want, got, "WrapHierarchyVPC(%v, %v, %v, %v, %v)", tt.args.org, tt.args.nsxtProject, tt.args.vpc, tt.args.lbServiceIPAllocs, tt.args.lbs)
 		})
 	}
 }
