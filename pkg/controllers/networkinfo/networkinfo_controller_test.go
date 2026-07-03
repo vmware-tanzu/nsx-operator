@@ -238,8 +238,13 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return false, nil
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil},
-					Times:  2,
+					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ExternalIpBlocks: []string{"fake-ip-block"},
+						ServiceGateway: &model.VpcServiceGatewayConfig{
+							EdgeClusterPaths: []string{"fake-edge-cluster-path"},
+						},
+					}, nil},
+					Times: 2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -313,8 +318,13 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return false, nil
 				})
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.VpcConnectivityProfile{ExternalIpBlocks: []string{"fake-ip-block"}}, nil},
-					Times:  2,
+					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ExternalIpBlocks: []string{"fake-ip-block"},
+						ServiceGateway: &model.VpcServiceGatewayConfig{
+							EdgeClusterPaths: []string{"fake-edge-cluster-path"},
+						},
+					}, nil},
+					Times: 2,
 				}})
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
 					return vpc.NSXLB, nil
@@ -609,7 +619,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{
 						ExternalIpBlocks: []string{"fake-ip-block"},
-						ServiceGateway:   nil,
+						ServiceGateway: &model.VpcServiceGatewayConfig{
+							EdgeClusterPaths: []string{"fake-edge-cluster-path"},
+						},
 					}, nil},
 					Times: 2,
 				}})
@@ -691,7 +703,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{model.VpcConnectivityProfile{
 						ExternalIpBlocks: []string{"fake-ip-block"},
-						ServiceGateway:   nil,
+						ServiceGateway: &model.VpcServiceGatewayConfig{
+							EdgeClusterPaths: []string{"fake-edge-cluster-path"},
+						},
 					}, nil},
 					Times: 2,
 				}})
@@ -1560,8 +1574,12 @@ func TestNetworkInfoReconciler_Reconcile_ExternalIPBlockInSystemVPC(t *testing.T
 			})
 
 			patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
-				Values: gomonkey.Params{model.VpcConnectivityProfile{ServiceGateway: nil}, nil},
-				Times:  2,
+				Values: gomonkey.Params{model.VpcConnectivityProfile{
+					ServiceGateway: &model.VpcServiceGatewayConfig{
+						EdgeClusterPaths: []string{"fake-edge-cluster-path"},
+					},
+				}, nil},
+				Times: 2,
 			}})
 
 			patches.ApplyFunc(setVPCNetworkConfigurationStatusWithNoExternalIPBlock, func(_ context.Context, _ client.Client, _ *v1alpha1.VPCNetworkConfiguration, _ bool) {

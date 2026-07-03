@@ -329,15 +329,22 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "Failed to get LB Provider")
 		return common.ResultRequeue, nil
 	}
-	// For non-pre-created system VPC, set LBCapability before VPC creation.
+	// Set LBCapability before VPC creation for the system VPC.
 	// CreateOrUpdateVPC fails in VNA + NSX-LB + IPv6/DualStack, so without this early
 	// check the condition would never be reported when VPC creation errors out.
-	if ncName == commonservice.SystemVPCNetworkConfigurationName && !vpc.IsPreCreatedVPC(nc) && len(nc.Spec.VPCConnectivityProfile) > 0 {
-		if earlyProfile, profileErr := r.Service.GetVpcConnectivityProfile(nc, nc.Spec.VPCConnectivityProfile); profileErr == nil {
+	if ncName == commonservice.SystemVPCNetworkConfigurationName && len(nc.Spec.VPCConnectivityProfile) > 0 {
+		earlyProfile, profileErr := r.Service.GetVpcConnectivityProfile(nc, nc.Spec.VPCConnectivityProfile)
+		if profileErr != nil {
+			log.Error(profileErr, "Requeue NetworkInfo CR because failed to get VPC connectivity profile for LBCapability check", "req", req)
+			if !retryWithSystemVPC {
+				retryWithSystemVPC = true
+				systemNSCondition = nsMsgVPCConnProfileNotReady.getNSNetworkCondition()
+			}
+		} else {
 			ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
 			isVNA, vnaErr := vpc.IsVNAMode(earlyProfile)
 			if vnaErr != nil {
-				log.Info("Requeue NetworkInfo CR because VPC connectivity profile EdgeClusterPaths are not available", "req", req)
+				log.Info("Requeue NetworkInfo CR because VPC connectivity profile ServiceGateway/EdgeClusterPaths not available", "req", req)
 				if !retryWithSystemVPC {
 					retryWithSystemVPC = true
 					systemNSCondition = nsMsgVPCConnProfileNotReady.getNSNetworkCondition()
@@ -476,26 +483,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 				return common.ResultNormal, err
 			}
-		}
-	}
-
-	// Set LBCapability condition on the system VPC config.
-	// Condition is False when VNA (all ServiceGateway.EdgeClusterPaths are VNA clusters) +
-	// NSX-LB + IPv6/DualStack, True otherwise.
-	// LBCapability=False is informational only — namespace readiness is not blocked.
-	if ncName == commonservice.SystemVPCNetworkConfigurationName {
-		ipFamily := r.Service.NSXConfig.K8sConfig.GetIPAddressType()
-		isVNA, err := vpc.IsVNAMode(vpcConnectivityProfile)
-		if err != nil {
-			// EdgeClusterPaths not yet populated — can't determine LBCapability; retry.
-			log.Info("Requeue NetworkInfo CR because VPC connectivity profile EdgeClusterPaths are not available", "req", req)
-			if !retryWithSystemVPC {
-				retryWithSystemVPC = true
-				systemNSCondition = nsMsgVPCConnProfileNotReady.getNSNetworkCondition()
-			}
-		} else {
-			lbCapable := !isVNA || lbProvider != vpc.NSXLB || !util.IPAddressTypeIncludesIPv6(ipFamily)
-			setVPCNetworkConfigurationStatusWithLBCapability(ctx, r.Client, systemVpcNetCfg, lbCapable)
 		}
 	}
 

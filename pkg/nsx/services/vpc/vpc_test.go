@@ -644,14 +644,14 @@ func TestIsEnableAutoSNAT(t *testing.T) {
 }
 
 func TestIsVNAMode(t *testing.T) {
-	// nil profile → (false, nil): no profile means not VNA
+	// nil profile → (false, error): cannot determine VNA mode, caller should retry
 	isVNA, err := IsVNAMode(nil)
-	assert.NoError(t, err)
+	assert.Error(t, err)
 	assert.False(t, isVNA)
 
-	// ServiceGateway nil → (false, nil): no service gateway means not VNA
+	// ServiceGateway nil → (false, error): cannot determine VNA mode, caller should retry
 	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{})
-	assert.NoError(t, err)
+	assert.Error(t, err)
 	assert.False(t, isVNA)
 
 	// EdgeClusterPaths empty → (false, error): profile exists but paths not populated, caller should retry

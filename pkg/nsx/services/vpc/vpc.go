@@ -1058,7 +1058,7 @@ func IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool
 // are not yet populated; callers should not set LBCapability and should retry.
 func IsVNAMode(profile *model.VpcConnectivityProfile) (bool, error) {
 	if profile == nil || profile.ServiceGateway == nil {
-		return false, nil
+		return false, fmt.Errorf("VPC connectivity profile or ServiceGateway is nil, cannot determine VNA mode")
 	}
 	if len(profile.ServiceGateway.EdgeClusterPaths) == 0 {
 		return false, fmt.Errorf("VPC connectivity profile has no EdgeClusterPaths, cannot determine VNA mode")
