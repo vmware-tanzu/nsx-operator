@@ -23,7 +23,7 @@ type RecordStore struct {
 
 func dnsRecordKeyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		if v.Path != nil {
 			return *v.Path, nil
 		}
@@ -44,13 +44,13 @@ func filterTagBy(v []model.Tag, tagScope string) []string {
 }
 
 // dnsRecordCreatedForValue returns the dns_for tag value on rec, or "".
-func dnsRecordCreatedForValue(rec *model.ProjectDnsRecord) string {
+func dnsRecordCreatedForValue(rec *model.DnsRecord) string {
 	return firstTagValue(rec.Tags, common.TagScopeDNSRecordFor)
 }
 
 func indexDNSRecordByOwnerTypeNN(obj interface{}) ([]string, error) {
 	switch v := obj.(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		ownerKey := getDNSRecordOwnerNamespacedName(v)
 		if ownerKey == "" {
 			return []string{}, nil
@@ -62,7 +62,7 @@ func indexDNSRecordByOwnerTypeNN(obj interface{}) ([]string, error) {
 }
 
 // ownerCreatedForAndNNFromDNSRecord returns (dns_for, owner ns, owner name, ok) from rec tags.
-func ownerCreatedForAndNNFromDNSRecord(record *model.ProjectDnsRecord) (createdFor, ns, name string, ok bool) {
+func ownerCreatedForAndNNFromDNSRecord(record *model.DnsRecord) (createdFor, ns, name string, ok bool) {
 	createdFor = dnsRecordCreatedForValue(record)
 	if createdFor == "" {
 		return "", "", "", false
@@ -99,7 +99,7 @@ func (s *RecordStore) GroupRecordsByResourceKind() map[string]sets.Set[types.Nam
 }
 
 // getDNSRecordOwnerNamespacedName returns owner index key "createdFor/ns/name", or "" if tags incomplete.
-func getDNSRecordOwnerNamespacedName(record *model.ProjectDnsRecord) string {
+func getDNSRecordOwnerNamespacedName(record *model.DnsRecord) string {
 	createdFor, ns, name, ok := ownerCreatedForAndNNFromDNSRecord(record)
 	if !ok {
 		return ""
@@ -116,7 +116,7 @@ func firstTagValue(tags []model.Tag, scope string) string {
 }
 
 // gatewayIndexKeysFromDNSRecord returns parent-gateway label keys for Route rows (comma-separated in tag).
-func gatewayIndexKeysFromDNSRecord(v *model.ProjectDnsRecord) []string {
+func gatewayIndexKeysFromDNSRecord(v *model.DnsRecord) []string {
 	raw := gatewayIndexTagFromRecord(v)
 	if raw == "" {
 		return nil
@@ -146,7 +146,7 @@ func dnsRecordZonePathRecordNameIndexKey(zonePath, recordNameLower, recordType s
 	return zp + "|" + rn + "|" + rt
 }
 
-func dnsRecordRecordNameLower(rec *model.ProjectDnsRecord) string {
+func dnsRecordRecordNameLower(rec *model.DnsRecord) string {
 	if rec == nil || rec.RecordName == nil {
 		return ""
 	}
@@ -155,7 +155,7 @@ func dnsRecordRecordNameLower(rec *model.ProjectDnsRecord) string {
 
 func indexDNSRecordByZonePathRecordName(obj interface{}) ([]string, error) {
 	switch v := obj.(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		dnsZone := v.ZonePath
 		if dnsZone == nil || *dnsZone == "" {
 			return []string{}, nil // no zone path; skip this index. This is for security purpose, should not happen in the runtime.
@@ -177,7 +177,7 @@ func indexDNSRecordByZonePathRecordName(obj interface{}) ([]string, error) {
 
 func indexDNSRecordByGatewayNamespacedName(obj interface{}) ([]string, error) {
 	switch v := obj.(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		createdFor := firstTagValue(v.Tags, common.TagScopeDNSRecordFor)
 		if createdFor == "" {
 			return []string{}, nil // record has no dns_for tag; not indexed by gateway
@@ -217,7 +217,7 @@ const (
 )
 
 func (s *RecordStore) Apply(i interface{}) error {
-	records := i.([]*model.ProjectDnsRecord)
+	records := i.([]*model.DnsRecord)
 	for _, rec := range records {
 		if rec.MarkedForDelete != nil && *rec.MarkedForDelete {
 			if err := s.Delete(rec); err != nil {
@@ -233,20 +233,20 @@ func (s *RecordStore) Apply(i interface{}) error {
 	return nil
 }
 
-func (s *RecordStore) GetByKey(key string) *model.ProjectDnsRecord {
+func (s *RecordStore) GetByKey(key string) *model.DnsRecord {
 	obj := s.ResourceStore.GetByKey(key)
-	r, ok := obj.(*model.ProjectDnsRecord)
+	r, ok := obj.(*model.DnsRecord)
 	if !ok {
 		return nil
 	}
 	return r
 }
 
-func (s *RecordStore) GetByIndex(index string, value string) []*model.ProjectDnsRecord {
+func (s *RecordStore) GetByIndex(index string, value string) []*model.DnsRecord {
 	objs := s.ResourceStore.GetByIndex(index, value)
-	out := make([]*model.ProjectDnsRecord, 0, len(objs))
+	out := make([]*model.DnsRecord, 0, len(objs))
 	for _, o := range objs {
-		out = append(out, o.(*model.ProjectDnsRecord))
+		out = append(out, o.(*model.DnsRecord))
 	}
 	return out
 }
@@ -288,7 +288,7 @@ func resourceKindToCreatedFor(kind string) string {
 }
 
 // DeleteMultipleObjects removes records from the in-memory store (used after NSX deletion succeeds).
-func (s *RecordStore) DeleteMultipleObjects(records []*model.ProjectDnsRecord) {
+func (s *RecordStore) DeleteMultipleObjects(records []*model.DnsRecord) {
 	for _, rec := range records {
 		if rec == nil {
 			continue
@@ -300,7 +300,7 @@ func (s *RecordStore) DeleteMultipleObjects(records []*model.ProjectDnsRecord) {
 }
 
 // GetByOwnerResourceNamespacedName returns all DNS records whose primary owner matches kind/namespace/name.
-func (s *RecordStore) GetByOwnerResourceNamespacedName(kind, namespace, name string) []*model.ProjectDnsRecord {
+func (s *RecordStore) GetByOwnerResourceNamespacedName(kind, namespace, name string) []*model.DnsRecord {
 	createdFor := resourceKindToCreatedFor(kind)
 	if createdFor == "" {
 		return nil
@@ -321,11 +321,11 @@ func (s *RecordStore) ListZonePaths() sets.Set[string] {
 	return result
 }
 
-func (s *RecordStore) ListDNSRecords() []*model.ProjectDnsRecord {
+func (s *RecordStore) ListDNSRecords() []*model.DnsRecord {
 	objs := s.List()
-	out := make([]*model.ProjectDnsRecord, 0, len(objs))
+	out := make([]*model.DnsRecord, 0, len(objs))
 	for _, o := range objs {
-		if r, ok := o.(*model.ProjectDnsRecord); ok && r != nil {
+		if r, ok := o.(*model.DnsRecord); ok && r != nil {
 			out = append(out, r)
 		}
 	}
@@ -334,13 +334,13 @@ func (s *RecordStore) ListDNSRecords() []*model.ProjectDnsRecord {
 
 // ListRecordsReferencingContributingOwner returns rows whose contributing-owners tag contains contribNNKey.
 // It uses the contributingOwner index for O(1) lookup instead of a full table scan.
-func (s *RecordStore) ListRecordsReferencingContributingOwner(contribNNKey string) []*model.ProjectDnsRecord {
+func (s *RecordStore) ListRecordsReferencingContributingOwner(contribNNKey string) []*model.DnsRecord {
 	return s.GetByIndex(indexKeyDNSRecordContributingOwner, contribNNKey)
 }
 
 func indexDNSRecordByZonePath(obj interface{}) ([]string, error) {
 	switch v := obj.(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		if v.ZonePath == nil || *v.ZonePath == "" {
 			return []string{}, nil
 		}
@@ -354,7 +354,7 @@ func indexDNSRecordByZonePath(obj interface{}) ([]string, error) {
 // tag into one index entry per contributing-owner key, enabling O(1) reverse lookup.
 func indexDNSRecordByContributingOwner(obj interface{}) ([]string, error) {
 	switch v := obj.(type) {
-	case *model.ProjectDnsRecord:
+	case *model.DnsRecord:
 		keys := parseContributingOwnersFromRecord(v)
 		if len(keys) == 0 {
 			return []string{}, nil
@@ -376,7 +376,7 @@ func BuildDNSRecordStore() *RecordStore {
 				indexKeyDNSRecordZonePath:           indexDNSRecordByZonePath,
 				indexKeyDNSRecordContributingOwner:  indexDNSRecordByContributingOwner,
 			}),
-			BindingType: model.ProjectDnsRecordBindingType(),
+			BindingType: model.DnsRecordBindingType(),
 		},
 	}
 }

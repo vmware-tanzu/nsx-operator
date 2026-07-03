@@ -49,10 +49,10 @@ func (mr *MockZonesClientMockRecorder) Delete(arg0, arg1, arg2, arg3 interface{}
 }
 
 // Get mocks base method.
-func (m *MockZonesClient) Get(arg0, arg1, arg2, arg3 string) (model.ProjectDnsZone, error) {
+func (m *MockZonesClient) Get(arg0, arg1, arg2, arg3 string) (model.DnsZone, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", arg0, arg1, arg2, arg3)
-	ret0, _ := ret[0].(model.ProjectDnsZone)
+	ret0, _ := ret[0].(model.DnsZone)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -64,10 +64,10 @@ func (mr *MockZonesClientMockRecorder) Get(arg0, arg1, arg2, arg3 interface{}) *
 }
 
 // List mocks base method.
-func (m *MockZonesClient) List(arg0, arg1, arg2 string, arg3 *string, arg4 *bool, arg5 *string, arg6 *int64, arg7 *bool, arg8 *string) (model.ProjectDnsZoneListResult, error) {
+func (m *MockZonesClient) List(arg0, arg1, arg2 string, arg3 *string, arg4 *bool, arg5 *string, arg6 *int64, arg7 *bool, arg8 *string) (model.DnsZoneListResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
-	ret0, _ := ret[0].(model.ProjectDnsZoneListResult)
+	ret0, _ := ret[0].(model.DnsZoneListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -79,7 +79,7 @@ func (mr *MockZonesClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, 
 }
 
 // Patch mocks base method.
-func (m *MockZonesClient) Patch(arg0, arg1, arg2, arg3 string, arg4 model.ProjectDnsZone) error {
+func (m *MockZonesClient) Patch(arg0, arg1, arg2, arg3 string, arg4 model.DnsZone) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Patch", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)
@@ -93,10 +93,10 @@ func (mr *MockZonesClientMockRecorder) Patch(arg0, arg1, arg2, arg3, arg4 interf
 }
 
 // Update mocks base method.
-func (m *MockZonesClient) Update(arg0, arg1, arg2, arg3 string, arg4 model.ProjectDnsZone) (model.ProjectDnsZone, error) {
+func (m *MockZonesClient) Update(arg0, arg1, arg2, arg3 string, arg4 model.DnsZone) (model.DnsZone, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", arg0, arg1, arg2, arg3, arg4)
-	ret0, _ := ret[0].(model.ProjectDnsZone)
+	ret0, _ := ret[0].(model.DnsZone)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
