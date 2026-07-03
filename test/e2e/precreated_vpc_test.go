@@ -223,7 +223,7 @@ func testPodToLBService(t *testing.T, nsName string) {
 	clientPodName := "prevpc-client-pod"
 	ctx, cancel := context.WithTimeout(context.Background(), resourceReadyTime)
 	defer cancel()
-	err = wait.PollUntilContextTimeout(ctx, 3*time.Second, resourceReadyTime, false, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextCancel(ctx, 3*time.Second, false, func(ctx context.Context) (bool, error) {
 		_, createErr := testData.createPod(nsName, clientPodName, containerName, podImage, corev1.ProtocolTCP, podPort)
 		if createErr == nil {
 			return true, nil
