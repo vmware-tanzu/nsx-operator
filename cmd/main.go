@@ -311,7 +311,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	// Watch for mixed-mode state changes (e.g. T1-only → T1+VPC when the migration starts).
 	// If the state changes, exit so the operator restarts with the new configuration
-	config.StartNetworkSettingsInformer(mgr)
+	config.StartNamespaceInformer(mgr)
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
