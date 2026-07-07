@@ -82,6 +82,9 @@ spec:
                 - IPv6
                 - IPv4IPv6
                 type: string
+              portSettingName:
+                description: Name of PortSetting associated with this SubnetPort.
+                type: string
               staticIPAllocationType:
                 description: |-
                   StaticIPAllocationType explicitly requests static IP allocation of the
@@ -172,10 +175,16 @@ spec:
                   macAddress:
                     description: The MAC address.
                     type: string
+                  portSettingID:
+                    description: ID of the SubnetPortSetting. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1/port-settings/port-setting1
+                    type: string
                   raDeactivated:
                     description: RADeactivated indicates whether RAMode is deactivated
                       on the VPC.
                     type: boolean
+                  subnetID:
+                    description: ID of the Subnet. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1
+                    type: string
                 type: object
             type: object
         type: object
