@@ -188,6 +188,15 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					return common.ResultRequeue, err
 				}
 			}
+			// In restore mode, we do not update the SubnetPort status to retian the status, so no need to check the realized bindings
+			// Check StaticIPAllocationType as mixed mode Subnet also have static ip allocation enabled but SubnetPort may be created in dhcp pool
+			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && subnetPort.Spec.StaticIPAllocationType != "None" {
+				if len(nsxSubnetPortState.RealizedBindings) == 0 {
+					err = errors.New("IP and MAC are missing for SubnetPort")
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					return common.ResultNormal, err
+				}
+			}
 			subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
 			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
 				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
@@ -806,6 +815,9 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 		if err := client.Get(ctx, types.NamespacedName{Namespace: subnetPort.Namespace, Name: subnetPort.Name}, latestSubnetPort); err != nil {
 			return err
 		}
+		// subnetPort might be cleared to indicate a change in other fields in status, keep it to make sure
+		// the status is updated when conditions are unchanged while other fields are changed.
+		latestSubnetPort.Status.Conditions = subnetPort.Status.Conditions
 		conditionsUpdated := false
 		for i := range newConditions {
 			if mergeSubnetPortStatusCondition(latestSubnetPort, &newConditions[i]) {
@@ -815,12 +827,11 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 		if conditionsUpdated {
 			latestSubnetPort.Status.Attachment = subnetPort.Status.Attachment
 			latestSubnetPort.Status.NetworkInterfaceConfig = subnetPort.Status.NetworkInterfaceConfig
+			log.Info("Updated SubnetPort Status", "Name", latestSubnetPort.Name, "Namespace", latestSubnetPort.Namespace, "Status", latestSubnetPort.Status)
 			return client.Status().Update(ctx, latestSubnetPort)
 		}
 		return nil
 	})
-	log.Debug("Updated SubnetPort CR", "Name", subnetPort.Name, "Namespace", subnetPort.Namespace,
-		"New Conditions", newConditions)
 }
 
 func mergeSubnetPortStatusCondition(subnetPort *v1alpha1.SubnetPort, newCondition *v1alpha1.Condition) bool {

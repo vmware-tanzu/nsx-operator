@@ -97,6 +97,12 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 
 	if !ipAddressAllocationUpdated {
 		log.Info("IPAddressAllocation is not changed", "UID", obj.UID)
+		// If nsx operator is stopped between IPAddressAllocation creation and CR status update,
+		// we need to trigger the status update when IPAddressAllocation matching the spec exists.
+		if obj.Status.AllocationIPs != *existingIPAddressAllocation.AllocationIps {
+			obj.Status.AllocationIPs = *existingIPAddressAllocation.AllocationIps
+			return true, nil
+		}
 		return false, nil
 	}
 
@@ -115,17 +121,19 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	}
 	if restoreMode {
 		if obj.Status.AllocationIPs == *allocation_ips {
-			// The status may be updated with error by the previous restore process,
-			// return updated as true to make sure the condition will be updated to ready
 			log.Info("Successfully restored IPAddressAllocation CR", "Name", obj.Name, "Namespace", obj.Namespace)
-			return true, nil
+			return false, nil
 		} else {
 			err = fmt.Errorf("IP mismatches for the restored IPAddressAllocation CR %s: got %s, expecting %s", obj.GetUID(), *allocation_ips, obj.Status.AllocationIPs)
 			return false, err
 		}
 	}
-	obj.Status.AllocationIPs = *allocation_ips
-	return true, nil
+	if obj.Status.AllocationIPs != *allocation_ips {
+		log.Info("IPAddressAllocation IPs updated", "IPAddressAllocation", obj.UID, "OldIPs", obj.Status.AllocationIPs, "NewIPs", *allocation_ips)
+		obj.Status.AllocationIPs = *allocation_ips
+		return true, nil
+	}
+	return false, nil
 }
 
 // CreateIPAddressAllocationForAddressBinding is only for the restore of external address binding.

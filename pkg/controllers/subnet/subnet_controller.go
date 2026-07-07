@@ -222,9 +222,14 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ResultRequeue, err
 	}
 	// Update status
-	if err := r.updateSubnetStatus(subnetCR); err != nil {
+	updated, err := r.updateSubnetStatus(subnetCR)
+	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet status", setSubnetReadyStatusFalse)
 		return ResultRequeue, err
+	}
+	if updated {
+		// If the Subnet Status is updated, clear the conditions to ensure the status is updated anyway
+		subnetCR.Status.Conditions = nil
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ctrl.Result{}, nil
@@ -291,18 +296,19 @@ func (r *SubnetReconciler) deleteSubnetByName(name, ns string) error {
 	return r.deleteSubnets(nsxSubnets)
 }
 
-func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
+func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) (bool, error) {
 	nsxSubnets := r.SubnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetCRUID, string(obj.GetUID()))
 	if len(nsxSubnets) == 0 {
-		return fmt.Errorf("failed to get NSX Subnet from store")
+		return false, fmt.Errorf("failed to get NSX Subnet from store")
 	}
 	nsxSubnet := nsxSubnets[0]
+	originalStatus := obj.Status.DeepCopy()
 	obj.Status.NetworkAddresses = obj.Status.NetworkAddresses[:0]
 	obj.Status.GatewayAddresses = obj.Status.GatewayAddresses[:0]
 	obj.Status.DHCPServerAddresses = obj.Status.DHCPServerAddresses[:0]
 	statusList, err := r.SubnetService.GetSubnetStatus(nsxSubnet)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, status := range statusList {
 		obj.Status.NetworkAddresses = append(obj.Status.NetworkAddresses, *status.NetworkAddress)
@@ -312,7 +318,7 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) error {
 			obj.Status.DHCPServerAddresses = append(obj.Status.DHCPServerAddresses, *status.DhcpServerAddress)
 		}
 	}
-	return nil
+	return r.hasStatusChanged(originalStatus, &obj.Status), nil
 }
 
 // handleSharedSubnet manages a shared subnet annotated with an associated resource.
