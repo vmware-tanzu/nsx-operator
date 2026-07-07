@@ -1444,3 +1444,74 @@ func TestBuildSubnetPortIdAndName_reuseSTSPortByUIDAndPodName(t *testing.T) {
 	assert.Equal(t, "sts-port-id", id)
 	assert.Equal(t, "test-pod", name)
 }
+
+// TestBuildSubnetPortMACPool verifies that the MAC_POOL migration guard works correctly:
+// - Normal reconcile (non-restore): existing status MAC must NOT trigger NONE→MAC_POOL migration
+// - Restore mode: existing status MAC IS included so NSX re-uses the same MAC
+func TestBuildSubnetPortMACPool(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	nsxClient := &nsx.Client{}
+	tr := true
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client:    k8sClient,
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+					VpcWcpEnhance:    &tr,
+				},
+				CoeConfig: &config.CoeConfig{
+					Cluster: "fake_cluster",
+				},
+			},
+		},
+		SubnetPortStore: setupStore(),
+	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool {
+			return true
+		})
+	defer patches.Reset()
+
+	ctx := context.Background()
+	namespace := &corev1.Namespace{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), namespace).Return(nil).Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			return nil
+		}).AnyTimes()
+
+	dhcpSubnet := &model.VpcSubnet{
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_SERVER")},
+		Path:             common.String("fake_path"),
+	}
+	spWithStatusMAC := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+			Name:      "fake_subnetport",
+			Namespace: "fake_ns",
+		},
+		Spec: v1alpha1.SubnetPortSpec{StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone},
+		Status: v1alpha1.SubnetPortStatus{
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				MACAddress: "aa:bb:cc:dd:ee:ff",
+			},
+		},
+	}
+
+	// Non-restore: existing MAC in status must NOT cause MAC_POOL migration.
+	port, err := service.buildSubnetPort(spWithStatusMAC, dhcpSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	assert.Equal(t, "NONE", *port.Attachment.AllocateAddresses)
+	assert.Empty(t, port.AddressBindings)
+
+	// Restore mode: existing MAC in status IS preserved via MAC_POOL so NSX reuses it.
+	port, err = service.buildSubnetPort(spWithStatusMAC, dhcpSubnet, "ctx", nil, false, true, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	assert.Equal(t, "MAC_POOL", *port.Attachment.AllocateAddresses)
+	if assert.Len(t, port.AddressBindings, 1) {
+		assert.Equal(t, "aa:bb:cc:dd:ee:ff", *port.AddressBindings[0].MacAddress)
+	}
+}

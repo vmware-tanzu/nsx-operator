@@ -129,10 +129,12 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		if !nsx.MacPoolDHCPFeatureEnabled(service.NSXClient, service.NSXConfig) {
 			allocateAddresses = "NONE"
 		} else if len(addressBindings) == 0 {
-			// No user-specified bindings. On upgrade (NONE→MAC_POOL), include the existing
-			// NSX-allocated MAC from status to preserve it. Without it NSX picks a new MAC.
-			// NSX also rejects MAC_POOL with empty bindings unconditionally (SwitchingValidator).
-			if sp, ok := obj.(*v1alpha1.SubnetPort); ok && !restoreMode && len(sp.Status.NetworkInterfaceConfig.MACAddress) > 0 {
+			// MAC_POOL requires non-empty bindings (NSX SwitchingValidator rejects empty ones).
+			// In restore mode: the NSX port was deleted and is being recreated — include the
+			// existing status MAC so NSX re-uses it instead of allocating a new pool MAC.
+			// In normal reconciliation: leave NONE so existing ports are not mass-migrated
+			// (their MACs were assigned in NONE mode and NSX will reject a MAC_POOL update).
+			if sp, ok := obj.(*v1alpha1.SubnetPort); ok && restoreMode && len(sp.Status.NetworkInterfaceConfig.MACAddress) > 0 {
 				mac := sp.Status.NetworkInterfaceConfig.MACAddress
 				addressBindings = append(addressBindings, model.PortAddressBindingEntry{MacAddress: &mac})
 			} else {
