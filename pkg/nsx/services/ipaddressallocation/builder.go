@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -31,33 +32,26 @@ func convertIpAddressBlockVisibility(visibility v1alpha1.IPAddressVisibility) v1
 	return visibility
 }
 
-func ipAddressTypeToNSX(ipAddressType v1alpha1.IPAllocationAddressType) string {
-	switch ipAddressType {
-	case v1alpha1.IPAllocationIPAddressTypeIPv6:
-		return model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
-	case v1alpha1.IPAllocationIPAddressTypeIPv4:
-		fallthrough
-	default:
-		return model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
-	}
-}
-
 func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.Object, subnetPortCR *v1alpha1.SubnetPort, restoreMode bool) (*model.VpcIpAddressAllocation, error) {
 	ipAddressBlockVisibility := v1alpha1.IPAddressVisibilityPrivate
 	var allocationIps *string
 	var allocationSize *int64
 	var ipAddressType string
 	var ipv6AllocationPrefixLength *int64
-	ipAddressType = model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4
+
 	switch o := obj.(type) {
 	case *v1alpha1.IPAddressAllocation:
+		if o.Spec.IPAddressType != "" {
+			ipAddressType = controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressType(o.Spec.IPAddressType))
+		} else {
+			ipAddressType = controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)
+		}
 		VPCInfo := service.VPCService.ListVPCInfo(o.Namespace)
 		if len(VPCInfo) == 0 {
 			log.Error(nil, "Failed to find VPCInfo for IPAddressAllocation CR", "IPAddressAllocation", o.Name, "Namespace", o.Namespace)
 			return nil, fmt.Errorf("failed to find VPCInfo for IPAddressAllocation CR %s in Namespace %s", o.Name, o.Namespace)
 		}
 		ipAddressBlockVisibility = convertIpAddressBlockVisibility(o.Spec.IPAddressBlockVisibility)
-		ipAddressType = ipAddressTypeToNSX(o.Spec.IPAddressType)
 		if len(o.Spec.AllocationIPs) > 0 {
 			allocationIps = String(o.Spec.AllocationIPs)
 		} else if restoreMode && len(o.Status.AllocationIPs) > 0 {
@@ -80,8 +74,9 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		}
 		ipAddressBlockVisibility = v1alpha1.IPAddressVisibilityExternal
 		allocationIps = &o.Status.IPAddress
+		ipAddressType = controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv4)
 		if util.IsIPv6(o.Status.IPAddress) {
-			ipAddressType = model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6
+			ipAddressType = controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressTypeIPv6)
 		}
 	}
 	tags := service.buildIPAddressAllocationTags(obj)

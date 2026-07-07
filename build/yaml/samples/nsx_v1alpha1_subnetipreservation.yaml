@@ -1,7 +1,53 @@
+---
+# Example 1: Dynamic IPv4 reservation (numberOfIPs mode, default)
 apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: SubnetIPReservation
 metadata:
-  name: subnet-ipa-1
+  name: subnet-ipr-ipv4
 spec:
   subnet: subnet-1
   numberOfIPs: 10
+---
+# Example 2: Dynamic IPv6 reservation (numberOfIPs mode)
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetIPReservation
+metadata:
+  name: subnet-ipr-ipv6
+spec:
+  subnet: subnet-1-ipv6
+  numberOfIPs: 10
+  ipAddressType: IPV6
+---
+# Example 3: Dynamic dual-stack reservation — reserves 5 IPv4 IPs and 5 IPv6 IPs
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetIPReservation
+metadata:
+  name: subnet-ipr-dualstack
+spec:
+  subnet: subnet-1-dualstack
+  numberOfIPs: 5
+  ipAddressType: IPV4IPV6
+---
+# Example 4: Static IPv4 reservation (reservedIPs mode)
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetIPReservation
+metadata:
+  name: subnet-sipr-ipv4
+spec:
+  subnet: subnet-1
+  reservedIPs:
+    - "192.168.1.1"
+    - "192.168.1.3-192.168.1.100"
+    - "192.168.2.0/28"
+---
+# Example 5: Static IPv6 reservation (reservedIPs mode)
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetIPReservation
+metadata:
+  name: subnet-sipr-ipv6
+spec:
+  subnet: subnet-1-ipv6
+  reservedIPs:
+    - "2001:db8::1"
+    - "2001:db8::10-2001:db8::ff"
+    - "2001:db8:1::/64"
