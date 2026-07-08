@@ -81,6 +81,14 @@ type SubnetPortListerExpansion interface{}
 // SubnetPortNamespaceLister.
 type SubnetPortNamespaceListerExpansion interface{}
 
+// SubnetPortSettingListerExpansion allows custom methods to be added to
+// SubnetPortSettingLister.
+type SubnetPortSettingListerExpansion interface{}
+
+// SubnetPortSettingNamespaceListerExpansion allows custom methods to be added to
+// SubnetPortSettingNamespaceLister.
+type SubnetPortSettingNamespaceListerExpansion interface{}
+
 // SubnetSetListerExpansion allows custom methods to be added to
 // SubnetSetLister.
 type SubnetSetListerExpansion interface{}

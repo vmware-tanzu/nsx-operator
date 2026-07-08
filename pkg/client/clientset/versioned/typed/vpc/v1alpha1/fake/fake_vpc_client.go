@@ -55,6 +55,10 @@ func (c *FakeCrdV1alpha1) SubnetPorts(namespace string) v1alpha1.SubnetPortInter
 	return newFakeSubnetPorts(c, namespace)
 }
 
+func (c *FakeCrdV1alpha1) SubnetPortSettings(namespace string) v1alpha1.SubnetPortSettingInterface {
+	return newFakeSubnetPortSettings(c, namespace)
+}
+
 func (c *FakeCrdV1alpha1) SubnetSets(namespace string) v1alpha1.SubnetSetInterface {
 	return newFakeSubnetSets(c, namespace)
 }

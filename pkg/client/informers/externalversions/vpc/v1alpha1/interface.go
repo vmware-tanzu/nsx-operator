@@ -31,6 +31,8 @@ type Interface interface {
 	SubnetIPReservations() SubnetIPReservationInformer
 	// SubnetPorts returns a SubnetPortInformer.
 	SubnetPorts() SubnetPortInformer
+	// SubnetPortSettings returns a SubnetPortSettingInformer.
+	SubnetPortSettings() SubnetPortSettingInformer
 	// SubnetSets returns a SubnetSetInformer.
 	SubnetSets() SubnetSetInformer
 	// VPCNetworkConfigurations returns a VPCNetworkConfigurationInformer.
@@ -96,6 +98,11 @@ func (v *version) SubnetIPReservations() SubnetIPReservationInformer {
 // SubnetPorts returns a SubnetPortInformer.
 func (v *version) SubnetPorts() SubnetPortInformer {
 	return &subnetPortInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// SubnetPortSettings returns a SubnetPortSettingInformer.
+func (v *version) SubnetPortSettings() SubnetPortSettingInformer {
+	return &subnetPortSettingInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // SubnetSets returns a SubnetSetInformer.

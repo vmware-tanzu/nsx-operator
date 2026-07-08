@@ -25,6 +25,8 @@ type SubnetIPReservationExpansion interface{}
 
 type SubnetPortExpansion interface{}
 
+type SubnetPortSettingExpansion interface{}
+
 type SubnetSetExpansion interface{}
 
 type VPCNetworkConfigurationExpansion interface{}
