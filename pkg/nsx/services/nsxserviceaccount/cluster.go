@@ -407,14 +407,14 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 	isUpdated := false
 	secret := &v1.Secret{}
 	isCheckCert := s.NSXClient.NSXCheckVersion(nsx.ServiceAccountCertRotation) && obj.Spec.EnableCertRotation
-	if ca != nil || isCheckCert {
+	if len(ca) > 0 || isCheckCert {
 		if err := s.Client.Get(ctx, types.NamespacedName{Name: secretName, Namespace: secretNamespace}, secret); err != nil {
 			return err
 		}
 	}
 
 	// check CA is up-to-date
-	if ca != nil {
+	if len(ca) > 0 {
 		oldCA := secret.Data[CAName]
 		oldCAPool := x509.NewCertPool()
 		oldCAPool.AppendCertsFromPEM(oldCA)
