@@ -1515,3 +1515,147 @@ func TestBuildSubnetPortMACPool(t *testing.T) {
 		assert.Equal(t, "aa:bb:cc:dd:ee:ff", *port.AddressBindings[0].MacAddress)
 	}
 }
+
+// TestBuildSubnetPortIPOnlyAllocateAddresses verifies allocateAddresses when the
+// user specifies an IP only (no MAC) on NSX 9.2+:
+//   - staticIPAllocationType set (IP falls in the subnet's static IP pool) -> BOTH
+//   - staticIPAllocationType None (IP outside any static pool)             -> MAC_POOL
+func TestBuildSubnetPortIPOnlyAllocateAddresses(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	nsxClient := &nsx.Client{}
+	tr := true
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client:    k8sClient,
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+					VpcWcpEnhance:    &tr,
+				},
+				CoeConfig: &config.CoeConfig{Cluster: "fake_cluster"},
+			},
+		},
+		SubnetPortStore: setupStore(),
+	}
+
+	// NSX 9.2+ so MAC_POOL is available.
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool { return true })
+	defer patches.Reset()
+
+	ctx := context.Background()
+	namespace := &corev1.Namespace{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), namespace).Return(nil).Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			return nil
+		}).AnyTimes()
+
+	staticEnabled := &tr
+	staticSubnet := &model.VpcSubnet{
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: staticEnabled},
+		},
+		Path: common.String("fake_path"),
+	}
+
+	newSP := func(name string, allocType v1alpha1.StaticIPAllocationType) *v1alpha1.SubnetPort {
+		return &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       types.UID("2ccec3b9-7546-4fd2-812a-1e3a4afd7ac" + name),
+				Name:      "fake_subnetport_" + name,
+				Namespace: "fake_ns",
+			},
+			Spec: v1alpha1.SubnetPortSpec{
+				StaticIPAllocationType: allocType,
+				AddressBindings: []v1alpha1.PortAddressBinding{
+					{IPAddress: "10.0.0.5"},
+				},
+			},
+		}
+	}
+
+	// IP falls within the static IP pool -> BOTH.
+	spInPool := newSP("a", v1alpha1.StaticIPAllocationTypeIPv4)
+	port, err := service.buildSubnetPort(spInPool, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	assert.Equal(t, "BOTH", *port.Attachment.AllocateAddresses)
+	if assert.Len(t, port.AddressBindings, 1) {
+		assert.Equal(t, "10.0.0.5", *port.AddressBindings[0].IpAddress)
+	}
+
+	// IP is not in any static IP pool (staticIPAllocationType None) -> MAC_POOL.
+	spOutOfPool := newSP("b", v1alpha1.StaticIPAllocationTypeNone)
+	port, err = service.buildSubnetPort(spOutOfPool, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	assert.Equal(t, "MAC_POOL", *port.Attachment.AllocateAddresses)
+	if assert.Len(t, port.AddressBindings, 1) {
+		assert.Equal(t, "10.0.0.5", *port.AddressBindings[0].IpAddress)
+	}
+}
+
+// TestBuildSubnetPortMACVersionGating verifies that on NSX < 9.2 (where the
+// staticIPAllocationType matrix is unavailable) a MAC-only binding is only sent
+// when static IP allocation is enabled or an explicit IP is provided, while on
+// NSX 9.2+ the MAC is always bound.
+func TestBuildSubnetPortMACVersionGating(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	nsxClient := &nsx.Client{}
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client:    k8sClient,
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"},
+				CoeConfig: &config.CoeConfig{Cluster: "fake_cluster"},
+			},
+		},
+		SubnetPortStore: setupStore(),
+	}
+
+	ctx := context.Background()
+	namespace := &corev1.Namespace{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), namespace).Return(nil).Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			return nil
+		}).AnyTimes()
+
+	// DHCP subnet => static IP allocation disabled.
+	dhcpSubnet := &model.VpcSubnet{
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_SERVER")},
+		Path:             common.String("fake_path"),
+	}
+	spMACOnly := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc",
+			Name:      "fake_subnetport",
+			Namespace: "fake_ns",
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{MACAddress: "aa:bb:cc:dd:ee:ff"},
+			},
+		},
+	}
+
+	// NSX < 9.2: MAC-only binding on a static-disabled subnet is dropped (legacy behavior).
+	patchesOld := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool { return false })
+	port, err := service.buildSubnetPort(spMACOnly, dhcpSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	assert.Empty(t, port.AddressBindings)
+	patchesOld.Reset()
+
+	// NSX 9.2+: MAC is always bound.
+	patchesNew := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool { return true })
+	defer patchesNew.Reset()
+	port, err = service.buildSubnetPort(spMACOnly, dhcpSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	if assert.Len(t, port.AddressBindings, 1) {
+		assert.Equal(t, "aa:bb:cc:dd:ee:ff", *port.AddressBindings[0].MacAddress)
+	}
+}

@@ -129,6 +129,7 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 		dhcpv6Mode       v1alpha1.DHCPv6ConfigMode
 		expectIPv4Config bool
 		expectIPv6Config bool
+		expectStaticIP   bool
 	}{
 		{
 			name:             "IPv4 SubnetSet",
@@ -139,9 +140,10 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 			dhcpv6Mode:       "",
 			expectIPv4Config: true,
 			expectIPv6Config: false,
+			expectStaticIP:   true,
 		},
 		{
-			name:             "IPv6 SubnetSet",
+			name:             "IPv6 SubnetSet with DHCPv6 disables static allocation",
 			ipAddressType:    v1alpha1.IPAddressTypeIPv6,
 			ipv4SubnetSize:   0,
 			ipv6PrefixLength: 64,
@@ -149,6 +151,7 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
 			expectIPv4Config: false,
 			expectIPv6Config: true,
+			expectStaticIP:   false,
 		},
 		{
 			name:             "IPv4IPv6 dual stack",
@@ -159,6 +162,18 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
 			expectIPv4Config: true,
 			expectIPv6Config: true,
+			expectStaticIP:   false,
+		},
+		{
+			name:             "IPv6 SubnetSet without DHCPv6 keeps static allocation",
+			ipAddressType:    v1alpha1.IPAddressTypeIPv6,
+			ipv4SubnetSize:   0,
+			ipv6PrefixLength: 64,
+			dhcpMode:         "",
+			dhcpv6Mode:       "",
+			expectIPv4Config: false,
+			expectIPv6Config: true,
+			expectStaticIP:   true,
 		},
 	}
 
@@ -223,7 +238,102 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 			} else {
 				assert.Nil(t, subnet.SubnetDhcpv6Config)
 			}
+
+			// Verify static IP allocation reflects DHCPv4/DHCPv6 state
+			assert.NotNil(t, subnet.AdvancedConfig)
+			assert.NotNil(t, subnet.AdvancedConfig.StaticIpAllocation)
+			assert.NotNil(t, subnet.AdvancedConfig.StaticIpAllocation.Enabled)
+			assert.Equal(t, tc.expectStaticIP, *subnet.AdvancedConfig.StaticIpAllocation.Enabled)
 		})
+	}
+}
+
+// TestBuildSubnetStaticIPAllocationParity verifies that, for the default cases
+// (no user-specified IP/MAC, so static allocation is DHCP-driven), a SubnetSet
+// produces the same StaticIpAllocation.Enabled and DHCP config as an equivalent
+// Subnet across IPv4, IPv6, and dual-stack with every DHCP mode combination.
+// This is what drives the SubnetPort default allocateAddresses, so parity here
+// guarantees parity of SubnetPort behavior between Subnet- and SubnetSet-derived
+// subnets.
+func TestBuildSubnetStaticIPAllocationParity(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
+	defer patches.Reset()
+
+	service := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "k8scl-one:test"},
+			},
+		},
+		SubnetStore: buildSubnetStore(),
+	}
+	tags := []model.Tag{
+		{Scope: common.String("nsx-op/namespace"), Tag: common.String("ns-1")},
+		{Scope: common.String("nsx-op/vm_namespace_uid"), Tag: common.String("34ef6790-0fe5-48ba-812f-048d429751ee")},
+	}
+
+	dhcpModes := []v1alpha1.DHCPConfigMode{"", v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)}
+	dhcpv6Modes := []v1alpha1.DHCPv6ConfigMode{"", v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer)}
+	ipTypes := []v1alpha1.IPAddressType{
+		v1alpha1.IPAddressTypeIPv4,
+		v1alpha1.IPAddressTypeIPv6,
+		v1alpha1.IPAddressTypeIPv4IPv6,
+	}
+
+	for _, ipType := range ipTypes {
+		for _, dhcp := range dhcpModes {
+			for _, dhcpv6 := range dhcpv6Modes {
+				name := fmt.Sprintf("%s_dhcp=%q_dhcpv6=%q", ipType, dhcp, dhcpv6)
+				t.Run(name, func(t *testing.T) {
+					subnet := &v1alpha1.Subnet{
+						ObjectMeta: v1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1", UID: types.UID("1828a1d3-4d10-48d2-a8e8-dceb9bd66502")},
+						Spec: v1alpha1.SubnetSpec{
+							IPAddressType:      ipType,
+							SubnetDHCPConfig:   v1alpha1.SubnetDHCPConfig{Mode: dhcp},
+							SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: dhcpv6},
+						},
+					}
+					subnetSet := &v1alpha1.SubnetSet{
+						ObjectMeta: v1.ObjectMeta{Name: "subnetset-1", Namespace: "ns-1", UID: types.UID("1828a1d3-4d10-48d2-a8e8-dceb9bd66502")},
+						Spec: v1alpha1.SubnetSetSpec{
+							IPAddressType:      ipType,
+							SubnetDHCPConfig:   v1alpha1.SubnetDHCPConfig{Mode: dhcp},
+							SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: dhcpv6},
+						},
+					}
+
+					nsxSubnet, err := service.buildSubnet(subnet, tags, []string{})
+					assert.Nil(t, err)
+					nsxSubnetSet, err := service.buildSubnet(subnetSet, tags, []string{})
+					assert.Nil(t, err)
+
+					// Static IP allocation must match.
+					assert.Equal(t,
+						*nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled,
+						*nsxSubnetSet.AdvancedConfig.StaticIpAllocation.Enabled,
+						"StaticIpAllocation.Enabled must match for %s", name)
+
+					// DHCPv4 presence must match.
+					assert.Equal(t, nsxSubnet.SubnetDhcpConfig == nil, nsxSubnetSet.SubnetDhcpConfig == nil,
+						"DHCPv4 config presence must match for %s", name)
+					// DHCPv6 presence must match.
+					assert.Equal(t, nsxSubnet.SubnetDhcpv6Config == nil, nsxSubnetSet.SubnetDhcpv6Config == nil,
+						"DHCPv6 config presence must match for %s", name)
+				})
+			}
+		}
 	}
 }
 

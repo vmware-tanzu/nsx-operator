@@ -74,7 +74,14 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				if len(ab.IPAddress) > 0 {
 					addressBinding.IpAddress = &ab.IPAddress
 				}
-				if len(ab.MACAddress) > 0 {
+				setMac := len(ab.MACAddress) > 0
+				// On NSX < 9.2 the staticIPAllocationType matrix is unavailable, so keep the
+				// legacy restriction: only bind a MAC when static IP allocation is enabled
+				// or an explicit IP is provided.
+				if setMac && !service.NSXClient.NSXCheckVersion(nsx.IPv6) {
+					setMac = util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(ab.IPAddress) > 0
+				}
+				if setMac {
 					addressBinding.MacAddress = &ab.MACAddress
 					hasMacSpecified = true
 				}
