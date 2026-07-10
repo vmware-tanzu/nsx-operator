@@ -332,8 +332,10 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// Set LBCapability before VPC creation for the system VPC.
 	// CreateOrUpdateVPC fails in VNA + NSX-LB + IPv6/DualStack, so without this early
 	// check the condition would never be reported when VPC creation errors out.
+	var earlyProfile *model.VpcConnectivityProfile
 	if ncName == commonservice.SystemVPCNetworkConfigurationName && len(nc.Spec.VPCConnectivityProfile) > 0 {
-		earlyProfile, profileErr := r.Service.GetVpcConnectivityProfile(nc, nc.Spec.VPCConnectivityProfile)
+		var profileErr error
+		earlyProfile, profileErr = r.Service.GetVpcConnectivityProfile(nc, nc.Spec.VPCConnectivityProfile)
 		if profileErr != nil {
 			log.Error(profileErr, "Requeue NetworkInfo CR because failed to get VPC connectivity profile for LBCapability check", "req", req)
 			if !retryWithSystemVPC {
@@ -403,11 +405,17 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	var vpcConnectivityProfile *model.VpcConnectivityProfile
 	// Only process vpcConnectivityProfile-dependent logic if path exists
 	if len(vpcConnectivityProfilePath) > 0 {
-		vpcConnectivityProfile, err = r.Service.GetVpcConnectivityProfile(nc, vpcConnectivityProfilePath)
-		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get VPC connectivity profile", setNetworkInfoVPCStatusWithError, nil)
-			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
-			return common.ResultRequeueAfter10sec, err
+		if earlyProfile != nil && vpcConnectivityProfilePath == nc.Spec.VPCConnectivityProfile {
+			// Reuse the profile already fetched for the early LBCapability check
+			// instead of issuing a duplicate GetVpcConnectivityProfile call to NSX.
+			vpcConnectivityProfile = earlyProfile
+		} else {
+			vpcConnectivityProfile, err = r.Service.GetVpcConnectivityProfile(nc, vpcConnectivityProfilePath)
+			if err != nil {
+				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to get VPC connectivity profile", setNetworkInfoVPCStatusWithError, nil)
+				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCGetExtIPBlockError.getNSNetworkCondition(err))
+				return common.ResultRequeueAfter10sec, err
+			}
 		}
 
 		// Check external IP blocks on system VPC network config.

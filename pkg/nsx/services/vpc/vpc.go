@@ -1053,9 +1053,9 @@ func IsEnableAutoSNAT(vpcConnectivityProfile *model.VpcConnectivityProfile) bool
 
 // IsVNAMode reports whether all ServiceGateway.EdgeClusterPaths are VNA cluster paths
 // (/infra/sites/.../virtual-network-appliance-clusters/...).
-// Returns (false, nil) when profile or ServiceGateway is nil — not a VNA deployment.
-// Returns (false, error) when EdgeClusterPaths is empty — ServiceGateway exists but paths
-// are not yet populated; callers should not set LBCapability and should retry.
+// Returns (false, error) when profile or ServiceGateway is nil, or when EdgeClusterPaths
+// is empty — VNA mode cannot yet be determined; callers should not set LBCapability and
+// should retry.
 func IsVNAMode(profile *model.VpcConnectivityProfile) (bool, error) {
 	if profile == nil || profile.ServiceGateway == nil {
 		return false, fmt.Errorf("VPC connectivity profile or ServiceGateway is nil, cannot determine VNA mode")
