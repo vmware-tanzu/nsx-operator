@@ -74,7 +74,7 @@ func TestGetClient(t *testing.T) {
 
 	cluster := &Cluster{}
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "3.1.1"}
+		nsxVersion := &NsxVersion{ProductVersion: "3.1.1"}
 		return nsxVersion, nil
 	})
 
@@ -88,7 +88,7 @@ func TestGetClient(t *testing.T) {
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "3.2.1"}
+		nsxVersion := &NsxVersion{ProductVersion: "3.2.1"}
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
@@ -101,7 +101,7 @@ func TestGetClient(t *testing.T) {
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "4.1.0"}
+		nsxVersion := &NsxVersion{ProductVersion: "4.1.0"}
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
@@ -114,7 +114,7 @@ func TestGetClient(t *testing.T) {
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "4.1.2"}
+		nsxVersion := &NsxVersion{ProductVersion: "4.1.2"}
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
@@ -127,7 +127,7 @@ func TestGetClient(t *testing.T) {
 	assert.False(t, client.NSXCheckVersion(ServiceAccountCertRotation))
 
 	patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "4.1.3"}
+		nsxVersion := &NsxVersion{ProductVersion: "4.1.3"}
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
@@ -162,7 +162,7 @@ func TestSRGetClient(t *testing.T) {
 
 	cluster := &Cluster{}
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
-		nsxVersion := &NsxVersion{NodeVersion: "4.1.3"}
+		nsxVersion := &NsxVersion{ProductVersion: "4.1.3"}
 		return nsxVersion, nil
 	})
 	defer patches.Reset()
@@ -226,7 +226,7 @@ func TestRestConnectorAllowOverwrite(t *testing.T) {
 	cluster, _ := NewCluster(config)
 	nsxVersion, err := cluster.GetVersion()
 	assert.Equal(t, err, nil)
-	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
+	assert.Equal(t, nsxVersion.ProductVersion, "3.1.3.3.0.18844959")
 
 	client := search.NewQueryClient(cluster.NewRestConnectorAllowOverwrite())
 	client.List("search", nil, nil, nil, nil, nil)

@@ -67,12 +67,12 @@ type PortAttachment struct {
 
 type NetworkInterfaceConfig struct {
 	// NSX Logical Switch UUID of the Subnet.
-	LogicalSwitchUUID string                      `json:"logicalSwitchUUID,omitempty"`
+	LogicalSwitchUUID string `json:"logicalSwitchUUID,omitempty"`
 	// ID of the Subnet. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1
 	SubnetID string `json:"subnetID,omitempty"`
 	// ID of the SubnetPortSetting. e.g. /projects/proj1/vpcs/vpc1/subnets/subnet1/port-settings/port-setting1
 	PortSettingID string                      `json:"portSettingID,omitempty"`
-	IPAddresses       []NetworkInterfaceIPAddress `json:"ipAddresses,omitempty"`
+	IPAddresses   []NetworkInterfaceIPAddress `json:"ipAddresses,omitempty"`
 	// The MAC address.
 	MACAddress string `json:"macAddress,omitempty"`
 	// DHCPDeactivatedOnSubnet indicates whether DHCP is deactivated on the Subnet.

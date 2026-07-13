@@ -149,85 +149,85 @@ func TestCluster_Health(t *testing.T) {
 func TestCluster_enableFeature(t *testing.T) {
 	// Test case for enabling feature SecurityPolicy
 	nsxVersion := &NsxVersion{}
-	nsxVersion.NodeVersion = "3.1.3.3.0.18844962"
+	nsxVersion.ProductVersion = "3.1.3.3.0.18844962"
 	assert.False(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "3.2.0.3.0.18844962"
+	nsxVersion.ProductVersion = "3.2.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "3.11.0.3.0.18844962"
+	nsxVersion.ProductVersion = "3.11.0.3.0.18844962"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "4.0.0"
+	nsxVersion.ProductVersion = "4.0.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "4.0.1"
+	nsxVersion.ProductVersion = "4.0.1"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "4.1.0"
+	nsxVersion.ProductVersion = "4.1.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "4.1.2"
+	nsxVersion.ProductVersion = "4.1.2"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "4.1.3"
+	nsxVersion.ProductVersion = "4.1.3"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "3.2.0"
+	nsxVersion.ProductVersion = "3.2.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	nsxVersion.NodeVersion = "4.2.0"
+	nsxVersion.ProductVersion = "4.2.0"
 	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
 	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
 	assert.False(t, nsxVersion.featureSupported(IPv6))
 
-	nsxVersion.NodeVersion = "9.2.0"
+	nsxVersion.ProductVersion = "9.2.0"
 	assert.True(t, nsxVersion.featureSupported(IPv6))
 
 	// Test case for invalid feature
 	feature := 3
-	nsxVersion.NodeVersion = "3.1.3.3.0.18844962"
+	nsxVersion.ProductVersion = "3.1.3.3.0.18844962"
 	assert.False(t, nsxVersion.featureSupported(feature))
-	nsxVersion.NodeVersion = "3.2.0"
+	nsxVersion.ProductVersion = "3.2.0"
 	assert.False(t, nsxVersion.featureSupported(feature))
 }
 
 func TestCluster_validate(t *testing.T) {
 	nsxVersion := &NsxVersion{}
-	nsxVersion.NodeVersion = "12"
+	nsxVersion.ProductVersion = "12"
 	expect := errors.New("error version format")
 	err := nsxVersion.Validate()
 	assert.Equal(t, err, expect)
 
-	nsxVersion.NodeVersion = "12.3"
+	nsxVersion.ProductVersion = "12.3"
 	err = nsxVersion.Validate()
 	assert.Equal(t, err, expect)
 
-	nsxVersion.NodeVersion = "3.2.3.3.0.18844962"
+	nsxVersion.ProductVersion = "3.2.3.3.0.18844962"
 	err = nsxVersion.Validate()
 	assert.Equal(t, err, nil)
 
-	nsxVersion.NodeVersion = "3.2.3"
+	nsxVersion.ProductVersion = "3.2.3"
 	err = nsxVersion.Validate()
 	assert.Equal(t, err, nil)
 }
@@ -257,10 +257,10 @@ func TestCluster_getVersion(t *testing.T) {
 	cluster, _ := NewCluster(config)
 	nsxVersion, err := cluster.GetVersion()
 	assert.Equal(t, err, nil)
-	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
+	assert.Equal(t, nsxVersion.ProductVersion, "3.1.3.3.0.18844959")
 }
 
-func TestCluster_GetVersion_invokesOnNodeVersionChangedWhenNodeVersionChanges(t *testing.T) {
+func TestCluster_GetVersion_invokesOnProductVersionChangedWhenProductVersionChanges(t *testing.T) {
 	var (
 		callbackCalls int
 		gotOld        string
@@ -281,9 +281,9 @@ func TestCluster_GetVersion_invokesOnNodeVersionChangedWhenNodeVersionChanges(t 
 			versionCalls++
 			var body string
 			if versionCalls == 1 {
-				body = `{"node_version":"9.1.0.0.0.10000000","product_version":"9.1.0"}`
+				body = `{"node_version":"9.1.0.0.0.10000000","product_version":"9.1.0.0200.25524170"}`
 			} else {
-				body = `{"node_version":"9.2.0.0.0.20000000","product_version":"9.2.0"}`
+				body = `{"node_version":"9.2.0.0.0.20000000","product_version":"9.2.0.0.25588556"}`
 			}
 			_, _ = w.Write([]byte(body))
 			return
@@ -298,26 +298,26 @@ func TestCluster_GetVersion_invokesOnNodeVersionChangedWhenNodeVersionChanges(t 
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
-	cluster.SetOnNodeVersionChanged(func(oldV, newV string) {
+	cluster.SetOnProductVersionChanged(func(oldV, newV string) {
 		callbackCalls++
 		gotOld, gotNew = oldV, newV
 	})
 
 	ver1, err := cluster.GetVersion()
 	assert.NoError(t, err)
-	assert.Equal(t, "9.1.0.0.0.10000000", ver1.NodeVersion)
-	assert.Equal(t, 0, callbackCalls, "first successful fetch has no prior node_version, callback must not run")
+	assert.Equal(t, "9.1.0.0200.25524170", ver1.ProductVersion)
+	assert.Equal(t, 0, callbackCalls, "first successful fetch has no prior product_version, callback must not run")
 
 	cluster.lastTimeGetVersion = time.Now().Add(-40 * time.Minute)
 	ver2, err := cluster.GetVersion()
 	assert.NoError(t, err)
-	assert.Equal(t, "9.2.0.0.0.20000000", ver2.NodeVersion)
+	assert.Equal(t, "9.2.0.0.25588556", ver2.ProductVersion)
 	assert.Equal(t, 1, callbackCalls)
-	assert.Equal(t, "9.1.0.0.0.10000000", gotOld)
-	assert.Equal(t, "9.2.0.0.0.20000000", gotNew)
+	assert.Equal(t, "9.1.0.0200.25524170", gotOld)
+	assert.Equal(t, "9.2.0.0.25588556", gotNew)
 }
 
-func TestCluster_GetVersion_noOnNodeVersionChangedWhenVersionUnchanged(t *testing.T) {
+func TestCluster_GetVersion_noOnProductVersionChangedWhenVersionUnchanged(t *testing.T) {
 	var callbackCalls int
 	versionCalls := 0
 	resHealth := `{
@@ -346,7 +346,7 @@ func TestCluster_GetVersion_noOnNodeVersionChangedWhenVersionUnchanged(t *testin
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
-	cluster.SetOnNodeVersionChanged(func(_, _ string) {
+	cluster.SetOnProductVersionChanged(func(_, _ string) {
 		callbackCalls++
 	})
 
@@ -358,7 +358,7 @@ func TestCluster_GetVersion_noOnNodeVersionChangedWhenVersionUnchanged(t *testin
 	assert.Equal(t, 0, callbackCalls)
 }
 
-func TestCluster_GetVersion_noPanicWhenOnNodeVersionChangedNil(t *testing.T) {
+func TestCluster_GetVersion_noPanicWhenOnProductVersionChangedNil(t *testing.T) {
 	versionCalls := 0
 	resHealth := `{
 					"healthy" : true,
@@ -389,7 +389,7 @@ func TestCluster_GetVersion_noPanicWhenOnNodeVersionChangedNil(t *testing.T) {
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
-	cluster.SetOnNodeVersionChanged(nil)
+	cluster.SetOnProductVersionChanged(nil)
 	_, err = cluster.GetVersion()
 	assert.NoError(t, err)
 	cluster.lastTimeGetVersion = time.Now().Add(-40 * time.Minute)
