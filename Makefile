@@ -206,7 +206,7 @@ generate-eas-openapi: openapi-gen ## Generate OpenAPI definitions for EAS types 
 CRD_REF_DOCS = $(shell pwd)/bin/crd-ref-docs
 .PHONY: crd-ref-docs
 crd-ref-docs: ## Install crd-ref-docs
-	$(call go-get-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs@v0.1.0)
+	$(call go-get-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs@v0.3.0)
 
 .PHONY: generate-api-docs
 generate-api-docs: crd-ref-docs

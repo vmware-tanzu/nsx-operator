@@ -41,6 +41,14 @@ type SecurityPolicyListerExpansion interface{}
 // SecurityPolicyNamespaceLister.
 type SecurityPolicyNamespaceListerExpansion interface{}
 
+// ServiceEndpointListerExpansion allows custom methods to be added to
+// ServiceEndpointLister.
+type ServiceEndpointListerExpansion interface{}
+
+// ServiceEndpointNamespaceListerExpansion allows custom methods to be added to
+// ServiceEndpointNamespaceLister.
+type ServiceEndpointNamespaceListerExpansion interface{}
+
 // StaticRouteListerExpansion allows custom methods to be added to
 // StaticRouteLister.
 type StaticRouteListerExpansion interface{}
@@ -96,6 +104,14 @@ type SubnetSetListerExpansion interface{}
 // SubnetSetNamespaceListerExpansion allows custom methods to be added to
 // SubnetSetNamespaceLister.
 type SubnetSetNamespaceListerExpansion interface{}
+
+// VPCEndpointListerExpansion allows custom methods to be added to
+// VPCEndpointLister.
+type VPCEndpointListerExpansion interface{}
+
+// VPCEndpointNamespaceListerExpansion allows custom methods to be added to
+// VPCEndpointNamespaceLister.
+type VPCEndpointNamespaceListerExpansion interface{}
 
 // VPCNetworkConfigurationListerExpansion allows custom methods to be added to
 // VPCNetworkConfigurationLister.

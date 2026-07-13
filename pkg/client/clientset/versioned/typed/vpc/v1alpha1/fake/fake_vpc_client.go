@@ -35,6 +35,10 @@ func (c *FakeCrdV1alpha1) SecurityPolicies(namespace string) v1alpha1.SecurityPo
 	return newFakeSecurityPolicies(c, namespace)
 }
 
+func (c *FakeCrdV1alpha1) ServiceEndpoints(namespace string) v1alpha1.ServiceEndpointInterface {
+	return newFakeServiceEndpoints(c, namespace)
+}
+
 func (c *FakeCrdV1alpha1) StaticRoutes(namespace string) v1alpha1.StaticRouteInterface {
 	return newFakeStaticRoutes(c, namespace)
 }
@@ -61,6 +65,10 @@ func (c *FakeCrdV1alpha1) SubnetPortSettings(namespace string) v1alpha1.SubnetPo
 
 func (c *FakeCrdV1alpha1) SubnetSets(namespace string) v1alpha1.SubnetSetInterface {
 	return newFakeSubnetSets(c, namespace)
+}
+
+func (c *FakeCrdV1alpha1) VPCEndpoints(namespace string) v1alpha1.VPCEndpointInterface {
+	return newFakeVPCEndpoints(c, namespace)
 }
 
 func (c *FakeCrdV1alpha1) VPCNetworkConfigurations() v1alpha1.VPCNetworkConfigurationInterface {
