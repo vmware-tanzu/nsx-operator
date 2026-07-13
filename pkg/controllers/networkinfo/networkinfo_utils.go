@@ -154,6 +154,29 @@ func setVPCNetworkConfigurationStatusWithSnatEnabled(ctx context.Context, client
 	}
 }
 
+// setVPCNetworkConfigurationStatusWithLBCapability sets the LBCapability condition on the
+// system VPCNetworkConfiguration. lbCapable is false when VNA + NSX-LB + IPv6/DualStack;
+// true otherwise.
+func setVPCNetworkConfigurationStatusWithLBCapability(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, lbCapable bool) {
+	newCondition := v1alpha1.Condition{
+		Type:               v1alpha1.LBCapability,
+		LastTransitionTime: metav1.Time{},
+	}
+	if lbCapable {
+		newCondition.Status = v1.ConditionTrue
+	} else {
+		newCondition.Status = v1.ConditionFalse
+		newCondition.Reason = common.ReasonIPv6LBNotSupportedOnVNA
+	}
+	if mergeStatusCondition(&nc.Status.Conditions, &newCondition) {
+		if err := client.Status().Update(ctx, nc); err != nil {
+			log.Error(err, "Update VPCNetworkConfiguration LBCapability status failed", "VPCNetworkConfiguration", nc.Name)
+			return
+		}
+		log.Info("Updated VPCNetworkConfiguration LBCapability status", "VPCNetworkConfiguration", nc.Name, "lbCapable", lbCapable)
+	}
+}
+
 func setVPCNetworkConfigurationStatusWithNoExternalIPBlock(ctx context.Context, client client.Client, nc *v1alpha1.VPCNetworkConfiguration, hasExternalIPs bool) {
 	newCondition := v1alpha1.Condition{
 		Type:               v1alpha1.ExternalIPBlocksConfigured,

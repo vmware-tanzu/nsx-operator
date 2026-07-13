@@ -145,6 +145,7 @@ _Appears in:_
 | `ServiceClusterReady` |  |
 | `AutoSnatEnabled` |  |
 | `ExternalIPBlocksConfigured` |  |
+| `LBCapability` |  |
 | `DeletionFailed` |  |
 | `UpdateFailed` |  |
 

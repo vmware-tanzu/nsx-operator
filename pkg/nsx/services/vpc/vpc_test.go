@@ -643,6 +643,82 @@ func TestIsEnableAutoSNAT(t *testing.T) {
 	assert.True(t, IsEnableAutoSNAT(vpcConnProfile))
 }
 
+func TestIsVNAMode(t *testing.T) {
+	// nil profile → (false, error): cannot determine VNA mode, caller should retry
+	isVNA, err := IsVNAMode(nil)
+	assert.Error(t, err)
+	assert.False(t, isVNA)
+
+	// ServiceGateway nil → (false, error): cannot determine VNA mode, caller should retry
+	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{})
+	assert.Error(t, err)
+	assert.False(t, isVNA)
+
+	// EdgeClusterPaths empty → (false, error): profile exists but paths not populated, caller should retry
+	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{},
+		},
+	})
+	assert.Error(t, err)
+	assert.False(t, isVNA)
+
+	// regular edge cluster path → (false, nil)
+	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/default/enforcement-points/default/edge-clusters/edge-cluster-1",
+			},
+		},
+	})
+	assert.NoError(t, err)
+	assert.False(t, isVNA)
+
+	// service cluster path (distributed TGW) → (false, nil)
+	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{"/infra/sites/default/enforcement-points/default/service-clusters/sc-1"},
+		},
+	})
+	assert.NoError(t, err)
+	assert.False(t, isVNA)
+
+	// one VNA path, one regular path → (false, nil): not all VNA
+	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/default/enforcement-points/default/virtual-network-appliance-clusters/vnac-1",
+				"/infra/sites/default/enforcement-points/default/edge-clusters/edge-cluster-1",
+			},
+		},
+	})
+	assert.NoError(t, err)
+	assert.False(t, isVNA)
+
+	// single VNA path → (true, nil)
+	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/default/enforcement-points/default/virtual-network-appliance-clusters/vnac-1",
+			},
+		},
+	})
+	assert.NoError(t, err)
+	assert.True(t, isVNA)
+
+	// all paths are VNA → (true, nil)
+	isVNA, err = IsVNAMode(&model.VpcConnectivityProfile{
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			EdgeClusterPaths: []string{
+				"/infra/sites/site-a/enforcement-points/ep-1/virtual-network-appliance-clusters/vnac-01",
+				"/infra/sites/site-b/enforcement-points/ep-2/virtual-network-appliance-clusters/vnac-02",
+			},
+		},
+	})
+	assert.NoError(t, err)
+	assert.True(t, isVNA)
+}
+
 func TestGetLbProvider(t *testing.T) {
 	vpcService := &VPCService{
 		Service: common.Service{
