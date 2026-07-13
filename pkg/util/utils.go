@@ -541,7 +541,28 @@ func CRSubnetDHCPv6Enabled(obj client.Object) bool {
 	case *v1alpha1.SubnetSet:
 		mode = string(o.Spec.SubnetDHCPv6Config.Mode)
 	}
-	return mode == string(v1alpha1.DHCPv6ConfigModeServer) || mode == string(v1alpha1.DHCPv6ConfigModeRelay)
+	return mode == string(v1alpha1.DHCPv6ConfigModeServer) || mode == string(v1alpha1.DHCPv6ConfigModeRelay) || mode == string(v1alpha1.DHCPv6ConfigModeServerStateless)
+}
+
+// GetDefaultStaticIPAllocation computes the default StaticIPAllocation.Enabled value for a
+// Subnet or SubnetSet when the user has not explicitly set it: static allocation is enabled
+// unless DHCP covers every IP family the subnet exposes.
+func GetDefaultStaticIPAllocation(obj client.Object) bool {
+	var ipAddressType v1alpha1.IPAddressType
+	switch o := obj.(type) {
+	case *v1alpha1.Subnet:
+		ipAddressType = o.Spec.IPAddressType
+	case *v1alpha1.SubnetSet:
+		ipAddressType = o.Spec.IPAddressType
+	}
+	switch ipAddressType {
+	case v1alpha1.IPAddressTypeIPv6:
+		return !CRSubnetDHCPv6Enabled(obj)
+	case v1alpha1.IPAddressTypeIPv4IPv6:
+		return !CRSubnetDHCPEnabled(obj) && !CRSubnetDHCPv6Enabled(obj)
+	default:
+		return !CRSubnetDHCPEnabled(obj)
+	}
 }
 
 // ValidateSubnetSize checks if the given subnet size is valid based on NSX version.

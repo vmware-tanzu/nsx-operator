@@ -785,7 +785,7 @@ func TestCRSubnetDHCPv6Enabled(t *testing.T) {
 			subnet: &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{
 				SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: v1alpha1.DHCPv6ConfigModeServerStateless},
 			}},
-			expect: false,
+			expect: true,
 		},
 		{
 			name:   "empty DHCPv6 mode defaults to disabled",

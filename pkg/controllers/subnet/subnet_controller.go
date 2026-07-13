@@ -178,7 +178,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled == nil {
-		subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(!util.CRSubnetDHCPEnabled(subnetCR))
+		subnetCR.Spec.AdvancedConfig.StaticIPAllocation.Enabled = servicecommon.Bool(util.GetDefaultStaticIPAllocation(subnetCR))
 		specChanged = true
 	}
 
