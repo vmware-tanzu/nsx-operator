@@ -393,11 +393,6 @@ func HasVPCNamespaces() bool {
 	return hasVPCNamespaces
 }
 
-// HasVDSNamespaces returns true when at least one Namespace uses VDS.
-func HasVDSNamespaces() bool {
-	return false
-}
-
 // IsMixedModeStateInitialized returns true after InitMixedMode has been called.
 func IsMixedModeStateInitialized() bool {
 	stateMu.RLock()

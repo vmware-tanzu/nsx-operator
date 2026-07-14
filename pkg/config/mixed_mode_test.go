@@ -142,14 +142,12 @@ func TestStateGetters(t *testing.T) {
 
 	assert.False(t, HasT1Namespaces())
 	assert.False(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 	assert.False(t, IsMixedModeStateInitialized())
 	assert.False(t, IsPerNamespaceProvidersSupported())
 
 	SetMixedModeStateForTest(true, true)
 	assert.True(t, HasT1Namespaces())
 	assert.True(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 	assert.True(t, IsMixedModeStateInitialized())
 
 	stateMu.Lock()
@@ -157,7 +155,6 @@ func TestStateGetters(t *testing.T) {
 	perNamespaceProvidersSupported = &supported
 	stateMu.Unlock()
 
-	assert.False(t, HasVDSNamespaces())
 	assert.True(t, IsPerNamespaceProvidersSupported())
 }
 
@@ -200,13 +197,11 @@ func TestInitMixedModeWithClients(t *testing.T) {
 	initMixedModeWithClients(ctx, clientset, dynClientLegacy, false)
 	assert.True(t, HasT1Namespaces())
 	assert.False(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 
 	// Scenario 2: Per-namespace supported = false, EnableVPCNetwork = true
 	initMixedModeWithClients(ctx, clientset, dynClientLegacy, true)
 	assert.False(t, HasT1Namespaces())
 	assert.True(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 
 	// Scenario 3: Per-namespace supported = true, EnableVPCNetwork = false, has T1 and VPC namespaces
 	capObjTrue := makeCapabilitiesObj(true)
@@ -232,7 +227,6 @@ func TestInitMixedModeWithClients(t *testing.T) {
 	initMixedModeWithClients(ctx, clientsetMixed, dynClientMixed, false)
 	assert.True(t, HasT1Namespaces())
 	assert.True(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 
 	// Scenario 4: Per-namespace supported = true, EnableVPCNetwork = true, has T1
 	dynClientVPC := setupFakeDynamicClient(t, capObjTrue)
@@ -248,7 +242,6 @@ func TestInitMixedModeWithClients(t *testing.T) {
 	initMixedModeWithClients(ctx, clientsetVPC, dynClientVPC, true)
 	assert.True(t, HasT1Namespaces())
 	assert.True(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 }
 
 func TestCheckPerNamespaceProvidersSupported(t *testing.T) {
