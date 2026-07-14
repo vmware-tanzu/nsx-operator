@@ -40,6 +40,7 @@ var (
 		servicecommon.DefaultPodNetwork: servicecommon.LabelDefaultPodSubnetSet,
 		servicecommon.DefaultVMNetwork:  servicecommon.LabelDefaultVMSubnetSet,
 	}
+	GCStartupDelay = 10 * time.Minute
 )
 
 func IsSharedSubnetPath(ctx context.Context, client k8sclient.Client, path string, ns string) (bool, error) {
@@ -299,6 +300,20 @@ func NumReconcile() int {
 
 func GenericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 	ctx := context.Background()
+
+	if GCStartupDelay > 0 {
+		select {
+		case <-cancel:
+			return
+		case <-time.After(GCStartupDelay):
+		}
+	}
+
+	// Run the first garbage collection immediately after the startup delay
+	if err := f(ctx); err != nil {
+		log.Error(err, "failed to run initial garbage collection")
+	}
+
 	ticker := time.NewTicker(timeout)
 	defer ticker.Stop()
 
