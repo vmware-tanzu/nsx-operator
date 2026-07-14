@@ -263,7 +263,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultRequeue, nil
 	}
 
-	ipReservationCR.Status.IPs = ips
+	if !reflect.DeepEqual(ipReservationCR.Status.IPs, ips) {
+		log.Info("SubnetIPReservation IPs updated", "SubnetIPReservation", req.NamespacedName, "OldIPs", ipReservationCR.Status.IPs, "NewIPs", ips)
+		ipReservationCR.Status.IPs = ips
+		// If the IPReservation CR's IP updated, we clear the conditions to ensure the status is updated anyway
+		ipReservationCR.Status.Conditions = nil
+	}
+
 	// Update SubnetIPReservation with ready condition
 	r.StatusUpdater.UpdateSuccess(ctx, ipReservationCR, setReadyStatusTrue)
 	return common.ResultNormal, nil
@@ -371,7 +377,7 @@ func updateStatusConditions(client client.Client, ctx context.Context, ipReserva
 		if err := client.Status().Update(ctx, ipReservation); err != nil {
 			log.Error(err, "Failed to update SubnetIPReservation status", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace)
 		} else {
-			log.Info("Updated SubnetIPReservation", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace, "New Conditions", newConditions)
+			log.Info("Updated SubnetIPReservation", "Name", ipReservation.Name, "Namespace", ipReservation.Namespace, "Stauts", ipReservation.Status)
 		}
 	}
 }

@@ -424,16 +424,83 @@ func TestReconciler_Reconcile(t *testing.T) {
 			},
 			expectedResult: common.ResultNormal,
 		},
+		{
+			name: "Create IPReservation with IPs changed, conditions cleared",
+			objects: []client.Object{
+				&v1alpha1.SubnetIPReservation{
+					ObjectMeta: metav1.ObjectMeta{Name: "ipr-1", Namespace: "ns-1"},
+					Status: v1alpha1.SubnetIPReservationStatus{
+						Conditions: []v1alpha1.Condition{{Type: "Ready", Status: "True"}},
+						IPs:        []string{"10.0.0.1"},
+					},
+				},
+			},
+			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateSubnet", func(_ *Reconciler, ctx context.Context, ns string, name string) (*v1alpha1.Subnet, *errorWithRetry) {
+					return &v1alpha1.Subnet{}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByCR", func(_ *subnet.SubnetService, subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
+					return &model.VpcSubnet{Path: servicecommon.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1")}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "CreateOrUpdateSubnetIPReservation", func(_ *subnetipreservation.IPReservationService, ipReservation *v1alpha1.SubnetIPReservation, subnetPath string, restoreMode bool) ([]string, error) {
+					return []string{"10.0.0.1", "10.0.0.2"}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(&r.StatusUpdater), "UpdateSuccess", func(_ *common.StatusUpdater, _ context.Context, obj client.Object, _ common.UpdateSuccessStatusFn, _ ...interface{}) {
+					iprObj := obj.(*v1alpha1.SubnetIPReservation)
+					assert.Nil(t, iprObj.Status.Conditions)
+				})
+				return patches
+			},
+			expectedResult: common.ResultNormal,
+		},
+		{
+			name: "Create IPReservation with IPs unchanged, conditions retained",
+			objects: []client.Object{
+				&v1alpha1.SubnetIPReservation{
+					ObjectMeta: metav1.ObjectMeta{Name: "ipr-1", Namespace: "ns-1"},
+					Status: v1alpha1.SubnetIPReservationStatus{
+						Conditions: []v1alpha1.Condition{{Type: "Ready", Status: "True"}},
+						IPs:        []string{"10.0.0.1"},
+					},
+				},
+			},
+			preparedFunc: func(r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateSubnet", func(_ *Reconciler, ctx context.Context, ns string, name string) (*v1alpha1.Subnet, *errorWithRetry) {
+					return &v1alpha1.Subnet{}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByCR", func(_ *subnet.SubnetService, subnet *v1alpha1.Subnet) (*model.VpcSubnet, error) {
+					return &model.VpcSubnet{Path: servicecommon.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1")}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService), "CreateOrUpdateSubnetIPReservation", func(_ *subnetipreservation.IPReservationService, ipReservation *v1alpha1.SubnetIPReservation, subnetPath string, restoreMode bool) ([]string, error) {
+					return []string{"10.0.0.1"}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return true
+				})
+				patches.ApplyMethod(reflect.TypeOf(&r.StatusUpdater), "UpdateSuccess", func(_ *common.StatusUpdater, _ context.Context, obj client.Object, _ common.UpdateSuccessStatusFn, _ ...interface{}) {
+					iprObj := obj.(*v1alpha1.SubnetIPReservation)
+					assert.NotNil(t, iprObj.Status.Conditions)
+				})
+				return patches
+			},
+			expectedResult: common.ResultNormal,
+		},
 	}
 	for _, tc := range tests {
-		r := createFakeReconciler(tc.objects...)
-		patches := tc.preparedFunc(r)
-		result, err := r.Reconcile(context.TODO(), request)
-		assert.Nil(t, err)
-		assert.Equal(t, tc.expectedResult, result)
-		if patches != nil {
-			patches.Reset()
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			r := createFakeReconciler(tc.objects...)
+			patches := tc.preparedFunc(r)
+
+			result, err := r.Reconcile(context.TODO(), request)
+			assert.Nil(t, err)
+			assert.Equal(t, tc.expectedResult, result)
+			if patches != nil {
+				patches.Reset()
+			}
+		})
 	}
 }
 

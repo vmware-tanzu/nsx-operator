@@ -1662,3 +1662,86 @@ func TestSetDefaultIPv4SubnetSizeValue(t *testing.T) {
 		})
 	}
 }
+
+func TestSubnetReconciler_updateSubnetStatus(t *testing.T) {
+	r := &SubnetReconciler{
+		SubnetService: &subnet.SubnetService{},
+	}
+	tests := []struct {
+		name         string
+		nsxSubnets   []*model.VpcSubnet
+		statusList   []model.VpcSubnetStatus
+		initialConds []v1alpha1.Condition
+		hasChanged   bool
+		expectErr    bool
+	}{
+		{
+			name:       "empty nsx subnets",
+			nsxSubnets: []*model.VpcSubnet{},
+			hasChanged: false,
+			expectErr:  true,
+		},
+		{
+			name:       "status updated",
+			nsxSubnets: []*model.VpcSubnet{{Id: common.String("subnet-1")}},
+			statusList: []model.VpcSubnetStatus{
+				{
+					NetworkAddress:    common.String("10.0.0.0/24"),
+					GatewayAddress:    common.String("10.0.0.1"),
+					DhcpServerAddress: common.String("10.0.0.2"),
+				},
+			},
+			hasChanged: true,
+			expectErr:  false,
+		},
+		{
+			name:       "status not updated",
+			nsxSubnets: []*model.VpcSubnet{{Id: common.String("subnet-1")}},
+			statusList: []model.VpcSubnetStatus{
+				{
+					NetworkAddress:    common.String("10.0.0.0/24"),
+					GatewayAddress:    common.String("10.0.0.1"),
+					DhcpServerAddress: common.String("10.0.0.2"),
+				},
+			},
+			hasChanged: false,
+			expectErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{UID: "uid-1"},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses:    []string{"10.0.0.0/24"},
+					GatewayAddresses:    []string{"10.0.0.1"},
+					DHCPServerAddresses: []string{"10.0.0.2"},
+				},
+			}
+			if tt.hasChanged {
+				obj.Status.NetworkAddresses = []string{}
+			}
+
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetsByIndex",
+				func(_ *subnet.SubnetService, _ string, _ string) []*model.VpcSubnet {
+					return tt.nsxSubnets
+				})
+			defer patches.Reset()
+
+			patches2 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus",
+				func(_ *subnet.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+					return tt.statusList, nil
+				})
+			defer patches2.Reset()
+
+			changed, err := r.updateSubnetStatus(obj)
+			if tt.expectErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tt.hasChanged, changed)
+			}
+		})
+	}
+}

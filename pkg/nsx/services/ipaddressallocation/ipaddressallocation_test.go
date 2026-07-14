@@ -171,6 +171,7 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation(t *testing
 	namespace := "ns-1"
 	nsUUID := "nsUuid"
 	vpcPath := "/orgs/default/projects/project-1/vpcs/vpc-1"
+	size := int64(256)
 	alloc := model.VpcIpAddressAllocation{
 		Id:          &nsxAllocID,
 		DisplayName: &name,
@@ -203,6 +204,7 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation(t *testing
 		ParentPath:               &vpcPath,
 		Path:                     String(fmt.Sprintf("%s/ip-address-allocations/%s", vpcPath, nsxAllocID)),
 		AllocationIps:            common.String("192.168.1.0/24"),
+		AllocationSize:           &size,
 		IpAddressBlockVisibility: common.String("PRIVATE"),
 		IpAddressType:            common.String(model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4),
 	}
@@ -267,13 +269,42 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation(t *testing
 		assert.Nil(t, err)
 	})
 
+	t.Run("test update CR status when operator is restarted", func(t *testing.T) {
+		patchGetByUID := gomonkey.ApplyMethod(reflect.TypeOf(returnservice.ipAddressAllocationStore), "GetByUID", func(_ *IPAddressAllocationStore,
+			_ types.UID) (*model.VpcIpAddressAllocation, error) {
+			return &alloc, nil
+		})
+		defer patchGetByUID.Reset()
+
+		ipAddressAllocationWithoutStatus := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+				UID:       types.UID(allocCRUID),
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				AllocationSize:           256,
+				IPAddressBlockVisibility: "Private",
+			},
+		}
+
+		changed, err := returnservice.CreateOrUpdateIPAddressAllocation(ipAddressAllocationWithoutStatus, false)
+		assert.Nil(t, err)
+		assert.True(t, changed)
+		assert.Equal(t, "192.168.1.0/24", ipAddressAllocationWithoutStatus.Status.AllocationIPs)
+	})
+
 	t.Run("test restore IPAddressAllocation", func(t *testing.T) {
 		// restore 192.168.1.0/24
 		mockVPCIPAddressallocationclient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(alloc, nil).Times(1)
 		mockVPCIPAddressallocationclient.EXPECT().Patch(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
+		// Expected allocation for the restored alloc
+		restoredAlloc := alloc
+		restoredAlloc.AllocationSize = nil
 		// Expected allocation for the update with a single IP reconciled after restored.
 		updatedAlloc := alloc
 		updatedAlloc.AllocationIps = common.String("192.168.1.4")
+		updatedAlloc.AllocationSize = nil
 		patchGetByUIDInRestore := gomonkey.ApplyMethodSeq(reflect.TypeOf(returnservice.ipAddressAllocationStore), "GetByUID", []gomonkey.OutputCell{{
 			Values: gomonkey.Params{
 				nil,
@@ -284,7 +315,11 @@ func TestIPAddressAllocationService_CreateOrUpdateIPAddressAllocation(t *testing
 				&alloc,
 				nil,
 			},
-			Times: 2,
+		}, {
+			Values: gomonkey.Params{
+				&restoredAlloc,
+				nil,
+			},
 		}, {
 			Values: gomonkey.Params{
 				&updatedAlloc,

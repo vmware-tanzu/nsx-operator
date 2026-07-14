@@ -472,3 +472,88 @@ func (m *MockManager) Add(runnable manager.Runnable) error {
 func (m *MockManager) Start(context.Context) error {
 	return nil
 }
+
+func TestIPAddressAllocationReconciler_handleUpdate(t *testing.T) {
+	r := &IPAddressAllocationReconciler{
+		StatusUpdater: ctlcommon.StatusUpdater{},
+		Service:       &ipaddressallocation.IPAddressAllocationService{},
+	}
+	ctx := context.TODO()
+
+	tests := []struct {
+		name         string
+		updated      bool
+		updateErr    error
+		initialConds []v1alpha1.Condition
+		expectConds  bool
+		expectErr    bool
+	}{
+		{
+			name:         "update true, clear conditions",
+			updated:      true,
+			updateErr:    nil,
+			initialConds: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v1.ConditionTrue}},
+			expectConds:  false,
+			expectErr:    false,
+		},
+		{
+			name:         "update false, keep conditions",
+			updated:      false,
+			updateErr:    nil,
+			initialConds: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v1.ConditionTrue}},
+			expectConds:  true,
+			expectErr:    false,
+		},
+		{
+			name:         "update error",
+			updated:      false,
+			updateErr:    errors.New("update err"),
+			initialConds: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v1.ConditionTrue}},
+			expectConds:  true,
+			expectErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			obj := &v1alpha1.IPAddressAllocation{
+				Status: v1alpha1.IPAddressAllocationStatus{
+					Conditions: tt.initialConds,
+				},
+			}
+
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateIPAddressAllocation",
+				func(_ *ipaddressallocation.IPAddressAllocationService, _ *v1alpha1.IPAddressAllocation, _ bool) (bool, error) {
+					return tt.updated, tt.updateErr
+				})
+			defer patches.Reset()
+
+			patches2 := gomonkey.ApplyMethod(reflect.TypeOf(&r.StatusUpdater), "UpdateSuccess",
+				func(_ *ctlcommon.StatusUpdater, _ context.Context, _ client.Object, _ ctlcommon.UpdateSuccessStatusFn, _ ...interface{}) {
+				})
+			defer patches2.Reset()
+
+			patches3 := gomonkey.ApplyMethod(reflect.TypeOf(&r.StatusUpdater), "UpdateFail",
+				func(_ *ctlcommon.StatusUpdater, _ context.Context, _ client.Object, _ error, _ string, _ ctlcommon.UpdateFailStatusFn, _ ...interface{}) {
+				})
+			defer patches3.Reset()
+
+			patches4 := gomonkey.ApplyMethod(reflect.TypeOf(&r.StatusUpdater), "IncreaseUpdateTotal",
+				func(_ *ctlcommon.StatusUpdater) {})
+			defer patches4.Reset()
+
+			_, err := r.handleUpdate(ctx, obj)
+			if tt.expectErr {
+				assert.NotNil(t, err)
+			} else {
+				assert.Nil(t, err)
+			}
+
+			if tt.expectConds {
+				assert.NotNil(t, obj.Status.Conditions)
+			} else {
+				assert.Nil(t, obj.Status.Conditions)
+			}
+		})
+	}
+}

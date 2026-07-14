@@ -87,7 +87,7 @@ func updateIPAddressAllocationStatusConditions(client client.Client, ctx context
 		if err := client.Status().Update(ctx, ipaddressallocation); err != nil {
 			log.Error(err, "Failed to update status", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace)
 		} else {
-			log.Info("Updated IPAddressAllocation", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace, "New Conditions", newConditions)
+			log.Info("Updated IPAddressAllocation", "Name", ipaddressallocation.Name, "Namespace", ipaddressallocation.Namespace, "Status", ipaddressallocation.Status)
 		}
 	}
 }
@@ -150,8 +150,10 @@ func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v
 		return resultRequeue, err
 	}
 	if updated {
-		r.StatusUpdater.UpdateSuccess(ctx, obj, setReadyStatusTrue)
+		// If the IPAddressAllocation is updated, we clear the conditions to ensure the status is updated anyway
+		obj.Status.Conditions = nil
 	}
+	r.StatusUpdater.UpdateSuccess(ctx, obj, setReadyStatusTrue)
 	return resultNormal, nil
 }
 
