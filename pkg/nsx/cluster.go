@@ -61,11 +61,13 @@ type Cluster struct {
 	sync.Mutex
 	nsxVersion         *NsxVersion
 	lastTimeGetVersion time.Time
-	// onNodeVersionChanged is invoked after a successful HTTP refresh when node_version changes (non-empty old and new, and different).
-	onNodeVersionChanged func(oldVersion, newVersion string)
+	// onProductVersionChanged is invoked after a successful HTTP refresh when product_version changes (non-empty old and new, and different).
+	onProductVersionChanged func(oldVersion, newVersion string)
 }
 type NsxVersion struct {
-	NodeVersion string `json:"node_version"`
+	// Node version will be updated once MP is updated, while the NSX functionality
+	// works only after the product version is updated.
+	ProductVersion string `json:"product_version"`
 }
 
 var (
@@ -358,24 +360,24 @@ func (cluster *Cluster) Health() ClusterHealth {
 	return ORANGE
 }
 
-// SetOnNodeVersionChanged registers a callback run after GetVersion successfully refreshes
-// from NSX and detects a non-empty node_version change. Used to invalidate client-side
+// SetonProductVersionChanged registers a callback run after GetVersion successfully refreshes
+// from NSX and detects a non-empty product_version change. Used to invalidate client-side
 // feature caches. Safe to call once during operator init; fn may be nil to clear.
-func (cluster *Cluster) SetOnNodeVersionChanged(fn func(oldVersion, newVersion string)) {
+func (cluster *Cluster) SetOnProductVersionChanged(fn func(oldVersion, newVersion string)) {
 	cluster.Mutex.Lock()
 	defer cluster.Mutex.Unlock()
-	cluster.onNodeVersionChanged = fn
+	cluster.onProductVersionChanged = fn
 }
 
 func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
-	if cluster.nsxVersion != nil && len(cluster.nsxVersion.NodeVersion) > 0 && time.Since(cluster.lastTimeGetVersion) < GetNsxVersionInterval {
-		log.Debug("Get version from cache", "version", cluster.nsxVersion.NodeVersion)
+	if cluster.nsxVersion != nil && len(cluster.nsxVersion.ProductVersion) > 0 && time.Since(cluster.lastTimeGetVersion) < GetNsxVersionInterval {
+		log.Debug("Get version from cache", "version", cluster.nsxVersion.ProductVersion)
 		return cluster.nsxVersion, nil
 	}
 
 	oldVersion := ""
 	if cluster.nsxVersion != nil {
-		oldVersion = cluster.nsxVersion.NodeVersion
+		oldVersion = cluster.nsxVersion.ProductVersion
 	}
 
 	ep := cluster.endpoints[0]
@@ -402,11 +404,11 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 		cluster.lastTimeGetVersion = time.Now()
 		newVersion := ""
 		if cluster.nsxVersion != nil {
-			newVersion = cluster.nsxVersion.NodeVersion
+			newVersion = cluster.nsxVersion.ProductVersion
 		}
 		if oldVersion != "" && newVersion != "" && oldVersion != newVersion {
 			cluster.Mutex.Lock()
-			cb := cluster.onNodeVersionChanged
+			cb := cluster.onProductVersionChanged
 			cluster.Mutex.Unlock()
 			if cb != nil {
 				cb(oldVersion, newVersion)
@@ -515,10 +517,10 @@ func (cluster *Cluster) HttpPatch(url string, requestBody interface{}) (map[stri
 
 func (nsxVersion *NsxVersion) Validate() error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
-	result := re.Find([]byte(nsxVersion.NodeVersion))
+	result := re.Find([]byte(nsxVersion.ProductVersion))
 	if len(result) < 1 {
 		err := errors.New("error version format")
-		log.Error(err, "Failed to check NSX version", "version", nsxVersion.NodeVersion)
+		log.Error(err, "Failed to check NSX version", "version", nsxVersion.ProductVersion)
 		return err
 	}
 
@@ -575,9 +577,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 
 	if validFeature {
 		// only compared major.minor.patch
-		// NodeVersion should have at least three sections
+		// ProductVersion should have at least three sections
 		// each section only have digital value
-		buff := strings.Split(nsxVersion.NodeVersion, ".")
+		buff := strings.Split(nsxVersion.ProductVersion, ".")
 		sections := make([]int64, len(buff))
 		for i, str := range buff {
 			val, err := strconv.ParseInt(str, 10, 64)

@@ -193,10 +193,6 @@ type Validate interface {
 	validate() error
 }
 
-type NsxVersion struct {
-	NodeVersion string `json:"node_version"`
-}
-
 func AddFlags() {
 	flag.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
 	flag.StringVar(&ProbeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")

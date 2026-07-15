@@ -790,7 +790,7 @@ func TestSubnetSetValidator(t *testing.T) {
 			req.OldObject.Raw = oldJsonData
 			patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.nsxClient.Cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
 				return &nsx.NsxVersion{
-					NodeVersion: "9.0.0.0.12345",
+					ProductVersion: "9.0.0.0.12345",
 				}, nil
 			})
 			patches.ApplyFunc(controllercommon.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {
@@ -1409,7 +1409,7 @@ func TestSubnetSetValidator_IPAddressTypeValidation(t *testing.T) {
 
 			patches := gomonkey.ApplyMethod(reflect.TypeOf(validator.nsxClient.Cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
 				return &nsx.NsxVersion{
-					NodeVersion: "9.0.0.0.12345",
+					ProductVersion: "9.0.0.0.12345",
 				}, nil
 			})
 			patches.ApplyFunc(controllercommon.CheckAccessModeOrVisibility, func(_ client.Client, ctx context.Context, ns string, accessMode string, resourceType string) error {

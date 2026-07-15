@@ -236,7 +236,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				}))
 				cluster := &nsx.Cluster{}
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
-					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.0.1"}
+					nsxVersion := &nsx.NsxVersion{ProductVersion: "4.0.1"}
 					return nsxVersion, nil
 				})
 				patches.ApplyMethodSeq(r.Service, "UpdateProxyEndpointsIfNeeded", []gomonkey.OutputCell{{
@@ -281,7 +281,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				}))
 				cluster := &nsx.Cluster{}
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
-					nsxVersion := &nsx.NsxVersion{NodeVersion: "4.1.2"}
+					nsxVersion := &nsx.NsxVersion{ProductVersion: "4.1.2"}
 					return nsxVersion, nil
 				})
 				patches.ApplyMethodSeq(r.Service, "RestoreRealizedNSXServiceAccount", []gomonkey.OutputCell{{

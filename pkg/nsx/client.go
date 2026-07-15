@@ -330,9 +330,9 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		DnsZoneClient:                     dnsZoneClient,
 		DnsRecordsClient:                  dnsRecordsClient,
 	}
-	nsxClient.Cluster.SetOnNodeVersionChanged(func(oldVer, newVer string) {
+	nsxClient.Cluster.SetOnProductVersionChanged(func(oldVer, newVer string) {
 		nsxClient.resetNSXVersionFeatureCache()
-		log.Info("NSX node version changed; cleared cached feature support gates", "oldVersion", oldVer, "newVersion", newVer)
+		log.Info("NSX product version changed; cleared cached feature support gates", "oldVersion", oldVer, "newVersion", newVer)
 	})
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
@@ -417,7 +417,7 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 	}
 
 	if !nsxVersion.featureSupported(feature) {
-		log.Warn(FeaturesName[feature]+" feature is not supported", "current NSX version", nsxVersion.NodeVersion)
+		log.Warn(FeaturesName[feature]+" feature is not supported", "current NSX version", nsxVersion.ProductVersion)
 		return false
 	}
 	client.NSXVerChecker.featureSupported[feature] = true
