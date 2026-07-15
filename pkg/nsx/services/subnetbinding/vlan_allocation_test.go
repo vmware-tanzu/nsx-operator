@@ -161,48 +161,6 @@ func TestListBindingMapsByParentSubnetPath(t *testing.T) {
 	})
 }
 
-func TestValidateVlanOnParentSubnets(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	fakeQueryClient := search_mocks.NewMockQueryClient(ctrl)
-	svc := &BindingService{
-		Service: common.Service{
-			NSXClient: &nsx.Client{
-				QueryClient: fakeQueryClient,
-			},
-		},
-	}
-
-	bm := &model.SubnetConnectionBindingMap{
-		Id:             String("id-1"),
-		DisplayName:    String("binding1"),
-		SubnetPath:     String("/parent1"),
-		ParentPath:     String("/child1"),
-		Path:           String("/child1/subnet-connection-binding-maps/id-1"),
-		VlanTrafficTag: Int64(201),
-		ResourceType:   String(ResourceTypeSubnetConnectionBindingMap),
-	}
-	dv, _ := common.NewConverter().ConvertToVapi(bm, model.SubnetConnectionBindingMapBindingType())
-
-	// Test conflict
-	fakeQueryClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.SearchResponse{
-		Results: []*data.StructValue{dv.(*data.StructValue)},
-	}, nil).Times(1)
-
-	err := svc.ValidateVlanOnParentSubnets([]string{"/parent"}, 201, "", true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already used")
-
-	// Test success
-	fakeQueryClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.SearchResponse{
-		Results: []*data.StructValue{dv.(*data.StructValue)},
-	}, nil).Times(1)
-
-	err = svc.ValidateVlanOnParentSubnets([]string{"/parent"}, 202, "", true)
-	require.NoError(t, err)
-}
-
 func TestBindingMapCRUID(t *testing.T) {
 	bm := &model.SubnetConnectionBindingMap{
 		Tags: []model.Tag{

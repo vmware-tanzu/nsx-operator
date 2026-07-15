@@ -116,21 +116,3 @@ func (s *BindingService) listBindingMapsByParentSubnetPath(parentSubnetPath stri
 
 	return bindings, nil
 }
-
-// ValidateVlanOnParentSubnets checks that vlan is not already used on any of the parent Subnet paths.
-func (s *BindingService) ValidateVlanOnParentSubnets(parentSubnetPaths []string, vlan int64, excludeCRUID string, fromNSX bool) error {
-	var used sets.Set[int]
-	var err error
-	if fromNSX {
-		used, err = s.CollectUsedVlansOnParentSubnetsFromNSX(parentSubnetPaths, excludeCRUID)
-	} else {
-		used, err = s.CollectUsedVlansOnParentSubnetsFromCache(parentSubnetPaths, excludeCRUID)
-	}
-	if err != nil {
-		return err
-	}
-	if used.Has(int(vlan)) {
-		return fmt.Errorf("vlanTrafficTag %d is already used on target Subnet or SubnetSet", vlan)
-	}
-	return nil
-}
