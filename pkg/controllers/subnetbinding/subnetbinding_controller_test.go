@@ -186,8 +186,8 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
 					return "/subnet-child", []string{"/subnet-parent"}, nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, *errorWithRetry) {
-					return 0, nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, bool, *errorWithRetry) {
+					return 0, true, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
 					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, childSubnetPath string, parentSubnetPaths []string) error {
@@ -203,8 +203,8 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
 					return "/subnet-child", []string{"/subnet-parent"}, nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, *errorWithRetry) {
-					return 0, nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, bool, *errorWithRetry) {
+					return 0, true, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
 					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, childSubnetPath string, parentSubnetPaths []string) error {
@@ -230,8 +230,8 @@ func TestReconcile(t *testing.T) {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
 					return "/subnet-child", []string{"/subnet-parent"}, nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, *errorWithRetry) {
-					return 301, nil
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "reconcileVlanTrafficTag", func(_ *Reconciler, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, bool, *errorWithRetry) {
+					return 301, true, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
 					func(_ *subnetbinding.BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, childSubnetPath string, parentSubnetPaths []string) error {
@@ -1449,7 +1449,7 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 				patches := tc.patches(t, r)
 				defer patches.Reset()
 			}
-			vlanID, err := r.reconcileVlanTrafficTag(ctx, bm, []string{"/parent"}, false)
+			vlanID, _, err := r.reconcileVlanTrafficTag(ctx, bm, []string{"/parent"}, false)
 			if tc.expErr {
 				assert.NotNil(t, err)
 			} else {

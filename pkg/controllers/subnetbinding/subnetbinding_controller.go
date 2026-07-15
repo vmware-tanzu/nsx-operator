@@ -122,7 +122,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultRequeueAfter60sec, nil
 	}
 
-	vlanID, vlanErr := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, false)
+	vlanID, autoAllocatedVlan, vlanErr := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, false)
 	if vlanErr != nil {
 		r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID)
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, vlanErr, "failed to reconcile VLAN traffic tag", updateBindingMapStatusWithUnreadyCondition, "VlanAllocationFailed", vlanErr.message)
@@ -132,13 +132,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultRequeue, nil
 	}
 
-	autoAllocatedVlan := !bindingMapCR.Spec.HasVlanTrafficTag()
-
 	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, vlanID, childSubnetPath, parentSubnetPaths); err != nil {
 		if autoAllocatedVlan && nsxutil.IsOverlapVlanError(err) {
 			log.Info("VLAN allocation conflict with NSX cache, fallback to query NSX", "SubnetConnectionBindingMap", req.NamespacedName)
 			r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID)
-			vlanID2, vlanErr2 := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, true)
+			vlanID2, _, vlanErr2 := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, true)
 			if vlanErr2 != nil {
 				r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID2)
 				r.StatusUpdater.UpdateFail(ctx, bindingMapCR, vlanErr2, "failed to reconcile VLAN traffic tag from NSX", updateBindingMapStatusWithUnreadyCondition, "VlanAllocationFailed", vlanErr2.message)
@@ -325,24 +323,24 @@ func (r *Reconciler) commitAutoAllocatedVlan(parentSubnetPaths []string, binding
 	r.VlanPoolService.CommitPending(parentSubnetPaths, vlanID)
 }
 
-func (r *Reconciler) reconcileVlanTrafficTag(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, *errorWithRetry) {
+func (r *Reconciler) reconcileVlanTrafficTag(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, bool, *errorWithRetry) {
 	if bindingMap.Spec.HasVlanTrafficTag() {
 		vlan := *bindingMap.Spec.VLANTrafficTag
 		if err := r.VlanPoolService.ValidateManualVlan(parentSubnetPaths, vlan, string(bindingMap.UID), fromNSX); err != nil {
-			return 0, &errorWithRetry{
+			return 0, false, &errorWithRetry{
 				message: err.Error(),
 				error:   err,
 				retry:   true,
 			}
 		}
-		return vlan, nil
+		return vlan, false, nil
 	}
 
 	// Try to reuse already allocated VLAN from NSX cache
 	existingBMs := r.SubnetBindingService.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
 	if len(existingBMs) > 0 && existingBMs[0].VlanTrafficTag != nil {
 		vlan := *existingBMs[0].VlanTrafficTag
-		return vlan, nil
+		return vlan, true, nil
 	}
 
 	preferred := int64(-1)
@@ -359,14 +357,14 @@ func (r *Reconciler) reconcileVlanTrafficTag(ctx context.Context, bindingMap *v1
 
 	vlan, err := r.VlanPoolService.Allocate(parentSubnetPaths, string(bindingMap.UID), preferred, fromNSX)
 	if err != nil {
-		return 0, &errorWithRetry{
+		return 0, true, &errorWithRetry{
 			message: err.Error(),
 			error:   err,
 			retry:   true,
 		}
 	}
 
-	return vlan, nil
+	return vlan, true, nil
 }
 
 func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
