@@ -160,7 +160,7 @@ func scanNamespaceProvidersFromAPI(ctx context.Context, clientset kubernetes.Int
 				}
 			}
 		} else {
-			log.V(1).Info("Failed to list Namespaces during mixed-mode scan", "error", err)
+			log.Debug("Failed to list Namespaces during mixed-mode scan", "error", err)
 			return false, false, err
 		}
 	}
@@ -186,7 +186,7 @@ func scanNamespaceProvidersFromCache(ctx context.Context, reader client.Reader) 
 
 	nsList := &v1.NamespaceList{}
 	if err := reader.List(ctx, nsList); err != nil {
-		log.V(1).Info("Failed to list Namespaces with reader during mixed-mode rescan", "error", err)
+		log.Debug("Failed to list Namespaces with reader during mixed-mode rescan", "error", err)
 		return false, false, err
 	}
 	for _, item := range nsList.Items {
@@ -337,12 +337,12 @@ func initMixedModeWithClients(ctx context.Context, clientset kubernetes.Interfac
 // and controllers are initialized for the new mode.
 func RefreshMixedModeState(ctx context.Context) bool {
 	if storedClientset == nil {
-		log.V(1).Info("Skipping mixed-mode refresh: storedClientset is nil")
+		log.Debug("Skipping mixed-mode refresh: storedClientset is nil")
 		return false
 	}
 
 	if perNamespaceProvidersSupported != nil && !*perNamespaceProvidersSupported {
-		log.V(1).Info("Skipping mixed-mode refresh: per-namespace network providers are not supported")
+		log.Debug("Skipping mixed-mode refresh: per-namespace network providers are not supported")
 		return false
 	}
 
