@@ -303,8 +303,6 @@ func initMixedModeWithClients(ctx context.Context, clientset kubernetes.Interfac
 	// the mutex to avoid holding the lock during potentially many retries.
 	supported, _ := checkPerNamespaceProvidersSupported(ctx, dynClient)
 
-	storedEnableVPCNetwork = enableVPCNetwork
-
 	var t1, vpc bool
 	if supported {
 		log.Info("Per-namespace network providers are supported, scanning namespaces for mixed-mode")
