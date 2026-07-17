@@ -18,7 +18,7 @@ var (
 	Bool   = common.Bool
 )
 
-func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, peerSubnetPaths []string) []*model.SubnetConnectionBindingMap {
+func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, targetSubnetPaths []string) []*model.SubnetConnectionBindingMap {
 	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
 	var subnetAssociation *string
 	if binding.Spec.SubnetAssociation != "" {
@@ -28,12 +28,12 @@ func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionB
 		}
 		subnetAssociation = String(sa)
 	}
-	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(peerSubnetPaths))
-	for i := range peerSubnetPaths {
-		path := peerSubnetPaths[i]
+	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(targetSubnetPaths))
+	for i := range targetSubnetPaths {
+		path := targetSubnetPaths[i]
 		vpcSubnetInfo, err := common.ParseVPCResourcePath(path)
 		if err != nil {
-			log.Error(err, "failed to parse peer Subnet path, ignore it")
+			log.Error(err, "failed to parse target Subnet path, ignore it")
 			continue
 		}
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{

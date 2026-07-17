@@ -111,6 +111,10 @@ spec:
                 !has(self.targetSubnetSetName) && has(self.targetSubnetName)
             - message: subnetName and targetSubnetName must be different
               rule: '!has(self.targetSubnetName) || (self.subnetName != self.targetSubnetName)'
+            - message: targetSubnetSetName is not supported when subnetAssociation
+                is Branch
+              rule: '!(has(self.subnetAssociation) && self.subnetAssociation == ''Branch''
+                && has(self.targetSubnetSetName))'
           status:
             description: SubnetConnectionBindingMapStatus defines the observed state
               of SubnetConnectionBindingMap.

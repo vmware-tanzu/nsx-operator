@@ -18,6 +18,7 @@ const (
 
 // +kubebuilder:validation:XValidation:rule="has(self.targetSubnetSetName) && !has(self.targetSubnetName) || !has(self.targetSubnetSetName) && has(self.targetSubnetName)",message="Only one of targetSubnetSetName or targetSubnetName can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.targetSubnetName) || (self.subnetName != self.targetSubnetName)",message="subnetName and targetSubnetName must be different"
+// +kubebuilder:validation:XValidation:rule="!(has(self.subnetAssociation) && self.subnetAssociation == 'Branch' && has(self.targetSubnetSetName))",message="targetSubnetSetName is not supported when subnetAssociation is Branch"
 type SubnetConnectionBindingMapSpec struct {
 	// SubnetName is the Subnet name which this SubnetConnectionBindingMap is associated.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="subnetName is immutable"

@@ -113,12 +113,12 @@ func TestBuildSubnetBindingsBranch(t *testing.T) {
 			VLANTrafficTag:    201,
 		},
 	}
-	peerPaths := []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"}
-	bindingMaps := service.buildSubnetBindings(branchBinding, peerPaths)
+	targetPaths := []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"}
+	bindingMaps := service.buildSubnetBindings(branchBinding, targetPaths)
 	require.Len(t, bindingMaps, 1)
 	require.NotNil(t, bindingMaps[0].SubnetAssociation)
 	assert.Equal(t, model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH, *bindingMaps[0].SubnetAssociation)
-	assert.Equal(t, peerPaths[0], *bindingMaps[0].SubnetPath)
+	assert.Equal(t, targetPaths[0], *bindingMaps[0].SubnetPath)
 }
 
 func TestBuildSubnetConnectionBindingMapCR(t *testing.T) {

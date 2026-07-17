@@ -70,9 +70,9 @@ func requeueSubnetConnectionBindingMapsBySubnet(ctx context.Context, c client.Cl
 		return
 	}
 	for _, bm := range bindingMapList.Items {
-		isHost := bm.Spec.SubnetName == subnet
+		isSubnet := bm.Spec.SubnetName == subnet
 		isTarget := bm.Spec.TargetSubnetName == subnet
-		if !isHost && !isTarget {
+		if !isSubnet && !isTarget {
 			continue
 		}
 		log.Info("Requeue SubnetConnectionBindingMap because the dependent Subnet realization state is changed", "Namespace", namespace, "Name", bm.Name)
