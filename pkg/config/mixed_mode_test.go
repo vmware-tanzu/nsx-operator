@@ -4,19 +4,19 @@
 package config
 
 import (
-	"testing"
-
 	"context"
+	"errors"
+	"testing"
 	"time"
 
-	"errors"
-
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic/fake"
+	kubernetesfake "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -131,157 +131,43 @@ func TestExtractCapability(t *testing.T) {
 	}
 }
 
-func makeNetworkSettings(provider string) unstructured.Unstructured {
-	return unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"provider": provider,
-		},
-	}
-}
-
-func TestParseProvidersFromList(t *testing.T) {
-	tests := []struct {
-		name      string
-		items     []unstructured.Unstructured
-		expectT1  bool
-		expectVPC bool
-		expectVDS bool
-	}{
-		{
-			name:      "empty list",
-			items:     []unstructured.Unstructured{},
-			expectT1:  false,
-			expectVPC: false,
-			expectVDS: false,
-		},
-		{
-			name: "only T1",
-			items: []unstructured.Unstructured{
-				makeNetworkSettings("nsx-tier1"),
-			},
-			expectT1:  true,
-			expectVPC: false,
-			expectVDS: false,
-		},
-		{
-			name: "only VPC",
-			items: []unstructured.Unstructured{
-				makeNetworkSettings("vpc"),
-			},
-			expectT1:  false,
-			expectVPC: true,
-			expectVDS: false,
-		},
-		{
-			name: "only VDS",
-			items: []unstructured.Unstructured{
-				makeNetworkSettings("vsphere-distributed"),
-			},
-			expectT1:  false,
-			expectVPC: false,
-			expectVDS: true,
-		},
-		{
-			name: "mixed VPC and VDS",
-			items: []unstructured.Unstructured{
-				makeNetworkSettings("vpc"),
-				makeNetworkSettings("vsphere-distributed"),
-			},
-			expectT1:  false,
-			expectVPC: true,
-			expectVDS: true,
-		},
-		{
-			name: "unknown provider",
-			items: []unstructured.Unstructured{
-				makeNetworkSettings("unknown-provider"),
-			},
-			expectT1:  false,
-			expectVPC: false,
-			expectVDS: false,
-		},
-		{
-			name: "multiple same providers",
-			items: []unstructured.Unstructured{
-				makeNetworkSettings("vpc"),
-				makeNetworkSettings("vpc"),
-			},
-			expectT1:  false,
-			expectVPC: true,
-			expectVDS: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t1, vpc, vds := parseProvidersFromList(tt.items)
-			assert.Equal(t, tt.expectT1, t1)
-			assert.Equal(t, tt.expectVPC, vpc)
-			assert.Equal(t, tt.expectVDS, vds)
-		})
-	}
-}
-
 func TestStateGetters(t *testing.T) {
 	// reset state
 	stateMu.Lock()
 	hasT1Namespaces = false
 	hasVPCNamespaces = false
-	hasVDSNamespaces = false
 	perNamespaceProvidersSupported = nil
 	stateInitialized = false
 	stateMu.Unlock()
 
 	assert.False(t, HasT1Namespaces())
 	assert.False(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 	assert.False(t, IsMixedModeStateInitialized())
 	assert.False(t, IsPerNamespaceProvidersSupported())
 
 	SetMixedModeStateForTest(true, true)
 	assert.True(t, HasT1Namespaces())
 	assert.True(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 	assert.True(t, IsMixedModeStateInitialized())
 
 	stateMu.Lock()
-	hasVDSNamespaces = true
 	supported := true
 	perNamespaceProvidersSupported = &supported
 	stateMu.Unlock()
 
-	assert.True(t, HasVDSNamespaces())
 	assert.True(t, IsPerNamespaceProvidersSupported())
-}
-
-func makeNetworkSettingsCR(name, namespace, provider string) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "netoperator.vmware.com/v1alpha1",
-			"kind":       "NetworkSettings",
-			"metadata": map[string]interface{}{
-				"name":      name,
-				"namespace": namespace,
-			},
-			"provider": provider,
-		},
-	}
 }
 
 func setupFakeDynamicClient(t *testing.T, objects ...*unstructured.Unstructured) *fake.FakeDynamicClient {
 	scheme := runtime.NewScheme()
 	listKinds := map[schema.GroupVersionResource]string{
-		capabilitiesGVR:    "CapabilitiesList",
-		networkSettingsGVR: "NetworkSettingsList",
+		capabilitiesGVR: "CapabilitiesList",
 	}
 	client := fake.NewSimpleDynamicClientWithCustomListKinds(scheme, listKinds)
 
 	ctx := context.TODO()
 	for _, obj := range objects {
 		gvr := capabilitiesGVR
-		if obj.GetKind() == "NetworkSettings" {
-			gvr = networkSettingsGVR
-		}
 
 		ns := obj.GetNamespace()
 		var err error
@@ -306,36 +192,56 @@ func TestInitMixedModeWithClients(t *testing.T) {
 	// Scenario 1: Per-namespace supported = false, EnableVPCNetwork = false
 	capObjFalse := makeCapabilitiesObj(false)
 	dynClientLegacy := setupFakeDynamicClient(t, capObjFalse)
+	clientset := kubernetesfake.NewClientset()
 
-	initMixedModeWithClients(ctx, dynClientLegacy, false)
+	initMixedModeWithClients(ctx, clientset, dynClientLegacy, false)
 	assert.True(t, HasT1Namespaces())
 	assert.False(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 
 	// Scenario 2: Per-namespace supported = false, EnableVPCNetwork = true
-	initMixedModeWithClients(ctx, dynClientLegacy, true)
+	initMixedModeWithClients(ctx, clientset, dynClientLegacy, true)
 	assert.False(t, HasT1Namespaces())
 	assert.True(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
 
-	// Scenario 3: Per-namespace supported = true, EnableVPCNetwork = false, has VDS and VPC
+	// Scenario 3: Per-namespace supported = true, EnableVPCNetwork = false, has T1 and VPC namespaces
 	capObjTrue := makeCapabilitiesObj(true)
-	ns1 := makeNetworkSettingsCR("ns1", "ns1", "vpc")
-	ns2 := makeNetworkSettingsCR("ns2", "ns2", "vsphere-distributed")
-	dynClientMixed := setupFakeDynamicClient(t, capObjTrue, ns1, ns2)
+	dynClientMixed := setupFakeDynamicClient(t, capObjTrue)
+	ns1 := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns1",
+			Annotations: map[string]string{
+				"nsx.vmware.com/vpc_network_config": "{}",
+			},
+		},
+	}
+	ns2 := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns2",
+			Annotations: map[string]string{
+				"nsx.vmware.com/t1_default_config": "true",
+			},
+		},
+	}
+	clientsetMixed := kubernetesfake.NewClientset(ns1, ns2)
 
-	initMixedModeWithClients(ctx, dynClientMixed, false)
-	assert.False(t, HasT1Namespaces())
-	assert.True(t, HasVPCNamespaces())
-	assert.True(t, HasVDSNamespaces())
-
-	// Scenario 4: Per-namespace supported = true, EnableVPCNetwork = true, has T1
-	nsT1 := makeNetworkSettingsCR("ns3", "ns3", "nsx-tier1")
-	dynClientVPC := setupFakeDynamicClient(t, capObjTrue, nsT1)
-	initMixedModeWithClients(ctx, dynClientVPC, true)
+	initMixedModeWithClients(ctx, clientsetMixed, dynClientMixed, false)
 	assert.True(t, HasT1Namespaces())
 	assert.True(t, HasVPCNamespaces())
-	assert.False(t, HasVDSNamespaces())
+
+	// Scenario 4: Per-namespace supported = true, EnableVPCNetwork = true, has T1
+	dynClientVPC := setupFakeDynamicClient(t, capObjTrue)
+	ns3 := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns3",
+			Annotations: map[string]string{
+				"vmware-system-shared-t1": "true",
+			},
+		},
+	}
+	clientsetVPC := kubernetesfake.NewClientset(ns3)
+	initMixedModeWithClients(ctx, clientsetVPC, dynClientVPC, true)
+	assert.True(t, HasT1Namespaces())
+	assert.True(t, HasVPCNamespaces())
 }
 
 func TestCheckPerNamespaceProvidersSupported(t *testing.T) {
@@ -370,7 +276,7 @@ func TestCheckPerNamespaceProvidersSupported(t *testing.T) {
 
 // stubReader is a minimal client.Reader for testing cache-backed scans.
 type stubReader struct {
-	items []unstructured.Unstructured
+	items []v1.Namespace
 	err   error
 }
 
@@ -382,70 +288,98 @@ func (s *stubReader) List(_ context.Context, list client.ObjectList, _ ...client
 	if s.err != nil {
 		return s.err
 	}
-	ul, ok := list.(*unstructured.UnstructuredList)
+	nl, ok := list.(*v1.NamespaceList)
 	if ok {
-		ul.Items = s.items
+		nl.Items = s.items
 	}
 	return nil
 }
 
 func TestScanNamespaceProvidersFromAPI(t *testing.T) {
 	ctx := context.TODO()
+	stateMu.Lock()
+	storedEnableVPCNetwork = false
+	stateMu.Unlock()
 
-	// nil client returns empty state, no error
-	t1, vpc, vds, err := scanNamespaceProvidersFromAPI(ctx, nil)
+	// nil client returns fallback default state
+	t1, vpc, err := scanNamespaceProvidersFromAPI(ctx, nil)
 	assert.NoError(t, err)
-	assert.False(t, t1)
+	assert.True(t, t1)
 	assert.False(t, vpc)
-	assert.False(t, vds)
 
-	// empty list returns empty state, no error
-	dynClientEmpty := setupFakeDynamicClient(t)
-	t1, vpc, vds, err = scanNamespaceProvidersFromAPI(ctx, dynClientEmpty)
+	// empty list returns fallback T1 state, no error
+	clientsetEmpty := kubernetesfake.NewClientset()
+	t1, vpc, err = scanNamespaceProvidersFromAPI(ctx, clientsetEmpty)
 	assert.NoError(t, err)
-	assert.False(t, t1)
+	assert.True(t, t1)
 	assert.False(t, vpc)
-	assert.False(t, vds)
 
-	// list with T1 and VPC providers
-	ns1 := makeNetworkSettingsCR("ns1", "ns1", "nsx-tier1")
-	ns2 := makeNetworkSettingsCR("ns2", "ns2", "vpc")
-	dynClient := setupFakeDynamicClient(t, ns1, ns2)
-	t1, vpc, vds, err = scanNamespaceProvidersFromAPI(ctx, dynClient)
+	// list with T1 and VPC providers via annotations
+	ns1 := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns1",
+			Annotations: map[string]string{
+				"nsx.vmware.com/vpc_network_config": "{}",
+			},
+		},
+	}
+	ns2 := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns2",
+			Annotations: map[string]string{
+				"ncp/nsx_network_config_crd": "nnc-override",
+			},
+		},
+	}
+	clientset := kubernetesfake.NewClientset(ns1, ns2)
+	t1, vpc, err = scanNamespaceProvidersFromAPI(ctx, clientset)
 	assert.NoError(t, err)
 	assert.True(t, t1)
 	assert.True(t, vpc)
-	assert.False(t, vds)
 }
 
 func TestScanNamespaceProvidersFromCache(t *testing.T) {
 	ctx := context.TODO()
+	stateMu.Lock()
+	storedEnableVPCNetwork = false
+	stateMu.Unlock()
 
-	// empty cache returns empty state, no error
-	t1, vpc, vds, err := scanNamespaceProvidersFromCache(ctx, &stubReader{})
+	// empty cache returns default fallback state, no error
+	t1, vpc, err := scanNamespaceProvidersFromCache(ctx, &stubReader{})
 	assert.NoError(t, err)
-	assert.False(t, t1)
+	assert.True(t, t1)
 	assert.False(t, vpc)
-	assert.False(t, vds)
 
 	// cache with VPC and T1 providers
-	reader := &stubReader{items: []unstructured.Unstructured{
-		makeNetworkSettings("vpc"),
-		makeNetworkSettings("nsx-tier1"),
+	reader := &stubReader{items: []v1.Namespace{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ns1",
+				Annotations: map[string]string{
+					"nsx.vmware.com/vpc_network_config": "{}",
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ns2",
+				Annotations: map[string]string{
+					"nsx.vmware.com/t1_default_config": "true",
+				},
+			},
+		},
 	}}
-	t1, vpc, vds, err = scanNamespaceProvidersFromCache(ctx, reader)
+	t1, vpc, err = scanNamespaceProvidersFromCache(ctx, reader)
 	assert.NoError(t, err)
 	assert.True(t, t1)
 	assert.True(t, vpc)
-	assert.False(t, vds)
 
 	// list error is propagated
 	errReader := &stubReader{err: errors.New("list failed")}
-	t1, vpc, vds, err = scanNamespaceProvidersFromCache(ctx, errReader)
+	t1, vpc, err = scanNamespaceProvidersFromCache(ctx, errReader)
 	assert.Error(t, err)
 	assert.False(t, t1)
 	assert.False(t, vpc)
-	assert.False(t, vds)
 }
 
 func TestRefreshMixedModeState(t *testing.T) {
@@ -453,10 +387,9 @@ func TestRefreshMixedModeState(t *testing.T) {
 		stateMu.Lock()
 		hasT1Namespaces = false
 		hasVPCNamespaces = false
-		hasVDSNamespaces = false
 		perNamespaceProvidersSupported = nil
 		stateInitialized = false
-		storedDynClient = nil
+		storedClientset = nil
 		storedEnableVPCNetwork = false
 		stateMu.Unlock()
 		refreshReaderMu.Lock()
@@ -464,14 +397,14 @@ func TestRefreshMixedModeState(t *testing.T) {
 		refreshReaderMu.Unlock()
 	}
 
-	// storedDynClient is nil -> skip
+	// storedClientset is nil -> skip
 	resetMixedModeGlobals()
 	assert.False(t, RefreshMixedModeState(context.TODO()))
 
 	// per-namespace providers not supported -> skip
 	resetMixedModeGlobals()
 	stateMu.Lock()
-	storedDynClient = setupFakeDynamicClient(t)
+	storedClientset = kubernetesfake.NewClientset()
 	supportedFalse := false
 	perNamespaceProvidersSupported = &supportedFalse
 	stateMu.Unlock()
@@ -480,33 +413,50 @@ func TestRefreshMixedModeState(t *testing.T) {
 	// no change via API path -> false
 	resetMixedModeGlobals()
 	stateMu.Lock()
-	storedDynClient = setupFakeDynamicClient(t)
+	storedClientset = kubernetesfake.NewClientset()
 	supportedTrue := true
 	perNamespaceProvidersSupported = &supportedTrue
-	hasT1Namespaces = false
+	hasT1Namespaces = true // default fallback
 	stateMu.Unlock()
 	assert.False(t, RefreshMixedModeState(context.TODO()))
 
 	// state change via API path -> true
 	resetMixedModeGlobals()
-	ns1 := makeNetworkSettingsCR("ns1", "ns1", "nsx-tier1")
+	ns1 := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns1",
+			Annotations: map[string]string{
+				"nsx.vmware.com/vpc_network_config": "{}",
+			},
+		},
+	}
 	stateMu.Lock()
-	storedDynClient = setupFakeDynamicClient(t, ns1)
+	storedClientset = kubernetesfake.NewClientset(ns1)
 	perNamespaceProvidersSupported = &supportedTrue
+	hasT1Namespaces = true
 	stateMu.Unlock()
 	assert.True(t, RefreshMixedModeState(context.TODO()))
-	assert.True(t, HasT1Namespaces())
-	assert.False(t, HasVPCNamespaces())
+	assert.False(t, HasT1Namespaces())
+	assert.True(t, HasVPCNamespaces())
 
 	// cache reader takes precedence over API; enableVPCNetwork forces VPC=true
 	resetMixedModeGlobals()
 	stateMu.Lock()
-	storedDynClient = setupFakeDynamicClient(t)
+	storedClientset = kubernetesfake.NewClientset()
 	perNamespaceProvidersSupported = &supportedTrue
 	storedEnableVPCNetwork = true
 	stateMu.Unlock()
 	refreshReaderMu.Lock()
-	namespaceRefreshReader = &stubReader{items: []unstructured.Unstructured{makeNetworkSettings("nsx-tier1")}}
+	namespaceRefreshReader = &stubReader{items: []v1.Namespace{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ns1",
+				Annotations: map[string]string{
+					"nsx.vmware.com/t1_default_config": "true",
+				},
+			},
+		},
+	}}
 	refreshReaderMu.Unlock()
 	assert.True(t, RefreshMixedModeState(context.TODO()))
 	assert.True(t, HasT1Namespaces())
@@ -515,7 +465,7 @@ func TestRefreshMixedModeState(t *testing.T) {
 	// scan error keeps current state, returns false
 	resetMixedModeGlobals()
 	stateMu.Lock()
-	storedDynClient = setupFakeDynamicClient(t)
+	storedClientset = kubernetesfake.NewClientset()
 	perNamespaceProvidersSupported = &supportedTrue
 	hasT1Namespaces = true
 	stateMu.Unlock()

@@ -312,17 +312,20 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	// Watch for mixed-mode state changes (e.g. T1-only → T1+VPC when the migration starts).
 	// If the state changes, exit so the operator restarts with the new configuration
-	config.StartNetworkSettingsInformer(mgr)
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			if config.RefreshMixedModeState(context.Background()) {
-				log.Info("Mixed-mode state changed; restarting NSX Operator to pick up new configuration")
-				os.Exit(0)
+	if config.IsPerNamespaceProvidersSupported() {
+		log.Info("Starting mixed-mode state polling ticker (interval: 30s)")
+		config.StartNamespaceInformer(mgr)
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if config.RefreshMixedModeState(context.Background()) {
+					log.Info("Mixed-mode state changed; restarting NSX Operator to pick up new configuration")
+					os.Exit(0)
+				}
 			}
-		}
-	}()
+		}()
+	}
 }
 
 func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
