@@ -564,11 +564,23 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 					func(s *subnetport.SubnetPortService, uid types.UID) string {
 						return subnetPath
 					})
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return &v1alpha1.SubnetSet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "subnetset-1",
+								UID:  "uid-1",
+							},
+							Spec: v1alpha1.SubnetSetSpec{
+								IPAddressType: v1alpha1.IPAddressTypeIPv4,
+							},
+						}, nil
+					})
 				return patches
 			},
 			expectedSubnetPath:      subnetPath,
 			expectedIsExisting:      true,
-			expectedInterfaceIPType: "",
+			expectedInterfaceIPType: v1alpha1.IPAddressTypeIPv4,
 		},
 		{
 			name: "NoGetDefaultSubnetSet",
@@ -720,7 +732,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			},
 			expectedSubnetPath:      subnetPath,
 			expectedIsExisting:      true,
-			expectedInterfaceIPType: "",
+			expectedInterfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			restoreMode:             true,
 		},
 	}

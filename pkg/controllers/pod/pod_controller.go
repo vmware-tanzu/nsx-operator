@@ -411,14 +411,21 @@ func (r *PodReconciler) getSubnetByPod(pod *v1.Pod, subnetSet *v1alpha1.SubnetSe
 func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
 	var subnetSetLock *sync.RWMutex
 	var subnetSetUID *types.UID
-	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(pod.GetUID())
-	if len(subnetPath) > 0 {
-		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
-		return true, subnetPath, subnetSetUID, subnetSetLock, "", nil
-	}
 	subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.SubnetPortService.Client, pod.Namespace, servicecommon.DefaultPodNetwork)
 	if err != nil {
 		return false, "", subnetSetUID, subnetSetLock, "", err
+	}
+	// Resolve the interface IP type from the SubnetSet up front so it stays correct on every
+	// reconcile, not just the one that first creates the SubnetPort - buildSubnetPort's static
+	// allocation matrix depends on this being accurate even for an already-existing port.
+	var interfacetype v1alpha1.IPAddressType
+	if subnetSet.Spec.IPAddressType != "" {
+		interfacetype = subnetport.GetDefaultInterfaceIPType(subnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType)
+	}
+	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(pod.GetUID())
+	if len(subnetPath) > 0 {
+		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
+		return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, nil
 	}
 	log.Info("Got default SubnetSet for Pod, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "pod.Name", pod.Name, "pod.UID", pod.UID)
 	if r.restoreMode {
@@ -430,14 +437,13 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 				return false, "", subnetSetUID, subnetSetLock, "", err
 			}
 			log.Debug("NSX SubnetPort will be restored on the existing NSX Subnet", "pod.UID", pod.UID, "subnetPath", subnetPath)
-			return true, subnetPath, subnetSetUID, subnetSetLock, "", nil
+			return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, nil
 		}
 	}
 	// SubnetSet can be created without IPAddressType, we need to wait for the value initialized by subnetset controller
 	if subnetSet.Spec.IPAddressType == "" {
 		return false, "", subnetSetUID, subnetSetLock, "", fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
 	}
-	interfacetype := subnetport.GetDefaultInterfaceIPType(subnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType)
 	subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfacetype)
 	if err != nil {
 		return false, subnetPath, subnetSetUID, subnetSetLock, interfacetype, err
