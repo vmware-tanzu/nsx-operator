@@ -68,6 +68,7 @@ func (s *BindingService) listBindingMapsByParentSubnetPath(parentSubnetPath stri
 	}
 
 	pathEscaped := strings.ReplaceAll(parentSubnetPath, "/", "\\/")
+	// TODO：update here to support bridge mode.
 	queryParam := fmt.Sprintf("%s:%s AND marked_for_delete:false AND subnet_path:%s",
 		servicecommon.ResourceType, ResourceTypeSubnetConnectionBindingMap, pathEscaped)
 

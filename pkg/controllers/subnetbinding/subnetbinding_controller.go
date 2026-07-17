@@ -134,20 +134,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, vlanID, childSubnetPath, parentSubnetPaths); err != nil {
 		if autoAllocatedVlan && nsxutil.IsOverlapVlanError(err) {
-			log.Info("VLAN allocation conflict with NSX cache, fallback to query NSX", "SubnetConnectionBindingMap", req.NamespacedName)
-			r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID)
-			vlanID2, _, vlanErr2 := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, true)
-			if vlanErr2 != nil {
-				r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID2)
-				r.StatusUpdater.UpdateFail(ctx, bindingMapCR, vlanErr2, "failed to reconcile VLAN traffic tag from NSX", updateBindingMapStatusWithUnreadyCondition, "VlanAllocationFailed", vlanErr2.message)
-				return common.ResultRequeue, nil
+			var returnEarly bool
+			var res ctrl.Result
+			vlanID, res, returnEarly = r.handleVlanAllocationFallback(ctx, bindingMapCR, parentSubnetPaths, childSubnetPath, req, vlanID)
+			if returnEarly {
+				return res, nil
 			}
-			if err2 := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, vlanID2, childSubnetPath, parentSubnetPaths); err2 != nil {
-				r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID2)
-				r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err2, "failure to configure SubnetConnectionBindingMaps on NSX after fallback", updateBindingMapStatusWithUnreadyCondition, "ConfigureFailed", fmt.Sprintf("Failed to realize SubnetConnectionBindingMap %s on NSX", req.Name))
-				return common.ResultRequeue, nil
-			}
-			vlanID = vlanID2
 		} else {
 			r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID)
 			// Update SubnetConnectionBindingMap with not-ready condition
@@ -309,7 +301,34 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	return childSubnetPath, parentSubnetPaths, nil
 }
 
+// handleVlanAllocationFallback performs a second try for VLAN allocation when the initial auto-allocation
+// conflicts with existing configurations on NSX. The initial allocation relies on a local cache which
+// might be out of sync due to race conditions or external changes. By setting fromNSX=true, this function
+// bypasses the local cache and queries the real-time available VLAN directly from the NSX API.
+func (r *Reconciler) handleVlanAllocationFallback(ctx context.Context, bindingMapCR *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, childSubnetPath string, req ctrl.Request, initialVlanID int64) (int64, ctrl.Result, bool) {
+	log.Info("VLAN allocation conflict with NSX cache, fallback to query NSX", "SubnetConnectionBindingMap", req.NamespacedName)
+	r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, initialVlanID)
+
+	vlanID2, _, vlanErr2 := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, true)
+	if vlanErr2 != nil {
+		r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID2)
+		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, vlanErr2, "failed to reconcile VLAN traffic tag from NSX", updateBindingMapStatusWithUnreadyCondition, "VlanAllocationFailed", vlanErr2.message)
+		return 0, common.ResultRequeue, true
+	}
+	if err2 := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, vlanID2, childSubnetPath, parentSubnetPaths); err2 != nil {
+		r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID2)
+		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err2, "failure to configure SubnetConnectionBindingMaps on NSX after fallback", updateBindingMapStatusWithUnreadyCondition, "ConfigureFailed", fmt.Sprintf("Failed to realize SubnetConnectionBindingMap %s on NSX", req.Name))
+		return 0, common.ResultRequeue, true
+	}
+	return vlanID2, common.ResultNormal, false
+}
+
 func (r *Reconciler) releaseAutoAllocatedVlan(parentSubnetPaths []string, bindingMap *v1alpha1.SubnetConnectionBindingMap, vlanID int64) {
+	// vlanID == 0 means the VLAN auto-allocation failed or hasn't occurred, so there is nothing to release.
+	// When reconcileVlanTrafficTag() fails (e.g., VLAN pool is exhausted), it returns the default Go zero
+	// value 0 for vlanID alongside the error. Since the caller still triggers the release function in the
+	// error branch to ensure rollback, the vlanID == 0 check acts as an internal safety guard to prevent
+	// the underlying VlanPoolService from attempting to release an unallocated/invalid VLAN 0.
 	if bindingMap.Spec.HasVlanTrafficTag() || vlanID == 0 {
 		return
 	}
@@ -317,6 +336,7 @@ func (r *Reconciler) releaseAutoAllocatedVlan(parentSubnetPaths []string, bindin
 }
 
 func (r *Reconciler) commitAutoAllocatedVlan(parentSubnetPaths []string, bindingMap *v1alpha1.SubnetConnectionBindingMap, vlanID int64) {
+	// vlanID == 0 means the VLAN auto-allocation failed or hasn't occurred, so there is nothing to commit.
 	if bindingMap.Spec.HasVlanTrafficTag() || vlanID == 0 {
 		return
 	}
