@@ -233,19 +233,19 @@ func getVpcPath(subnetPath string) (string, *errorWithRetry) {
 // |                                                                                                 |
 // |  Trunk Mode (subnetAssociation: Trunk)                                                          |
 // |  =====================================                                                          |
-// |  This is the default behavior, used for connecting two subnets.                                 |
+// |  This is the default behavior, used for connecting two subnets within the SAME VPC.             |
 // |                                                                                                 |
-// |  +---------------------------------------+       +---------------------------------------+      |
-// |  |                 VPC-A                 |       |             VPC-A / VPC-B             |      |
-// |  |                                       |       |                                       |      |
-// |  |  +---------------------------------+  |       |  +---------------------------------+  |      |
-// |  |  |          Parent Subnet          |  |       |  |          Child Subnet           |  |      |
-// |  |  |             (Trunk)             |  |       |  |            (Branch)             |  |      |
-// |  |  |                                 |  |       |  |                                 |  |      |
-// |  |  |       [targetSubnetName]        |<----------+           [subnetName]            |  |      |
-// |  |  |                                 |  |       |  |     (Host of BindingMap CR)     |  |      |
-// |  |  +---------------------------------+  |       |  +---------------------------------+  |      |
-// |  +---------------------------------------+       +---------------------------------------+      |
+// |  +-------------------------------------------------------------------------------------------+  |
+// |  |                                           VPC-A                                           |  |
+// |  |                                                                                           |  |
+// |  |  +---------------------------------+             +---------------------------------+      |  |
+// |  |  |          Parent Subnet          |             |          Child Subnet           |      |  |
+// |  |  |             (Trunk)             |             |            (Branch)             |      |  |
+// |  |  |                                 |             |                                 |      |  |
+// |  |  |       [targetSubnetName]        |<------------+           [subnetName]            |      |  |
+// |  |  |                                 |             |     (Host of BindingMap CR)     |      |  |
+// |  |  +---------------------------------+             +---------------------------------+      |  |
+// |  +-------------------------------------------------------------------------------------------+  |
 // |                                                                                                 |
 // |  Branch Mode (subnetAssociation: Branch)                                                        |
 // |  =======================================                                                        |
@@ -315,6 +315,25 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 		targetSubnetPaths, err = r.validateVpcSubnetsBySubnetSetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetSetName)
 		if err != nil {
 			return "", nil, err
+		}
+	}
+
+	// Trunk workflow: child must stay in the same VPC as the parent target.
+	if !isBranch {
+		vpcPath, vpcErr := getVpcPath(subnetPath)
+		if vpcErr != nil {
+			return "", nil, vpcErr
+		}
+		targetVpcPath, vpcErr := getVpcPath(targetSubnetPaths[0])
+		if vpcErr != nil {
+			return "", nil, vpcErr
+		}
+		if vpcPath != targetVpcPath {
+			return "", nil, &errorWithRetry{
+				message: fmt.Sprintf("Subnet %s and target Subnet %s are in different VPCs", subnetPath, targetSubnetPaths[0]),
+				retry:   false,
+				error:   fmt.Errorf("Subnet and target Subnet are in different VPCs"),
+			}
 		}
 	}
 

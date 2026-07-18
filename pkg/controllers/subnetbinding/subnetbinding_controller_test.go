@@ -18,6 +18,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -403,8 +404,8 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
-			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"},
+			expErr: "Subnet and target Subnet are in different VPCs",
+			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
 		}, {
 			name:       "parent subnetSet and child subnet in different vpcName",
 			bindingMap: bindingCR2,
@@ -421,8 +422,8 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
-			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"},
+			expErr: "Subnet and target Subnet are in different VPCs",
+			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
 		}, {
 			name:       "parent Subnet is pre-created Subnet",
 			bindingMap: bindingCR1,
@@ -765,7 +766,7 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			expMsg:  "",
 			expErr:  "",
 			paths:   []string{"/subnet-1"},
-		}, 		{
+		}, {
 			name:    "SubnetSet CR with shared Subnet",
 			objects: []client.Object{sharedSubnetSetCR},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
@@ -774,9 +775,9 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 				})
 				return patches
 			},
-			expMsg:  "",
-			expErr:  "",
-			paths:   []string{"/subnet-1"},
+			expMsg: "",
+			expErr: "",
+			paths:  []string{"/subnet-1"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1349,7 +1350,7 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 	}
 	subnetStore := &subnet.SubnetStore{
 		ResourceStore: common.ResourceStore{
-			Indexer: nil, // We'll mock the methods that use this
+			Indexer: cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{}),
 		},
 	}
 	subnetService := &subnet.SubnetService{
