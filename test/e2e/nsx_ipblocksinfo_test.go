@@ -85,7 +85,7 @@ func CustomIPBlocksInfo(t *testing.T) {
 	var ipBlockCidrs []string
 	var ipBlockRanges []model.IpPoolRange
 	var ipBlockCidr string
-	ipBlockName := "ipblocksinfo-test-10.0.0.0-netmask-28"
+	ipBlockName := generateUniqueID("ipblocksinfo-test-10.0.0.0-netmask-28")
 
 	// Get enableIPRangesCIDRs first to determine which path to take
 	_, _, _, _, enableIPRanges := getDefaultIPBlocksCidrs(t)
@@ -113,7 +113,7 @@ func CustomIPBlocksInfo(t *testing.T) {
 	}()
 
 	// Create VPC Connectivity Profile
-	vpcProfileName := "ipblocksinfo-test"
+	vpcProfileName := generateUniqueID("ipblocksinfo-test")
 	vpcProfile, err := testData.nsxClient.VPCConnectivityProfilesClient.Get(defaultOrg, defaultProject, defaultVPCProfile)
 	require.NoError(t, err)
 	err = testData.nsxClient.VPCConnectivityProfilesClient.Patch(defaultOrg, defaultProject, vpcProfileName, model.VpcConnectivityProfile{
@@ -129,7 +129,7 @@ func CustomIPBlocksInfo(t *testing.T) {
 	}()
 
 	// Create VPC with the profile above
-	vpcId := "ipblocks-info-test"
+	vpcId := generateUniqueID("ipblocks-info-test")
 	err = testData.nsxClient.VPCClient.Patch(defaultOrg, defaultProject, vpcId, model.Vpc{})
 	require.NoError(t, err)
 	vpcAttachmentId := "default"
@@ -147,7 +147,7 @@ func CustomIPBlocksInfo(t *testing.T) {
 	}()
 
 	// Create VPCNetworkConfigurations
-	vpcConfigName := "vpc-config-ipblocks-info"
+	vpcConfigName := generateUniqueID("vpc-config-ipblocks-info")
 	_, err = testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Create(context.TODO(), &v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: vpcConfigName,

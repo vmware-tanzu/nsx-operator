@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,7 +79,7 @@ func testPodSync(t *testing.T) {
 	ns := NsInventorySync
 
 	// Create a pod
-	podName := fmt.Sprintf("test-pod-%s", getRandomString())
+	podName := generateUniqueID("test-pod")
 	_, err := testData.createPod(ns, podName, containerName, podImage, corev1.ProtocolTCP, 80)
 	if err != nil {
 		t.Fatalf("Failed to create pod: %v", err)
@@ -185,7 +184,7 @@ func testServiceSync(t *testing.T) {
 	ns := NsInventorySync
 
 	// Create a service
-	serviceName := fmt.Sprintf("test-service-%s", getRandomString())
+	serviceName := generateUniqueID("test-service")
 	port := int32(80)
 	targetPort := int32(8080)
 	selector := map[string]string{"app": "test"}
@@ -245,7 +244,7 @@ func testNetworkPolicySync(t *testing.T) {
 	ns := NsInventorySync
 
 	// Create a NetworkPolicy
-	policyName := fmt.Sprintf("test-network-policy-%s", getRandomString())
+	policyName := generateUniqueID("test-network-policy")
 
 	// Define a simple NetworkPolicy that denies all ingress traffic
 	networkPolicy := &networkingv1.NetworkPolicy{
@@ -291,7 +290,7 @@ func testIngressSync(t *testing.T) {
 	ns := NsInventorySync
 
 	// Create a service first (ingress needs a backend service)
-	serviceName := fmt.Sprintf("test-service-%s", getRandomString())
+	serviceName := generateUniqueID("test-service")
 	port := int32(80)
 	targetPort := int32(8080)
 	selector := map[string]string{"app": "test"}
@@ -302,7 +301,7 @@ func testIngressSync(t *testing.T) {
 	}
 
 	// Create an Ingress
-	ingressName := fmt.Sprintf("test-ingress-%s", getRandomString())
+	ingressName := generateUniqueID("test-ingress")
 	pathType := networkingv1.PathTypePrefix
 
 	ingress := &networkingv1.Ingress{
