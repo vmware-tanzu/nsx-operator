@@ -178,6 +178,17 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 					return ResultRequeue, err
 				}
 			}
+			if obj.Status.SupervisorClusterName == "" {
+				obj.Status.SupervisorClusterName = r.Service.NSXConfig.CoeConfig.Cluster
+				if err := r.Client.Status().Update(ctx, obj); err != nil {
+					log.Error(err, "Failed to backfill SupervisorClusterName",
+						"nsxserviceaccount", req.NamespacedName)
+					return ResultRequeue, err
+				}
+				log.Info("Backfilled SupervisorClusterName on realized NSXServiceAccount",
+					"nsxserviceaccount", req.NamespacedName,
+					"supervisorClusterName", obj.Status.SupervisorClusterName)
+			}
 			// update ProxyEndpoints if it has changed.
 			if err := r.Service.UpdateProxyEndpointsIfNeeded(ctx, obj); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
