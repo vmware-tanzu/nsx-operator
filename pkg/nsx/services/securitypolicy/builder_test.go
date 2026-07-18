@@ -1333,6 +1333,21 @@ func Test_BuildRuleDisplayName(t *testing.T) {
 }
 
 func Test_BuildExpandedRuleID(t *testing.T) {
+	mockVPCService := mock.MockVPCServiceProvider{}
+	mockVPCService.On("ListVPCInfo", "ns1").Return([]common.VPCResourceInfo{
+		{
+			OrgID:     "default",
+			ProjectID: "a45015f6-cec8-419a-9239-32bc7327d3ac",
+			VPCID:     "test-vpc-1-ext-chars",
+		},
+	})
+	mockVPCService.On("ListVPCInfo", "ns2").Return([]common.VPCResourceInfo{
+		{
+			OrgID:     "default",
+			ProjectID: "a45015f6-cec8-419a-9239-32bc7327d3ac",
+			VPCID:     "test-vpc-1-ext-chars",
+		},
+	})
 	svc := &SecurityPolicyService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -1341,6 +1356,7 @@ func Test_BuildExpandedRuleID(t *testing.T) {
 				},
 			},
 		},
+		vpcService: &mockVPCService,
 	}
 
 	svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
@@ -1567,7 +1583,7 @@ func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 			},
 			createdFor: common.ResourceTypeNetworkPolicy,
 			expName:    fmt.Sprintf("%s_n5pcg", strings.Repeat("a", 249)),
-			expId:      fmt.Sprintf("%s_tdpcn", strings.Repeat("a", 249)),
+			expId:      fmt.Sprintf("%s_tdpcn", strings.Repeat("a", 145)),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1577,7 +1593,15 @@ func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 			if tc.existingSecurityPolicy != nil {
 				svc.securityPolicyStore.Add(tc.existingSecurityPolicy)
 			}
-			id, name := svc.buildSecurityPolicyIDAndName(tc.obj, tc.createdFor)
+			var vpcInfo *common.VPCResourceInfo
+			if tc.vpcEnabled {
+				vpcInfo = &common.VPCResourceInfo{
+					OrgID:     "default",
+					ProjectID: "a45015f6-cec8-419a-9239-32bc7327d3ac",
+					VPCID:     "test-vpc-1-ext-chars",
+				}
+			}
+			id, name := svc.buildSecurityPolicyIDAndName(tc.obj, tc.createdFor, vpcInfo)
 			assert.Equal(t, tc.expId, id)
 			assert.Equal(t, tc.expName, name)
 			assert.True(t, len(name) <= common.MaxNameLength)
