@@ -12,87 +12,103 @@ type mockComparable struct {
 	value data.DataValue
 }
 
-func (m mockComparable) Key() string {
+func (m *mockComparable) Key() string {
 	return m.key
 }
 
-func (m mockComparable) Value() data.DataValue {
+func (m *mockComparable) Value() data.DataValue {
 	return m.value
+}
+
+func mockComparableToComparable(mc []*mockComparable) []Comparable {
+	res := make([]Comparable, 0, len(mc))
+	for i := range mc {
+		res = append(res, (*mockComparable)(mc[i]))
+	}
+	return res
+}
+
+func comparableToMockComparable(c []Comparable) []*mockComparable {
+	res := make([]*mockComparable, 0, len(c))
+	for i := range c {
+		res = append(res, c[i].(*mockComparable))
+	}
+	return res
 }
 
 func TestCompareResources(t *testing.T) {
 	tests := []struct {
 		name        string
-		existing    []Comparable
-		expected    []Comparable
-		wantChanged []Comparable
-		wantStale   []Comparable
+		existing    []*mockComparable
+		expected    []*mockComparable
+		wantChanged []*mockComparable
+		wantStale   []*mockComparable
 	}{
 		{
 			name: "No changes",
-			existing: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1")},
-				mockComparable{key: "key2", value: data.NewStringValue("value2")},
+			existing: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1")},
+				{key: "key2", value: data.NewStringValue("value2")},
 			},
-			expected: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1")},
-				mockComparable{key: "key2", value: data.NewStringValue("value2")},
+			expected: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1")},
+				{key: "key2", value: data.NewStringValue("value2")},
 			},
-			wantChanged: []Comparable{},
-			wantStale:   []Comparable{},
+			wantChanged: []*mockComparable{},
+			wantStale:   []*mockComparable{},
 		},
 		{
 			name: "Changed resources",
-			existing: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1")},
-				mockComparable{key: "key2", value: data.NewStringValue("value2")},
+			existing: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1")},
+				{key: "key2", value: data.NewStringValue("value2")},
 			},
-			expected: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1")},
-				mockComparable{key: "key2", value: data.NewStringValue("value2_changed")},
+			expected: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1")},
+				{key: "key2", value: data.NewStringValue("value2_changed")},
 			},
-			wantChanged: []Comparable{
-				mockComparable{key: "key2", value: data.NewStringValue("value2_changed")},
+			wantChanged: []*mockComparable{
+				{key: "key2", value: data.NewStringValue("value2_changed")},
 			},
-			wantStale: []Comparable{},
+			wantStale: []*mockComparable{},
 		},
 		{
 			name: "Stale resources",
-			existing: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1")},
-				mockComparable{key: "key2", value: data.NewStringValue("value2")},
+			existing: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1")},
+				{key: "key2", value: data.NewStringValue("value2")},
 			},
-			expected: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1")},
+			expected: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1")},
 			},
-			wantChanged: []Comparable{},
-			wantStale: []Comparable{
-				mockComparable{key: "key2", value: data.NewStringValue("value2")},
+			wantChanged: []*mockComparable{},
+			wantStale: []*mockComparable{
+				{key: "key2", value: data.NewStringValue("value2")},
 			},
 		},
 		{
 			name: "Changed and stale resources",
-			existing: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1")},
-				mockComparable{key: "key2", value: data.NewStringValue("value2")},
+			existing: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1")},
+				{key: "key2", value: data.NewStringValue("value2")},
 			},
-			expected: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1_changed")},
+			expected: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1_changed")},
 			},
-			wantChanged: []Comparable{
-				mockComparable{key: "key1", value: data.NewStringValue("value1_changed")},
+			wantChanged: []*mockComparable{
+				{key: "key1", value: data.NewStringValue("value1_changed")},
 			},
-			wantStale: []Comparable{
-				mockComparable{key: "key2", value: data.NewStringValue("value2")},
+			wantStale: []*mockComparable{
+				{key: "key2", value: data.NewStringValue("value2")},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotChanged, gotStale := CompareResources(tt.existing, tt.expected)
-			assert.Equal(t, tt.wantChanged, gotChanged)
-			assert.Equal(t, tt.wantStale, gotStale)
+			gotChanged, gotStale := CompareResources(mockComparableToComparable(tt.existing), mockComparableToComparable(tt.expected))
+			assert.Equal(t, tt.wantChanged, comparableToMockComparable(gotChanged))
+			assert.Equal(t, tt.wantStale, comparableToMockComparable(gotStale))
 		})
 	}
 }
