@@ -403,8 +403,8 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expErr: "Subnet and target Subnet are in different VPCs",
-			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"},
 		}, {
 			name:       "parent subnetSet and child subnet in different vpcName",
 			bindingMap: bindingCR2,
@@ -421,8 +421,8 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expErr: "Subnet and target Subnet are in different VPCs",
-			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"},
 		}, {
 			name:       "parent Subnet is pre-created Subnet",
 			bindingMap: bindingCR1,
@@ -439,8 +439,8 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expErr: "pre-created Subnet default/targetSubnet cannot be a target Subnet",
-			expMsg: "Target Subnet default/targetSubnet is a pre-created Subnet",
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"},
 		}, {
 			name: "cross-VPC Branch binding with shared target subnet",
 			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
@@ -466,23 +466,6 @@ func TestValidateDependency(t *testing.T) {
 			},
 			expSubnet:        "/orgs/default/projects/default/vpcs/vpc-a/subnets/parent-subnet",
 			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"},
-		}, {
-			name: "subnetAssociation Branch with targetSubnetSetName",
-			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
-				ObjectMeta: metav1.ObjectMeta{Name: "bm-branch", Namespace: "ns-1"},
-				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
-					SubnetName:          "subnet-1",
-					TargetSubnetSetName: "subnet-set-1",
-					SubnetAssociation:   v1alpha1.SubnetAssociationBranch,
-				},
-			},
-			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
-				return gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateVpcSubnetsBySubnetCR", func(_ *Reconciler, ctx context.Context, namespace, name string, checkNotUsedAsChild, checkNotUsedAsParent bool, currentBindingMapName string) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
-					return []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1"}, &v1alpha1.Subnet{}, nil
-				})
-			},
-			expErr: "targetSubnetSetName is not supported with subnetAssociation Branch",
-			expMsg: "subnetAssociation Branch requires targetSubnetName",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -782,11 +765,18 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			expMsg:  "",
 			expErr:  "",
 			paths:   []string{"/subnet-1"},
-		}, {
+		}, 		{
 			name:    "SubnetSet CR with shared Subnet",
 			objects: []client.Object{sharedSubnetSetCR},
-			expMsg:  "Target SubnetSet default/net1 is a SubnetSet with pre-created Subnets",
-			expErr:  "SubnetSet with pre-created Subnets default/net1 cannot be a target SubnetSet",
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet", func(_ *subnet.SubnetService, id string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{{Id: common.String("net1"), Path: common.String("/subnet-1")}}
+				})
+				return patches
+			},
+			expMsg:  "",
+			expErr:  "",
+			paths:   []string{"/subnet-1"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

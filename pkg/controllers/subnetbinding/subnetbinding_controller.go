@@ -231,28 +231,28 @@ func getVpcPath(subnetPath string) (string, *errorWithRetry) {
 //
 // +-------------------------------------------------------------------------------------------------+
 // |                                                                                                 |
-// |  Legacy Trunk Mode (subnetAssociation: Trunk)                                                   |
-// |  ============================================                                                   |
-// |  This is the default behavior, used for connecting two subnets within the SAME VPC.             |
-// |                                                                                                 |
-// |  +-------------------------------------------------------------------------------------------+  |
-// |  |                                           VPC-A                                           |  |
-// |  |                                                                                           |  |
-// |  |  +--------------------------+                                +-------------------------+  |  |
-// |  |  |      Parent Subnet       |                                |      Child Subnet       |  |  |
-// |  |  |         (Trunk)          |                                |        (Branch)         |  |  |
-// |  |  |                          |                                |                         |  |  |
-// |  |  |    [targetSubnetName]    <--------------------------------+      [subnetName]       |  |  |
-// |  |  |                          |                                | (Host of BindingMap CR) |  |  |
-// |  |  +--------------------------+                                +-------------------------+  |  |
-// |  +-------------------------------------------------------------------------------------------+  |
-// |                                                                                                 |
-// |  Cross-VPC Branch Mode (subnetAssociation: Branch)                                              |
-// |  =================================================                                              |
-// |  This enables extending a VLAN network across DIFFERENT VPCs.                                   |
+// |  Trunk Mode (subnetAssociation: Trunk)                                                          |
+// |  =====================================                                                          |
+// |  This is the default behavior, used for connecting two subnets.                                 |
 // |                                                                                                 |
 // |  +---------------------------------------+       +---------------------------------------+      |
-// |  |                 VPC-A                 |       |                 VPC-B                 |      |
+// |  |                 VPC-A                 |       |             VPC-A / VPC-B             |      |
+// |  |                                       |       |                                       |      |
+// |  |  +---------------------------------+  |       |  +---------------------------------+  |      |
+// |  |  |          Parent Subnet          |  |       |  |          Child Subnet           |  |      |
+// |  |  |             (Trunk)             |  |       |  |            (Branch)             |  |      |
+// |  |  |                                 |  |       |  |                                 |  |      |
+// |  |  |       [targetSubnetName]        |<----------+           [subnetName]            |  |      |
+// |  |  |                                 |  |       |  |     (Host of BindingMap CR)     |  |      |
+// |  |  +---------------------------------+  |       |  +---------------------------------+  |      |
+// |  +---------------------------------------+       +---------------------------------------+      |
+// |                                                                                                 |
+// |  Branch Mode (subnetAssociation: Branch)                                                        |
+// |  =======================================                                                        |
+// |  This is used for connecting two subnets, where the binding map is hosted on the parent.        |
+// |                                                                                                 |
+// |  +---------------------------------------+       +---------------------------------------+      |
+// |  |                 VPC-A                 |       |             VPC-A / VPC-B             |      |
 // |  |                                       |       |                                       |      |
 // |  |  +---------------------------------+  |       |  +---------------------------------+  |      |
 // |  |  |          Parent Subnet          |  |       |  |          Child Subnet           |  |      |
@@ -280,7 +280,7 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 		targetCheckNotUsedAsChild = false
 		targetCheckNotUsedAsParent = true
 	} else {
-		// Legacy Trunk mode: subnetName is the child (branch), targetSubnetName is the parent (trunk).
+		// Trunk mode: subnetName is the child (branch), targetSubnetName is the parent (trunk).
 		// subnetName is Child: it can have multiple parents, but CANNOT be a parent in any binding.
 		subnetCheckNotUsedAsChild = false
 		subnetCheckNotUsedAsParent = true
@@ -295,56 +295,29 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	}
 	subnetPath := subnetPaths[0]
 
-	var targetSubnetPaths []string
-	if bindingMap.Spec.TargetSubnetName != "" {
-		var targetSubnetCR *v1alpha1.Subnet
-		targetSubnetPaths, targetSubnetCR, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, targetCheckNotUsedAsChild, targetCheckNotUsedAsParent, bindingMap.Name)
-		if err != nil {
-			return "", nil, err
-		}
-		if !isBranch {
-			if _, ok := targetSubnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
-				return "", nil, &errorWithRetry{
-					message: fmt.Sprintf("Target Subnet %s/%s is a pre-created Subnet", targetNamespace, bindingMap.Spec.TargetSubnetName),
-					error:   fmt.Errorf("pre-created Subnet %s/%s cannot be a target Subnet", targetNamespace, bindingMap.Spec.TargetSubnetName),
-					retry:   false,
-				}
-			}
-		}
-	} else {
-		if isBranch {
+	if isBranch {
+		if _, ok := subnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
 			return "", nil, &errorWithRetry{
-				message: "subnetAssociation Branch requires targetSubnetName",
-				error:   fmt.Errorf("targetSubnetSetName is not supported with subnetAssociation Branch"),
+				message: fmt.Sprintf("Subnet %s/%s is a pre-created Subnet", bindingMap.Namespace, bindingMap.Spec.SubnetName),
+				error:   fmt.Errorf("pre-created Subnet %s/%s cannot be a parent Subnet", bindingMap.Namespace, bindingMap.Spec.SubnetName),
 				retry:   false,
 			}
 		}
+	}
+
+	var targetSubnetPaths []string
+	if bindingMap.Spec.TargetSubnetName != "" {
+		targetSubnetPaths, _, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, targetCheckNotUsedAsChild, targetCheckNotUsedAsParent, bindingMap.Name)
+		if err != nil {
+			return "", nil, err
+		}
+	} else {
 		targetSubnetPaths, err = r.validateVpcSubnetsBySubnetSetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetSetName)
 		if err != nil {
 			return "", nil, err
 		}
 	}
 
-	// Legacy Trunk workflow: a shared (pre-created) child must stay in the same VPC as the parent target.
-	if !isBranch {
-		if _, ok := subnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
-			hostVpcPath, vpcErr := getVpcPath(subnetPath)
-			if vpcErr != nil {
-				return "", nil, vpcErr
-			}
-			peerVpcPath, vpcErr := getVpcPath(targetSubnetPaths[0])
-			if vpcErr != nil {
-				return "", nil, vpcErr
-			}
-			if hostVpcPath != peerVpcPath {
-				return "", nil, &errorWithRetry{
-					message: fmt.Sprintf("Subnet %s and target Subnet %s are in different VPCs", subnetPath, targetSubnetPaths[0]),
-					retry:   false,
-					error:   fmt.Errorf("Subnet and target Subnet are in different VPCs"),
-				}
-			}
-		}
-	}
 	return subnetPath, targetSubnetPaths, nil
 }
 
@@ -483,13 +456,6 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 		return nil, &errorWithRetry{
 			message: fmt.Sprintf("Unable to get SubnetSet CR %s", name),
 			error:   fmt.Errorf("failed to get SubnetSet %s in Namespace %s with error: %v", name, namespace, err),
-			retry:   false,
-		}
-	}
-	if subnetSetCR.Spec.SubnetNames != nil {
-		return nil, &errorWithRetry{
-			message: fmt.Sprintf("Target SubnetSet %s/%s is a SubnetSet with pre-created Subnets", namespace, name),
-			error:   fmt.Errorf("SubnetSet with pre-created Subnets %s/%s cannot be a target SubnetSet", namespace, name),
 			retry:   false,
 		}
 	}

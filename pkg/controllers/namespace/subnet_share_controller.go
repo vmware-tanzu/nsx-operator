@@ -385,6 +385,19 @@ func (r *NamespaceReconciler) checkSubnetReferences(ctx context.Context, ns stri
 				"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
 			return true, nil
 		}
+		if bm.Spec.TargetSubnetSetName != "" {
+			subnetSet := &v1alpha1.SubnetSet{}
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: bm.Spec.TargetSubnetSetName}, subnetSet)
+			if err == nil && subnetSet.Spec.SubnetNames != nil {
+				for _, sn := range *subnetSet.Spec.SubnetNames {
+					if sn == subnet.Name {
+						log.Info("Cannot delete Subnet CR for shared subnet because it is used in targetSubnetSetName by a SubnetConnectionBindingMap CR",
+							"Namespace", ns, "Name", subnet.Name, "SubnetBinding", bm.Name)
+						return true, nil
+					}
+				}
+			}
+		}
 	}
 
 	// Check if there are any SubnetIPReservation CRs referencing this Subnet CR

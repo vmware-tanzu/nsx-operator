@@ -9,10 +9,10 @@ type SubnetAssociation string
 
 const (
 	// SubnetAssociationTrunk means targetSubnetName is the parent (trunk) Subnet in the binding.
-	// This is the default when subnetAssociation is unset (legacy same-VPC workflow).
+	// This is the default when subnetAssociation is unset.
 	SubnetAssociationTrunk SubnetAssociation = "Trunk"
 	// SubnetAssociationBranch means targetSubnetName is the child (branch) Subnet in the binding.
-	// Used for cross-VPC VLAN extension; NSX SubnetConnectionBindingMap is created under subnetName (parent).
+	// NSX SubnetConnectionBindingMap is created under subnetName (parent).
 	SubnetAssociationBranch SubnetAssociation = "Branch"
 )
 
@@ -30,7 +30,7 @@ type SubnetConnectionBindingMapSpec struct {
 	// +kubebuilder:validation:Optional
 	TargetSubnetName string `json:"targetSubnetName,omitempty"`
 	// SubnetAssociation indicates the role of targetSubnetName in the binding.
-	// Trunk: targetSubnetName is the parent Subnet (default, legacy behavior).
+	// Trunk: targetSubnetName is the parent Subnet (default behavior).
 	// Branch: targetSubnetName is the child Subnet; subnetName is the parent and hosts the NSX binding map.
 	// +kubebuilder:validation:Enum=Trunk;Branch
 	// +kubebuilder:validation:Optional

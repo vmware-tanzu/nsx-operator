@@ -68,7 +68,7 @@ spec:
               subnetAssociation:
                 description: |-
                   SubnetAssociation indicates the role of targetSubnetName in the binding.
-                  Trunk: targetSubnetName is the parent Subnet (default, legacy behavior).
+                  Trunk: targetSubnetName is the parent Subnet (default behavior).
                   Branch: targetSubnetName is the child Subnet; subnetName is the parent and hosts the NSX binding map.
                 enum:
                 - Trunk
