@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -750,4 +751,65 @@ func TestBuildBasicTagsWithStatefulSetPod(t *testing.T) {
 	assert.True(t, foundPodUID, "should have pod uid tag")
 	assert.True(t, foundStsName, "should have statefulset name tag")
 	assert.True(t, foundStsUID, "should have statefulset uid tag")
+}
+
+func TestCRSubnetDHCPv6Enabled(t *testing.T) {
+	testCases := []struct {
+		name   string
+		subnet *v1alpha1.Subnet
+		expect bool
+	}{
+		{
+			name: "DHCPv6 Server mode",
+			subnet: &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{
+				SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: v1alpha1.DHCPv6ConfigModeServer},
+			}},
+			expect: true,
+		},
+		{
+			name: "DHCPv6 Relay mode",
+			subnet: &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{
+				SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: v1alpha1.DHCPv6ConfigModeRelay},
+			}},
+			expect: true,
+		},
+		{
+			name: "DHCPv6 Deactivated mode",
+			subnet: &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{
+				SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: v1alpha1.DHCPv6ConfigModeDeactivated},
+			}},
+			expect: false,
+		},
+		{
+			name: "DHCPv6 Stateless mode",
+			subnet: &v1alpha1.Subnet{Spec: v1alpha1.SubnetSpec{
+				SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: v1alpha1.DHCPv6ConfigModeServerStateless},
+			}},
+			expect: true,
+		},
+		{
+			name:   "empty DHCPv6 mode defaults to disabled",
+			subnet: &v1alpha1.Subnet{},
+			expect: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expect, CRSubnetDHCPv6Enabled(tc.subnet))
+		})
+	}
+
+	// SubnetSet cases
+	t.Run("SubnetSet DHCPv6 Server enabled", func(t *testing.T) {
+		ss := &v1alpha1.SubnetSet{Spec: v1alpha1.SubnetSetSpec{
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: v1alpha1.DHCPv6ConfigModeServer},
+		}}
+		assert.True(t, CRSubnetDHCPv6Enabled(ss))
+	})
+	t.Run("SubnetSet DHCPv6 Deactivated disabled", func(t *testing.T) {
+		ss := &v1alpha1.SubnetSet{Spec: v1alpha1.SubnetSetSpec{
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{Mode: v1alpha1.DHCPv6ConfigModeDeactivated},
+		}}
+		assert.False(t, CRSubnetDHCPv6Enabled(ss))
+	})
 }

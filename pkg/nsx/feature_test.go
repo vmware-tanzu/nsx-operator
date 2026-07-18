@@ -43,6 +43,37 @@ func TestStatefulSetPodSubnetPortFeatureEnabled(t *testing.T) {
 	})
 }
 
+func TestMacPoolDHCPFeatureEnabled(t *testing.T) {
+	f := false
+	tr := true
+	nsxClient := &Client{}
+
+	t.Run("nil client", func(t *testing.T) {
+		assert.False(t, MacPoolDHCPFeatureEnabled(nil, &config.NSXOperatorConfig{}))
+	})
+
+	t.Run("NSX 9.2+ with vpc_wcp_enhance opt-in", func(t *testing.T) {
+		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			return feature == IPv6
+		})
+		defer p.Reset()
+		assert.False(t, MacPoolDHCPFeatureEnabled(nsxClient, nil))
+		assert.False(t, MacPoolDHCPFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
+		assert.True(t, MacPoolDHCPFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &tr}}))
+		assert.False(t, MacPoolDHCPFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &f}}))
+	})
+
+	t.Run("NSX 9.1.2 does not support MAC_POOL", func(t *testing.T) {
+		// StatefulSetPod (9.1.2) is available but IPv6 (9.2.0) is not: MAC_POOL must stay off,
+		// since 9.1.2 rejects a MAC_POOL port with no specific IP.
+		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			return feature == StatefulSetPod
+		})
+		defer p.Reset()
+		assert.False(t, MacPoolDHCPFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &tr}}))
+	})
+}
+
 func TestRestoreVifFeatureEnabled(t *testing.T) {
 	f := false
 	tr := true

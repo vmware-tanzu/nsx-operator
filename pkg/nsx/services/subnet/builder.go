@@ -101,7 +101,7 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		Name: obj.GetName(),
 		UID:  types.UID(nsUID),
 	}
-	staticIpAllocation := !util.CRSubnetDHCPEnabled(obj)
+	staticIpAllocation := util.GetDefaultStaticIPAllocation(obj)
 	var nsxSubnet *model.VpcSubnet
 	switch o := obj.(type) {
 	case *v1alpha1.Subnet:

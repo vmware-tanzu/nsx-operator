@@ -326,7 +326,7 @@ func getEffectiveStaticIPAllocation(subnet *v1alpha1.Subnet) bool {
 		return *subnet.Spec.AdvancedConfig.StaticIPAllocation.Enabled
 	}
 	// If not set, compute default value based on DHCP config (same logic as subnet controller)
-	return !util.CRSubnetDHCPEnabled(subnet)
+	return util.GetDefaultStaticIPAllocation(subnet)
 }
 
 func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, subnetNames *[]string, subnetSet string) (bool, error) {

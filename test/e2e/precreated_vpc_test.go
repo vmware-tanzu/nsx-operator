@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,7 +221,22 @@ func testPodToLBService(t *testing.T, nsName string) {
 
 	// Create client Pod inside the NS
 	clientPodName := "prevpc-client-pod"
-	_, err = testData.createPod(nsName, clientPodName, containerName, podImage, corev1.ProtocolTCP, podPort)
+	ctx, cancel := context.WithTimeout(context.Background(), resourceReadyTime)
+	defer cancel()
+	err = wait.PollUntilContextCancel(ctx, 3*time.Second, false, func(ctx context.Context) (bool, error) {
+		_, createErr := testData.createPod(nsName, clientPodName, containerName, podImage, corev1.ProtocolTCP, podPort)
+		if createErr == nil {
+			return true, nil
+		}
+		msg := createErr.Error()
+		if strings.Contains(msg, "failed calling webhook") ||
+			strings.Contains(msg, "validate-quota-on-pod.k8s.io") ||
+			strings.Contains(msg, "connection refused") {
+			log.Info("Retrying client Pod create due to transient webhook error", "namespace", nsName, "pod", clientPodName, "error", createErr)
+			return false, nil
+		}
+		return false, createErr
+	})
 	require.NoErrorf(t, err, "Client Pod '%s/%s' should be created", nsName, clientPodName)
 	_, err = testData.podWaitForIPs(resourceReadyTime, clientPodName, nsName)
 	require.NoErrorf(t, err, "Client Pod '%s/%s' is not ready within time %s", nsName, clientPodName, resourceReadyTime.String())
@@ -234,7 +250,9 @@ func testPodToLBService(t *testing.T, nsName string) {
 	err = testData.deleteService(nsName, svcName)
 	require.NoError(t, err, "Service should be deleted")
 	log.Info("Deleted the LoadBalancer Service")
-	err = testData.waitForLBVSDeletion(resourceReadyTime, string(svcUID))
+	// NSX LB resources cleanup can occasionally take longer than the default ready time.
+	// Use a longer timeout here to reduce test flakiness.
+	err = testData.waitForLBVSDeletion(2*resourceReadyTime, string(svcUID))
 	require.NoErrorf(t, err, "NSX resources should be removed after K8s LoadBalancer Service is deleted")
 	log.Info("NSX resources for the LoadBalancer Service are removed")
 }

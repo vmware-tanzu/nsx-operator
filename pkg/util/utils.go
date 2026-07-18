@@ -490,6 +490,38 @@ func NSXSubnetStaticIPAllocationEnabled(nsxSubnet *model.VpcSubnet) bool {
 	return true
 }
 
+// ComputeDefaultStaticIPAllocationType returns the StaticIPAllocationType a SubnetPort should
+// default to when the user has not explicitly set it. Mixed mode (DHCP server + static enabled
+// simultaneously) defaults to None — the DHCP path takes precedence.
+func ComputeDefaultStaticIPAllocationType(nsxSubnet *model.VpcSubnet, interfaceIPType v1alpha1.IPAddressType) v1alpha1.StaticIPAllocationType {
+	if !NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+		return v1alpha1.StaticIPAllocationTypeNone
+	}
+	dhcpEnabled := NSXSubnetDHCPEnabled(nsxSubnet)
+	dhcpv6Enabled := NSXSubnetDHCPv6Enabled(nsxSubnet)
+	switch interfaceIPType {
+	case v1alpha1.IPAddressTypeIPv4:
+		if !dhcpEnabled {
+			return v1alpha1.StaticIPAllocationTypeIPv4
+		}
+	case v1alpha1.IPAddressTypeIPv6:
+		if !dhcpv6Enabled {
+			return v1alpha1.StaticIPAllocationTypeIPv6
+		}
+	case v1alpha1.IPAddressTypeIPv4IPv6:
+		if !dhcpEnabled && !dhcpv6Enabled {
+			return v1alpha1.StaticIPAllocationTypeIPv4IPv6
+		}
+		if !dhcpEnabled && dhcpv6Enabled {
+			return v1alpha1.StaticIPAllocationTypeIPv4
+		}
+		if dhcpEnabled && !dhcpv6Enabled {
+			return v1alpha1.StaticIPAllocationTypeIPv6
+		}
+	}
+	return v1alpha1.StaticIPAllocationTypeNone
+}
+
 func CRSubnetDHCPEnabled(obj client.Object) bool {
 	mode := ""
 	switch o := obj.(type) {
@@ -499,6 +531,38 @@ func CRSubnetDHCPEnabled(obj client.Object) bool {
 		mode = string(o.Spec.SubnetDHCPConfig.Mode)
 	}
 	return mode == v1alpha1.DHCPConfigModeServer || mode == v1alpha1.DHCPConfigModeRelay
+}
+
+func CRSubnetDHCPv6Enabled(obj client.Object) bool {
+	mode := ""
+	switch o := obj.(type) {
+	case *v1alpha1.Subnet:
+		mode = string(o.Spec.SubnetDHCPv6Config.Mode)
+	case *v1alpha1.SubnetSet:
+		mode = string(o.Spec.SubnetDHCPv6Config.Mode)
+	}
+	return mode == string(v1alpha1.DHCPv6ConfigModeServer) || mode == string(v1alpha1.DHCPv6ConfigModeRelay) || mode == string(v1alpha1.DHCPv6ConfigModeServerStateless)
+}
+
+// GetDefaultStaticIPAllocation computes the default StaticIPAllocation.Enabled value for a
+// Subnet or SubnetSet when the user has not explicitly set it: static allocation is enabled
+// unless DHCP covers every IP family the subnet exposes.
+func GetDefaultStaticIPAllocation(obj client.Object) bool {
+	var ipAddressType v1alpha1.IPAddressType
+	switch o := obj.(type) {
+	case *v1alpha1.Subnet:
+		ipAddressType = o.Spec.IPAddressType
+	case *v1alpha1.SubnetSet:
+		ipAddressType = o.Spec.IPAddressType
+	}
+	switch ipAddressType {
+	case v1alpha1.IPAddressTypeIPv6:
+		return !CRSubnetDHCPv6Enabled(obj)
+	case v1alpha1.IPAddressTypeIPv4IPv6:
+		return !CRSubnetDHCPEnabled(obj) && !CRSubnetDHCPv6Enabled(obj)
+	default:
+		return !CRSubnetDHCPEnabled(obj)
+	}
 }
 
 // ValidateSubnetSize checks if the given subnet size is valid based on NSX version.

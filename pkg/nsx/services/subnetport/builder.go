@@ -74,9 +74,14 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				if len(ab.IPAddress) > 0 {
 					addressBinding.IpAddress = &ab.IPAddress
 				}
-				// If StaticIPAllocation is disabled and no IP is specified, we do not specify the MAC in the NSX SubnetPort AddressBinding
-				if (util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(ab.IPAddress) > 0) &&
-					len(ab.MACAddress) > 0 {
+				setMac := len(ab.MACAddress) > 0
+				// On NSX < 9.2 the staticIPAllocationType matrix is unavailable, so keep the
+				// legacy restriction: only bind a MAC when static IP allocation is enabled
+				// or an explicit IP is provided.
+				if setMac && !service.NSXClient.NSXCheckVersion(nsx.IPv6) {
+					setMac = util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(ab.IPAddress) > 0
+				}
+				if setMac {
 					addressBinding.MacAddress = &ab.MACAddress
 					hasMacSpecified = true
 				}
@@ -101,24 +106,48 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				log.Error(nil, "MAC address annotation not found in Pod", "Pod", o)
 			}
 		}
-		if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
-			staticIpAllocationType = controllercommon.ConvertCRIPAddressTypeToNSX(interfaceIPType)
-		} else {
-			staticIpAllocationType = controllercommon.NSXIPAddressTypeNone
-		}
+		staticIpAllocationType = controllercommon.ConvertCRStaticIPAddressTypeToNSX(
+			util.ComputeDefaultStaticIPAllocationType(nsxSubnet, interfaceIPType),
+		)
 	}
 
-	if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
-		// Subnet with Static IPAM.
+	// Compute allocateAddresses from staticIpAllocationType × hasMacSpecified matrix:
+	//   static non-None + MAC → IP_POOL
+	//   static non-None + no MAC → BOTH
+	//   static None + MAC → NONE
+	//   static None + no MAC → MAC_POOL (guarded below)
+	isStaticEnabled := staticIpAllocationType != controllercommon.NSXIPAddressTypeNone
+	if isStaticEnabled {
 		if hasMacSpecified {
 			allocateAddresses = "IP_POOL"
 		} else {
 			allocateAddresses = "BOTH"
 		}
 	} else {
-		// For Subnet with DHCPServer/DHCPRelay or Subnet with no IP, we use NONE
-		// DHCP was never implemented for SubnetPort. Subnet's DHCP config is the only place to identify if port has DHCP config.
-		allocateAddresses = "NONE"
+		if hasMacSpecified {
+			allocateAddresses = "NONE"
+		} else {
+			allocateAddresses = "MAC_POOL"
+		}
+	}
+	// MAC_POOL for DHCP subnets requires NSX 9.2+ with VpcWcpEnhance. On older versions
+	// or when the feature is disabled, fall back to NONE (current behavior).
+	if allocateAddresses == "MAC_POOL" {
+		if !nsx.MacPoolDHCPFeatureEnabled(service.NSXClient, service.NSXConfig) {
+			allocateAddresses = "NONE"
+		} else if len(addressBindings) == 0 {
+			// MAC_POOL requires non-empty bindings (NSX SwitchingValidator rejects empty ones).
+			// In restore mode: the NSX port was deleted and is being recreated — include the
+			// existing status MAC so NSX re-uses it instead of allocating a new pool MAC.
+			// In normal reconciliation: leave NONE so existing ports are not mass-migrated
+			// (their MACs were assigned in NONE mode and NSX will reject a MAC_POOL update).
+			if sp, ok := obj.(*v1alpha1.SubnetPort); ok && restoreMode && len(sp.Status.NetworkInterfaceConfig.MACAddress) > 0 {
+				mac := sp.Status.NetworkInterfaceConfig.MACAddress
+				addressBindings = append(addressBindings, model.PortAddressBindingEntry{MacAddress: &mac})
+			} else {
+				allocateAddresses = "NONE"
+			}
+		}
 	}
 
 	var nsxCIFID uuid.UUID
