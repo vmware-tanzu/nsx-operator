@@ -9,7 +9,9 @@ RUN CGO_ENABLED=0 go build -o clean cmd_clean/main.go
 FROM photon
 
 RUN tdnf -y install shadow && \
-    useradd -s /bin/bash nsx-operator
+    useradd -s /bin/bash nsx-operator && \
+    tdnf clean all && \
+    rm -rf /var/cache/tdnf
 
 COPY --from=golang-build /source/manager /usr/local/bin/
 COPY --from=golang-build /source/clean /usr/local/bin/
