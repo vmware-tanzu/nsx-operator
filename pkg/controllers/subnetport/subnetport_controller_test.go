@@ -1964,6 +1964,98 @@ func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 	}
 }
 
+func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
+	tests := []struct {
+		name             string
+		realizedBindings []model.AddressBindingEntry
+		expectedIPs      []v1alpha1.NetworkInterfaceIPAddress
+		expectedMAC      string
+	}{
+		{
+			name:             "No realized bindings",
+			realizedBindings: nil,
+			expectedIPs:      []v1alpha1.NetworkInterfaceIPAddress{},
+			expectedMAC:      "",
+		},
+		{
+			name: "Single IPv4 binding",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("10.0.0.2"),
+					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+				}},
+			},
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "10.0.0.2"},
+			},
+			expectedMAC: "aa:bb:cc:dd:ee:ff",
+		},
+		{
+			name: "Dual-stack: 1 IPv4 + 1 IPv6, one MAC",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("10.0.0.2"),
+					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("fe80::1"),
+					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+				}},
+			},
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "10.0.0.2"},
+				{IPAddress: "fe80::1"},
+			},
+			expectedMAC: "aa:bb:cc:dd:ee:ff",
+		},
+		{
+			name: "Multi-IP addressBindings sharing one MAC (spec 2.4.3): 3 same-family entries",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.2"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.3"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.4"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+			},
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.0.2"},
+				{IPAddress: "192.168.0.3"},
+				{IPAddress: "192.168.0.4"},
+			},
+			expectedMAC: "00:11:22:33:44:55",
+		},
+		{
+			name: "MAC taken from first binding that has one; only IP-bearing bindings produce entries",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{IpAddress: nil}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.2"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+			},
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.0.2"},
+			},
+			expectedMAC: "00:11:22:33:44:55",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ipAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(tt.realizedBindings)
+			assert.Equal(t, tt.expectedIPs, ipAddresses)
+			assert.Equal(t, tt.expectedMAC, macAddress)
+		})
+	}
+}
+
 func TestSubnetPortReconciler_getVirtualMachine(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)

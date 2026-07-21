@@ -198,51 +198,28 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				}
 			}
 			subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
+			// Placeholder sizing until RealizedBindings arrives below and replaces it outright.
+			preSeedCount := 1
+			if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
+				preSeedCount = 2
+			}
+			if len(subnetPort.Spec.AddressBindings) > preSeedCount {
+				preSeedCount = len(subnetPort.Spec.AddressBindings)
+			}
 			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
-				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
-					{
-						Gateway: "",
-					},
-				},
+				IPAddresses:               make([]v1alpha1.NetworkInterfaceIPAddress, preSeedCount),
 				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
 				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
 			}
-			// Append one more ipaddress for dual stack SubnetPort
-			if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
-				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = append(
-					subnetPort.Status.NetworkInterfaceConfig.IPAddresses,
-					v1alpha1.NetworkInterfaceIPAddress{Gateway: ""},
-				)
-			}
 			if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
-					// Process all realized bindings and populate IPAddresses array
-					// RealizedBindings can contain up to 2 entries (IPv4 and IPv6)
-					// The MAC address is updated here when the SubnetPort's StaticIPAllocation
-					// is enabled or spec.AddressBindings is specific. For the other cases, the MAC
-					// address will be updated in the VIF polling.
-					macAddress := ""
-					for i, binding := range nsxSubnetPortState.RealizedBindings {
-						if binding.Binding != nil && binding.Binding.IpAddress != nil {
-							if macAddress == "" && binding.Binding.MacAddress != nil {
-								macAddress = strings.Trim(*binding.Binding.MacAddress, "\"")
-							}
-							if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses) <= i {
-								// TODO: revisit this when supporting multiple addressbindings per IPAddressType
-								log.Warn("More IPs are realized on SubnetPort", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "RealizedBindings", nsxSubnetPortState.RealizedBindings)
-								subnetPort.Status.NetworkInterfaceConfig.IPAddresses = append(
-									subnetPort.Status.NetworkInterfaceConfig.IPAddresses,
-									v1alpha1.NetworkInterfaceIPAddress{Gateway: "", IPAddress: *binding.Binding.IpAddress},
-								)
-							} else {
-								subnetPort.Status.NetworkInterfaceConfig.IPAddresses[i].IPAddress = *binding.Binding.IpAddress
-							}
-						}
+					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings)
+					if len(realizedIPAddresses) > 0 {
+						subnetPort.Status.NetworkInterfaceConfig.IPAddresses = realizedIPAddresses
 					}
-					// MAC address is consistent across all bindings, set it once
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
 				} else if !util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && len(subnetPort.Spec.AddressBindings) > 0 {
-					// If StaticIPAllocation is disabled, propagate the MAC from spec.addressBinding to status
+					// StaticIPAllocation disabled: propagate MAC from spec since there's no realized binding yet.
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
 				}
 			}
@@ -1031,6 +1008,25 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 	}
 	return
+}
+
+// networkInterfaceIPAddressesFromRealizedBindings builds one entry per realized
+// binding with an IP, plus the shared MAC address, independent of binding count.
+func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.AddressBindingEntry) ([]v1alpha1.NetworkInterfaceIPAddress, string) {
+	macAddress := ""
+	ipAddresses := make([]v1alpha1.NetworkInterfaceIPAddress, 0, len(realizedBindings))
+	for _, binding := range realizedBindings {
+		if binding.Binding != nil && binding.Binding.IpAddress != nil {
+			if macAddress == "" && binding.Binding.MacAddress != nil {
+				macAddress = strings.Trim(*binding.Binding.MacAddress, "\"")
+			}
+			ipAddresses = append(ipAddresses, v1alpha1.NetworkInterfaceIPAddress{
+				Gateway:   "",
+				IPAddress: *binding.Binding.IpAddress,
+			})
+		}
+	}
+	return ipAddresses, macAddress
 }
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
