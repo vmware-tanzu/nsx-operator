@@ -70,6 +70,11 @@ func (m *MockVPCServiceProvider) GetNetworkStackFromNC(nc *v1alpha1.VPCNetworkCo
 	return args.Get(0).(v1alpha1.NetworkStackType), args.Error(1)
 }
 
+func (m *MockVPCServiceProvider) IsRADeactivatedByVPCPath(vpcPath string) (bool, error) {
+	args := m.Called(vpcPath)
+	return args.Bool(0), args.Error(1)
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }

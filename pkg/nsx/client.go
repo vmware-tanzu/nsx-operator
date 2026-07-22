@@ -98,6 +98,8 @@ type Client struct {
 	VPCClient                         projects.VpcsClient
 	VPCStateClient                    vpcs.StateClient
 	VPCConnectivityProfilesClient     projects.VpcConnectivityProfilesClient
+	VpcServiceProfileClient           projects.VpcServiceProfilesClient
+	Ipv6NdraProfileClient             infra.Ipv6NdraProfilesClient
 	IPBlockClient                     project_infra.IpBlocksClient
 	StaticRouteClient                 vpcs.StaticRoutesClient
 	NATRuleClient                     nat.NatRulesClient
@@ -220,6 +222,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	vpcClient := projects.NewVpcsClient(connector)
 	vpcStateClient := vpcs.NewStateClient(connector)
 	vpcConnectivityProfilesClient := projects.NewVpcConnectivityProfilesClient(connector)
+	vpcServiceProfileClient := projects.NewVpcServiceProfilesClient(connector)
+	ipv6NdraProfileClient := infra.NewIpv6NdraProfilesClient(connector)
 	ipBlockClient := project_infra.NewIpBlocksClient(connector)
 	staticRouteClient := vpcs.NewStaticRoutesClient(connector)
 	natRulesClient := nat.NewNatRulesClient(connector)
@@ -291,6 +295,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		VPCClient:                         vpcClient,
 		VPCStateClient:                    vpcStateClient,
 		VPCConnectivityProfilesClient:     vpcConnectivityProfilesClient,
+		VpcServiceProfileClient:           vpcServiceProfileClient,
+		Ipv6NdraProfileClient:             ipv6NdraProfileClient,
 		IPBlockClient:                     ipBlockClient,
 		StaticRouteClient:                 staticRouteClient,
 		NATRuleClient:                     natRulesClient,

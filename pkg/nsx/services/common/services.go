@@ -24,6 +24,7 @@ type VPCServiceProvider interface {
 	GetNetworkconfigNameFromNS(ctx context.Context, ns string) (string, error)
 	IsDefaultNSXProject(orgID, projectID string) (bool, error)
 	GetNetworkStackFromNC(nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error)
+	IsRADeactivatedByVPCPath(vpcPath string) (bool, error)
 }
 
 type SubnetServiceProvider interface {
