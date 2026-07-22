@@ -257,28 +257,13 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	isBranch := bindingMap.Spec.IsBranchAssociation()
 	targetNamespace := bindingMap.Namespace
 
-	var subnetCheckNotUsedAsChild, subnetCheckNotUsedAsParent bool
-	var targetCheckNotUsedAsChild, targetCheckNotUsedAsParent bool
+	// Branch mode: subnetName is the parent (trunk), targetSubnetName is the child (branch).
+	subnetIsParent := isBranch
+	// Trunk mode: subnetName is the child (branch), targetSubnetName is the parent (trunk).
+	targetIsParent := !isBranch
 
-	if isBranch {
-		// Branch mode: subnetName is the parent (trunk), targetSubnetName is the child (branch).
-		// subnetName is Parent: it can have multiple children, but CANNOT be a child in any binding.
-		subnetCheckNotUsedAsChild = true
-		subnetCheckNotUsedAsParent = false
-		// targetSubnetName is Child: it can have multiple parents, but CANNOT be a parent in any binding.
-		targetCheckNotUsedAsChild = false
-		targetCheckNotUsedAsParent = true
-	} else {
-		// Trunk mode: subnetName is the child (branch), targetSubnetName is the parent (trunk).
-		// subnetName is Child: it can have multiple parents, but CANNOT be a parent in any binding.
-		subnetCheckNotUsedAsChild = false
-		subnetCheckNotUsedAsParent = true
-		// targetSubnetName is Parent: it can have multiple children, but CANNOT be a child in any binding.
-		targetCheckNotUsedAsChild = true
-		targetCheckNotUsedAsParent = false
-	}
-
-	subnetPaths, subnetCR, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, subnetCheckNotUsedAsChild, subnetCheckNotUsedAsParent, bindingMap.Name)
+	// subnetName is Parent: it can have multiple children, but CANNOT be a child in any binding.
+	subnetPaths, subnetCR, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, subnetIsParent, bindingMap.Name)
 	if err != nil {
 		return "", nil, err
 	}
@@ -296,7 +281,8 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 
 	var targetSubnetPaths []string
 	if bindingMap.Spec.TargetSubnetName != "" {
-		targetSubnetPaths, _, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, targetCheckNotUsedAsChild, targetCheckNotUsedAsParent, bindingMap.Name)
+		// targetSubnetName is Parent: it can have multiple children, but CANNOT be a child in any binding.
+		targetSubnetPaths, _, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, targetIsParent, bindingMap.Name)
 		if err != nil {
 			return "", nil, err
 		}
@@ -310,7 +296,9 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	return subnetPath, targetSubnetPaths, nil
 }
 
-func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, checkNotUsedAsChild, checkNotUsedAsParent bool, currentBindingMapName string) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, isParent bool, currentBindingMapName string) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
+	checkNotUsedAsChild := isParent
+	checkNotUsedAsParent := !isParent
 	subnetCR := &v1alpha1.Subnet{}
 	subnetKey := types.NamespacedName{Namespace: namespace, Name: name}
 	// Check the Subnet CR existence.
@@ -324,67 +312,65 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 		}
 	}
 
-	if checkNotUsedAsChild || checkNotUsedAsParent {
-		bmsAsTargetSubnet, err := r.getSubnetConnectionBindingMapsByTargetSubnet(ctx, namespace, name)
-		if err != nil {
-			log.Error(err, "Failed to get SubnetConnectionBindingMaps with Subnet as targetSubnet", "Subnet", subnetKey.String())
-			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Failed to get SubnetConnectionBindingMaps with Subnet as targetSubnet %s", name),
-				retry:   true,
-				error:   err,
-			}
+	bmsAsTargetSubnet, err := r.getSubnetConnectionBindingMapsByTargetSubnet(ctx, namespace, name)
+	if err != nil {
+		log.Error(err, "Failed to get SubnetConnectionBindingMaps with Subnet as targetSubnet", "Subnet", subnetKey.String())
+		return nil, subnetCR, &errorWithRetry{
+			message: fmt.Sprintf("Failed to get SubnetConnectionBindingMaps with Subnet as targetSubnet %s", name),
+			retry:   true,
+			error:   err,
 		}
-		bmsAsSubnet, err := r.getSubnetConnectionBindingMapsBySubnetName(ctx, namespace, name)
-		if err != nil {
-			log.Error(err, "Failed to get SubnetConnectionBindingMaps with Subnet as subnetName", "Subnet", subnetKey.String())
-			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Failed to get SubnetConnectionBindingMaps with Subnet as subnetName %s", name),
-				retry:   true,
-				error:   err,
-			}
+	}
+	bmsAsSubnet, err := r.getSubnetConnectionBindingMapsBySubnetName(ctx, namespace, name)
+	if err != nil {
+		log.Error(err, "Failed to get SubnetConnectionBindingMaps with Subnet as subnetName", "Subnet", subnetKey.String())
+		return nil, subnetCR, &errorWithRetry{
+			message: fmt.Sprintf("Failed to get SubnetConnectionBindingMaps with Subnet as subnetName %s", name),
+			retry:   true,
+			error:   err,
 		}
+	}
 
-		var usedAsChildBms []types.NamespacedName
-		var usedAsParentBms []types.NamespacedName
+	var usedAsChildBms []types.NamespacedName
+	var usedAsParentBms []types.NamespacedName
 
-		for _, bm := range bmsAsTargetSubnet {
-			if bm.Name == currentBindingMapName {
-				continue
-			}
-			nn := types.NamespacedName{Namespace: bm.Namespace, Name: bm.Name}
-			if bm.Spec.IsBranchAssociation() {
-				usedAsChildBms = append(usedAsChildBms, nn)
-			} else {
-				usedAsParentBms = append(usedAsParentBms, nn)
-			}
+	for _, bm := range bmsAsTargetSubnet {
+		if bm.Name == currentBindingMapName {
+			continue
 		}
-
-		for _, bm := range bmsAsSubnet {
-			if bm.Name == currentBindingMapName {
-				continue
-			}
-			nn := types.NamespacedName{Namespace: bm.Namespace, Name: bm.Name}
-			if bm.Spec.IsBranchAssociation() {
-				usedAsParentBms = append(usedAsParentBms, nn)
-			} else {
-				usedAsChildBms = append(usedAsChildBms, nn)
-			}
+		nn := types.NamespacedName{Namespace: bm.Namespace, Name: bm.Name}
+		if bm.Spec.IsBranchAssociation() {
+			usedAsChildBms = append(usedAsChildBms, nn)
+		} else {
+			usedAsParentBms = append(usedAsParentBms, nn)
 		}
+	}
 
-		if checkNotUsedAsChild && len(usedAsChildBms) > 0 {
-			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Subnet CR %s is already used as a child by %s", name, usedAsChildBms),
-				error:   fmt.Errorf("Subnet %s already works as a child in SubnetConnectionBindingMap %s", name, usedAsChildBms),
-				retry:   true,
-			}
+	for _, bm := range bmsAsSubnet {
+		if bm.Name == currentBindingMapName {
+			continue
 		}
+		nn := types.NamespacedName{Namespace: bm.Namespace, Name: bm.Name}
+		if bm.Spec.IsBranchAssociation() {
+			usedAsParentBms = append(usedAsParentBms, nn)
+		} else {
+			usedAsChildBms = append(usedAsChildBms, nn)
+		}
+	}
 
-		if checkNotUsedAsParent && len(usedAsParentBms) > 0 {
-			return nil, subnetCR, &errorWithRetry{
-				message: fmt.Sprintf("Subnet CR %s is already used as a parent by %s", name, usedAsParentBms),
-				error:   fmt.Errorf("Subnet %s already works as a parent in SubnetConnectionBindingMap %s", name, usedAsParentBms),
-				retry:   true,
-			}
+	if checkNotUsedAsChild && len(usedAsChildBms) > 0 {
+		return nil, subnetCR, &errorWithRetry{
+			message: fmt.Sprintf("Subnet CR %s is already used as a child by %s", name, usedAsChildBms),
+			error:   fmt.Errorf("Subnet %s already works as a child in SubnetConnectionBindingMap %s", name, usedAsChildBms),
+			retry:   true,
+		}
+	}
+
+	if checkNotUsedAsParent && len(usedAsParentBms) > 0 {
+		return nil, subnetCR, &errorWithRetry{
+			message: fmt.Sprintf("Subnet CR %s is already used as a parent by %s", name, usedAsParentBms),
+			error:   fmt.Errorf("Subnet %s already works as a parent in SubnetConnectionBindingMap %s", name, usedAsParentBms),
+			retry:   true,
 		}
 	}
 
