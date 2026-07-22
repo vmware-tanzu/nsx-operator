@@ -205,18 +205,6 @@ func (r *Reconciler) listBindingMapIDsFromCRs(ctx context.Context) (sets.Set[str
 	return bmIDs, nil
 }
 
-func getVpcPath(subnetPath string) (string, *errorWithRetry) {
-	info, err := servicecommon.ParseVPCResourcePath(subnetPath)
-	if err != nil {
-		return "", &errorWithRetry{
-			message: fmt.Sprintf("Invalid Subnet path %s", subnetPath),
-			retry:   false,
-			error:   fmt.Errorf("failed to parse Subnet path %s", subnetPath),
-		}
-	}
-	return info.GetVPCPath(), nil
-}
-
 // validateDependency validates the topology and existence of dependent Subnets/SubnetSets.
 // It ensures that the resulting network topology maintains a strict flat relationship,
 // preventing loops or cascading multi-level bindings.
@@ -233,19 +221,20 @@ func getVpcPath(subnetPath string) (string, *errorWithRetry) {
 // |                                                                                                 |
 // |  Trunk Mode (subnetAssociation: Trunk)                                                          |
 // |  =====================================                                                          |
-// |  This is the default behavior, used for connecting two subnets within the SAME VPC.             |
+// |  This is the default behavior, used for connecting two subnets within the same VPC or           |
+// |  across different VPCs.                                                                         |
 // |                                                                                                 |
-// |  +-------------------------------------------------------------------------------------------+  |
-// |  |                                           VPC-A                                           |  |
-// |  |                                                                                           |  |
-// |  |  +---------------------------------+             +---------------------------------+      |  |
-// |  |  |          Parent Subnet          |             |          Child Subnet           |      |  |
-// |  |  |             (Trunk)             |             |            (Branch)             |      |  |
-// |  |  |                                 |             |                                 |      |  |
-// |  |  |       [targetSubnetName]        |<------------+           [subnetName]            |      |  |
-// |  |  |                                 |             |     (Host of BindingMap CR)     |      |  |
-// |  |  +---------------------------------+             +---------------------------------+      |  |
-// |  +-------------------------------------------------------------------------------------------+  |
+// |  +---------------------------------------+       +---------------------------------------+      |
+// |  |                 VPC-A                 |       |             VPC-A / VPC-B             |      |
+// |  |                                       |       |                                       |      |
+// |  |  +---------------------------------+  |       |  +---------------------------------+  |      |
+// |  |  |          Parent Subnet          |  |       |  |          Child Subnet           |  |      |
+// |  |  |             (Trunk)             |  |       |  |            (Branch)             |  |      |
+// |  |  |                                 |  |       |  |                                 |  |      |
+// |  |  |       [targetSubnetName]        |<---------+           [subnetName]            |  |      |
+// |  |  |                                 |  |       |  |     (Host of BindingMap CR)     |  |      |
+// |  |  +---------------------------------+  |       |  +---------------------------------+  |      |
+// |  +---------------------------------------+       +---------------------------------------+      |
 // |                                                                                                 |
 // |  Branch Mode (subnetAssociation: Branch)                                                        |
 // |  =======================================                                                        |
@@ -315,25 +304,6 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 		targetSubnetPaths, err = r.validateVpcSubnetsBySubnetSetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetSetName)
 		if err != nil {
 			return "", nil, err
-		}
-	}
-
-	// Trunk workflow: child must stay in the same VPC as the parent target.
-	if !isBranch {
-		vpcPath, vpcErr := getVpcPath(subnetPath)
-		if vpcErr != nil {
-			return "", nil, vpcErr
-		}
-		targetVpcPath, vpcErr := getVpcPath(targetSubnetPaths[0])
-		if vpcErr != nil {
-			return "", nil, vpcErr
-		}
-		if vpcPath != targetVpcPath {
-			return "", nil, &errorWithRetry{
-				message: fmt.Sprintf("Subnet %s and target Subnet %s are in different VPCs", subnetPath, targetSubnetPaths[0]),
-				retry:   false,
-				error:   fmt.Errorf("Subnet and target Subnet are in different VPCs"),
-			}
 		}
 	}
 

@@ -404,8 +404,8 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expErr: "Subnet and target Subnet are in different VPCs",
-			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"},
 		}, {
 			name:       "parent subnetSet and child subnet in different vpcName",
 			bindingMap: bindingCR2,
@@ -422,8 +422,8 @@ func TestValidateDependency(t *testing.T) {
 				})
 				return patches
 			},
-			expErr: "Subnet and target Subnet are in different VPCs",
-			expMsg: "Subnet /orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child and target Subnet /orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent are in different VPCs",
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-2/subnets/subnet-parent"},
 		}, {
 			name:       "parent Subnet is pre-created Subnet",
 			bindingMap: bindingCR1,
