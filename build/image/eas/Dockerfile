@@ -8,7 +8,9 @@ RUN CGO_ENABLED=0 go build -o eas cmd_eas/main.go
 FROM photon
 
 RUN tdnf -y install shadow && \
-    useradd -s /bin/bash eas
+    useradd -s /bin/bash eas && \
+    tdnf clean all && \
+    rm -rf /var/cache/tdnf
 
 COPY --from=golang-build /source/eas /usr/local/bin/
 
