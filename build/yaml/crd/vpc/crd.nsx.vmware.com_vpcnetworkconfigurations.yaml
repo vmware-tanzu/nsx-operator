@@ -51,18 +51,12 @@ spec:
               in the default VPCNetworkConfiguration.
             properties:
               defaultIPv6PrefixLength:
-                default: 64
-                description: |-
-                  Default prefix length of IPv6 Subnets.
-                  Defaults to 64.
+                description: Default prefix length of IPv6 Subnets.
                 maximum: 127
                 minimum: 2
                 type: integer
               defaultSubnetSize:
-                default: 32
-                description: |-
-                  Default size of IPv4 Subnets.
-                  Defaults to 32.
+                description: Default size of IPv4 Subnets.
                 maximum: 65536
                 type: integer
               dnsZones:

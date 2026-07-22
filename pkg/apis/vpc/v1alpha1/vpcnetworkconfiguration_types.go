@@ -33,8 +33,6 @@ type VPCNetworkConfigurationSpec struct {
 	PrivateIPs []string `json:"privateIPs,omitempty"`
 
 	// Default size of IPv4 Subnets.
-	// Defaults to 32.
-	// +kubebuilder:default=32
 	// +kubebuilder:validation:Maximum:=65536
 	DefaultSubnetSize int `json:"defaultSubnetSize,omitempty"`
 
@@ -42,8 +40,6 @@ type VPCNetworkConfigurationSpec struct {
 	DNSZones []string `json:"dnsZones,omitempty"`
 
 	// Default prefix length of IPv6 Subnets.
-	// Defaults to 64.
-	// +kubebuilder:default=64
 	// +kubebuilder:validation:Minimum:=2
 	// +kubebuilder:validation:Maximum:=127
 	DefaultIPv6PrefixLength int `json:"defaultIPv6PrefixLength,omitempty"`
