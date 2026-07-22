@@ -47,8 +47,8 @@ func isVPCNamespaceByName(c client.Reader, ns string) bool {
 func VPCNamespacePredicate(c client.Reader) predicate.Funcs {
 	isVPCNs := func(ns string) bool {
 		if ns == "" {
-			// Cluster-scoped resource: no per-namespace filtering.
-			return true
+			// Cluster-scoped resource: check global VPC flag as defensive programming.
+			return config.HasVPCNamespaces()
 		}
 		return isVPCNamespaceByName(c, ns)
 	}

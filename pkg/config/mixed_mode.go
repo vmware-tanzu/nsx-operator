@@ -423,6 +423,8 @@ func IsPerNamespaceProvidersSupported() bool {
 // cluster-level HasVPCNamespaces flag (derived from EnableVPCNetwork) is
 // returned regardless of the namespace.
 func IsVPCNamespace(ns *v1.Namespace) bool {
+	// Defensive check: callers should not pass nil. If they do, we cannot
+	// inspect the namespace's annotations, so we default to false.
 	if ns == nil {
 		return false
 	}
