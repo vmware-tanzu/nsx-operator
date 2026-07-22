@@ -25,9 +25,11 @@ func vpcNamespace(name string, vpc bool) *corev1.Namespace {
 }
 
 func TestVPCNamespacePredicate(t *testing.T) {
-	// Force per-namespace providers so IsVPCNamespace honors the annotation.
+	// Force per-namespace providers and HasVPCNamespaces so cluster-scoped resources are allowed.
 	patches := gomonkey.ApplyFunc(config.IsPerNamespaceProvidersSupported, func() bool { return true })
 	defer patches.Reset()
+	config.SetMixedModeStateForTest(true, true)
+	t.Cleanup(func() { config.SetMixedModeStateForTest(false, false) })
 
 	vpcNs := vpcNamespace("vpc-ns", true)
 	t1Ns := vpcNamespace("t1-ns", false)
