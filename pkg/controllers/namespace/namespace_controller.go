@@ -262,9 +262,10 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	ns := obj.GetName()
 
 	// Only process VPC namespaces.  Migration destination is VPC strictly, so a non-VPC
-	// namespace never carries VPC infra and can safely be skipped on both create
-	// and delete.
-	if !config.IsVPCNamespace(obj) {
+	// namespace never carries VPC infra and can safely be skipped on create and update.
+	// However, for delete events, we always process them to ensure cleanup
+	// even if the VPC annotation was removed prior to namespace deletion.
+	if !config.IsVPCNamespace(obj) && obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		log.Info("Skipping Namespace: not a VPC namespace", "Namespace", ns)
 		return common.ResultNormal, nil
 	}

@@ -53,6 +53,13 @@ func TestVPCNamespacePredicate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.allow, pred.Create(event.CreateEvent{Object: obj(tt.ns)}))
 			assert.Equal(t, tt.allow, pred.Update(event.UpdateEvent{ObjectNew: obj(tt.ns)}))
+
+			// Update event with DeletionTimestamp set should always be allowed
+			delObj := obj(tt.ns)
+			now := metav1.Now()
+			delObj.SetDeletionTimestamp(&now)
+			assert.True(t, pred.Update(event.UpdateEvent{ObjectNew: delObj}))
+
 			assert.Equal(t, tt.allow, pred.Generic(event.GenericEvent{Object: obj(tt.ns)}))
 			// Delete is always allowed regardless of namespace metadata.
 			assert.True(t, pred.Delete(event.DeleteEvent{Object: obj(tt.ns)}))

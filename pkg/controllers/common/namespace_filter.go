@@ -58,6 +58,9 @@ func VPCNamespacePredicate(c client.Reader) predicate.Funcs {
 			return isVPCNs(e.Object.GetNamespace())
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
+			if !e.ObjectNew.GetDeletionTimestamp().IsZero() {
+				return true
+			}
 			return isVPCNs(e.ObjectNew.GetNamespace())
 		},
 		// Always allow Delete events so the controller can clean up NSX
