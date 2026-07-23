@@ -573,6 +573,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case IPv6:
 		minVersion = nsx920Version
 		validFeature = true
+	case NamespaceGroup:
+		minVersion = nsx920Version
+		validFeature = true
 	}
 
 	if validFeature {
