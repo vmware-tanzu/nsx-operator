@@ -122,6 +122,7 @@ func TestSubnetSet(t *testing.T) {
 		RunSubtest(t, "case=SubnetBindingAutoVLANWithExistingBinding", SubnetBindingAutoVLANWithExistingBinding)
 		RunSubtest(t, "case=SubnetBindingAutoVLANAllocation", SubnetBindingAutoVLANAllocation)
 		RunSubtest(t, "case=SubnetBindingManualVLANAllocation", SubnetBindingManualVLANAllocation)
+		RunSubtest(t, "case=SubnetBindingVlanCollisionFallback", SubnetBindingVlanCollisionFallback)
 	})
 }
 
@@ -2001,4 +2002,72 @@ func isBindingMapReady(b *v1alpha1.SubnetConnectionBindingMap) bool {
 		}
 	}
 	return false
+}
+
+// SubnetBindingVlanCollisionFallback tests that when a VLAN collision occurs on NSX,
+// the operator successfully falls back to direct NSX querying and allocates a different VLAN.
+func SubnetBindingVlanCollisionFallback(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 2)
+	childSubnetName1, childSubnetName2 := childSubnetNames[0], childSubnetNames[1]
+
+	// 1. Create BindingMap 1 with auto-allocation to get a VLAN ID
+	bindingName1 := "binding-fallback-1-" + getRandomString()
+	vlan1 := createBindingMapAndWaitForVlan(t, bindingName1, childSubnetName1, parentSubnetName)
+	assert.True(t, vlan1 >= 1 && vlan1 <= 4094, "Allocated VLAN should be between 1 and 4094")
+
+	// 2. Get the realized parent subnet path and child subnet path
+	childSubnetCR, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), childSubnetName2, v1.GetOptions{})
+	require.NoError(t, err)
+	childSubnetPath, ok := childSubnetCR.GetAnnotations()[common.AnnotationAssociatedResource]
+	require.True(t, ok, "Child Subnet should have associated resource annotation")
+
+	parentSubnetCR, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), parentSubnetName, v1.GetOptions{})
+	require.NoError(t, err)
+	parentSubnetPath, ok := parentSubnetCR.GetAnnotations()[common.AnnotationAssociatedResource]
+	require.True(t, ok, "Parent Subnet should have associated resource annotation")
+
+	// Parse VPC resource path to get orgID, projectID, vpcID, childSubnetID
+	parts := strings.Split(childSubnetPath, "/")
+	require.GreaterOrEqual(t, len(parts), 8, "Invalid child subnet path format")
+	orgID := parts[2]
+	projectID := parts[4]
+	vpcID := parts[6]
+	childSubnetID := parts[8]
+
+	// 3. Directly create a conflicting binding map on NSX using testData.nsxClient (bypassing the operator's cache).
+	// We will manually allocate the next sequential VLAN ID (e.g., vlan1 + 1) directly on NSX for childSubnetName2.
+	conflictingVlan := vlan1 + 1
+	if conflictingVlan > 4094 {
+		conflictingVlan = 1
+	}
+
+	bindingMapID := "binding-direct-" + getRandomString()
+	nsxBindingMap := model.SubnetConnectionBindingMap{
+		Id:             &bindingMapID,
+		DisplayName:    &bindingMapID,
+		VlanTrafficTag: &conflictingVlan,
+		SubnetPath:     &parentSubnetPath,
+	}
+
+	log.Info("Creating conflicting SubnetConnectionBindingMap directly on NSX", "id", bindingMapID, "vlan", conflictingVlan)
+	err = testData.nsxClient.SubnetConnectionBindingMapsClient.Patch(orgID, projectID, vpcID, childSubnetID, bindingMapID, nsxBindingMap)
+	require.NoError(t, err, "Failed to create conflicting SubnetConnectionBindingMap directly on NSX")
+
+	t.Cleanup(func() {
+		log.Info("Deleting conflicting SubnetConnectionBindingMap directly from NSX", "id", bindingMapID)
+		_ = testData.nsxClient.SubnetConnectionBindingMapsClient.Delete(orgID, projectID, vpcID, childSubnetID, bindingMapID)
+	})
+
+	// 4. Now, create BindingMap 2 on k8s with auto-allocation.
+	// The operator's local cache doesn't know about conflictingVlan being used because it was created directly on NSX.
+	// So the operator's local cache will try to allocate conflictingVlan (since it's the next available one).
+	// When trying to realize it on NSX, NSX will return error code 640873 (VLAN tag already used).
+	// The operator should catch this error, fall back to querying NSX directly, discover that conflictingVlan is used,
+	// and allocate a different VLAN ID (e.g., conflictingVlan + 1).
+	bindingName2 := "binding-fallback-2-" + getRandomString()
+	vlan2 := createBindingMapAndWaitForVlan(t, bindingName2, childSubnetName2, parentSubnetName)
+
+	assert.True(t, vlan2 >= 1 && vlan2 <= 4094, "Allocated VLAN should be between 1 and 4094")
+	assert.NotEqual(t, vlan1, vlan2, "VLANs should be different")
+	assert.NotEqual(t, conflictingVlan, vlan2, "VLAN 2 should not be the conflicting VLAN because of fallback")
 }

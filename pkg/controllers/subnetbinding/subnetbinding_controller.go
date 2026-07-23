@@ -133,7 +133,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, vlanID, childSubnetPath, parentSubnetPaths); err != nil {
-		if autoAllocatedVlan && nsxutil.IsOverlapVlanError(err) {
+		if autoAllocatedVlan && nsxutil.IsVpcOverlapVlanError(err) {
 			var returnEarly bool
 			var res ctrl.Result
 			vlanID, res, returnEarly = r.handleVlanAllocationFallback(ctx, bindingMapCR, parentSubnetPaths, childSubnetPath, req, vlanID)
@@ -357,10 +357,12 @@ func (r *Reconciler) reconcileVlanTrafficTag(ctx context.Context, bindingMap *v1
 	}
 
 	// Try to reuse already allocated VLAN from NSX cache
-	existingBMs := r.SubnetBindingService.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
-	if len(existingBMs) > 0 && existingBMs[0].VlanTrafficTag != nil {
-		vlan := *existingBMs[0].VlanTrafficTag
-		return vlan, true, nil
+	if !fromNSX {
+		existingBMs := r.SubnetBindingService.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
+		if len(existingBMs) > 0 && existingBMs[0].VlanTrafficTag != nil {
+			vlan := *existingBMs[0].VlanTrafficTag
+			return vlan, true, nil
+		}
 	}
 
 	preferred := int64(-1)

@@ -1376,6 +1376,7 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 		patches    func(t *testing.T, r *Reconciler) *gomonkey.Patches
 		expErr     bool
 		expVlan    *int64
+		fromNSX    bool
 	}{
 		{
 			name:       "Manual VLAN successfully validated",
@@ -1440,6 +1441,46 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 			expErr:  false,
 			expVlan: v1alpha1.VLANTrafficTagPtr(100),
 		},
+		{
+			name:       "Auto allocate VLAN from cache when fromNSX is false",
+			bindingMap: bm2,
+			objects:    []client.Object{bm2},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetBindingService.BindingStore), "GetByIndex", func(_ *subnetbinding.BindingStore, key string, value string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{
+						{
+							VlanTrafficTag: v1alpha1.VLANTrafficTagPtr(100),
+						},
+					}
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(100),
+			fromNSX: false,
+		},
+		{
+			name:       "Bypass cache and allocate VLAN when fromNSX is true",
+			bindingMap: bm2,
+			objects:    []client.Object{bm2},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetBindingService.BindingStore), "GetByIndex", func(_ *subnetbinding.BindingStore, key string, value string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{
+						{
+							VlanTrafficTag: v1alpha1.VLANTrafficTagPtr(100),
+						},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.True(t, fromNSX)
+					return 101, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(101),
+			fromNSX: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.TODO()
@@ -1449,7 +1490,7 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 				patches := tc.patches(t, r)
 				defer patches.Reset()
 			}
-			vlanID, _, err := r.reconcileVlanTrafficTag(ctx, bm, []string{"/parent"}, false)
+			vlanID, _, err := r.reconcileVlanTrafficTag(ctx, bm, []string{"/parent"}, tc.fromNSX)
 			if tc.expErr {
 				assert.NotNil(t, err)
 			} else {

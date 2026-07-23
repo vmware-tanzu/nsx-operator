@@ -194,6 +194,7 @@ var (
 			"60514":  func() NsxError { return &NsxSearchTimeout{} },
 			"60515":  func() NsxError { return &NsxSearchOutOfSync{} },
 			"8327":   func() NsxError { return &NsxOverlapVlan{} },
+			"640873": func() NsxError { return &NsxOverlapVlan{} },
 			"500045": func() NsxError { return &NsxPendingDelete{} },
 			"500030": func() NsxError { return &ResourceInUse{} },
 			"500087": func() NsxError { return &StaleRevision{} },
@@ -786,16 +787,16 @@ func ParseDHCPMode(mode string) string {
 	}
 }
 
-func IsOverlapVlanError(err error) bool {
+func IsVpcOverlapVlanError(err error) bool {
 	if err == nil {
 		return false
 	}
 	if nsxApiErr, ok := err.(*NSXApiError); ok {
-		if nsxApiErr.ErrorCode != nil && *nsxApiErr.ErrorCode == 8327 {
+		if nsxApiErr.ErrorCode != nil && *nsxApiErr.ErrorCode == 640873 {
 			return true
 		}
 		for _, relatedErr := range nsxApiErr.RelatedErrors {
-			if relatedErr.ErrorCode != nil && *relatedErr.ErrorCode == 8327 {
+			if relatedErr.ErrorCode != nil && *relatedErr.ErrorCode == 640873 {
 				return true
 			}
 		}
