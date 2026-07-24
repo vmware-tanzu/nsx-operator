@@ -207,6 +207,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
 				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
 			}
+			if raDeactivated, err := r.VPCService.IsRADeactivatedByVPCPath(nsxSubnetPath); err != nil {
+				log.Error(err, "Failed to determine RA mode for SubnetPort's VPC", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+			} else {
+				subnetPort.Status.NetworkInterfaceConfig.RADeactivated = raDeactivated
+			}
 			// Append one more ipaddress for dual stack SubnetPort
 			if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
 				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = append(

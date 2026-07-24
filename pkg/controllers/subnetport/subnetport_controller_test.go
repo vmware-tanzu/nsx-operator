@@ -11,6 +11,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	testifymock "github.com/stretchr/testify/mock"
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
@@ -93,6 +94,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	}
 	subnetService := &mock.MockSubnetServiceProvider{}
 	ipAllocationService := &mock.MockIPAddressAllocationProvider{}
+	vpcService := &mock.MockVPCServiceProvider{}
+	vpcService.On("IsRADeactivatedByVPCPath", testifymock.Anything).Return(false, nil)
 
 	r := &SubnetPortReconciler{
 		Client:                     k8sClient,
@@ -100,6 +103,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		Scheme:                     nil,
 		SubnetPortService:          service,
 		SubnetService:              subnetService,
+		VPCService:                 vpcService,
 		Recorder:                   fakeRecorder{},
 		IpAddressAllocationService: ipAllocationService,
 		restoreMode:                false,
@@ -971,6 +975,159 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.Equal(t, "IP and MAC are missing for SubnetPort", err.Error())
 	})
+}
+
+type raCapturingStatusWriter struct {
+	captured *v1alpha1.SubnetPort
+}
+
+func (w *raCapturingStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	return nil
+}
+
+func (w *raCapturingStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	w.captured = obj.(*v1alpha1.SubnetPort).DeepCopy()
+	return nil
+}
+
+func (w *raCapturingStatusWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return nil
+}
+
+func (w *raCapturingStatusWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	return nil
+}
+
+func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
+	for _, tt := range []struct {
+		name                string
+		raDeactivated       bool
+		raErr               error
+		expectRADeactivated bool
+	}{
+		{name: "RA deactivated", raDeactivated: true, expectRADeactivated: true},
+		{name: "RA not deactivated", raDeactivated: false, expectRADeactivated: false},
+		{name: "RA lookup error does not fail reconcile", raErr: errors.New("lookup failed"), expectRADeactivated: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCtl := gomock.NewController(t)
+			k8sClient := mock_client.NewMockClient(mockCtl)
+			defer mockCtl.Finish()
+
+			service := &subnetport.SubnetPortService{
+				Service: servicecommon.Service{
+					NSXClient: &nsx.Client{},
+					NSXConfig: &config.NSXOperatorConfig{
+						NsxConfig: &config.NsxConfig{
+							EnforcementPoint: "vmc-enforcementpoint",
+						},
+					},
+				},
+				SubnetPortStore: &subnetport.SubnetPortStore{},
+			}
+			subnetService := &mock.MockSubnetServiceProvider{}
+			ipAllocationService := &mock.MockIPAddressAllocationProvider{}
+			vpcService := &mock.MockVPCServiceProvider{}
+			vpcService.On("IsRADeactivatedByVPCPath", testifymock.Anything).Return(tt.raDeactivated, tt.raErr)
+
+			r := &SubnetPortReconciler{
+				Client:                     k8sClient,
+				APIReader:                  k8sClient,
+				SubnetPortService:          service,
+				SubnetService:              subnetService,
+				VPCService:                 vpcService,
+				Recorder:                   fakeRecorder{},
+				IpAddressAllocationService: ipAllocationService,
+			}
+			r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+
+			ctx := context.Background()
+			req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+
+			// 1st Get: Reconciler fetching the CR. 2nd Get: updateSubnetPortStatusConditions
+			// re-fetching the latest CR before persisting the merged status.
+			k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+				func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					v1sp := obj.(*v1alpha1.SubnetPort)
+					v1sp.Spec.Subnet = "subnet1"
+					return nil
+				}).Times(2)
+
+			patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+				func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
+					return true, false, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+				})
+			defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+
+			patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+				func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+					return &model.VpcSubnet{
+						Id:            ptr.To("subnet-1"),
+						RealizationId: ptr.To("realization-1"),
+					}, nil
+				})
+			defer patchesGetSubnetByPath.Reset()
+
+			patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+				return false, nil
+			})
+			defer patchesIsSharedSubnetPath.Reset()
+
+			patchesUpdateSubnetPortIPType := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetPortIPType,
+				func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort, _ v1alpha1.IPAddressType, _ *model.VpcSubnet) error {
+					return nil
+				})
+			defer patchesUpdateSubnetPortIPType.Reset()
+
+			patchesGetAddressBinding := gomonkey.ApplyMethod(reflect.TypeOf(&subnetport.SubnetPortService{}), "GetAddressBindingBySubnetPort", func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+				return nil
+			})
+			defer patchesGetAddressBinding.Reset()
+
+			patchesIPAllocCreate := gomonkey.ApplyMethod(reflect.TypeOf(r.IpAddressAllocationService), "CreateIPAddressAllocationForAddressBinding", func(_ *mock.MockIPAddressAllocationProvider, _ *v1alpha1.AddressBinding, _ *v1alpha1.SubnetPort, _ bool) error {
+				return nil
+			})
+			defer patchesIPAllocCreate.Reset()
+
+			patchesIPAllocDelete := gomonkey.ApplyMethod(reflect.TypeOf(r.IpAddressAllocationService), "DeleteIPAddressAllocationForAddressBinding", func(_ *mock.MockIPAddressAllocationProvider, _ metav1.Object) error {
+				return nil
+			})
+			defer patchesIPAllocDelete.Reset()
+
+			attachmentID := "attachment-id"
+			portState := &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{},
+				Attachment: &model.SegmentPortAttachmentState{
+					Id: &attachmentID,
+				},
+			}
+			patchesCreateOrUpdateSubnetPort := gomonkey.ApplyMethod(reflect.TypeOf(&subnetport.SubnetPortService{}), "CreateOrUpdateSubnetPort",
+				func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+					return portState, nil
+				})
+			defer patchesCreateOrUpdateSubnetPort.Reset()
+
+			patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+				func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+					return nil
+				})
+			defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+
+			patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+				func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
+				})
+			defer patchesSetAddressBindingStatus.Reset()
+
+			statusWriter := &raCapturingStatusWriter{}
+			k8sClient.EXPECT().Status().Return(statusWriter).AnyTimes()
+
+			_, err := r.Reconcile(ctx, req)
+			assert.NoError(t, err)
+			if assert.NotNil(t, statusWriter.captured) {
+				assert.Equal(t, tt.expectRADeactivated, statusWriter.captured.Status.NetworkInterfaceConfig.RADeactivated)
+			}
+		})
+	}
 }
 
 func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
