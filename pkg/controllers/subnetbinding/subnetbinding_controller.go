@@ -27,6 +27,8 @@ import (
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vlanpool"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -45,6 +47,7 @@ type Reconciler struct {
 	Scheme               *runtime.Scheme
 	SubnetService        *subnet.SubnetService
 	SubnetBindingService *subnetbinding.BindingService
+	VlanPoolService      *vlanpool.Service
 	StatusUpdater        common.StatusUpdater
 }
 
@@ -76,6 +79,7 @@ func NewReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, subnet
 		Scheme:               mgr.GetScheme(),
 		SubnetService:        subnetService,
 		SubnetBindingService: subnetBindingService,
+		VlanPoolService:      vlanpool.NewService(subnetBindingService),
 		StatusUpdater:        common.NewStatusUpdater(mgr.GetClient(), subnetBindingService.NSXConfig, recorder, common.MetricResTypeSubnetConnectionBindingMap, "SubnetConnectionBindingMap", "SubnetConnectionBindingMap"),
 	}
 }
@@ -118,13 +122,34 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultRequeueAfter60sec, nil
 	}
 
-	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, childSubnetPath, parentSubnetPaths); err != nil {
-		// Update SubnetConnectionBindingMap with not-ready condition
-		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "failure to configure SubnetConnectionBindingMaps on NSX", updateBindingMapStatusWithUnreadyCondition, "ConfigureFailed", fmt.Sprintf("Failed to realize SubnetConnectionBindingMap %s on NSX", req.Name))
+	vlanID, autoAllocatedVlan, vlanErr := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, false)
+	if vlanErr != nil {
+		r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID)
+		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, vlanErr, "failed to reconcile VLAN traffic tag", updateBindingMapStatusWithUnreadyCondition, "VlanAllocationFailed", vlanErr.message)
+		if !vlanErr.retry {
+			return common.ResultNormal, nil
+		}
 		return common.ResultRequeue, nil
 	}
+
+	if err := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, vlanID, childSubnetPath, parentSubnetPaths); err != nil {
+		if autoAllocatedVlan && nsxutil.IsVpcOverlapVlanError(err) {
+			var returnEarly bool
+			var res ctrl.Result
+			vlanID, res, returnEarly = r.handleVlanAllocationFallback(ctx, bindingMapCR, parentSubnetPaths, childSubnetPath, req, vlanID)
+			if returnEarly {
+				return res, nil
+			}
+		} else {
+			r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID)
+			// Update SubnetConnectionBindingMap with not-ready condition
+			r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "failure to configure SubnetConnectionBindingMaps on NSX", updateBindingMapStatusWithUnreadyCondition, "ConfigureFailed", fmt.Sprintf("Failed to realize SubnetConnectionBindingMap %s on NSX", req.Name))
+			return common.ResultRequeue, nil
+		}
+	}
+	r.commitAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID)
 	// Update SubnetConnectionBindingMap with ready condition
-	r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, updateBindingMapStatusWithReadyCondition)
+	r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, updateBindingMapStatusWithReadyCondition, vlanID)
 	return common.ResultNormal, nil
 }
 
@@ -274,6 +299,94 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 		}
 	}
 	return childSubnetPath, parentSubnetPaths, nil
+}
+
+// handleVlanAllocationFallback performs a second try for VLAN allocation when the initial auto-allocation
+// conflicts with existing configurations on NSX. The initial allocation relies on a local cache which
+// might be out of sync due to race conditions or external changes. By setting fromNSX=true, this function
+// bypasses the local cache and queries the real-time available VLAN directly from the NSX API.
+func (r *Reconciler) handleVlanAllocationFallback(ctx context.Context, bindingMapCR *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, childSubnetPath string, req ctrl.Request, initialVlanID int64) (int64, ctrl.Result, bool) {
+	log.Info("VLAN allocation conflict with NSX cache, fallback to query NSX", "SubnetConnectionBindingMap", req.NamespacedName)
+	r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, initialVlanID)
+
+	vlanID2, _, vlanErr2 := r.reconcileVlanTrafficTag(ctx, bindingMapCR, parentSubnetPaths, true)
+	if vlanErr2 != nil {
+		r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID2)
+		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, vlanErr2, "failed to reconcile VLAN traffic tag from NSX", updateBindingMapStatusWithUnreadyCondition, "VlanAllocationFailed", vlanErr2.message)
+		return 0, common.ResultRequeue, true
+	}
+	if err2 := r.SubnetBindingService.CreateOrUpdateSubnetConnectionBindingMap(bindingMapCR, vlanID2, childSubnetPath, parentSubnetPaths); err2 != nil {
+		r.releaseAutoAllocatedVlan(parentSubnetPaths, bindingMapCR, vlanID2)
+		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err2, "failure to configure SubnetConnectionBindingMaps on NSX after fallback", updateBindingMapStatusWithUnreadyCondition, "ConfigureFailed", fmt.Sprintf("Failed to realize SubnetConnectionBindingMap %s on NSX", req.Name))
+		return 0, common.ResultRequeue, true
+	}
+	return vlanID2, common.ResultNormal, false
+}
+
+func (r *Reconciler) releaseAutoAllocatedVlan(parentSubnetPaths []string, bindingMap *v1alpha1.SubnetConnectionBindingMap, vlanID int64) {
+	// vlanID == 0 means the VLAN auto-allocation failed or hasn't occurred, so there is nothing to release.
+	// When reconcileVlanTrafficTag() fails (e.g., VLAN pool is exhausted), it returns the default Go zero
+	// value 0 for vlanID alongside the error. Since the caller still triggers the release function in the
+	// error branch to ensure rollback, the vlanID == 0 check acts as an internal safety guard to prevent
+	// the underlying VlanPoolService from attempting to release an unallocated/invalid VLAN 0.
+	if bindingMap.Spec.HasVlanTrafficTag() || vlanID == 0 {
+		return
+	}
+	r.VlanPoolService.ReleasePending(parentSubnetPaths, vlanID)
+}
+
+func (r *Reconciler) commitAutoAllocatedVlan(parentSubnetPaths []string, bindingMap *v1alpha1.SubnetConnectionBindingMap, vlanID int64) {
+	// vlanID == 0 means the VLAN auto-allocation failed or hasn't occurred, so there is nothing to commit.
+	if bindingMap.Spec.HasVlanTrafficTag() || vlanID == 0 {
+		return
+	}
+	r.VlanPoolService.CommitPending(parentSubnetPaths, vlanID)
+}
+
+func (r *Reconciler) reconcileVlanTrafficTag(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, parentSubnetPaths []string, fromNSX bool) (int64, bool, *errorWithRetry) {
+	if bindingMap.Spec.HasVlanTrafficTag() {
+		vlan := *bindingMap.Spec.VLANTrafficTag
+		if err := r.VlanPoolService.ValidateManualVlan(parentSubnetPaths, vlan, string(bindingMap.UID), fromNSX); err != nil {
+			return 0, false, &errorWithRetry{
+				message: err.Error(),
+				error:   err,
+				retry:   true,
+			}
+		}
+		return vlan, false, nil
+	}
+
+	// Try to reuse already allocated VLAN from NSX cache
+	if !fromNSX {
+		existingBMs := r.SubnetBindingService.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
+		if len(existingBMs) > 0 && existingBMs[0].VlanTrafficTag != nil {
+			vlan := *existingBMs[0].VlanTrafficTag
+			return vlan, true, nil
+		}
+	}
+
+	preferred := int64(-1)
+	if bindingMap.Spec.SubnetName != "" {
+		childSubnet := &v1alpha1.Subnet{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Spec.SubnetName}, childSubnet); err == nil {
+			if childSubnet.Status.VLANExtension.VLANID != 0 {
+				preferred = int64(childSubnet.Status.VLANExtension.VLANID)
+			}
+		} else {
+			log.Error(err, "Failed to get child Subnet for VLAN allocation", "Subnet", bindingMap.Spec.SubnetName)
+		}
+	}
+
+	vlan, err := r.VlanPoolService.Allocate(parentSubnetPaths, string(bindingMap.UID), preferred, fromNSX)
+	if err != nil {
+		return 0, true, &errorWithRetry{
+			message: err.Error(),
+			error:   err,
+			retry:   true,
+		}
+	}
+
+	return vlan, true, nil
 }
 
 func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, isTarget bool) ([]string, *v1alpha1.Subnet, *errorWithRetry) {
@@ -452,11 +565,15 @@ func updateBindingMapStatusWithUnreadyCondition(c client.Client, ctx context.Con
 	updateBindingMapCondition(c, ctx, bindingMap, condition)
 }
 
-func updateBindingMapStatusWithReadyCondition(c client.Client, ctx context.Context, obj client.Object, _ metav1.Time, _ ...interface{}) {
+func updateBindingMapStatusWithReadyCondition(c client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) {
 	bindingMap := obj.(*v1alpha1.SubnetConnectionBindingMap)
 	condition := v1alpha1.Condition{
 		Type:   v1alpha1.Ready,
 		Status: corev1.ConditionTrue,
+	}
+	if len(args) > 0 {
+		vlanID := args[0].(int64)
+		bindingMap.Status.VLANID = v1alpha1.VLANTrafficTagPtr(vlanID)
 	}
 	updateBindingMapCondition(c, ctx, bindingMap, condition)
 }
@@ -476,7 +593,7 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 		newConditions := []v1alpha1.Condition{condition}
 		for _, cond := range latestBindingMap.Status.Conditions {
 			if cond.Type == condition.Type {
-				if cond.Status == condition.Status && cond.Reason == condition.Reason && cond.Message == condition.Message {
+				if cond.Status == condition.Status && cond.Reason == condition.Reason && cond.Message == condition.Message && (latestBindingMap.Status.VLANID == nil && bindingMap.Status.VLANID == nil || latestBindingMap.Status.VLANID != nil && bindingMap.Status.VLANID != nil && *latestBindingMap.Status.VLANID == *bindingMap.Status.VLANID) {
 					return nil
 				}
 				continue
@@ -484,6 +601,7 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 			newConditions = append(newConditions, cond)
 		}
 		latestBindingMap.Status.Conditions = newConditions
+		latestBindingMap.Status.VLANID = bindingMap.Status.VLANID
 		return c.Status().Update(ctx, latestBindingMap)
 	})
 

@@ -118,6 +118,10 @@ func TestSubnetSet(t *testing.T) {
 		RunSubtest(t, "case=SubnetPortWithIPAM", SubnetPortWithIPAM)
 		RunSubtest(t, "case=SubnetPortWithDHCP", SubnetPortWithDHCP)
 		RunSubtest(t, "case=SubnetMixedMode", SubnetMixedMode)
+		RunSubtest(t, "case=SubnetBindingAutoVLANWithExistingBinding", SubnetBindingAutoVLANWithExistingBinding)
+		RunSubtest(t, "case=SubnetBindingAutoVLANAllocation", SubnetBindingAutoVLANAllocation)
+		RunSubtest(t, "case=SubnetBindingManualVLANAllocation", SubnetBindingManualVLANAllocation)
+		RunSubtest(t, "case=SubnetBindingVlanCollisionFallback", SubnetBindingVlanCollisionFallback)
 	})
 }
 
@@ -1818,4 +1822,236 @@ func SubnetWithAssociatedResourceAnnotation(t *testing.T) {
 	require.Contains(t, err.Error(), "denied", "Error message should mention the denied")
 
 	log.Info("Verified that creating a subnet with associated-resource annotation is refused", "error", err.Error())
+}
+
+// SubnetBindingAutoVLANWithExistingBinding verifies that when a BindingMap has already
+// allocated a VLAN on the target parent Subnet, a new BindingMap receives a different VLAN.
+func SubnetBindingAutoVLANWithExistingBinding(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 2)
+	childSubnetName1, childSubnetName2 := childSubnetNames[0], childSubnetNames[1]
+	bindingName1 := "binding-existing-1-" + getRandomString()
+	bindingName2 := "binding-existing-2-" + getRandomString()
+
+	vlan1 := createBindingMapAndWaitForVlan(t, bindingName1, childSubnetName1, parentSubnetName)
+	assert.True(t, vlan1 >= 1 && vlan1 <= 4094, "Allocated VLAN should be between 1 and 4094")
+
+	vlan2 := createBindingMapAndWaitForVlan(t, bindingName2, childSubnetName2, parentSubnetName)
+	assert.True(t, vlan2 >= 1 && vlan2 <= 4094, "Allocated VLAN should be between 1 and 4094")
+	assert.NotEqual(t, vlan1, vlan2, "BindingMap 2 should receive a different VLAN when BindingMap 1 already holds one on the same parent Subnet")
+}
+
+// SubnetBindingAutoVLANAllocation tests VLAN recycle after a BindingMap is deleted.
+func SubnetBindingAutoVLANAllocation(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 2)
+	childSubnetName1 := childSubnetNames[0]
+	bindingName1 := "binding-auto-1-" + getRandomString()
+
+	vlan1 := createBindingMapAndWaitForVlan(t, bindingName1, childSubnetName1, parentSubnetName)
+
+	// Delete BindingMap 1 and verify VLAN recycle
+	err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName1, v1.DeleteOptions{})
+	require.NoError(t, err)
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Get(context.TODO(), bindingName1, v1.GetOptions{})
+		return errors.IsNotFound(err), nil
+	})
+	require.NoError(t, err)
+
+	// Wait for the controller to process the deletion event and clear the NSX/cache
+	time.Sleep(5 * time.Second)
+
+	bindingName3 := "binding-auto-3-" + getRandomString()
+	vlan3 := createBindingMapAndWaitForVlan(t, bindingName3, childSubnetName1, parentSubnetName)
+	assert.Equal(t, vlan1, vlan3, "BindingMap 3 should reuse the recycled VLAN ID from BindingMap 1")
+}
+
+// SubnetBindingManualVLANAllocation tests that user-specified VLAN is correctly set in status.
+func SubnetBindingManualVLANAllocation(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 1)
+	childSubnetName1 := childSubnetNames[0]
+	bindingName1 := "binding-manual-1-" + getRandomString()
+
+	var manualVlan int64 = 100
+
+	binding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{Name: bindingName1, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       childSubnetName1,
+			TargetSubnetName: parentSubnetName,
+			VLANTrafficTag:   &manualVlan,
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Create(context.TODO(), binding, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName1, v1.DeleteOptions{})
+	})
+
+	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName1)
+	require.NoError(t, err, "BindingMap %s should be ready and have the manual status.vlanID", bindingName1)
+	assert.Equal(t, manualVlan, vlan, "status.vlanID should match the user-specified VLANTrafficTag")
+}
+
+func createBindingTestSubnets(t *testing.T, numChildren int) (parentSubnetName string, childSubnetNames []string) {
+	t.Helper()
+
+	parentSubnetName = "parent-subnet-" + getRandomString()
+	parentSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: parentSubnetName, Namespace: subnetTestNamespace},
+		Spec:       v1alpha1.SubnetSpec{IPv4SubnetSize: 16},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), parentSubnet, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), parentSubnetName, v1.DeleteOptions{})
+	})
+	require.NoError(t, waitForSubnetReady(subnetTestNamespace, parentSubnetName))
+
+	childSubnetNames = make([]string, numChildren)
+	for i := range childSubnetNames {
+		childSubnetName := fmt.Sprintf("child-subnet-%d-%s", i+1, getRandomString())
+		childSubnet := &v1alpha1.Subnet{
+			ObjectMeta: v1.ObjectMeta{Name: childSubnetName, Namespace: subnetTestNamespace},
+			Spec:       v1alpha1.SubnetSpec{IPv4SubnetSize: 16},
+		}
+		_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), childSubnet, v1.CreateOptions{})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), childSubnetName, v1.DeleteOptions{})
+		})
+		require.NoError(t, waitForSubnetReady(subnetTestNamespace, childSubnetName))
+		childSubnetNames[i] = childSubnetName
+	}
+	return parentSubnetName, childSubnetNames
+}
+
+func createBindingMapAndWaitForVlan(t *testing.T, bindingName, childSubnetName, parentSubnetName string) int64 {
+	t.Helper()
+
+	binding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{Name: bindingName, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       childSubnetName,
+			TargetSubnetName: parentSubnetName,
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Create(context.TODO(), binding, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName, v1.DeleteOptions{})
+	})
+
+	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName)
+	require.NoError(t, err, "BindingMap %s should be ready and have an auto-allocated status.vlanID", bindingName)
+	return vlan
+}
+
+func waitForBindingMapVlan(namespace, bindingName string) (int64, error) {
+	var vlan int64
+	err := wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		b, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(namespace).Get(context.TODO(), bindingName, v1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		if isBindingMapReady(b) && b.Status.VLANID != nil {
+			vlan = *b.Status.VLANID
+			return true, nil
+		}
+		return false, nil
+	})
+	return vlan, err
+}
+
+// Helper functions
+func waitForSubnetReady(namespace, name string) error {
+	return wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		s, err := testData.crdClientset.CrdV1alpha1().Subnets(namespace).Get(context.TODO(), name, v1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		for _, cond := range s.Status.Conditions {
+			if cond.Type == v1alpha1.Ready && cond.Status == corev1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+}
+
+func isBindingMapReady(b *v1alpha1.SubnetConnectionBindingMap) bool {
+	for _, cond := range b.Status.Conditions {
+		if cond.Type == v1alpha1.Ready && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// SubnetBindingVlanCollisionFallback tests that when a VLAN collision occurs on NSX,
+// the operator successfully falls back to direct NSX querying and allocates a different VLAN.
+func SubnetBindingVlanCollisionFallback(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 2)
+	childSubnetName1, childSubnetName2 := childSubnetNames[0], childSubnetNames[1]
+
+	// 1. Create BindingMap 1 with auto-allocation to get a VLAN ID
+	bindingName1 := "binding-fallback-1-" + getRandomString()
+	vlan1 := createBindingMapAndWaitForVlan(t, bindingName1, childSubnetName1, parentSubnetName)
+	assert.True(t, vlan1 >= 1 && vlan1 <= 4094, "Allocated VLAN should be between 1 and 4094")
+
+	// 2. Get the realized parent subnet path and child subnet path
+	childSubnetCR, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), childSubnetName2, v1.GetOptions{})
+	require.NoError(t, err)
+	childSubnetPath, ok := childSubnetCR.GetAnnotations()[common.AnnotationAssociatedResource]
+	require.True(t, ok, "Child Subnet should have associated resource annotation")
+
+	parentSubnetCR, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Get(context.TODO(), parentSubnetName, v1.GetOptions{})
+	require.NoError(t, err)
+	parentSubnetPath, ok := parentSubnetCR.GetAnnotations()[common.AnnotationAssociatedResource]
+	require.True(t, ok, "Parent Subnet should have associated resource annotation")
+
+	// Parse VPC resource path to get orgID, projectID, vpcID, childSubnetID
+	parts := strings.Split(childSubnetPath, "/")
+	require.GreaterOrEqual(t, len(parts), 8, "Invalid child subnet path format")
+	orgID := parts[2]
+	projectID := parts[4]
+	vpcID := parts[6]
+	childSubnetID := parts[8]
+
+	// 3. Directly create a conflicting binding map on NSX using testData.nsxClient (bypassing the operator's cache).
+	// We will manually allocate the next sequential VLAN ID (e.g., vlan1 + 1) directly on NSX for childSubnetName2.
+	conflictingVlan := vlan1 + 1
+	if conflictingVlan > 4094 {
+		conflictingVlan = 1
+	}
+
+	bindingMapID := "binding-direct-" + getRandomString()
+	nsxBindingMap := model.SubnetConnectionBindingMap{
+		Id:             &bindingMapID,
+		DisplayName:    &bindingMapID,
+		VlanTrafficTag: &conflictingVlan,
+		SubnetPath:     &parentSubnetPath,
+	}
+
+	log.Info("Creating conflicting SubnetConnectionBindingMap directly on NSX", "id", bindingMapID, "vlan", conflictingVlan)
+	err = testData.nsxClient.SubnetConnectionBindingMapsClient.Patch(orgID, projectID, vpcID, childSubnetID, bindingMapID, nsxBindingMap)
+	require.NoError(t, err, "Failed to create conflicting SubnetConnectionBindingMap directly on NSX")
+
+	t.Cleanup(func() {
+		log.Info("Deleting conflicting SubnetConnectionBindingMap directly from NSX", "id", bindingMapID)
+		_ = testData.nsxClient.SubnetConnectionBindingMapsClient.Delete(orgID, projectID, vpcID, childSubnetID, bindingMapID)
+	})
+
+	// 4. Now, create BindingMap 2 on k8s with auto-allocation.
+	// The operator's local cache doesn't know about conflictingVlan being used because it was created directly on NSX.
+	// So the operator's local cache will try to allocate conflictingVlan (since it's the next available one).
+	// When trying to realize it on NSX, NSX will return error code 640873 (VLAN tag already used).
+	// The operator should catch this error, fall back to querying NSX directly, discover that conflictingVlan is used,
+	// and allocate a different VLAN ID (e.g., conflictingVlan + 1).
+	bindingName2 := "binding-fallback-2-" + getRandomString()
+	vlan2 := createBindingMapAndWaitForVlan(t, bindingName2, childSubnetName2, parentSubnetName)
+
+	assert.True(t, vlan2 >= 1 && vlan2 <= 4094, "Allocated VLAN should be between 1 and 4094")
+	assert.NotEqual(t, vlan1, vlan2, "VLANs should be different")
+	assert.NotEqual(t, conflictingVlan, vlan2, "VLAN 2 should not be the conflicting VLAN because of fallback")
 }

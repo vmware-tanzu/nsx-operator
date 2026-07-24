@@ -56,6 +56,7 @@ func TestHttpErrortoNSXError(t *testing.T) {
 		{400, 500232, []int{}, []string{}, ""},
 		{400, 503040, []int{}, []string{}, ""},
 		{400, 100148, []int{}, []string{}, ""},
+		{400, 640873, []int{}, []string{}, ""},
 	}
 
 	err := httpErrortoNSXError(&testdatas[0])
@@ -138,6 +139,10 @@ func TestHttpErrortoNSXError(t *testing.T) {
 	err = httpErrortoNSXError(&testdatas[19])
 	e19, ok := err.(*StaleRevision)
 	assert.True(ok, fmt.Sprintf("Transform error : %v", e19))
+
+	err = httpErrortoNSXError(&testdatas[20])
+	e20, ok := err.(*NsxOverlapVlan)
+	assert.True(ok, fmt.Sprintf("Transform error : %v", e20))
 }
 
 func TestInitErrorFromResponse(t *testing.T) {
@@ -1723,4 +1728,67 @@ func TestHttpErrorToNSXError_DataRace(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestIsVpcOverlapVlanError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "NilError",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "NonNSXApiError",
+			err:      errors.New("some error"),
+			expected: false,
+		},
+		{
+			name: "NSXApiError with ErrorCode 640873",
+			err: &NSXApiError{
+				ApiError: &model.ApiError{
+					ErrorCode: Ptr(int64(640873)),
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "NSXApiError with RelatedErrors containing ErrorCode 640873",
+			err: &NSXApiError{
+				ApiError: &model.ApiError{
+					ErrorCode: Ptr(int64(123)),
+					RelatedErrors: []model.RelatedApiError{
+						{
+							ErrorCode: Ptr(int64(640873)),
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "NSXApiError with other ErrorCode",
+			err: &NSXApiError{
+				ApiError: &model.ApiError{
+					ErrorCode: Ptr(int64(123)),
+					RelatedErrors: []model.RelatedApiError{
+						{
+							ErrorCode: Ptr(int64(456)),
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsVpcOverlapVlanError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }

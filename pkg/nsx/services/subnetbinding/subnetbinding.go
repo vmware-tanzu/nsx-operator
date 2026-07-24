@@ -57,9 +57,10 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 // SubnetConnectionBindingMap CR and attaches it to the parentSubnets.
 func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 	subnetBinding *v1alpha1.SubnetConnectionBindingMap,
+	vlanID int64,
 	childSubnetPath string,
 	parentSubnetPaths []string) error {
-	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, parentSubnetPaths))
+	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, vlanID, parentSubnetPaths))
 	existingBMmap := bindingMapsToMap(s.BindingStore.getBindingsByBindingMapCRUID(string(subnetBinding.UID)))
 	updatedBindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 	for k, v := range desiredBMmap {
