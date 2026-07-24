@@ -5,7 +5,6 @@ package common
 
 import (
 	"context"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,10 +20,8 @@ import (
 // Returns true when the namespace cannot be fetched (transient error or already
 // gone) so the Reconcile loop can decide what to do.
 func isVPCNamespaceByName(c client.Reader, ns string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	namespace := &corev1.Namespace{}
-	if err := c.Get(ctx, types.NamespacedName{Name: ns}, namespace); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Name: ns}, namespace); err != nil {
 		if !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get Namespace for VPC predicate; allowing event through", "namespace", ns)
 		}
