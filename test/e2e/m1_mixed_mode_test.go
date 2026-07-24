@@ -229,6 +229,9 @@ fi
 func TestM1MixedMode(t *testing.T) {
 	TrackTest(t)
 
+	// Ensure NCP deployment is using the target build (e.g. sb-100690309) for this test case
+	setupNcpBuildWithCleanup(t, "sb-100690309")
+
 	setupVcCapabilityWithCleanup(t)
 
 	// We create our own namespaces with specific annotations
