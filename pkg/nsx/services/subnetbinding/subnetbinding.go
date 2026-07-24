@@ -54,12 +54,12 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 }
 
 // CreateOrUpdateSubnetConnectionBindingMap creates or updates the SubnetConnectionBindingMaps with the given
-// SubnetConnectionBindingMap CR and attaches it to the parentSubnets.
+// SubnetConnectionBindingMap CR under subnetPath (spec.subnetName) and targetSubnetPaths (target Subnet/SubnetSet).
 func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 	subnetBinding *v1alpha1.SubnetConnectionBindingMap,
-	childSubnetPath string,
-	parentSubnetPaths []string) error {
-	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, parentSubnetPaths))
+	subnetPath string,
+	targetSubnetPaths []string) error {
+	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, targetSubnetPaths))
 	existingBMmap := bindingMapsToMap(s.BindingStore.getBindingsByBindingMapCRUID(string(subnetBinding.UID)))
 	updatedBindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 	for k, v := range desiredBMmap {
@@ -86,7 +86,7 @@ func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 		}
 	}
 
-	if err := s.Apply(childSubnetPath, updatedBindingMaps); err != nil {
+	if err := s.Apply(subnetPath, updatedBindingMaps); err != nil {
 		return err
 	}
 

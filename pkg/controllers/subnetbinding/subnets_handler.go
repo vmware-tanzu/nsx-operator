@@ -70,15 +70,18 @@ func requeueSubnetConnectionBindingMapsBySubnet(ctx context.Context, c client.Cl
 		return
 	}
 	for _, bm := range bindingMapList.Items {
-		if bm.Spec.SubnetName == subnet || bm.Spec.TargetSubnetName == subnet {
-			log.Info("Requeue SubnetConnectionBindingMap because the dependent Subnet realization state is changed", "Namespace", namespace, "Name", bm.Name)
-			q.Add(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      bm.Name,
-					Namespace: bm.Namespace,
-				},
-			})
+		isSubnet := bm.Spec.SubnetName == subnet
+		isTarget := bm.Spec.TargetSubnetName == subnet
+		if !isSubnet && !isTarget {
+			continue
 		}
+		log.Info("Requeue SubnetConnectionBindingMap because the dependent Subnet realization state is changed", "Namespace", namespace, "Name", bm.Name)
+		q.Add(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      bm.Name,
+				Namespace: bm.Namespace,
+			},
+		})
 	}
 }
 

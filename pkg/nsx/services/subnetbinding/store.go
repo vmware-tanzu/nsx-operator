@@ -133,8 +133,14 @@ func bindingMapCRNameIndexFunc(obj interface{}) ([]string, error) {
 func childSubnetIndexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.SubnetConnectionBindingMap:
-		if o.ParentPath != nil {
-			return []string{*o.ParentPath}, nil
+		if o.SubnetAssociation != nil && *o.SubnetAssociation == model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH {
+			if o.SubnetPath != nil {
+				return []string{*o.SubnetPath}, nil
+			}
+		} else {
+			if o.ParentPath != nil {
+				return []string{*o.ParentPath}, nil
+			}
 		}
 		return []string{}, nil
 	default:
@@ -145,8 +151,14 @@ func childSubnetIndexFunc(obj interface{}) ([]string, error) {
 func parentSubnetIndexFunc(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.SubnetConnectionBindingMap:
-		if o.SubnetPath != nil {
-			return []string{*o.SubnetPath}, nil
+		if o.SubnetAssociation != nil && *o.SubnetAssociation == model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH {
+			if o.ParentPath != nil {
+				return []string{*o.ParentPath}, nil
+			}
+		} else {
+			if o.SubnetPath != nil {
+				return []string{*o.SubnetPath}, nil
+			}
 		}
 		return []string{}, nil
 	default:

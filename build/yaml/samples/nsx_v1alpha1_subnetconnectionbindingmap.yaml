@@ -17,3 +17,15 @@ spec:
   subnetName: subnet-sample
   targetSubnetName: subnet1
   vlanTrafficTag: 202
+---
+# Cross-VPC VLAN extension: parent in VPC-A, child in VPC-B
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SubnetConnectionBindingMap
+metadata:
+  name: cross-vpc-binding
+  namespace: ns-vpc-a
+spec:
+  subnetName: parent-vlan-subnet
+  targetSubnetName: child-vlan-subnet
+  subnetAssociation: Branch
+  vlanTrafficTag: 201
