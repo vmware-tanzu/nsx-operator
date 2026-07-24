@@ -1639,6 +1639,55 @@ func TestSubnetPortService_portAlreadyRealized(t *testing.T) {
 	assert.False(t, service.portAlreadyRealized(subnetPortWrong, nsxSubnetPortWithNONE))
 	// SubnetPort: not realized (missing IP with AllocateAddresses=BOTH)
 
+	// SubnetPort: multi-IP addressBindings (3 entries, same MAC), only 2 of 3 IPs realized -> not realized
+	subnetPortMultiBindingPartial := &v1alpha1.SubnetPort{
+		Spec: v1alpha1.SubnetPortSpec{
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{IPAddress: "172.26.26.10", MACAddress: "04:50:56:00:b4:24"},
+				{IPAddress: "172.26.26.11", MACAddress: "04:50:56:00:b4:24"},
+				{IPAddress: "172.26.26.12", MACAddress: "04:50:56:00:b4:24"},
+			},
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Attachment: v1alpha1.PortAttachment{
+				ID: "some-id",
+			},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{IPAddress: "172.26.26.10", Gateway: "some-gateway"},
+					{IPAddress: "172.26.26.11", Gateway: "some-gateway"},
+				},
+				MACAddress: "04:50:56:00:b4:24",
+			},
+		},
+	}
+	assert.False(t, service.portAlreadyRealized(subnetPortMultiBindingPartial, nsxSubnetPortWithBOTH))
+
+	// SubnetPort: multi-IP addressBindings (3 entries, same MAC), all 3 IPs realized -> realized
+	subnetPortMultiBindingFull := &v1alpha1.SubnetPort{
+		Spec: subnetPortMultiBindingPartial.Spec,
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Reason: "SubnetPortReady",
+					Status: corev1.ConditionTrue,
+				},
+			},
+			Attachment: v1alpha1.PortAttachment{
+				ID: "some-id",
+			},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{IPAddress: "172.26.26.10", Gateway: "some-gateway"},
+					{IPAddress: "172.26.26.11", Gateway: "some-gateway"},
+					{IPAddress: "172.26.26.12", Gateway: "some-gateway"},
+				},
+				MACAddress: "04:50:56:00:b4:24",
+			},
+		},
+	}
+	assert.True(t, service.portAlreadyRealized(subnetPortMultiBindingFull, nsxSubnetPortWithBOTH))
+
 	// Pod: realized (annotation exists)
 	pod := &corev1.Pod{}
 	pod.Annotations = map[string]string{
@@ -1860,6 +1909,24 @@ func TestMergeSubnetPortAddressBinding(t *testing.T) {
 			},
 			expected: []model.PortAddressBindingEntry{
 				{IpAddress: common.String("10.0.0.1")},
+			},
+		},
+		{
+			name: "Multi-IP addressBindings sharing one MAC - merge each entry independently",
+			existing: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+				{IpAddress: common.String("10.0.0.2"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+				{IpAddress: common.String("10.0.0.3"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+			},
+			desired: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1")},
+				{IpAddress: common.String("10.0.0.2")},
+				{IpAddress: common.String("10.0.0.3")},
+			},
+			expected: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("10.0.0.1"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+				{IpAddress: common.String("10.0.0.2"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
+				{IpAddress: common.String("10.0.0.3"), MacAddress: common.String("aa:bb:cc:dd:ee:ff")},
 			},
 		},
 	}

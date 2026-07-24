@@ -57,8 +57,12 @@ spec:
             description: SubnetPortSpec defines the desired state of SubnetPort.
             properties:
               addressBindings:
-                description: AddressBindings defines static address bindings used
-                  for the SubnetPort.
+                description: |-
+                  AddressBindings defines static address bindings used for the SubnetPort. Multiple
+                  bindings sharing one MAC address are supported (NSX 9.2+) for use cases such as
+                  Blueprint VM creation where a single interface needs several IP addresses. NSX
+                  requires all non-empty MACAddress values across entries to match, and rejects
+                  changing the number of entries once the SubnetPort has been created.
                 items:
                   description: PortAddressBinding defines static addresses for the
                     Port.

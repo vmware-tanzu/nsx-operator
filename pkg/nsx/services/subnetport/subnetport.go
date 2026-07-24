@@ -97,12 +97,32 @@ func setupStore() *SubnetPortStore {
 		}}
 }
 
+// allIPAddressesRealized reports whether every expected address has landed, not just the first.
+func allIPAddressesRealized(ipAddresses []v1alpha1.NetworkInterfaceIPAddress, expectedCount int) bool {
+	if len(ipAddresses) < expectedCount {
+		return false
+	}
+	for _, ipConfig := range ipAddresses {
+		if ipConfig.IPAddress == "" {
+			return false
+		}
+	}
+	return true
+}
+
 func (service *SubnetPortService) portAlreadyRealized(obj interface{}, nsxSubnetPort *model.VpcSubnetPort) bool {
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
+		expectedIPCount := 1
+		if o.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
+			expectedIPCount = 2
+		}
+		if len(o.Spec.AddressBindings) > expectedIPCount {
+			expectedIPCount = len(o.Spec.AddressBindings)
+		}
 		// In the scale case, the port's realized binding may not be set immediately after port creation, so need to check it.
 		if v := nsxSubnetPort.Attachment.AllocateAddresses; v != nil && (*v == "BOTH" || *v == "IP_POOL") {
-			if len(o.Status.NetworkInterfaceConfig.IPAddresses) == 0 || o.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress == "" {
+			if !allIPAddressesRealized(o.Status.NetworkInterfaceConfig.IPAddresses, expectedIPCount) {
 				return false
 			}
 		}
