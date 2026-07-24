@@ -259,8 +259,18 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return common.ResultNormal, client.IgnoreNotFound(err)
 	}
 
-	// processing create/update event
 	ns := obj.GetName()
+
+	// Only process VPC namespaces.  Migration destination is VPC strictly, so a non-VPC
+	// namespace never carries VPC infra and can safely be skipped on create and update.
+	// However, for delete events, we always process them to ensure cleanup
+	// even if the VPC annotation was removed prior to namespace deletion.
+	if !config.IsVPCNamespace(obj) && obj.ObjectMeta.DeletionTimestamp.IsZero() {
+		log.Info("Skipping Namespace: not a VPC namespace", "Namespace", ns)
+		return common.ResultNormal, nil
+	}
+
+	// processing create/update event
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeNamespace)
 		log.Info("Start processing Namespace create/update event", "Namespace", ns)
