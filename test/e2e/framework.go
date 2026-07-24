@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/apps/v1"
@@ -86,6 +87,7 @@ type TestOptions struct {
 	operatorConfigPath  string
 	vcUser              string
 	vcPassword          string
+	vcRootPassword      string
 	logsExportOnSuccess bool
 	debugLog            bool
 	logLevel            int
@@ -1318,4 +1320,126 @@ func getRandomString() string {
 	timestamp := time.Now().UnixNano()
 	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", timestamp)))
 	return hex.EncodeToString(hash[:])[:8]
+}
+
+// resolveNcpImageTag converts a buildID (e.g. "sb-100690309", "ob-25626814", or full image URL)
+// into a full Buildweb registry Docker image URL.
+func resolveNcpImageTag(buildID string) string {
+	buildID = strings.TrimSpace(buildID)
+	if strings.Contains(buildID, "/") {
+		return buildID
+	}
+	if strings.HasPrefix(buildID, "sb-") {
+		return fmt.Sprintf("buildweb.lvn.broadcom.net/release/%s/nsx-ujo:%s", buildID, buildID)
+	}
+	if strings.HasPrefix(buildID, "ob-") {
+		number := strings.TrimPrefix(buildID, "ob-")
+		return fmt.Sprintf("buildweb.lvn.broadcom.net/release/bora-%s/nsx-ujo:%s", number, buildID)
+	}
+	return buildID
+}
+
+// waitForNcpDeploymentReady waits until deployment/nsx-ncp rollout completes and pods are Running and Ready.
+func waitForNcpDeploymentReady(t *testing.T, timeout time.Duration) {
+	fmt.Printf("Waiting up to %v for nsx-ncp deployment rollout to complete...\n", timeout)
+	ctx := context.TODO()
+	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, false, func(pollCtx context.Context) (bool, error) {
+		deploy, err := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(pollCtx, "nsx-ncp", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		if deploy.Status.ObservedGeneration < deploy.Generation {
+			return false, nil
+		}
+		if deploy.Spec.Replicas != nil && deploy.Status.UpdatedReplicas < *deploy.Spec.Replicas {
+			return false, nil
+		}
+		if deploy.Spec.Replicas != nil && deploy.Status.ReadyReplicas < *deploy.Spec.Replicas {
+			return false, nil
+		}
+		if deploy.Status.UnavailableReplicas > 0 {
+			return false, nil
+		}
+
+		pods, err := testData.clientset.CoreV1().Pods("vmware-system-nsx").List(pollCtx, metav1.ListOptions{
+			LabelSelector: "component=nsx-ncp",
+		})
+		if err != nil || len(pods.Items) == 0 {
+			return false, nil
+		}
+		readyCount := 0
+		for _, pod := range pods.Items {
+			if pod.DeletionTimestamp != nil {
+				return false, nil
+			}
+			if pod.Status.Phase == corev1.PodRunning {
+				allContainersReady := true
+				for _, c := range pod.Status.ContainerStatuses {
+					if !c.Ready {
+						allContainersReady = false
+						break
+					}
+				}
+				if allContainersReady && len(pod.Status.ContainerStatuses) > 0 {
+					readyCount++
+				}
+			}
+		}
+		expectedReplicas := 1
+		if deploy.Spec.Replicas != nil {
+			expectedReplicas = int(*deploy.Spec.Replicas)
+		}
+		return readyCount >= expectedReplicas, nil
+	})
+	require.NoError(t, err, "nsx-ncp deployment did not become ready in time")
+
+	// Additional 10s stabilization buffer for K8s service endpoints and webhook server to settle
+	time.Sleep(10 * time.Second)
+}
+
+// setupNcpBuildWithCleanup replaces the NCP container image in deployment/nsx-ncp with the image for target buildID,
+// and registers t.Cleanup to automatically restore the original NCP image when the test finishes.
+func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
+	if testData == nil || testData.clientset == nil {
+		t.Skip("Skipping NCP build setup: clientset is nil")
+		return
+	}
+	if strings.TrimSpace(buildID) == "" {
+		return
+	}
+
+	targetImage := resolveNcpImageTag(buildID)
+	ctx := context.TODO()
+
+	deploy, err := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(ctx, "nsx-ncp", metav1.GetOptions{})
+	require.NoError(t, err, "Failed to get deployment/nsx-ncp")
+
+	if len(deploy.Spec.Template.Spec.Containers) == 0 {
+		t.Skip("Skipping NCP build setup: deployment/nsx-ncp has no containers")
+		return
+	}
+
+	origImage := deploy.Spec.Template.Spec.Containers[0].Image
+	if origImage == targetImage {
+		fmt.Printf("deployment/nsx-ncp container 0 image is already %s\n", targetImage)
+		return
+	}
+
+	fmt.Printf("Updating deployment/nsx-ncp container 0 image from %s to %s...\n", origImage, targetImage)
+	deploy.Spec.Template.Spec.Containers[0].Image = targetImage
+	_, err = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(ctx, deploy, metav1.UpdateOptions{})
+	require.NoError(t, err, "Failed to update deployment/nsx-ncp image")
+
+	t.Cleanup(func() {
+		fmt.Printf("Restoring deployment/nsx-ncp container 0 image to %s in t.Cleanup...\n", origImage)
+		cleanupCtx := context.TODO()
+		curDeploy, err := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(cleanupCtx, "nsx-ncp", metav1.GetOptions{})
+		if err == nil && len(curDeploy.Spec.Template.Spec.Containers) > 0 {
+			curDeploy.Spec.Template.Spec.Containers[0].Image = origImage
+			_, _ = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(cleanupCtx, curDeploy, metav1.UpdateOptions{})
+			waitForNcpDeploymentReady(t, 120*time.Second)
+		}
+	})
+
+	waitForNcpDeploymentReady(t, 120*time.Second)
 }

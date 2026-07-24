@@ -181,7 +181,7 @@ func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace, vpcMode bo
 		}
 	} else {
 		// Only check T1 system namespace if VPC mode is disabled
-		isSysNs, err := IsT1Namespace(c, ns, obj)
+		isSysNs, err := IsT1SystemNamespace(c, ns, obj)
 		if err != nil {
 			return false, err
 		}
@@ -192,7 +192,7 @@ func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace, vpcMode bo
 	return false, nil
 }
 
-func IsT1Namespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+func IsT1SystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
 	nsObj := &v1.Namespace{}
 	if obj != nil {
 		nsObj = obj

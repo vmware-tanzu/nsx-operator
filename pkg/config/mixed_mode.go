@@ -336,12 +336,18 @@ func initMixedModeWithClients(ctx context.Context, clientset kubernetes.Interfac
 // changed; the caller should then restart the operator so that VPC services
 // and controllers are initialized for the new mode.
 func RefreshMixedModeState(ctx context.Context) bool {
-	if storedClientset == nil {
+	stateMu.RLock()
+	cs := storedClientset
+	supported := perNamespaceProvidersSupported
+	enableVPC := storedEnableVPCNetwork
+	stateMu.RUnlock()
+
+	if cs == nil {
 		log.Debug("Skipping mixed-mode refresh: storedClientset is nil")
 		return false
 	}
 
-	if perNamespaceProvidersSupported != nil && !*perNamespaceProvidersSupported {
+	if supported != nil && !*supported {
 		log.Debug("Skipping mixed-mode refresh: per-namespace network providers are not supported")
 		return false
 	}
@@ -351,9 +357,9 @@ func RefreshMixedModeState(ctx context.Context) bool {
 	if r := currentNamespaceRefreshReader(); r != nil {
 		newT1, newVPC, err = scanNamespaceProvidersFromCache(ctx, r)
 	} else {
-		newT1, newVPC, err = scanNamespaceProvidersFromAPI(ctx, storedClientset)
+		newT1, newVPC, err = scanNamespaceProvidersFromAPI(ctx, cs)
 	}
-	if storedEnableVPCNetwork {
+	if enableVPC {
 		newVPC = true
 	}
 	if err != nil {
@@ -414,4 +420,22 @@ func IsPerNamespaceProvidersSupported() bool {
 	stateMu.RLock()
 	defer stateMu.RUnlock()
 	return perNamespaceProvidersSupported != nil && *perNamespaceProvidersSupported
+}
+
+// IsVPCNamespace reports whether ns should be treated as a VPC namespace.
+// In mixed mode (when per-namespace providers are supported), a non-empty
+// VPCNetworkConfigAnnotation marks a VPC namespace.
+// In legacy mode (pre-9.2), the whole cluster runs a single provider, so the
+// cluster-level HasVPCNamespaces flag (derived from EnableVPCNetwork) is
+// returned regardless of the namespace.
+func IsVPCNamespace(ns *v1.Namespace) bool {
+	// Defensive check: callers should not pass nil. If they do, we cannot
+	// inspect the namespace's annotations, so we default to false.
+	if ns == nil {
+		return false
+	}
+	if IsPerNamespaceProvidersSupported() {
+		return strings.TrimSpace(ns.Annotations[VPCNetworkConfigAnnotation]) != ""
+	}
+	return HasVPCNamespaces()
 }
