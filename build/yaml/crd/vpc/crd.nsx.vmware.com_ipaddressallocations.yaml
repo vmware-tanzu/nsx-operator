@@ -90,6 +90,13 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              ipBlockName:
+                description: IPBlockName specifies name of the IPBlock to allocate
+                  IP addresses.
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               ipv6AllocationPrefixLength:
                 description: |-
                   IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.

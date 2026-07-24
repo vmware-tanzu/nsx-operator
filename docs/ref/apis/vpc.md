@@ -121,7 +121,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 
@@ -265,11 +265,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. |  | Enum: [External Private PrivateTGW] <br />Optional: \{\} <br /> |
+| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. |  | Enum: [External Private PrivateTGW] <br /> |
 | `allocationSize` _integer_ | AllocationSize specifies the size of IPv4 allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation. | IPv4 | Enum: [IPv4 IPv6] <br /> |
+| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  |  |
 
 
 #### IPAddressAllocationStatus
@@ -733,7 +734,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the ServiceEndpoint. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the ServiceEndpoint. |  |  |
 
 
 #### SharedSubnet
@@ -769,7 +770,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false.<br />If the DHCP mode is DHCPRelay, its default value is false. |  |  |
-| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  | Optional: \{\} <br /> |
+| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
 
 
 #### StaticIPAllocationType
@@ -825,7 +826,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 
@@ -843,8 +844,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br />Optional: \{\} <br /> |
-| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  | Optional: \{\} <br /> |
+| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br /> |
+| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  |  |
 | `nextHops` _[NextHop](#nexthop) array_ | Next hop gateway |  | MinItems: 1 <br /> |
 
 
@@ -1346,7 +1347,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the VPCEndpoint. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the VPCEndpoint. |  |  |
 
 
 #### VPCInfo
@@ -1404,14 +1405,15 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  | Optional: \{\} <br /> |
-| `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  | Optional: \{\} <br /> |
+| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  |  |
+| `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  |  |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
 | `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
 | `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Defaults to 64. | 64 | Maximum: 127 <br />Minimum: 2 <br /> |
+| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
 
 
 #### VPCNetworkConfigurationStatus
