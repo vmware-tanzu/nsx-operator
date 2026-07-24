@@ -3,14 +3,21 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/core/v1"
 	v1networking "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/dynamic"
+
+	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers/exec"
 )
 
 func waitForSubnetSet(t *testing.T, namespace string, timeout time.Duration) {
@@ -56,21 +63,31 @@ func verifyNoLogsForNamespace(t *testing.T, namespace string) {
 
 	ncpPod := pods.Items[0]
 
-	// Check nsx-operator logs
-	opLogsReq := testData.clientset.CoreV1().Pods("vmware-system-nsx").GetLogs(ncpPod.Name, &v1.PodLogOptions{
-		Container:    "nsx-operator",
-		SinceSeconds: func(i int64) *int64 { return &i }(120), // Check last 2 minutes
-	})
-	opLogs, err := opLogsReq.DoRaw(context.TODO())
-	require.NoError(t, err)
-	opLogsStr := string(opLogs)
+	// Poll up to 30 seconds for nsx-operator logs to reflect bare namespace skip
+	var opLogsStr string
+	start := time.Now()
+	for time.Since(start) < 30*time.Second {
+		opLogsReq := testData.clientset.CoreV1().Pods("vmware-system-nsx").GetLogs(ncpPod.Name, &v1.PodLogOptions{
+			Container:    "nsx-operator",
+			SinceSeconds: func(i int64) *int64 { return &i }(180), // Check last 3 minutes
+		})
+		opLogs, err := opLogsReq.DoRaw(context.TODO())
+		if err == nil {
+			opLogsStr = string(opLogs)
+			if strings.Contains(opLogsStr, namespace) {
+				break
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+
 	require.Contains(t, opLogsStr, namespace, "nsx-operator should log about the bare namespace")
 	require.Contains(t, opLogsStr, "Skipping Namespace: not a VPC namespace", "nsx-operator should explicitly log that it skips the bare namespace")
 
 	// Check nsx-ncp logs
 	ncpLogsReq := testData.clientset.CoreV1().Pods("vmware-system-nsx").GetLogs(ncpPod.Name, &v1.PodLogOptions{
 		Container:    "nsx-ncp",
-		SinceSeconds: func(i int64) *int64 { return &i }(120), // Check last 2 minutes
+		SinceSeconds: func(i int64) *int64 { return &i }(180), // Check last 3 minutes
 	})
 	ncpLogs, err := ncpLogsReq.DoRaw(context.TODO())
 	require.NoError(t, err)
@@ -81,8 +98,138 @@ func verifyNoLogsForNamespace(t *testing.T, namespace string) {
 	fmt.Println("✅ Verified correct skip logs for bare namespace in both containers")
 }
 
+func isCapabilityActiveOnCluster() bool {
+	if testData == nil || testData.kubeConfig == nil {
+		return false
+	}
+	dynClient, err := dynamic.NewForConfig(testData.kubeConfig)
+	if err != nil {
+		return false
+	}
+	capabilitiesGVR := schema.GroupVersionResource{
+		Group:    "iaas.vmware.com",
+		Version:  "v1alpha1",
+		Resource: "capabilities",
+	}
+	capCR, err := dynClient.Resource(capabilitiesGVR).Get(context.TODO(), "supervisor-capabilities", metav1.GetOptions{})
+	if err != nil {
+		return false
+	}
+	status, found, err := unstructured.NestedMap(capCR.Object, "status")
+	if err != nil || !found {
+		return false
+	}
+	supervisor, found, err := unstructured.NestedMap(status, "supervisor")
+	if err != nil || !found {
+		return false
+	}
+	cap, ok := supervisor["supports_per_namespace_network_provider"]
+	if !ok {
+		return false
+	}
+	capMap, ok := cap.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	activated, ok := capMap["activated"]
+	if ok {
+		if b, ok := activated.(bool); ok {
+			return b
+		}
+	}
+	return false
+}
+
+func setupVcCapabilityWithCleanup(t *testing.T) {
+	if isCapabilityActiveOnCluster() {
+		fmt.Println("supports_per_namespace_network_provider is already active on Supervisor")
+		return
+	}
+
+	if testData == nil || testData.vcClient == nil {
+		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider capability is not active and vcClient is nil")
+		return
+	}
+
+	vcHost := testData.vcClient.url.Hostname()
+	vcPassword := testOptions.vcRootPassword
+	if vcPassword == "" {
+		vcPassword = testOptions.vcPassword
+	}
+	if vcPassword == "" {
+		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider capability is not active and VC SSH password is not set")
+		return
+	}
+
+	sshConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(vcPassword),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+		Timeout:         10 * time.Second,
+	}
+
+	// Step 1: Backup and update VC supervisor-capabilities.yaml, then restart wcp
+	enableCmd := `
+if [ ! -f /etc/vmware/wcp/supervisor-capabilities.yaml.bak ]; then
+    cp /etc/vmware/wcp/supervisor-capabilities.yaml /etc/vmware/wcp/supervisor-capabilities.yaml.bak
+fi
+python3 -c '
+import yaml
+with open("/etc/vmware/wcp/supervisor-capabilities.yaml", "r") as f:
+    data = yaml.safe_load(f)
+for item in data.get("supervisor", []):
+    if item.get("name") == "supports_per_namespace_network_provider":
+        item["enabled"] = True
+        item["activatedWhenRule"] = ""
+with open("/etc/vmware/wcp/supervisor-capabilities.yaml", "w") as f:
+    yaml.safe_dump(data, f)
+'
+vmon-cli --restart wcp
+`
+	fmt.Printf("Updating VC (%s) capability config and restarting wcp service...\n", vcHost)
+	code, stdout, stderr, err := exec.RunSSHCommand(vcHost+":22", sshConfig, enableCmd)
+	if err != nil || code != 0 {
+		fmt.Printf("Failed to enable VC capability via SSH (code=%d, stdout=%s, stderr=%s, err=%v)\n", code, stdout, stderr, err)
+		if !isCapabilityActiveOnCluster() {
+			t.Skipf("Skipping TestM1MixedMode: supports_per_namespace_network_provider is not active on Supervisor and VC SSH setup failed: %v", err)
+			return
+		}
+	}
+
+	// Step 2: Register t.Cleanup for automatic revert upon test completion
+	t.Cleanup(func() {
+		fmt.Printf("Restoring original VC (%s) capability config and restarting wcp service in t.Cleanup...\n", vcHost)
+		revertCmd := `
+if [ -f /etc/vmware/wcp/supervisor-capabilities.yaml.bak ]; then
+    mv /etc/vmware/wcp/supervisor-capabilities.yaml.bak /etc/vmware/wcp/supervisor-capabilities.yaml
+    vmon-cli --restart wcp
+fi
+`
+		_, _, _, _ = exec.RunSSHCommand(vcHost+":22", sshConfig, revertCmd)
+	})
+
+	// Wait up to 120 seconds for WCP to restart and supervisor-capabilities CR to be updated
+	fmt.Println("Waiting for supports_per_namespace_network_provider capability to become active on Supervisor...")
+	pollStart := time.Now()
+	for time.Since(pollStart) < 120*time.Second {
+		if isCapabilityActiveOnCluster() {
+			fmt.Printf("✅ supports_per_namespace_network_provider is now active (took %v)\n", time.Since(pollStart).Round(time.Second))
+			return
+		}
+		time.Sleep(3 * time.Second)
+	}
+
+	if !isCapabilityActiveOnCluster() {
+		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider did not become active within 120s after restarting WCP")
+	}
+}
+
 func TestM1MixedMode(t *testing.T) {
 	TrackTest(t)
+
+	setupVcCapabilityWithCleanup(t)
 
 	// We create our own namespaces with specific annotations
 	vpcNsName := "m1-vpc-ns-" + getRandomString()

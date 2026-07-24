@@ -86,6 +86,7 @@ type TestOptions struct {
 	operatorConfigPath  string
 	vcUser              string
 	vcPassword          string
+	vcRootPassword      string
 	logsExportOnSuccess bool
 	debugLog            bool
 	logLevel            int
