@@ -180,6 +180,7 @@ func isConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.StaticRou
 func (r *StaticRouteReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.StaticRoute{}).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),

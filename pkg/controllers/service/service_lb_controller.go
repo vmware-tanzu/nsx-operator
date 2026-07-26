@@ -171,6 +171,7 @@ func (r *ServiceLbReconciler) setupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.enqueueLBServiceRequestsFromNetworkInfo),
 			builder.WithPredicates(predicateNetworkInfoAllowedDNSDomainsChanged()),
 		).
+		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
