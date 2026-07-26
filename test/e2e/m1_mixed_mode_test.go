@@ -226,6 +226,10 @@ fi
 	}
 }
 
+// TestM1MixedMode tests the M1 mixed-mode feature.
+// NOTE: This test MUST NOT call t.Parallel() or StartParallel(t) because it temporarily replaces
+// the cluster-wide NCP image and updates VC supervisor capabilities. Running sequentially ensures
+// no interference with other E2E test cases.
 func TestM1MixedMode(t *testing.T) {
 	TrackTest(t)
 

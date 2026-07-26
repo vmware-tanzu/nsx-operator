@@ -45,6 +45,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
+	execprovider "github.com/vmware-tanzu/nsx-operator/test/e2e/providers/exec"
 )
 
 var log = logger.Log
@@ -1380,84 +1381,9 @@ func waitForNcpDeploymentReady(t *testing.T, timeout time.Duration) {
 	time.Sleep(10 * time.Second)
 }
 
-func runCodeInstallerPod(ctx context.Context, t *testing.T, origImage string, runCmd string) error {
-	ns := "vmware-system-nsx"
-	podName := "nsx-ncp-code-installer"
-
-	// Delete old installer pod if exists
-	_ = testData.clientset.CoreV1().Pods(ns).Delete(ctx, podName, metav1.DeleteOptions{
-		GracePeriodSeconds: func(i int64) *int64 { return &i }(0),
-	})
-	time.Sleep(1 * time.Second)
-
-	hostPathType := corev1.HostPathDirectory
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: ns,
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:            "installer",
-					Image:           origImage,
-					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"sh", "-c", "sleep 300"},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "tls-vol",
-							MountPath: "/mnt/tls",
-						},
-					},
-				},
-			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "tls-vol",
-					VolumeSource: corev1.VolumeSource{
-						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/etc/vmware/wcp/tls",
-							Type: &hostPathType,
-						},
-					},
-				},
-			},
-			RestartPolicy: corev1.RestartPolicyNever,
-		},
-	}
-
-	_, err := testData.clientset.CoreV1().Pods(ns).Create(ctx, pod, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create code installer pod: %v", err)
-	}
-
-	defer func() {
-		_ = testData.clientset.CoreV1().Pods(ns).Delete(context.TODO(), podName, metav1.DeleteOptions{
-			GracePeriodSeconds: func(i int64) *int64 { return &i }(0),
-		})
-	}()
-
-	// Wait for pod to be Running
-	pollErr := wait.PollUntilContextTimeout(ctx, 1*time.Second, 30*time.Second, true, func(pCtx context.Context) (bool, error) {
-		p, e := testData.clientset.CoreV1().Pods(ns).Get(pCtx, podName, metav1.GetOptions{})
-		if e != nil {
-			return false, nil
-		}
-		return p.Status.Phase == corev1.PodRunning, nil
-	})
-	if pollErr != nil {
-		return fmt.Errorf("code installer pod did not reach Running state: %v", pollErr)
-	}
-
-	stdout, stderr, execErr := testData.runCommandFromPod(ns, podName, "installer", []string{"sh", "-c", runCmd})
-	if execErr != nil {
-		return fmt.Errorf("command execution failed in installer pod: %v (stdout: %s, stderr: %s)", execErr, stdout, stderr)
-	}
-	return nil
-}
-
-// setupNcpBuildWithCleanup deploys the nsx-ujo Python source package for target buildID into hostPath /etc/vmware/wcp/tls/nsx_ujo,
-// patches deployment/nsx-ncp to set PYTHONPATH=/etc/vmware/wcp/tls, and registers t.Cleanup to automatically restore the deployment.
+// setupNcpBuildWithCleanup SSHs into each CPVM node, downloads the NCP image tarball for target buildID,
+// imports it into containerd (ctr -n k8s.io images import), updates deployment/nsx-ncp image,
+// and registers t.Cleanup to automatically restore the original NCP deployment image when the test finishes.
 func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
 	if testData == nil || testData.clientset == nil {
 		t.Skip("Skipping NCP build setup: clientset is nil")
@@ -1477,6 +1403,7 @@ func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
 	}
 
 	origImage := deploy.Spec.Template.Spec.Containers[0].Image
+	origPullPolicy := deploy.Spec.Template.Spec.Containers[0].ImagePullPolicy
 
 	sysPrefix := "sb"
 	if strings.HasPrefix(buildID, "ob-") {
@@ -1485,63 +1412,158 @@ func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
 	cleanID := strings.TrimPrefix(strings.TrimPrefix(buildID, "sb-"), "ob-")
 	buildTag := fmt.Sprintf("%s-%s", sysPrefix, cleanID)
 
-	publishURL := fmt.Sprintf("https://build-squid.vcfd.broadcom.net/build/mts/release/%s/publish/", buildTag)
-
-	downloadCmd := fmt.Sprintf(`
-rm -rf /mnt/tls/nsx_ujo /tmp/nsx_ujo* /tmp/extracted && \
-TAR_FILE=$(curl -s -k %s | grep -o 'nsx-ujo-[^"]*\.tar\.gz' | head -n1) && \
-if [ -z "$TAR_FILE" ]; then echo "Failed to find nsx-ujo tarball at %s"; exit 1; fi && \
-curl -s -k "%s${TAR_FILE}" -o /tmp/nsx-ujo.tar.gz && \
-mkdir -p /tmp/extracted && \
-tar -xzf /tmp/nsx-ujo.tar.gz -C /tmp/extracted && \
-cp -r /tmp/extracted/nsx-ujo-*/nsx_ujo /mnt/tls/nsx_ujo && \
-rm -rf /tmp/nsx-ujo* /tmp/extracted && \
-echo "Successfully deployed nsx_ujo source code from %s"
-`, publishURL, publishURL, publishURL, buildTag)
-
-	fmt.Printf("Deploying nsx-ujo Python package from build %s to /etc/vmware/wcp/tls/nsx_ujo...\n", buildTag)
-	err = runCodeInstallerPod(ctx, t, origImage, downloadCmd)
-	if err != nil {
-		t.Skipf("Skipping TestM1MixedMode: failed to download/deploy NCP build %s: %v", buildTag, err)
+	// Obtain SSH password for CPVM nodes
+	vcPassword := testOptions.vcRootPassword
+	if vcPassword == "" {
+		vcPassword = testOptions.vcPassword
+	}
+	if vcPassword == "" {
+		t.Skip("Skipping NCP build setup: VC/CPVM SSH password is not set")
 		return
 	}
 
-	// Register cleanup to remove PYTHONPATH and cleanup /etc/vmware/wcp/tls/nsx_ujo
-	t.Cleanup(func() {
-		fmt.Println("Restoring original NCP deployment in t.Cleanup...")
-		cleanCtx := context.TODO()
-		d, getErr := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(cleanCtx, "nsx-ncp", metav1.GetOptions{})
-		if getErr == nil {
-			var newEnvs []corev1.EnvVar
-			for _, env := range d.Spec.Template.Spec.Containers[0].Env {
-				if env.Name != "PYTHONPATH" {
-					newEnvs = append(newEnvs, env)
+	sshConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(vcPassword),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+		Timeout:         15 * time.Second,
+	}
+
+	// Discover real CPVM management IPs (1 or 3 CPVMs)
+	vcHost := testData.vcClient.url.Hostname()
+	var cpvmIPs []string
+
+	vcUser := testOptions.vcUser
+	if vcUser == "" {
+		vcUser = "administrator@vsphere.local"
+	}
+
+	discoverCmd := fmt.Sprintf(`python3 -c '
+import ssl, json
+try:
+    from pyVmomi import vim, Connect
+    ctx = ssl._create_unverified_context()
+    si = Connect.SmartConnect(host="127.0.0.1", user="%s", pwd="%s", sslContext=ctx)
+    content = si.RetrieveContent()
+    container = content.viewManager.CreateContainerView(content.rootFolder, [vim.VirtualMachine], True)
+    cpvms = [vm.guest.ipAddress for vm in container.view if "SupervisorControlPlaneVM" in vm.name and vm.guest and vm.guest.ipAddress]
+    if cpvms:
+        print("CPVMS=" + ",".join(cpvms))
+except Exception as e:
+    pass
+'`, vcUser, testOptions.vcPassword)
+
+	_, stdout, _, err := execprovider.RunSSHCommand(vcHost+":22", sshConfig, discoverCmd)
+	if err == nil {
+		for _, line := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(line, "CPVMS=") {
+				ipsStr := strings.TrimPrefix(line, "CPVMS=")
+				for _, ip := range strings.Split(ipsStr, ",") {
+					ip = strings.TrimSpace(ip)
+					if ip != "" && ip != "N/A" {
+						cpvmIPs = append(cpvmIPs, ip)
+					}
 				}
 			}
-			d.Spec.Template.Spec.Containers[0].Env = newEnvs
-			_, _ = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(cleanCtx, d, metav1.UpdateOptions{})
-			_ = runCodeInstallerPod(cleanCtx, t, origImage, "rm -rf /mnt/tls/nsx_ujo")
+		}
+	}
+
+	// Fallback: if pyVmomi discovery didn't yield IPs, use NodeInternalIPs from k8s nodes,
+	// excluding internal overlay subnets (like 172.26.x.x)
+	if len(cpvmIPs) == 0 {
+		nodes, err := testData.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err == nil {
+			for _, node := range nodes.Items {
+				for _, addr := range node.Status.Addresses {
+					if addr.Type == corev1.NodeInternalIP && !strings.HasPrefix(addr.Address, "172.26.") {
+						cpvmIPs = append(cpvmIPs, addr.Address)
+					}
+				}
+			}
+		}
+	}
+
+	if len(cpvmIPs) == 0 {
+		cpvmIPs = []string{vcHost}
+	}
+
+	publishURL := fmt.Sprintf("http://build-squid.vcfd.broadcom.net/build/mts/release/%s/publish/nsx-container/Kubernetes/", buildTag)
+
+	importCmd := fmt.Sprintf(`
+TAR_NAME=$(curl -s -k "%s" | grep -o 'nsx-ncp-photon-[^"]*\.tar' | head -n1)
+if [ -z "$TAR_NAME" ]; then
+    echo "ERROR: Failed to find nsx-ncp-photon tarball at %s"
+    exit 1
+fi
+echo "Downloading $TAR_NAME from %s..."
+curl -s -k "%s${TAR_NAME}" -o /tmp/nsx-ncp-target.tar
+if [ ! -s /tmp/nsx-ncp-target.tar ]; then
+    echo "ERROR: Downloaded tarball is empty"
+    exit 1
+fi
+echo "Importing image into containerd..."
+ctr -n k8s.io images import /tmp/nsx-ncp-target.tar
+IMPORTED_TAG=$(ctr -n k8s.io images list | grep 'nsx-ncp-photon' | grep '%s\|registry.local' | awk '{print $1}' | head -n1)
+if [ -z "$IMPORTED_TAG" ]; then
+    IMPORTED_TAG=$(ctr -n k8s.io images list | grep 'nsx-ncp-photon' | awk '{print $1}' | head -n1)
+fi
+echo "IMPORTED_TAG=$IMPORTED_TAG"
+`, publishURL, publishURL, publishURL, publishURL, cleanID)
+
+	var targetImage string
+	for _, cpvmIP := range cpvmIPs {
+		fmt.Printf("Downloading and importing NCP build %s tarball on CPVM node (%s)...\n", buildTag, cpvmIP)
+		code, stdout, stderr, sshErr := execprovider.RunSSHCommand(cpvmIP+":22", sshConfig, importCmd)
+		if sshErr != nil || code != 0 {
+			fmt.Printf("Failed SSH command on CPVM node %s (code=%d, err=%v, stdout=%s, stderr=%s)\n", cpvmIP, code, sshErr, stdout, stderr)
+			t.Skipf("Skipping TestM1MixedMode: SSH command failed on CPVM node %s: %v", cpvmIP, sshErr)
+			return
+		}
+
+		for _, line := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(line, "IMPORTED_TAG=") {
+				targetImage = strings.TrimPrefix(line, "IMPORTED_TAG=")
+				targetImage = strings.TrimSpace(targetImage)
+			}
+		}
+	}
+
+	if targetImage == "" {
+		targetImage = fmt.Sprintf("registry.local/9.2.0.0.%s/nsx-ncp-photon:latest", cleanID)
+	}
+
+	fmt.Printf("Using imported target NCP image %s for deployment/nsx-ncp...\n", targetImage)
+
+	if origImage == targetImage {
+		fmt.Printf("deployment/nsx-ncp container 0 image is already %s\n", targetImage)
+		return
+	}
+
+	deploy.Spec.Template.Spec.Containers[0].Image = targetImage
+	deploy.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+
+	_, err = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(ctx, deploy, metav1.UpdateOptions{})
+	require.NoError(t, err, "Failed to update deployment/nsx-ncp image")
+
+	t.Cleanup(func() {
+		fmt.Printf("Restoring deployment/nsx-ncp container 0 image to %s in t.Cleanup...\n", origImage)
+		cleanupCtx := context.TODO()
+		curDeploy, getErr := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(cleanupCtx, "nsx-ncp", metav1.GetOptions{})
+		if getErr == nil && len(curDeploy.Spec.Template.Spec.Containers) > 0 {
+			curDeploy.Spec.Template.Spec.Containers[0].Image = origImage
+			curDeploy.Spec.Template.Spec.Containers[0].ImagePullPolicy = origPullPolicy
+			_, _ = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(cleanupCtx, curDeploy, metav1.UpdateOptions{})
+
+			cleanCmd := "rm -f /tmp/nsx-ncp-target.tar"
+			for _, cpvmIP := range cpvmIPs {
+				_, _, _, _ = execprovider.RunSSHCommand(cpvmIP+":22", sshConfig, cleanCmd)
+			}
+
 			waitForNcpDeploymentReady(t, 2*time.Minute)
 		}
 	})
-
-	// Patch deployment/nsx-ncp to add PYTHONPATH=/etc/vmware/wcp/tls
-	hasPythonPath := false
-	for _, env := range deploy.Spec.Template.Spec.Containers[0].Env {
-		if env.Name == "PYTHONPATH" && env.Value == "/etc/vmware/wcp/tls" {
-			hasPythonPath = true
-			break
-		}
-	}
-
-	if !hasPythonPath {
-		deploy.Spec.Template.Spec.Containers[0].Env = append(deploy.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
-			Name:  "PYTHONPATH",
-			Value: "/etc/vmware/wcp/tls",
-		})
-		_, err = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(ctx, deploy, metav1.UpdateOptions{})
-		require.NoError(t, err, "Failed to update deployment/nsx-ncp with PYTHONPATH")
-	}
 
 	waitForNcpDeploymentReady(t, 2*time.Minute)
 }
