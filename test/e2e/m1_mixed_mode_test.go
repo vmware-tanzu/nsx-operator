@@ -32,7 +32,7 @@ func waitForSubnetSet(t *testing.T, namespace string, timeout time.Duration) {
 		}
 		time.Sleep(2 * time.Second)
 	}
-	fmt.Printf("❌ Namespace %s did not get SubnetSet within %v\n", namespace, timeout)
+	fmt.Printf("⚠️ Namespace %s did not get SubnetSet within %v (may be optional if no private CIDR configured)\n", namespace, timeout)
 }
 
 func printPodDetails(t *testing.T, namespace, podName string) {
@@ -147,7 +147,7 @@ func setupVcCapabilityWithCleanup(t *testing.T) {
 	}
 
 	if testData == nil || testData.vcClient == nil {
-		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider capability is not active and vcClient is nil")
+		t.Skip("Skipping TestMixedNetworkProvider: supports_per_namespace_network_provider capability is not active and vcClient is nil")
 		return
 	}
 
@@ -157,7 +157,7 @@ func setupVcCapabilityWithCleanup(t *testing.T) {
 		vcPassword = testOptions.vcPassword
 	}
 	if vcPassword == "" {
-		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider capability is not active and VC SSH password is not set")
+		t.Skip("Skipping TestMixedNetworkProvider: supports_per_namespace_network_provider capability is not active and VC SSH password is not set")
 		return
 	}
 
@@ -205,7 +205,7 @@ vmon-cli --restart wcp
 	if err != nil || code != 0 {
 		fmt.Printf("Failed to enable VC capability via SSH (code=%d, stdout=%s, stderr=%s, err=%v)\n", code, stdout, stderr, err)
 		if !isCapabilityActiveOnCluster() {
-			t.Skipf("Skipping TestM1MixedMode: supports_per_namespace_network_provider is not active on Supervisor and VC SSH setup failed: %v", err)
+			t.Skipf("Skipping TestMixedNetworkProvider: supports_per_namespace_network_provider is not active on Supervisor and VC SSH setup failed: %v", err)
 			return
 		}
 	}
@@ -234,15 +234,15 @@ fi
 	}
 
 	if !isCapabilityActiveOnCluster() {
-		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider did not become active within 300s after restarting WCP")
+		t.Skip("Skipping TestMixedNetworkProvider: supports_per_namespace_network_provider did not become active within 300s after restarting WCP")
 	}
 }
 
-// TestM1MixedMode tests the M1 mixed-mode feature.
+// TestMixedNetworkProvider tests the mixed-mode network provider feature.
 // NOTE: This test MUST NOT call t.Parallel() or StartParallel(t) because it temporarily replaces
 // the cluster-wide NCP image and updates VC supervisor capabilities. Running sequentially ensures
 // no interference with other E2E test cases.
-func TestM1MixedMode(t *testing.T) {
+func TestMixedNetworkProvider(t *testing.T) {
 	TrackTest(t)
 
 	// Ensure NCP deployment is using the target build (e.g. sb-100690309) for this test case
@@ -397,36 +397,41 @@ func TestM1MixedMode(t *testing.T) {
 	printPodDetails(t, vpcNsName, "test-pod-vpc")
 	printPodDetails(t, bareNsName, "test-pod-bare")
 
-	// Verify Bare Namespace Self-Blocking
-	// 1. Verify no SubnetSet is created in bare namespace (NSX-Operator VPC NS controller ignored it)
-	subnetSets, err := testData.crdClientset.CrdV1alpha1().SubnetSets(bareNsName).List(context.TODO(), metav1.ListOptions{})
-	require.NoError(t, err)
-	require.Empty(t, subnetSets.Items, "Expected no SubnetSets in bare namespace")
+	// Subtest 1: Verify all NetworkPolicies (VPC NP processed by operator, Bare NP ignored by NCP)
+	t.Run("NetworkPolicyProcessing", func(t *testing.T) {
+		// 1. Verify invalid NetworkPolicy in Bare NS does NOT have ncp/error annotation
+		updatedBareNP, err := testData.clientset.NetworkingV1().NetworkPolicies(bareNsName).Get(context.TODO(), "test-np-bare", metav1.GetOptions{})
+		require.NoError(t, err)
+		_, hasBareError := updatedBareNP.Annotations["ncp/error"]
+		require.False(t, hasBareError, "Expected no ncp/error annotation on the invalid NetworkPolicy in Bare NS, which proves NCP ignored it")
 
-	// 2. Verify no ncp/snat_ip annotation on bare namespace (NCP T1 NS controller ignored it)
-	updatedBareNs, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), bareNsName, metav1.GetOptions{})
-	require.NoError(t, err)
-	_, hasSnatIP := updatedBareNs.Annotations["ncp/snat_ip"]
-	require.False(t, hasSnatIP, "Expected no ncp/snat_ip annotation on bare namespace")
+		// 2. Verify invalid NetworkPolicy in VPC NS
+		updatedVpcNP, err := testData.clientset.NetworkingV1().NetworkPolicies(vpcNsName).Get(context.TODO(), "test-np-vpc", metav1.GetOptions{})
+		require.NoError(t, err)
+		_, hasVpcNcpError := updatedVpcNP.Annotations["ncp/error"]
+		require.False(t, hasVpcNcpError, "Expected no ncp/error annotation on the invalid NetworkPolicy in VPC NS, which proves NCP ignored it")
+		_, hasVpcOpError := updatedVpcNP.Annotations["nsx-op/error"]
+		require.True(t, hasVpcOpError, "Expected nsx-op/error annotation on the invalid NetworkPolicy in VPC NS, which proves nsx-operator processed it")
+	})
 
-	// 3. Verify no logs in nsx-operator and nsx-ncp for the bare namespace
-	verifyNoLogsForNamespace(t, bareNsName)
+	// Subtest 2: Verify Bare Namespace Resource Isolation & Log Filtering (Ignored From Log)
+	t.Run("IgnoredFromLogAndResource", func(t *testing.T) {
+		// 1. Verify no SubnetSet is created in bare namespace (NSX-Operator VPC NS controller ignored it)
+		subnetSets, err := testData.crdClientset.CrdV1alpha1().SubnetSets(bareNsName).List(context.TODO(), metav1.ListOptions{})
+		require.NoError(t, err)
+		require.Empty(t, subnetSets.Items, "Expected no SubnetSets in bare namespace")
 
-	// 4. Verify the invalid NetworkPolicy does NOT have an error annotation
-	// If NCP had processed it, it would have added an error annotation because of the invalid spec.
-	updatedBareNP, err := testData.clientset.NetworkingV1().NetworkPolicies(bareNsName).Get(context.TODO(), "test-np-bare", metav1.GetOptions{})
-	require.NoError(t, err)
-	_, hasBareError := updatedBareNP.Annotations["ncp/error"]
-	require.False(t, hasBareError, "Expected no ncp/error annotation on the invalid NetworkPolicy in Bare NS, which proves NCP ignored it")
+		// 2. Verify no ncp/snat_ip annotation on bare namespace (NCP T1 NS controller ignored it)
+		updatedBareNs, err := testData.clientset.CoreV1().Namespaces().Get(context.TODO(), bareNsName, metav1.GetOptions{})
+		require.NoError(t, err)
+		_, hasSnatIP := updatedBareNs.Annotations["ncp/snat_ip"]
+		require.False(t, hasSnatIP, "Expected no ncp/snat_ip annotation on bare namespace")
 
-	updatedVpcNP, err := testData.clientset.NetworkingV1().NetworkPolicies(vpcNsName).Get(context.TODO(), "test-np-vpc", metav1.GetOptions{})
-	require.NoError(t, err)
-	_, hasVpcNcpError := updatedVpcNP.Annotations["ncp/error"]
-	require.False(t, hasVpcNcpError, "Expected no ncp/error annotation on the invalid NetworkPolicy in VPC NS, which proves NCP ignored it")
-	_, hasVpcOpError := updatedVpcNP.Annotations["nsx-op/error"]
-	require.True(t, hasVpcOpError, "Expected nsx-op/error annotation on the invalid NetworkPolicy in VPC NS, which proves nsx-operator processed it")
+		// 3. Verify no processing logs in nsx-operator and nsx-ncp for the bare namespace
+		verifyNoLogsForNamespace(t, bareNsName)
+	})
 
 	fmt.Printf("Created VPC Pod in %s\n", vpcNsName)
 	fmt.Printf("Created Bare Pod in %s\n", bareNsName)
-	fmt.Println("Verified Bare Namespace Self-Blocking successfully")
+	fmt.Println("Verified Mixed Network Provider successfully")
 }

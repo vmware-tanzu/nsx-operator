@@ -1544,7 +1544,7 @@ echo "IMPORTED_TAG=$IMPORTED_TAG"
 		code, stdout, stderr, sshErr := execprovider.RunSSHCommand(cpvmIP+":22", currentSSHConfig, importCmd)
 		if sshErr != nil || code != 0 {
 			fmt.Printf("Failed SSH command on CPVM node %s (code=%d, err=%v, stdout=%s, stderr=%s)\n", cpvmIP, code, sshErr, stdout, stderr)
-			t.Skipf("Skipping TestM1MixedMode: SSH command failed on CPVM node %s: %v", cpvmIP, sshErr)
+			t.Skipf("Skipping TestMixedNetworkProvider: SSH command failed on CPVM node %s: %v", cpvmIP, sshErr)
 			return
 		}
 
