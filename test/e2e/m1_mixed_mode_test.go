@@ -179,10 +179,22 @@ python3 -c '
 import yaml
 with open("/etc/vmware/wcp/supervisor-capabilities.yaml", "r") as f:
     data = yaml.safe_load(f)
-for item in data.get("supervisor", []):
+spec = data.get("spec", {})
+infra = spec.setdefault("infra", [])
+has_infra = False
+for item in infra:
+    if item.get("name") == "supports_per_namespace_network_provider":
+        item["enabled"] = True
+        has_infra = True
+if not has_infra:
+    infra.append({"name": "supports_per_namespace_network_provider", "enabled": True})
+
+supervisor = spec.setdefault("supervisor", [])
+for item in supervisor:
     if item.get("name") == "supports_per_namespace_network_provider":
         item["enabled"] = True
         item["activatedWhenRule"] = ""
+
 with open("/etc/vmware/wcp/supervisor-capabilities.yaml", "w") as f:
     yaml.safe_dump(data, f)
 '
@@ -210,10 +222,10 @@ fi
 		_, _, _, _ = exec.RunSSHCommand(vcHost+":22", sshConfig, revertCmd)
 	})
 
-	// Wait up to 120 seconds for WCP to restart and supervisor-capabilities CR to be updated
+	// Wait up to 300 seconds for WCP to restart and supervisor-capabilities CR to be updated
 	fmt.Println("Waiting for supports_per_namespace_network_provider capability to become active on Supervisor...")
 	pollStart := time.Now()
-	for time.Since(pollStart) < 120*time.Second {
+	for time.Since(pollStart) < 300*time.Second {
 		if isCapabilityActiveOnCluster() {
 			fmt.Printf("✅ supports_per_namespace_network_provider is now active (took %v)\n", time.Since(pollStart).Round(time.Second))
 			return
@@ -222,7 +234,7 @@ fi
 	}
 
 	if !isCapabilityActiveOnCluster() {
-		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider did not become active within 120s after restarting WCP")
+		t.Skip("Skipping TestM1MixedMode: supports_per_namespace_network_provider did not become active within 300s after restarting WCP")
 	}
 }
 
