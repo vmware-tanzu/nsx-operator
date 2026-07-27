@@ -1567,10 +1567,14 @@ echo "IMPORTED_TAG=$IMPORTED_TAG"
 		return
 	}
 
-	deploy.Spec.Template.Spec.Containers[0].Image = targetImage
-	deploy.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
-
-	_, err = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(ctx, deploy, metav1.UpdateOptions{})
+	curDeploy, getErr := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(ctx, "nsx-ncp", metav1.GetOptions{})
+	if getErr != nil {
+		err = getErr
+	} else {
+		curDeploy.Spec.Template.Spec.Containers[0].Image = targetImage
+		curDeploy.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+		_, err = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(ctx, curDeploy, metav1.UpdateOptions{})
+	}
 	require.NoError(t, err, "Failed to update deployment/nsx-ncp image")
 
 	t.Cleanup(func() {
