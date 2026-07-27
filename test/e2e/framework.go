@@ -1431,9 +1431,10 @@ func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
 		Timeout:         15 * time.Second,
 	}
 
-	// Discover real CPVM management IPs (1 or 3 CPVMs)
+	// Discover real CPVM management IPs (1 or 3 CPVMs) and CPVM root password
 	vcHost := testData.vcClient.url.Hostname()
 	var cpvmIPs []string
+	var cpvmPassword string
 
 	vcUser := testOptions.vcUser
 	if vcUser == "" {
@@ -1441,7 +1442,7 @@ func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
 	}
 
 	discoverCmd := fmt.Sprintf(`python3 -c '
-import ssl, json
+import ssl, json, subprocess, re, os
 try:
     from pyVmomi import vim, Connect
     ctx = ssl._create_unverified_context()
@@ -1452,7 +1453,17 @@ try:
     if cpvms:
         print("CPVMS=" + ",".join(cpvms))
 except Exception as e:
-    pass
+    print("PYVMOMI_ERR=" + str(e))
+
+try:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = "/usr/lib/vmware/site-packages:/usr/lib/vmware-wcp"
+    out = subprocess.check_output(["python3", "/usr/lib/vmware-wcp/decryptK8Pwd.py"], env=env, text=True)
+    pwds = re.findall(r"PWD:\s*(\S+)", out)
+    if pwds:
+        print("CPVM_PWD=" + pwds[0])
+except Exception as e:
+    print("DECRYPT_ERR=" + str(e))
 '`, vcUser, testOptions.vcPassword)
 
 	_, stdout, _, err := execprovider.RunSSHCommand(vcHost+":22", sshConfig, discoverCmd)
@@ -1466,6 +1477,8 @@ except Exception as e:
 						cpvmIPs = append(cpvmIPs, ip)
 					}
 				}
+			} else if strings.HasPrefix(line, "CPVM_PWD=") {
+				cpvmPassword = strings.TrimSpace(strings.TrimPrefix(line, "CPVM_PWD="))
 			}
 		}
 	}
@@ -1487,6 +1500,18 @@ except Exception as e:
 
 	if len(cpvmIPs) == 0 {
 		cpvmIPs = []string{vcHost}
+	}
+
+	cpvmSSHConfig := sshConfig
+	if cpvmPassword != "" {
+		cpvmSSHConfig = &ssh.ClientConfig{
+			User: "root",
+			Auth: []ssh.AuthMethod{
+				ssh.Password(cpvmPassword),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+			Timeout:         15 * time.Second,
+		}
 	}
 
 	publishURL := fmt.Sprintf("http://build-squid.vcfd.broadcom.net/build/mts/release/%s/publish/nsx-container/Kubernetes/", buildTag)
@@ -1514,8 +1539,12 @@ echo "IMPORTED_TAG=$IMPORTED_TAG"
 
 	var targetImage string
 	for _, cpvmIP := range cpvmIPs {
+		currentSSHConfig := sshConfig
+		if cpvmPassword != "" {
+			currentSSHConfig = cpvmSSHConfig
+		}
 		fmt.Printf("Downloading and importing NCP build %s tarball on CPVM node (%s)...\n", buildTag, cpvmIP)
-		code, stdout, stderr, sshErr := execprovider.RunSSHCommand(cpvmIP+":22", sshConfig, importCmd)
+		code, stdout, stderr, sshErr := execprovider.RunSSHCommand(cpvmIP+":22", currentSSHConfig, importCmd)
 		if sshErr != nil || code != 0 {
 			fmt.Printf("Failed SSH command on CPVM node %s (code=%d, err=%v, stdout=%s, stderr=%s)\n", cpvmIP, code, sshErr, stdout, stderr)
 			t.Skipf("Skipping TestM1MixedMode: SSH command failed on CPVM node %s: %v", cpvmIP, sshErr)
@@ -1558,7 +1587,11 @@ echo "IMPORTED_TAG=$IMPORTED_TAG"
 
 			cleanCmd := "rm -f /tmp/nsx-ncp-target.tar"
 			for _, cpvmIP := range cpvmIPs {
-				_, _, _, _ = execprovider.RunSSHCommand(cpvmIP+":22", sshConfig, cleanCmd)
+				currentSSHConfig := sshConfig
+				if cpvmIP != vcHost && cpvmPassword != "" {
+					currentSSHConfig = cpvmSSHConfig
+				}
+				_, _, _, _ = execprovider.RunSSHCommand(cpvmIP+":22", currentSSHConfig, cleanCmd)
 			}
 
 			waitForNcpDeploymentReady(t, 2*time.Minute)
