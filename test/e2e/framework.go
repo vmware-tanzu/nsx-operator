@@ -1442,6 +1442,8 @@ func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
 	}
 
 	discoverCmd := fmt.Sprintf(`python3 -c '
+import sys
+sys.path.insert(0, "/usr/lib/vmware/site-packages")
 import ssl, json, subprocess, re, os
 try:
     from pyVmomi import vim, Connect
@@ -1462,10 +1464,14 @@ try:
     pwds = re.findall(r"PWD:\s*(\S+)", out)
     if pwds:
         print("CPVM_PWD=" + pwds[0])
+    ips = re.findall(r"IP:\s*(\S+)", out)
+    if ips:
+        print("PRIMARY_CPVM_IP=" + ips[0])
 except Exception as e:
     print("DECRYPT_ERR=" + str(e))
 '`, vcUser, testOptions.vcPassword)
 
+	var primaryCPVMIP string
 	_, stdout, _, err := execprovider.RunSSHCommand(vcHost+":22", sshConfig, discoverCmd)
 	if err == nil {
 		for _, line := range strings.Split(stdout, "\n") {
@@ -1479,23 +1485,14 @@ except Exception as e:
 				}
 			} else if strings.HasPrefix(line, "CPVM_PWD=") {
 				cpvmPassword = strings.TrimSpace(strings.TrimPrefix(line, "CPVM_PWD="))
+			} else if strings.HasPrefix(line, "PRIMARY_CPVM_IP=") {
+				primaryCPVMIP = strings.TrimSpace(strings.TrimPrefix(line, "PRIMARY_CPVM_IP="))
 			}
 		}
 	}
 
-	// Fallback: if pyVmomi discovery didn't yield IPs, use NodeInternalIPs from k8s nodes,
-	// excluding internal overlay subnets (like 172.26.x.x)
-	if len(cpvmIPs) == 0 {
-		nodes, err := testData.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-		if err == nil {
-			for _, node := range nodes.Items {
-				for _, addr := range node.Status.Addresses {
-					if addr.Type == corev1.NodeInternalIP && !strings.HasPrefix(addr.Address, "172.26.") {
-						cpvmIPs = append(cpvmIPs, addr.Address)
-					}
-				}
-			}
-		}
+	if len(cpvmIPs) == 0 && primaryCPVMIP != "" {
+		cpvmIPs = []string{primaryCPVMIP}
 	}
 
 	if len(cpvmIPs) == 0 {
