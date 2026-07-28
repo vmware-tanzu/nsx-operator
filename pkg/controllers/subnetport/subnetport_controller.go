@@ -152,6 +152,16 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
+		// If SubnetPort is created before VM creation, VM Operator will update the SubnetPort for owner references
+		// Under certain race conditions, the backfilled InterfaceIPType and StaticIPAllocationType in SubnetPort spec may be overwritten by the VM Operator
+		// If the NSX SubnetPort is created, interfaceIPType here will be empty. The correct interfaceIPType shall be generated based on NSX Subnet IPAddressType
+		if interfaceIPType == "" {
+			var parentIPAddressType v1alpha1.IPAddressType
+			if nsxSubnet != nil && nsxSubnet.IpAddressType != nil {
+				parentIPAddressType = common.ConvertNSXIPAddressTypeToCR(*nsxSubnet.IpAddressType)
+			}
+			interfaceIPType = subnetport.GetDefaultInterfaceIPType(interfaceIPType, parentIPAddressType)
+		}
 		err = r.updateSubnetPortIPType(ctx, subnetPort, interfaceIPType, nsxSubnet)
 		if err != nil {
 			return common.ResultNormal, err
@@ -944,6 +954,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
 		subnetPath = *existingSubnetPort.ParentPath
 		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
+		// For existing SubnetPort, interfaceIPType will be empty. It shall be calculated based on NSX Subnet IPAddressType in the caller.
 		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 		existing = true
 		return
