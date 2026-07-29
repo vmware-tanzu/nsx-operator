@@ -9,14 +9,27 @@ import (
 
 // DHCPIPPoolUsage represents DHCP IP pool usage statistics.
 type DHCPIPPoolUsage struct {
-	// Allocated number.
-	AllocatedNumber int64 `json:"allocatedNumber"`
-	// Allocated percentage.
-	AllocatedPercentage int64 `json:"allocatedPercentage"`
-	// Total number of IP addresses consumed by DHCP clients.
-	ConsumedNumber int64 `json:"consumedNumber"`
-	// Pool size.
-	PoolSize int64 `json:"poolSize"`
+	// PoolSize is the total size of the IP pool.
+	PoolSize int64 `json:"poolSize,omitempty" protobuf:"varint,2,opt,name=poolSize"`
+	// AllocatedNumber is the number of allocated IPs. For reference only; value may not be exact.
+	AllocatedNumber int64 `json:"allocatedNumber,omitempty" protobuf:"varint,3,opt,name=allocatedNumber"`
+	// AllocatedPercentage is the percentage of allocated IPs. For reference only; value may not be exact.
+	AllocatedPercentage int64 `json:"allocatedPercentage,omitempty" protobuf:"varint,4,opt,name=allocatedPercentage"`
+	// ConsumedNumber is the total number of IPs consumed by DHCP clients.
+	ConsumedNumber int64 `json:"consumedNumber,omitempty" protobuf:"varint,5,opt,name=consumedNumber"`
+}
+
+// DHCPIPv6IPPoolUsage represents DHCP IPv6 pool usage statistics.
+// Counters are decimal strings because IPv6 pools can exceed the int64 range.
+type DHCPIPv6IPPoolUsage struct {
+	// Number of allocated IP addresses, as a decimal string.
+	AllocatedNumber string `json:"allocatedNumber"`
+	// Allocated percentage, including fractional values.
+	AllocatedPercentage float64 `json:"allocatedPercentage"`
+	// Number of IP addresses consumed by DHCP clients, as a decimal string.
+	ConsumedNumber string `json:"consumedNumber"`
+	// Pool size, as a decimal string.
+	PoolSize string `json:"poolSize"`
 }
 
 // +genclient
@@ -31,6 +44,9 @@ type SubnetDHCPServerStats struct {
 	// DHCP IP pool usage statistics.
 	// +listType=atomic
 	IPPoolStats []DHCPIPPoolUsage `json:"ipPoolStats,omitempty"`
+	// DHCP IPv6 pool usage statistics.
+	// +listType=atomic
+	IPv6PoolStats []DHCPIPv6IPPoolUsage `json:"ipv6PoolStats,omitempty"`
 }
 
 //+kubebuilder:object:root=true

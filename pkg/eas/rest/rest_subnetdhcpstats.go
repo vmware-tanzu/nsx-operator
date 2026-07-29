@@ -26,6 +26,9 @@ func subnetDHCPStatsSummary(stats *easv1alpha1.SubnetDHCPServerStats) string {
 	for i, p := range stats.IPPoolStats {
 		parts = append(parts, fmt.Sprintf("pool-%d(alloc:%d%%,size:%d)", i, p.AllocatedPercentage, p.PoolSize))
 	}
+	for i, p := range stats.IPv6PoolStats {
+		parts = append(parts, fmt.Sprintf("ipv6-pool-%d(alloc:%g%%,size:%s)", i, p.AllocatedPercentage, p.PoolSize))
+	}
 	return truncateCol(strings.Join(parts, ","))
 }
 
