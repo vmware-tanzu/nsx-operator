@@ -34,11 +34,27 @@ func TestConvertDhcpServerStatistics_WithPools(t *testing.T) {
 				PoolSize:            int64Ptr(100),
 			},
 		},
+		DhcpIpv6: &model.DhcpIpv6Statistics{
+			IpPoolStats: []model.DhcpIpv6IpPoolUsage{
+				{
+					AllocatedPercentage: float64Ptr(20.5),
+					PoolSize:            int64Ptr(200),
+				},
+			},
+		},
 	}
 	out := ConvertDhcpServerStatistics(nsx, "sub1", "ns1")
 	require.Len(t, out.IPPoolStats, 1)
 	assert.Equal(t, int64(10), out.IPPoolStats[0].AllocatedPercentage)
 	assert.Equal(t, int64(100), out.IPPoolStats[0].PoolSize)
+
+	require.Len(t, out.IPv6PoolStats, 1)
+	assert.Equal(t, int64(20), out.IPv6PoolStats[0].AllocatedPercentage)
+	assert.Equal(t, int64(200), out.IPv6PoolStats[0].PoolSize)
+}
+
+func float64Ptr(f float64) *float64 {
+	return &f
 }
 func TestSubnetDHCPStatsStorage_Get_SubnetCRNotFound(t *testing.T) {
 	// No Subnet CR in k8s → error about missing CR.
