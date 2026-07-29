@@ -353,6 +353,9 @@ func TestGatewayReconciler_warmGatewayIPCacheOnStartup(t *testing.T) {
 								Spec:       gatewayv1.GatewaySpec{GatewayClassName: "istio"},
 								Status: gatewayv1.GatewayStatus{
 									Addresses: []gatewayv1.GatewayStatusAddress{{Type: ptrGatewayAddressType(gatewayv1.IPAddressType), Value: "1.2.3.4"}},
+									Conditions: []metav1.Condition{
+										{Type: string(gatewayv1.GatewayConditionProgrammed), Status: metav1.ConditionTrue},
+									},
 								},
 							},
 						}
@@ -502,6 +505,7 @@ func TestGatewayReconciler_Reconcile(t *testing.T) {
 					hostname := gatewayv1.Hostname("a.com")
 					gw.Spec.Listeners = []gatewayv1.Listener{{Hostname: &hostname, Name: "l1"}}
 					gw.Status.Addresses = []gatewayv1.GatewayStatusAddress{{Type: ptrGatewayAddressType(gatewayv1.IPAddressType), Value: "1.1.1.1"}}
+					gw.Status.Conditions = []metav1.Condition{{Type: string(gatewayv1.GatewayConditionProgrammed), Status: metav1.ConditionTrue}}
 					return nil
 				}).AnyTimes()
 				c.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()

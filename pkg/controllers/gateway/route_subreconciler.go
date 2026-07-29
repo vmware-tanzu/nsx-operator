@@ -197,7 +197,7 @@ func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSMergedEndpoints(route P
 		return nil, nil
 	}
 	eps, _, err := r.buildRouteDNSEndpointsForAggregation(route.GetNamespace(), owner, route.GetParentRefs(), route.GetRouteParentStatus(), route.GetObjectMeta(), route.GetSpecHostnames())
-	if len(eps) == 0 {
+	if len(eps) == 0 || err != nil {
 		return nil, err
 	}
 	return dns.NewOwnerScopedAggregatedRouteDNS(owner, eps), nil

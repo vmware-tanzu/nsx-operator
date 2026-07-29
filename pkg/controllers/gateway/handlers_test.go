@@ -85,6 +85,7 @@ func TestNetworkInfoToGatewayDNSRequests(t *testing.T) {
 					Annotations: map[string]string{
 						servicecommon.AnnotationDNSHostnameKey: "a.com",
 					},
+					Generation: 1,
 				},
 				Spec: gatewayv1.GatewaySpec{GatewayClassName: "avi-lb"},
 				Status: gatewayv1.GatewayStatus{
@@ -92,6 +93,13 @@ func TestNetworkInfoToGatewayDNSRequests(t *testing.T) {
 						{
 							Type:  ptrGatewayAddressType(gatewayv1.IPAddressType),
 							Value: "1.1.1.1",
+						},
+					},
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayv1.GatewayConditionProgrammed),
+							Status:             metav1.ConditionTrue,
+							ObservedGeneration: 1,
 						},
 					},
 				},
@@ -323,6 +331,9 @@ func TestListenerSetToGatewayMapFunc(t *testing.T) {
 				c.EXPECT().Get(ctx, types.NamespacedName{Namespace: "default", Name: "gw1"}, gomock.Any()).DoAndReturn(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 					gw := obj.(*gatewayv1.Gateway)
 					gw.Spec.GatewayClassName = "avi-lb"
+					gw.Status.Conditions = []metav1.Condition{
+						{Type: string(gatewayv1.GatewayConditionProgrammed), Status: metav1.ConditionTrue},
+					}
 					return nil
 				}).Times(1)
 			},

@@ -120,7 +120,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if !shouldProcessGateway(gw) {
-		return handleGatewayCleanup("Gateway is no longer managed, deleting DNS records")
+		return handleGatewayCleanup("Gateway is not in a valid management status (either unsupported GatewayClass, not programmed, or DNS is ignored), deleting DNS records")
 	}
 
 	if !hasUsableGatewayIP(gw) {
@@ -228,7 +228,10 @@ func (r *GatewayReconciler) updateGatewayDNSReadyCondition(ctx context.Context, 
 			return client.IgnoreNotFound(getErr)
 		}
 
-		patch := client.MergeFrom(gw.DeepCopy())
+		patch := client.MergeFromWithOptions(
+			gw.DeepCopy(),
+			client.MergeFromWithOptimisticLock{},
+		)
 		c := cond
 		c.ObservedGeneration = gw.GetGeneration()
 		if !meta.SetStatusCondition(&gw.Status.Conditions, c) {
@@ -246,7 +249,10 @@ func (r *GatewayReconciler) removeGatewayDNSConfigCondition(ctx context.Context,
 			return client.IgnoreNotFound(err)
 		}
 
-		patch := client.MergeFrom(gw.DeepCopy())
+		patch := client.MergeFromWithOptions(
+			gw.DeepCopy(),
+			client.MergeFromWithOptimisticLock{},
+		)
 		if !meta.RemoveStatusCondition(&gw.Status.Conditions, conditionTypeDNSRecordReady) {
 			return nil
 		}

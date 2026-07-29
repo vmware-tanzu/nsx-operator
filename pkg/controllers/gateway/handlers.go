@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -90,9 +92,17 @@ func listenerSetParentGatewayIndexFunc(obj client.Object) []string {
 	return []string{parentGateway.String()}
 }
 
-// shouldProcessGateway: managed GatewayClass and not DNS-ignore annotation.
+func isGatewayProgrammed(gw *gatewayv1.Gateway) bool {
+	cond := meta.FindStatusCondition(gw.Status.Conditions, string(gatewayv1.GatewayConditionProgrammed))
+	if cond == nil {
+		return false
+	}
+	return cond.Status == metav1.ConditionTrue && cond.ObservedGeneration == gw.Generation
+}
+
+// shouldProcessGateway: managed GatewayClass, gateway is programed and not DNS-ignore annotation.
 func shouldProcessGateway(gw *gatewayv1.Gateway) bool {
-	return filteredGatewayClasses.Has(string(gw.Spec.GatewayClassName)) && !gatewayDNSIgnored(gw)
+	return filteredGatewayClasses.Has(string(gw.Spec.GatewayClassName)) && isGatewayProgrammed(gw) && !gatewayDNSIgnored(gw)
 }
 
 // gatewayDNSIgnored: DNS ignore anno present and not equal to "false" (case-insensitive).
