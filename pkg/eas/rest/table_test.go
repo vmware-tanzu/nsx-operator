@@ -4,6 +4,7 @@
 package rest
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,13 +55,70 @@ func TestSubnetDHCPStatsSummary(t *testing.T) {
 	stats := &easv1alpha1.SubnetDHCPServerStats{
 		IPPoolStats: []easv1alpha1.DHCPIPPoolUsage{
 			{AllocatedPercentage: 25, PoolSize: 40},
+			{AllocatedPercentage: 12, PoolSize: 80},
 		},
 	}
-	assert.Equal(t, "pool-0(alloc:25%,size:40)", subnetDHCPStatsSummary(stats))
+	assert.Equal(t, "pool-0(alloc:25%,size:40),pool-1(alloc:12%,size:80)", subnetDHCPStatsSummary(stats))
 }
 
 func TestSubnetDHCPStatsSummary_Empty(t *testing.T) {
 	assert.Equal(t, "", subnetDHCPStatsSummary(&easv1alpha1.SubnetDHCPServerStats{}))
+}
+
+func TestSubnetDHCPStatsSummary_IPv6(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		stats easv1alpha1.SubnetDHCPServerStats
+		want  string
+	}{
+		{
+			name: "IPv6 only with large pool and fractional percentage",
+			stats: easv1alpha1.SubnetDHCPServerStats{
+				IPv6PoolStats: []easv1alpha1.DHCPIPv6IPPoolUsage{
+					{AllocatedPercentage: 12.5, PoolSize: "18446744073709551616"},
+				},
+			},
+			want: "ipv6-pool-0(alloc:12.5%,size:18446744073709551616)",
+		},
+		{
+			name: "dual stack",
+			stats: easv1alpha1.SubnetDHCPServerStats{
+				IPPoolStats: []easv1alpha1.DHCPIPPoolUsage{
+					{AllocatedPercentage: 25, PoolSize: 40},
+				},
+				IPv6PoolStats: []easv1alpha1.DHCPIPv6IPPoolUsage{
+					{AllocatedPercentage: 12.5, PoolSize: "80"},
+				},
+			},
+			want: "pool-0(alloc:25%,size:40),ipv6-pool-0(alloc:12.5%,size:80)",
+		},
+		{
+			name: "multiple IPv6 pools including zero usage",
+			stats: easv1alpha1.SubnetDHCPServerStats{
+				IPv6PoolStats: []easv1alpha1.DHCPIPv6IPPoolUsage{
+					{AllocatedPercentage: 0, PoolSize: "10"},
+					{AllocatedPercentage: 50, PoolSize: "20"},
+				},
+			},
+			want: "ipv6-pool-0(alloc:0%,size:10),ipv6-pool-1(alloc:50%,size:20)",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, subnetDHCPStatsSummary(&tc.stats))
+		})
+	}
+}
+
+func TestSubnetDHCPStatsSummary_IPv6Truncated(t *testing.T) {
+	stats := &easv1alpha1.SubnetDHCPServerStats{
+		IPv6PoolStats: []easv1alpha1.DHCPIPv6IPPoolUsage{
+			{AllocatedPercentage: 12.5, PoolSize: "18446744073709551616"},
+			{AllocatedPercentage: 25, PoolSize: "18446744073709551616"},
+		},
+	}
+	summary := subnetDHCPStatsSummary(stats)
+	assert.Len(t, summary, maxColLen)
+	assert.True(t, strings.HasSuffix(summary, "..."))
 }
 
 func TestTruncateCol(t *testing.T) {

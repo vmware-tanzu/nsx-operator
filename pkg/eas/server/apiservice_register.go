@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/util/retry"
 
 	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -69,8 +70,16 @@ func (s *EASServer) registerExtensionAPIService(ctx context.Context) error {
 	} else if getErr != nil {
 		return fmt.Errorf("get APIService %s: %w", name, getErr)
 	} else {
-		mergeAPIServiceSpec(existing, desired)
-		if _, err = ri.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			existing, getErr = ri.Get(ctx, name, metav1.GetOptions{})
+			if getErr != nil {
+				return getErr
+			}
+			mergeAPIServiceSpec(existing, desired)
+			_, updateErr := ri.Update(ctx, existing, metav1.UpdateOptions{})
+			return updateErr
+		})
+		if err != nil {
 			return fmt.Errorf("update APIService %s: %w", name, err)
 		}
 		logger.Log.Info("Updated eas APIService with Kubernetes", "name", name)
