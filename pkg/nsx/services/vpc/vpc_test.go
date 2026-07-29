@@ -414,6 +414,54 @@ func TestIsRADeactivatedByVPCPath(t *testing.T) {
 	}
 }
 
+// TestIsRADeactivatedByVPCPath_NoStaleCaching guards against a regression found during manual
+// testing: an earlier version of IsRADeactivatedByVPCPath cached its result forever, so an admin
+// enabling/disabling RA on a live VPC had no effect on already-cached SubnetPorts until the
+// operator restarted. This asserts back-to-back calls for the same VPC path always reflect the
+// latest NSX state.
+func TestIsRADeactivatedByVPCPath_NoStaleCaching(t *testing.T) {
+	vpcPath := "/orgs/default/projects/p1/vpcs/vpc1"
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				Cluster:                 &nsx.Cluster{},
+				VPCClient:               &fakeVpcsClientForRA{},
+				VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+				Ipv6NdraProfileClient:   &fakeIpv6NdraProfilesClient{},
+			},
+		},
+	}
+
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Vpc{}, nil},
+		Times:  1,
+	}})
+	defer patches.Reset()
+	firstResult, err := vpcService.IsRADeactivatedByVPCPath(vpcPath)
+	assert.NoError(t, err)
+	assert.True(t, firstResult, "no VpcServiceProfile configured should report RA deactivated")
+
+	// Simulate an admin attaching an active NDRA profile to the VPC's service profile after the
+	// first lookup.
+	patches.Reset()
+	patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.VpcServiceProfile{Ipv6ProfilePaths: []string{"/infra/ipv6-ndra-profiles/ra1"}}, nil},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.Ipv6NdraProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Ipv6NdraProfile{RaMode: common.String(model.Ipv6NdraProfile_RA_MODE_SLAAC_DNS_THROUGH_RA)}, nil},
+		Times:  1,
+	}})
+
+	secondResult, err := vpcService.IsRADeactivatedByVPCPath(vpcPath)
+	assert.NoError(t, err)
+	assert.False(t, secondResult, "second call must reflect the newly attached NDRA profile, not a cached stale value")
+}
+
 type fakeIPAddressAllocationClient struct{}
 
 func (c fakeIPAddressAllocationClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, ipAddressAllocationIdParam string) error {

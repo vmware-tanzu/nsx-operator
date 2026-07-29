@@ -55,10 +55,9 @@ var (
 
 type VPCService struct {
 	common.Service
-	VpcStore             *VPCStore
-	LbsStore             *LBSStore
-	defaultProjectCache  sync.Map // cache for IsDefaultNSXProject results, key: "orgID/projectID", value: bool
-	raDeactivatedCache   sync.Map // cache for IsRADeactivatedByVPCPath results, key: VPC path, value: bool
+	VpcStore            *VPCStore
+	LbsStore            *LBSStore
+	defaultProjectCache sync.Map // cache for IsDefaultNSXProject results, key: "orgID/projectID", value: bool
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -1221,28 +1220,17 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 // checks its RaMode. If no VpcServiceProfile or no Ipv6NdraProfile is configured, RA is
 // considered deactivated: NSX does not push any ra_config to the dataplane in that case, so no
 // Router Advertisements are actually sent on the wire, which is dataplane-equivalent to an
-// explicit ra_mode of DISABLED. Results are cached since RA configuration rarely changes at
-// runtime.
+// explicit ra_mode of DISABLED. Not cached: an admin can change VPC RA config at any time, and a
+// stale positive would silently mislead every SubnetPort in the VPC until the operator restarts.
 func (s *VPCService) IsRADeactivatedByVPCPath(vpcPath string) (bool, error) {
 	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
 	if err != nil {
 		log.Error(err, "Failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
 		return false, err
 	}
-	cacheKey := vpcResInfo.GetVPCPath()
-	if val, ok := s.raDeactivatedCache.Load(cacheKey); ok {
-		return val.(bool), nil
-	}
-
-	raDeactivated, err := s.resolveRADeactivated(vpcResInfo)
-	if err != nil {
-		return false, err
-	}
-	s.raDeactivatedCache.Store(cacheKey, raDeactivated)
-	return raDeactivated, nil
+	return s.resolveRADeactivated(vpcResInfo)
 }
 
-// resolveRADeactivated resolves RA mode for a VPC without consulting or populating the cache.
 func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bool, error) {
 	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
 	err = nsxutil.TransNSXApiError(err)
@@ -1251,6 +1239,7 @@ func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bo
 		return false, err
 	}
 	if vpc.VpcServiceProfile == nil {
+		log.Debug("No VpcServiceProfile configured on VPC, treating RA as deactivated", "VPC", vpcResInfo.GetVPCPath())
 		return true, nil
 	}
 
@@ -1263,6 +1252,7 @@ func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bo
 
 	ndraProfilePath := findIpv6NdraProfilePath(profile.Ipv6ProfilePaths)
 	if ndraProfilePath == "" {
+		log.Debug("No Ipv6NdraProfile referenced by VpcServiceProfile, treating RA as deactivated", "VpcServiceProfile", *vpc.VpcServiceProfile)
 		return true, nil
 	}
 
@@ -1273,7 +1263,9 @@ func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bo
 		return false, err
 	}
 
-	return ndraProfile.RaMode == nil || *ndraProfile.RaMode == model.Ipv6NdraProfile_RA_MODE_DISABLED, nil
+	raDeactivated := ndraProfile.RaMode == nil || *ndraProfile.RaMode == model.Ipv6NdraProfile_RA_MODE_DISABLED
+	log.Debug("Resolved RA mode for VPC", "VPC", vpcResInfo.GetVPCPath(), "Ipv6NdraProfile", ndraProfilePath, "RaMode", ndraProfile.RaMode, "RADeactivated", raDeactivated)
+	return raDeactivated, nil
 }
 
 // findIpv6NdraProfilePath returns the Ipv6NdraProfile path among the VpcServiceProfile's
