@@ -1379,3 +1379,115 @@ func TestIsSupersetIPAddressTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateIPAddressTypeTransition(t *testing.T) {
+	tests := []struct {
+		name    string
+		oldType v1alpha1.IPAddressType
+		newType v1alpha1.IPAddressType
+		wantErr string
+	}{
+		{
+			name:    "Same type IPv4 to IPv4",
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4,
+			wantErr: "",
+		},
+		{
+			name:    "Empty to IPv4",
+			oldType: "",
+			newType: v1alpha1.IPAddressTypeIPv4,
+			wantErr: "",
+		},
+		{
+			name:    "IPv4 to IPv4IPv6 widen",
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "",
+		},
+		{
+			name:    "IPv6 to IPv4IPv6 widen",
+			oldType: v1alpha1.IPAddressTypeIPv6,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "",
+		},
+		{
+			name:    "IPv4 to IPv6 disallowed",
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv6,
+			wantErr: "IPAddressType converting from IPv4 to IPv6 is not supported",
+		},
+		{
+			name:    "IPv4IPv6 to IPv4 disallowed",
+			oldType: v1alpha1.IPAddressTypeIPv4IPv6,
+			newType: v1alpha1.IPAddressTypeIPv4,
+			wantErr: "IPAddressType converting from IPv4IPv6 to IPv4 is not supported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateIPAddressTypeTransition(tt.oldType, tt.newType)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateAccessModeTransition(t *testing.T) {
+	tests := []struct {
+		name          string
+		oldAccessMode v1alpha1.AccessMode
+		newAccessMode v1alpha1.AccessMode
+		oldType       v1alpha1.IPAddressType
+		newType       v1alpha1.IPAddressType
+		wantErr       string
+	}{
+		{
+			name:          "Same access mode",
+			oldAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			newAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			oldType:       v1alpha1.IPAddressTypeIPv4,
+			newType:       v1alpha1.IPAddressTypeIPv4,
+			wantErr:       "",
+		},
+		{
+			name:          "Empty old access mode",
+			oldAccessMode: "",
+			newAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			oldType:       v1alpha1.IPAddressTypeIPv4,
+			newType:       v1alpha1.IPAddressTypeIPv4,
+			wantErr:       "",
+		},
+		{
+			name:          "Valid change when converting from IPv6 to IPv4IPv6",
+			oldAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			newAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+			oldType:       v1alpha1.IPAddressTypeIPv6,
+			newType:       v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr:       "",
+		},
+		{
+			name:          "Invalid change when type remains IPv4",
+			oldAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			newAccessMode: v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+			oldType:       v1alpha1.IPAddressTypeIPv4,
+			newType:       v1alpha1.IPAddressTypeIPv4,
+			wantErr:       "accessMode is immutable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateAccessModeTransition(tt.oldAccessMode, tt.newAccessMode, tt.oldType, tt.newType)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}

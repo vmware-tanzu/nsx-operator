@@ -102,20 +102,11 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 		}
 
 		if !common.IsSharedSubnet(subnet) {
-			// Subnet IPAddressType can be updated from empty to the default value;
-			// or be converted from IPv4/IPv6 to IPv4IPv6.
-			if oldSubnet.Spec.IPAddressType != subnet.Spec.IPAddressType {
-				ipAddressTypeWiden := subnet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4IPv6 && (oldSubnet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4 || oldSubnet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv6)
-				if oldSubnet.Spec.IPAddressType != "" && !ipAddressTypeWiden {
-					return admission.Denied(fmt.Sprintf("Subnet IPAddressType converting from %s to %s is not supported", oldSubnet.Spec.IPAddressType, subnet.Spec.IPAddressType))
-				}
+			if err := controllercommon.ValidateIPAddressTypeTransition(oldSubnet.Spec.IPAddressType, subnet.Spec.IPAddressType); err != nil {
+				return admission.Denied(fmt.Sprintf("Subnet %s", err))
 			}
-			if oldSubnet.Spec.AccessMode != subnet.Spec.AccessMode {
-				// AccessMode can only be changed when IPAddressType is converted from IPv6 to IPv4IPv6;
-				// or set from empty to a default value
-				if oldSubnet.Spec.AccessMode != "" && (subnet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv4IPv6 || oldSubnet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv6) {
-					return admission.Denied("Subnet accessMode is immutable")
-				}
+			if err := controllercommon.ValidateAccessModeTransition(oldSubnet.Spec.AccessMode, subnet.Spec.AccessMode, oldSubnet.Spec.IPAddressType, subnet.Spec.IPAddressType); err != nil {
+				return admission.Denied(fmt.Sprintf("Subnet %s", err))
 			}
 		}
 	case admissionv1.Delete:

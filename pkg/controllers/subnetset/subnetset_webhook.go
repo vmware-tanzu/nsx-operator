@@ -142,20 +142,11 @@ func (v *SubnetSetValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Denied("Pre-created SubnetSet spec.ipAddressType can only be set by NSX Operator")
 		}
 		if subnetSet.Spec.SubnetNames == nil {
-			// SubnetSet IPAddressType can be changed from empty to the default value;
-			// or be converted from IPv4/IPv6 to IPv4IPv6.
-			if oldSubnetSet.Spec.IPAddressType != subnetSet.Spec.IPAddressType {
-				ipAddressTypeWiden := subnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4IPv6 && (oldSubnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv4 || oldSubnetSet.Spec.IPAddressType == v1alpha1.IPAddressTypeIPv6)
-				if oldSubnetSet.Spec.IPAddressType != "" && !ipAddressTypeWiden {
-					return admission.Denied(fmt.Sprintf("SubnetSet IPAddressType converting from %s to %s is not supported", oldSubnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType))
-				}
+			if err := controllercommon.ValidateIPAddressTypeTransition(oldSubnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType); err != nil {
+				return admission.Denied(fmt.Sprintf("SubnetSet %s", err))
 			}
-			if oldSubnetSet.Spec.AccessMode != subnetSet.Spec.AccessMode {
-				// AccessMode can only be changed when IPAddressType is converted from IPv6 to IPv4IPv6;
-				// or set from empty to a default value
-				if oldSubnetSet.Spec.AccessMode != "" && (subnetSet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv4IPv6 || oldSubnetSet.Spec.IPAddressType != v1alpha1.IPAddressTypeIPv6) {
-					return admission.Denied("SubnetSet accessMode is immutable")
-				}
+			if err := controllercommon.ValidateAccessModeTransition(oldSubnetSet.Spec.AccessMode, subnetSet.Spec.AccessMode, oldSubnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType); err != nil {
+				return admission.Denied(fmt.Sprintf("SubnetSet %s", err))
 			}
 		}
 

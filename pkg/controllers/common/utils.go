@@ -736,6 +736,31 @@ func IsSupersetIPAddressTypes(base, target v1alpha1.IPAddressType) bool {
 	return false
 }
 
+// ValidateIPAddressTypeTransition validates if transitioning from oldType to newType is supported.
+func ValidateIPAddressTypeTransition(oldType, newType v1alpha1.IPAddressType) error {
+	// IPAddressType can be changed from empty to a default value;
+	// or be converted from IPv4/IPv6 to IPv4IPv6.
+	if oldType != newType {
+		ipAddressTypeWiden := newType == v1alpha1.IPAddressTypeIPv4IPv6 && (oldType == v1alpha1.IPAddressTypeIPv4 || oldType == v1alpha1.IPAddressTypeIPv6)
+		if oldType != "" && !ipAddressTypeWiden {
+			return fmt.Errorf("IPAddressType converting from %s to %s is not supported", oldType, newType)
+		}
+	}
+	return nil
+}
+
+// ValidateAccessModeTransition validates if transitioning access mode is allowed given IP address type changes.
+func ValidateAccessModeTransition(oldAccessMode, newAccessMode v1alpha1.AccessMode, oldType, newType v1alpha1.IPAddressType) error {
+	if oldAccessMode != newAccessMode {
+		// AccessMode can only be changed when IPAddressType is converted from IPv6 to IPv4IPv6;
+		// or set from empty to a default value
+		if oldAccessMode != "" && (newType != v1alpha1.IPAddressTypeIPv4IPv6 || oldType != v1alpha1.IPAddressTypeIPv6) {
+			return fmt.Errorf("accessMode is immutable")
+		}
+	}
+	return nil
+}
+
 // IsConditionSemanticEqual checks if two conditions are semantically equal.
 func IsConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.Condition) bool {
 	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
