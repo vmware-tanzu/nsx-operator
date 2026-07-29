@@ -133,9 +133,9 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return subnet.InitializeSubnetService(service)
 		}
 	}
-	wrapInitializeSecurityPolicy := func(service common.Service) cleanupFunc {
+	wrapInitializeSecurityPolicy := func(service common.Service, vpcMode bool) cleanupFunc {
 		return func() (interface{}, error) {
-			return securitypolicy.InitializeSecurityPolicy(service, vpcService, true)
+			return securitypolicy.InitializeSecurityPolicy(service, vpcService, vpcMode, true)
 		}
 	}
 	wrapInitializeVPC := func(service common.Service) cleanupFunc {
@@ -219,7 +219,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	loggedAdd("SubnetBinding", wrapInitializeSubnetBinding(commonService))
 	loggedAdd("SubnetIPReservation", wrapInitializeSubnetIPReservation(commonService))
 	loggedAdd("SubnetService", wrapInitializeSubnetService(commonService))
-	loggedAdd("SecurityPolicy", wrapInitializeSecurityPolicy(commonService))
+	loggedAdd("T1SecurityPolicy", wrapInitializeSecurityPolicy(commonService, false))
+	loggedAdd("VPCSecurityPolicy", wrapInitializeSecurityPolicy(commonService, true))
 	loggedAdd("StaticRoute", wrapInitializeStaticRoute(commonService))
 	loggedAdd("VPC", wrapInitializeVPC(commonService))
 	loggedAdd("IPAddressAllocation", wrapInitializeIPAddressAllocation(commonService))

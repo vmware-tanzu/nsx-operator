@@ -408,6 +408,13 @@ func SetMixedModeStateForTest(hasT1, hasVPC bool) {
 	stateInitialized = true
 }
 
+// SetPerNamespaceProvidersSupportedForTest sets perNamespaceProvidersSupported for unit tests.
+func SetPerNamespaceProvidersSupportedForTest(supported bool) {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	perNamespaceProvidersSupported = &supported
+}
+
 // IsPerNamespaceProvidersSupported returns true when Capabilities
 // advertises per-namespace network providers.
 func IsPerNamespaceProvidersSupported() bool {
@@ -432,4 +439,18 @@ func IsVPCNamespace(ns *v1.Namespace) bool {
 		return strings.TrimSpace(ns.Annotations[VPCNetworkConfigAnnotation]) != ""
 	}
 	return HasVPCNamespaces()
+}
+
+// IsT1Namespace reports whether ns should be treated as a T1 namespace.
+// In mixed mode (when per-namespace providers are supported), an explicit T1 activation
+// annotation (nsx.vmware.com/t1_default_config, etc.) marks a T1 namespace.
+// In legacy mode (pre-9.2), the cluster-level HasT1Namespaces flag is returned.
+func IsT1Namespace(ns *v1.Namespace) bool {
+	if ns == nil {
+		return false
+	}
+	if IsPerNamespaceProvidersSupported() {
+		return hasT1ActivationAnnotation(ns.Annotations)
+	}
+	return HasT1Namespaces()
 }

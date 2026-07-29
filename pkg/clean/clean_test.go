@@ -28,7 +28,13 @@ import (
 )
 
 var (
-	cf = &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiManagers: []string{"10.0.0.1"}}}
+	cf = &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{
+			NsxApiManagers: []string{"10.0.0.1"},
+			NsxApiUser:     "admin",
+			NsxApiPassword: "secret",
+		},
+	}
 )
 
 func TestClean_ValidationFailed(t *testing.T) {
@@ -36,15 +42,11 @@ func TestClean_ValidationFailed(t *testing.T) {
 	log := logr.Discard()
 	debug := false
 	logLevel := 0
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(cf.NsxConfig), "ValidateConfigFromCmd", func(_ *config.NsxConfig) error {
-		return errors.New("validation failed")
-	})
+	invalidCf := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}
 
-	defer patches.Reset()
-
-	err := Clean(ctx, cf, &log, debug, logLevel)
+	err := Clean(ctx, invalidCf, &log, debug, logLevel)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "validation failed")
+	assert.Contains(t, err.Error(), "failed to validate config")
 }
 
 func TestClean_GetClientFailed(t *testing.T) {
@@ -54,13 +56,10 @@ func TestClean_GetClientFailed(t *testing.T) {
 	debug := false
 	logLevel := 0
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(cf.NsxConfig), "ValidateConfigFromCmd", func(_ *config.NsxConfig) error {
+	patches := gomonkey.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
 		return nil
 	})
 	defer patches.Reset()
-	patches.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
-		return nil
-	})
 
 	err := Clean(ctx, cf, &log, debug, logLevel)
 	assert.Error(t, err)
@@ -74,13 +73,10 @@ func TestClean_InitError(t *testing.T) {
 	debug := false
 	logLevel := 0
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(cf.NsxConfig), "ValidateConfigFromCmd", func(_ *config.NsxConfig) error {
-		return nil
-	})
-	defer patches.Reset()
-	patches.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
+	patches := gomonkey.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
 		return &nsx.Client{}
 	})
+	defer patches.Reset()
 
 	patches.ApplyFunc(InitializeCleanupService, func(_ *config.NSXOperatorConfig, _ *nsx.Client, _ *logr.Logger) (*CleanupService, error) {
 		return nil, errors.New("init cleanup service failed")
@@ -97,8 +93,8 @@ func TestClean_Cleanup(t *testing.T) {
 	debug := false
 	logLevel := 0
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(cf.NsxConfig), "ValidateConfigFromCmd", func(_ *config.NsxConfig) error {
-		return nil
+	patches := gomonkey.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
+		return &nsx.Client{}
 	})
 	defer patches.Reset()
 	patches.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
@@ -176,7 +172,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	patches.ApplyFunc(subnet.InitializeSubnetService, func(service common.Service) (*subnet.SubnetService, error) {
 		return &subnet.SubnetService{}, nil
 	})
-	patches.ApplyFunc(securitypolicy.InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, forCleanup bool) (*securitypolicy.SecurityPolicyService, error) {
+	patches.ApplyFunc(securitypolicy.InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanup bool) (*securitypolicy.SecurityPolicyService, error) {
 		return &securitypolicy.SecurityPolicyService{}, nil
 	})
 	patches.ApplyFunc(sr.InitializeStaticRoute, func(service common.Service, vpcService common.VPCServiceProvider) (*sr.StaticRouteService, error) {
@@ -218,9 +214,9 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
 	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, Inventory, SecurityPolicy, LBInfraCleaner, NSXServiceAccount, HealthCleaner = 8
-	assert.Len(t, cleanupService.vpcPreCleaners, 7)
-	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
-	assert.Len(t, cleanupService.infraCleaners, 3)
+	assert.Len(t, cleanupService.vpcPreCleaners, 8)
+	assert.Len(t, cleanupService.vpcChildrenCleaners, 6)
+	assert.Len(t, cleanupService.infraCleaners, 4)
 }
 
 func TestInitializeCleanupService_VPCError(t *testing.T) {
@@ -237,7 +233,7 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	patches.ApplyFunc(subnet.InitializeSubnetService, func(service common.Service) (*subnet.SubnetService, error) {
 		return &subnet.SubnetService{}, nil
 	})
-	patches.ApplyFunc(securitypolicy.InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, forCleanup bool) (*securitypolicy.SecurityPolicyService, error) {
+	patches.ApplyFunc(securitypolicy.InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanup bool) (*securitypolicy.SecurityPolicyService, error) {
 		return &securitypolicy.SecurityPolicyService{}, nil
 	})
 	patches.ApplyFunc(sr.InitializeStaticRoute, func(service common.Service, vpcService common.VPCServiceProvider) (*sr.StaticRouteService, error) {
@@ -263,9 +259,9 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
 	// Note, the services added after VPCService should fail because of the error returned in `InitializeVPC`.
-	assert.Len(t, cleanupService.vpcChildrenCleaners, 3)
+	assert.Len(t, cleanupService.vpcChildrenCleaners, 4)
 	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, SecurityPolicy = 4 (services initialized before VPC error)
-	assert.Len(t, cleanupService.vpcPreCleaners, 4)
-	assert.Len(t, cleanupService.infraCleaners, 1)
+	assert.Len(t, cleanupService.vpcPreCleaners, 5)
+	assert.Len(t, cleanupService.infraCleaners, 2)
 	assert.Equal(t, expectedError, cleanupService.svcErr)
 }
