@@ -8,7 +8,9 @@ import (
 	"fmt"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
@@ -84,7 +86,7 @@ func (s *SubnetDHCPStatsStorage) Get(ctx context.Context, namespace, name string
 		return s.fetchStats(namespace, *subnet.Id, name, info)
 	}
 
-	return nil, fmt.Errorf("SubnetDHCPServerStats %s/%s not found", namespace, name)
+	return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "subnetdhcpserverstats"}, name), "subnetdhcpserverstats", name, nil)
 }
 
 // fetchStats calls NSX for DHCP stats of a specific NSX subnet and returns the result
@@ -132,6 +134,20 @@ func ConvertDhcpServerStatistics(nsxStats *model.DhcpServerStatistics, name, nam
 			ConsumedNumber:      DerefInt64(p.ConsumedNumber),
 			PoolSize:            DerefInt64(p.PoolSize),
 		})
+	}
+	if nsxStats.DhcpIpv6 != nil {
+		for _, p := range nsxStats.DhcpIpv6.IpPoolStats {
+			var allocatedPercentage int64
+			if p.AllocatedPercentage != nil {
+				allocatedPercentage = int64(*p.AllocatedPercentage)
+			}
+			stats.IPv6PoolStats = append(stats.IPv6PoolStats, easv1alpha1.DHCPIPPoolUsage{
+				AllocatedNumber:     DerefInt64(p.AllocatedNumber),
+				AllocatedPercentage: allocatedPercentage,
+				ConsumedNumber:      DerefInt64(p.ConsumedNumber),
+				PoolSize:            DerefInt64(p.PoolSize),
+			})
+		}
 	}
 	return stats
 }

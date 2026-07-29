@@ -26,7 +26,7 @@ func newSubnetIPPoolsREST() *subnetIPPoolsStorage {
 
 func TestSubnetIPPoolsStorage_Metadata(t *testing.T) {
 	r := newSubnetIPPoolsREST()
-	assert.IsType(t, &easv1alpha1.SubnetIPPools{}, r.New())
+	assert.IsType(t, &easv1alpha1.SubnetIPPoolsList{}, r.New())
 	assert.True(t, r.NamespaceScoped())
 	assert.Equal(t, "subnetippools", r.GetSingularName())
 	r.Destroy()
@@ -53,6 +53,14 @@ func TestSubnetIPPoolsStorage_ConvertToTable_Success(t *testing.T) {
 	require.Len(t, table.Rows, 1)
 	assert.Equal(t, "sub1", table.Rows[0].Cells[0])
 	assert.Equal(t, subnetIPPoolsColumns, table.ColumnDefinitions)
+
+	listObj := &easv1alpha1.SubnetIPPoolsList{
+		Items: []easv1alpha1.SubnetIPPools{*obj},
+	}
+	tableList, err := r.ConvertToTable(context.Background(), listObj, nil)
+	require.NoError(t, err)
+	require.Len(t, tableList.Rows, 1)
+	assert.Equal(t, "sub1", tableList.Rows[0].Cells[0])
 }
 
 func TestSubnetIPPoolsStorage_ConvertToTable_Error(t *testing.T) {
