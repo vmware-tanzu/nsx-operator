@@ -442,6 +442,99 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		assert.Equal(t, nil, ret)
 	})
 
+	// happy path - empty interfaceIPType for existing SubnetPort
+	t.Run("succeeded with empty interfaceIPType for existing SubnetPort", func(t *testing.T) {
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Spec.Subnet = "subnet1"
+				return nil
+			}).Times(2)
+		portState := &model.SegmentPortState{
+			Attachment: &model.SegmentPortAttachmentState{
+				Id: &attachmentID,
+			},
+		}
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
+				return true, false, "path1", nil, nil, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+
+		ipTypeIPv6 := "IPV6"
+		pGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					IpAddressType: &ipTypeIPv6,
+				}
+				return nsxSubnet, nil
+			})
+		defer pGetSubnetByPath.Reset()
+
+		var capturedIPTypeInUpdate v1alpha1.IPAddressType
+		pUpdateSubnetPortIPType := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetPortIPType,
+			func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort, interfaceIPType v1alpha1.IPAddressType, _ *model.VpcSubnet) error {
+				capturedIPTypeInUpdate = interfaceIPType
+				return nil
+			})
+		defer pUpdateSubnetPortIPType.Reset()
+
+		var capturedIPTypeInCreate v1alpha1.IPAddressType
+		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				capturedIPTypeInCreate = interfaceIPType
+				return portState, nil
+			})
+		defer patchesCreateOrUpdateSubnetPort.Reset()
+
+		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			})
+		defer patchesSetAddressBindingStatus.Reset()
+		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		_, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, capturedIPTypeInUpdate)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, capturedIPTypeInCreate)
+
+		// Test IPv4_IPV6 defaulting
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Spec.Subnet = "subnet1"
+				return nil
+			}).Times(2)
+		ipTypeDual := "IPV4_IPV6"
+		pGetSubnetByPathDual := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					IpAddressType: &ipTypeDual,
+				}
+				return nsxSubnet, nil
+			})
+		defer pGetSubnetByPathDual.Reset()
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		_, ret = r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, capturedIPTypeInUpdate)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, capturedIPTypeInCreate)
+	})
+
 	// handle deletion event - delete NSX subnet port failed
 	t.Run("failed to delete NSX VpcSubnetPort", func(t *testing.T) {
 		sp := &v1alpha1.SubnetPort{}
