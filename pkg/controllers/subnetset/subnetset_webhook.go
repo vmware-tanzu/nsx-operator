@@ -329,6 +329,20 @@ func getEffectiveStaticIPAllocation(subnet *v1alpha1.Subnet) bool {
 	return util.GetDefaultStaticIPAllocation(subnet)
 }
 
+func getEffectiveDHCPMode(subnet *v1alpha1.Subnet) v1alpha1.DHCPConfigMode {
+	if subnet.Spec.SubnetDHCPConfig.Mode == "" {
+		return v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated)
+	}
+	return subnet.Spec.SubnetDHCPConfig.Mode
+}
+
+func getEffectiveDHCPv6Mode(subnet *v1alpha1.Subnet) v1alpha1.DHCPv6ConfigMode {
+	if subnet.Spec.SubnetDHCPv6Config.Mode == "" {
+		return v1alpha1.DHCPv6ConfigModeDeactivated
+	}
+	return subnet.Spec.SubnetDHCPv6Config.Mode
+}
+
 func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, subnetNames *[]string, subnetSet string) (bool, error) {
 	var namespaceVpc string
 	var existingVPC string
@@ -346,27 +360,29 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 		if err != nil {
 			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
 		}
-		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
+		dhcpMode := getEffectiveDHCPMode(crdSubnet)
+		if dhcpMode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
-		if crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay) {
+		dhcpv6Mode := getEffectiveDHCPv6Mode(crdSubnet)
+		if dhcpv6Mode == v1alpha1.DHCPv6ConfigModeRelay {
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		if isFirstSubnet {
 			firstAccessMode = string(crdSubnet.Spec.AccessMode)
-			firstDHCPMode = string(crdSubnet.Spec.SubnetDHCPConfig.Mode)
-			firstDHCPv6Mode = string(crdSubnet.Spec.SubnetDHCPv6Config.Mode)
+			firstDHCPMode = string(dhcpMode)
+			firstDHCPv6Mode = string(dhcpv6Mode)
 			firstEffectiveStaticIPAllocation = getEffectiveStaticIPAllocation(crdSubnet)
 			isFirstSubnet = false
 		} else {
 			if firstAccessMode != string(crdSubnet.Spec.AccessMode) {
 				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same AccessMode, found different AccessModes: [%s, %s]", ns, subnetSet, firstAccessMode, crdSubnet.Spec.AccessMode)
 			}
-			if firstDHCPMode != string(crdSubnet.Spec.SubnetDHCPConfig.Mode) {
-				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPConfigMode, found different DHCPConfigModes: [%s, %s]", ns, subnetSet, firstDHCPMode, crdSubnet.Spec.SubnetDHCPConfig.Mode)
+			if firstDHCPMode != string(dhcpMode) {
+				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPConfigMode, found different DHCPConfigModes: [%s, %s]", ns, subnetSet, firstDHCPMode, dhcpMode)
 			}
-			if firstDHCPv6Mode != string(crdSubnet.Spec.SubnetDHCPv6Config.Mode) {
-				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPv6ConfigMode, found different DHCPv6ConfigModes: [%s, %s]", ns, subnetSet, firstDHCPv6Mode, crdSubnet.Spec.SubnetDHCPv6Config.Mode)
+			if firstDHCPv6Mode != string(dhcpv6Mode) {
+				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPv6ConfigMode, found different DHCPv6ConfigModes: [%s, %s]", ns, subnetSet, firstDHCPv6Mode, dhcpv6Mode)
 			}
 			currentEffectiveStaticIPAllocation := getEffectiveStaticIPAllocation(crdSubnet)
 			if firstEffectiveStaticIPAllocation != currentEffectiveStaticIPAllocation {

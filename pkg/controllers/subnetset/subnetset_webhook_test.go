@@ -217,6 +217,16 @@ func TestSubnetSetValidator(t *testing.T) {
 	})
 	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcp-empty",
+			Namespace:   "ns-dhcp",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcp-empty"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:        "subnet-dhcp-2",
 			Namespace:   "ns-dhcp",
 			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcp-2"},
@@ -237,6 +247,16 @@ func TestSubnetSetValidator(t *testing.T) {
 			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
 				Mode: v1alpha1.DHCPv6ConfigModeDeactivated,
 			},
+		},
+	})
+	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "subnet-dhcpv6-empty",
+			Namespace:   "ns-dhcp",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcpv6-empty"},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{},
 		},
 	})
 	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
@@ -503,6 +523,22 @@ func TestSubnetSetValidator(t *testing.T) {
 			msg:       "Subnets in SubnetSet ns-dhcp/subnetset-dhcp must have the same DHCPConfigMode, found different DHCPConfigModes: [DHCPDeactivated, DHCPServer]",
 		},
 		{
+			name: "Create SubnetSet with empty and explicit DHCPDeactivated modes (should pass)",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-dhcp-empty-deactivated",
+					Namespace: "ns-dhcp",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-dhcp-empty", "subnet-dhcp-1"},
+				},
+			},
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
+		},
+		{
 			name: "Create SubnetSet with different DHCPv6Modes",
 			op:   admissionv1.Create,
 			subnetSet: &v1alpha1.SubnetSet{
@@ -517,6 +553,22 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:      "fake-user",
 			isAllowed: false,
 			msg:       "Subnets in SubnetSet ns-dhcp/subnetset-dhcpv6 must have the same DHCPv6ConfigMode, found different DHCPv6ConfigModes: [DHCPDeactivated, DHCPServer]",
+		},
+		{
+			name: "Create SubnetSet with empty and explicit DHCPv6Deactivated modes (should pass)",
+			op:   admissionv1.Create,
+			subnetSet: &v1alpha1.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "subnetset-dhcpv6-empty-deactivated",
+					Namespace: "ns-dhcp",
+				},
+				Spec: v1alpha1.SubnetSetSpec{
+					SubnetNames: &[]string{"subnet-dhcpv6-empty", "subnet-dhcpv6-1"},
+				},
+			},
+			user:            "fake-user",
+			isAllowed:       true,
+			accessModeCheck: true,
 		},
 		{
 			name: "Create SubnetSet with different StaticIPAllocations",
