@@ -16,16 +16,16 @@ type MockInterface struct {
 func (m *MockInterface) ShutDownWithDrain() {
 }
 
-func (m *MockInterface) AddAfter(item reconcile.Request, duration time.Duration) {
+func (m *MockInterface) AddAfter(_ reconcile.Request, _ time.Duration) {
 }
 
-func (m *MockInterface) AddRateLimited(item reconcile.Request) {
+func (m *MockInterface) AddRateLimited(_ reconcile.Request) {
 }
 
-func (m *MockInterface) Forget(item reconcile.Request) {
+func (m *MockInterface) Forget(_ reconcile.Request) {
 }
 
-func (m *MockInterface) NumRequeues(item reconcile.Request) int {
+func (m *MockInterface) NumRequeues(_ reconcile.Request) int {
 	return 0
 }
 
@@ -47,7 +47,7 @@ func (m *MockInterface) EXPECT() *MockInterfaceMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockInterface) Add(arg0 reconcile.Request) {
+func (m *MockInterface) Add(_ reconcile.Request) {
 	m.ctrl.T.Helper()
 }
 
