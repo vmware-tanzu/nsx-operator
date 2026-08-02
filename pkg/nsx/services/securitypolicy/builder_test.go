@@ -1471,7 +1471,7 @@ func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 				DisplayName: common.String("securitypolicy1"),
 				Tags: []model.Tag{
 					{
-						Scope: common.String(common.TagValueScopeSecurityPolicyUID),
+						Scope: common.String(common.TagScopeSecurityPolicyCRUID),
 						Tag:   common.String("uid1"),
 					},
 				},
@@ -1509,7 +1509,7 @@ func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 				DisplayName: common.String("securitypolicy2"),
 				Tags: []model.Tag{
 					{
-						Scope: common.String(common.TagValueScopeSecurityPolicyUID),
+						Scope: common.String(common.TagScopeSecurityPolicyUID),
 						Tag:   common.String("uid2"),
 					},
 				},
@@ -1573,7 +1573,11 @@ func Test_BuildSecurityPolicyIDAndName(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config.SetMixedModeStateForTest(!tc.vpcEnabled, tc.vpcEnabled)
-			svc.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+			uidScope := common.TagScopeSecurityPolicyCRUID
+			if tc.vpcEnabled {
+				uidScope = common.TagScopeSecurityPolicyUID
+			}
+			svc.setUpStore(uidScope, false)
 			svc.NSXConfig.EnableVPCNetwork = tc.vpcEnabled
 			svc.VPCMode = tc.vpcEnabled
 			if tc.existingSecurityPolicy != nil {

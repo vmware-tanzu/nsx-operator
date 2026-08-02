@@ -163,6 +163,11 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 		CoeConfig: &config.CoeConfig{Cluster: "test-cluster"},
 	}
 	log := logr.Discard() // Use a discard logger instead of nil
+	type securityPolicyInitialization struct {
+		vpcMode    bool
+		forCleanup bool
+	}
+	securityPolicyInitializations := make([]securityPolicyInitialization, 0, 2)
 
 	patches := gomonkey.ApplyFunc(vpc.InitializeVPC, func(service common.Service) (*vpc.VPCService, error) {
 		return &vpc.VPCService{}, nil
@@ -173,7 +178,8 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 		return &subnet.SubnetService{}, nil
 	})
 	patches.ApplyFunc(securitypolicy.InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanup bool) (*securitypolicy.SecurityPolicyService, error) {
-		return &securitypolicy.SecurityPolicyService{}, nil
+		securityPolicyInitializations = append(securityPolicyInitializations, securityPolicyInitialization{vpcMode: vpcMode, forCleanup: forCleanup})
+		return &securitypolicy.SecurityPolicyService{VPCMode: vpcMode}, nil
 	})
 	patches.ApplyFunc(sr.InitializeStaticRoute, func(service common.Service, vpcService common.VPCServiceProvider) (*sr.StaticRouteService, error) {
 		return &sr.StaticRouteService{}, nil
@@ -213,9 +219,13 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	cleanupService, err := InitializeCleanupService(cf, nsxClient, &log)
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
-	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, Inventory, SecurityPolicy, LBInfraCleaner, NSXServiceAccount, HealthCleaner = 8
-	assert.Len(t, cleanupService.vpcPreCleaners, 8)
-	assert.Len(t, cleanupService.vpcChildrenCleaners, 6)
+	assert.Equal(t, []securityPolicyInitialization{
+		{vpcMode: false, forCleanup: false},
+		{vpcMode: true, forCleanup: true},
+	}, securityPolicyInitializations)
+	// Only the VPC service participates in VPC cleanup; the T1 wrapper is infra-only.
+	assert.Len(t, cleanupService.vpcPreCleaners, 7)
+	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
 	assert.Len(t, cleanupService.infraCleaners, 4)
 }
 
@@ -259,9 +269,9 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, cleanupService)
 	// Note, the services added after VPCService should fail because of the error returned in `InitializeVPC`.
-	assert.Len(t, cleanupService.vpcChildrenCleaners, 4)
-	// vpcPreCleaners: SubnetPort, SubnetBinding, SubnetIPReservation, SecurityPolicy = 4 (services initialized before VPC error)
-	assert.Len(t, cleanupService.vpcPreCleaners, 5)
+	assert.Len(t, cleanupService.vpcChildrenCleaners, 3)
+	// The T1 SecurityPolicy wrapper is infra-only and therefore does not inflate VPC cleaner counts.
+	assert.Len(t, cleanupService.vpcPreCleaners, 4)
 	assert.Len(t, cleanupService.infraCleaners, 2)
 	assert.Equal(t, expectedError, cleanupService.svcErr)
 }

@@ -393,7 +393,7 @@ func (r *SecurityPolicyReconciler) CollectGarbage(ctx context.Context) error {
 func (r *SecurityPolicyReconciler) deleteSecurityPolicyByName(ns, name string) error {
 	nsxSecurityPolicies := r.Service.ListSecurityPolicyByName(ns, name)
 	for _, item := range nsxSecurityPolicies {
-		uid := nsxutil.FindTag(item.Tags, servicecommon.TagValueScopeSecurityPolicyUID)
+		uid := r.Service.GetSecurityPolicyUID(item)
 		log.Info("Deleting SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)
 		if err := r.Service.DeleteSecurityPolicy(types.UID(uid), false, servicecommon.ResourceTypeSecurityPolicy); err != nil {
 			log.Error(err, "Failed to delete SecurityPolicy", "securityPolicyUID", uid, "nsxSecurityPolicyId", *item.Id)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
@@ -507,6 +508,12 @@ var (
 	}
 )
 
+type emptySecurityPolicyQueryClient struct{}
+
+func (*emptySecurityPolicyQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+	return model.SearchResponse{}, nil
+}
+
 func Test_GetSecurityService(t *testing.T) {
 	ResetSecurityServiceForTest()
 	config.SetMixedModeStateForTest(false, true)
@@ -524,6 +531,46 @@ func Test_GetSecurityService(t *testing.T) {
 	spSvc := GetSecurityService(commonService, vpcService, true)
 	assert.Equal(t, clusterName, spSvc.NSXConfig.CoeConfig.Cluster)
 	assert.Equal(t, true, spSvc.NSXConfig.EnableVPCNetwork)
+}
+
+func TestGetSecurityServiceCachesEachModeConcurrently(t *testing.T) {
+	ResetSecurityServiceForTest()
+	t.Cleanup(ResetSecurityServiceForTest)
+
+	fakeService := fakeSecurityPolicyService()
+	commonService := fakeService.Service
+	commonService.NSXClient.QueryClient = &emptySecurityPolicyQueryClient{}
+	vpcService := &vpc.VPCService{}
+
+	const callers = 64
+	services := make([]*SecurityPolicyService, callers)
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for i := range callers {
+		go func(index int) {
+			defer wg.Done()
+			services[index] = GetSecurityService(commonService, vpcService, index%2 == 1)
+		}(i)
+	}
+	wg.Wait()
+
+	t1Service := services[0]
+	vpcModeService := services[1]
+	require.NotNil(t, t1Service)
+	require.NotNil(t, vpcModeService)
+	assert.False(t, t1Service.VPCMode)
+	assert.True(t, vpcModeService.VPCMode)
+	assert.NotSame(t, t1Service, vpcModeService)
+	for i, service := range services {
+		if i%2 == 0 {
+			assert.Same(t, t1Service, service)
+		} else {
+			assert.Same(t, vpcModeService, service)
+		}
+	}
+	lock.RLock()
+	defer lock.RUnlock()
+	assert.Len(t, securityServices, 2)
 }
 
 func Test_InitializeSecurityPolicy(t *testing.T) {
@@ -547,6 +594,76 @@ func Test_InitializeSecurityPolicy(t *testing.T) {
 	}
 }
 
+func TestInitializeSecurityPolicyFiltersStoresByOwnerScope(t *testing.T) {
+	ownerScopes := sets.New(
+		common.TagScopeSecurityPolicyCRUID,
+		common.TagScopeSecurityPolicyUID,
+		common.TagScopeNetworkPolicyUID,
+	)
+
+	for _, testCase := range []struct {
+		name                string
+		vpcMode             bool
+		expectedQueryCounts map[string]int
+	}{
+		{
+			name:    "T1 only loads legacy SecurityPolicy resources",
+			vpcMode: false,
+			expectedQueryCounts: map[string]int{
+				fmt.Sprintf("%s|%s|", common.ResourceTypeGroup, common.TagScopeSecurityPolicyCRUID):          1,
+				fmt.Sprintf("%s|%s|", common.ResourceTypeSecurityPolicy, common.TagScopeSecurityPolicyCRUID): 1,
+				fmt.Sprintf("%s|%s|", common.ResourceTypeRule, common.TagScopeSecurityPolicyCRUID):           1,
+			},
+		},
+		{
+			name:    "VPC loads SecurityPolicy and NetworkPolicy resources separately",
+			vpcMode: true,
+			expectedQueryCounts: map[string]int{
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeGroup, common.TagScopeSecurityPolicyUID, common.TagValueShareNotCreated):        1,
+				fmt.Sprintf("%s|%s|", common.ResourceTypeSecurityPolicy, common.TagScopeSecurityPolicyUID):                                 1,
+				fmt.Sprintf("%s|%s|", common.ResourceTypeRule, common.TagScopeSecurityPolicyUID):                                           1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeGroup, common.TagScopeSecurityPolicyUID, common.TagValueShareCreatedForInfra):   1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeShare, common.TagScopeSecurityPolicyUID, common.TagValueShareCreatedForInfra):   1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeGroup, common.TagScopeSecurityPolicyUID, common.TagValueShareCreatedForProject): 1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeShare, common.TagScopeSecurityPolicyUID, common.TagValueShareCreatedForProject): 1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeGroup, common.TagScopeNetworkPolicyUID, common.TagValueShareNotCreated):         1,
+				fmt.Sprintf("%s|%s|", common.ResourceTypeSecurityPolicy, common.TagScopeNetworkPolicyUID):                                  1,
+				fmt.Sprintf("%s|%s|", common.ResourceTypeRule, common.TagScopeNetworkPolicyUID):                                            1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeGroup, common.TagScopeNetworkPolicyUID, common.TagValueShareCreatedForInfra):    1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeShare, common.TagScopeNetworkPolicyUID, common.TagValueShareCreatedForInfra):    1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeGroup, common.TagScopeNetworkPolicyUID, common.TagValueShareCreatedForProject):  1,
+				fmt.Sprintf("%s|%s|%s", common.ResourceTypeShare, common.TagScopeNetworkPolicyUID, common.TagValueShareCreatedForProject):  1,
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			service := &SecurityPolicyService{VPCMode: testCase.vpcMode}
+			service.setUpStore(service.securityPolicyUIDTagScope(), false)
+			queryCounts := make(map[string]int)
+			for _, query := range service.storeInitializations() {
+				ownerScope := ""
+				ownerTagCount := 0
+				shareCreatedFor := ""
+				for _, tag := range query.tags {
+					if tag.Scope != nil && ownerScopes.Has(*tag.Scope) {
+						ownerTagCount++
+						ownerScope = *tag.Scope
+						assert.Nil(t, tag.Tag, "owner filters match the presence of the UID scope")
+					}
+					if tag.Scope != nil && *tag.Scope == common.TagScopeNSXShareCreatedFor {
+						if assert.NotNil(t, tag.Tag) {
+							shareCreatedFor = *tag.Tag
+						}
+					}
+				}
+				assert.Equal(t, 1, ownerTagCount, "a store query must have exactly one owner scope")
+				queryCounts[fmt.Sprintf("%s|%s|%s", query.resourceType, ownerScope, shareCreatedFor)]++
+			}
+			assert.Equal(t, testCase.expectedQueryCounts, queryCounts)
+		})
+	}
+}
+
 func Test_ListSecurityPolicyID(t *testing.T) {
 	service := &SecurityPolicyService{
 		Service: common.Service{
@@ -557,11 +674,12 @@ func Test_ListSecurityPolicyID(t *testing.T) {
 				},
 			},
 		},
+		VPCMode: true,
 	}
-	service.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+	service.setUpStore(common.TagScopeSecurityPolicyUID, false)
 
 	group := model.Group{}
-	scope := common.TagValueScopeSecurityPolicyUID
+	scope := common.TagScopeSecurityPolicyUID
 	uuid := "111111111"
 	id := "1234"
 	group.Id = &id
@@ -1424,12 +1542,10 @@ func Test_deleteT1SecurityPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyCRName
-			common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyCRUID
-
 			fakeService := fakeSecurityPolicyService()
 			fakeService.NSXConfig.EnableVPCNetwork = false
-			fakeService.setUpStore(common.TagValueScopeSecurityPolicyUID, false)
+			fakeService.VPCMode = false
+			fakeService.setUpStore(common.TagScopeSecurityPolicyCRUID, false)
 
 			assert.NoError(t, fakeService.securityPolicyStore.Apply(tt.inputPolicy))
 			assert.NoError(t, fakeService.ruleStore.Apply(&tt.inputPolicy.Rules))
