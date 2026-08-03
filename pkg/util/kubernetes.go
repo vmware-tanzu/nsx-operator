@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -19,33 +17,11 @@ const (
 	localhostIPv6           = "::1"
 	defaultK8sServicePort   = "6443"
 	K8sServicePortEnv       = "KUBERNETES_SERVICE_PORT"
-	K8sClientQPSEnv         = "K8S_CLIENT_QPS"
-	K8sClientBurstEnv       = "K8S_CLIENT_BURST"
 	K8sClientTimeoutEnv     = "K8S_CLIENT_TIMEOUT"
 	CacheSyncTimeoutEnv     = "CACHE_SYNC_TIMEOUT"
-	DefaultK8sClientQPS     = float32(100)
-	DefaultK8sClientBurst   = 200
 	DefaultK8sClientTimeout = 2 * time.Minute
 	DefaultCacheSyncTimeout = 5 * time.Minute
 )
-
-func GetK8sClientQPS() float32 {
-	if val := os.Getenv(K8sClientQPSEnv); val != "" {
-		if qps, err := strconv.ParseFloat(val, 32); err == nil && qps > 0 {
-			return float32(qps)
-		}
-	}
-	return DefaultK8sClientQPS
-}
-
-func GetK8sClientBurst() int {
-	if val := os.Getenv(K8sClientBurstEnv); val != "" {
-		if burst, err := strconv.Atoi(val); err == nil && burst > 0 {
-			return burst
-		}
-	}
-	return DefaultK8sClientBurst
-}
 
 func GetK8sClientTimeout() time.Duration {
 	if val := os.Getenv(K8sClientTimeoutEnv); val != "" {
@@ -67,21 +43,11 @@ func GetCacheSyncTimeout() time.Duration {
 
 func GetConfig() (*rest.Config, error) {
 	cfg := ctrl.GetConfigOrDie()
-	if cfg.QPS <= 0 {
-		cfg.QPS = GetK8sClientQPS()
-	}
-	if cfg.Burst <= 0 {
-		cfg.Burst = GetK8sClientBurst()
-	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = GetK8sClientTimeout()
 	}
-
-	if cfg.RateLimiter == nil {
-		cfg.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(cfg.QPS, cfg.Burst)
-	}
-
-	log.Info("Loaded Kubernetes client configuration", "QPS", cfg.QPS, "Burst", cfg.Burst, "Timeout", cfg.Timeout, "CacheSyncTimeout", GetCacheSyncTimeout())
+	cacheSyncTimeout := GetCacheSyncTimeout()
+	log.Info("Loaded Kubernetes client configuration", "QPS", cfg.QPS, "Burst", cfg.Burst, "Timeout", cfg.Timeout, "CacheSyncTimeout", cacheSyncTimeout)
 
 	var healthy bool
 	var getHealthErr error

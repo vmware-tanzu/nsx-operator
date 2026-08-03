@@ -95,34 +95,23 @@ func TestGetConfig(t *testing.T) {
 			} else {
 				assert.Nil(t, err)
 				assert.Equal(t, tt.expectedHost, cfg.Host)
-				assert.Equal(t, DefaultK8sClientQPS, cfg.QPS)
-				assert.Equal(t, DefaultK8sClientBurst, cfg.Burst)
 				assert.Equal(t, DefaultK8sClientTimeout, cfg.Timeout)
-				assert.NotNil(t, cfg.RateLimiter)
 			}
 		})
 	}
 }
 
 func TestGetConfigEnvVars(t *testing.T) {
-	t.Setenv(K8sClientQPSEnv, "250.5")
-	t.Setenv(K8sClientBurstEnv, "500")
 	t.Setenv(K8sClientTimeoutEnv, "3m")
 	t.Setenv(CacheSyncTimeoutEnv, "10m")
 
-	assert.Equal(t, float32(250.5), GetK8sClientQPS())
-	assert.Equal(t, 500, GetK8sClientBurst())
 	assert.Equal(t, 3*time.Minute, GetK8sClientTimeout())
 	assert.Equal(t, 10*time.Minute, GetCacheSyncTimeout())
 
 	// Test invalid env vars fallback to defaults
-	t.Setenv(K8sClientQPSEnv, "invalid")
-	t.Setenv(K8sClientBurstEnv, "-1")
 	t.Setenv(K8sClientTimeoutEnv, "invalid")
 	t.Setenv(CacheSyncTimeoutEnv, "invalid")
 
-	assert.Equal(t, DefaultK8sClientQPS, GetK8sClientQPS())
-	assert.Equal(t, DefaultK8sClientBurst, GetK8sClientBurst())
 	assert.Equal(t, DefaultK8sClientTimeout, GetK8sClientTimeout())
 	assert.Equal(t, DefaultCacheSyncTimeout, GetCacheSyncTimeout())
 }
