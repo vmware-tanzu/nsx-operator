@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -52,7 +54,7 @@ func (s *IPBlockUsageStorage) Get(_ context.Context, namespace, name string) (*e
 		log.Debug("Fetching infra IP block usage from NSX", "namespace", namespace, "ipBlockID", blockID)
 		nsxUsage, err := s.nsxClient.InfraIPBlockUsageClient.Get(blockID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get infra IP block usage for block %s: %w", blockID, err)
+			return nil, HandleEASError(err, "ipblockusages", name, fmt.Errorf("failed to get infra IP block usage for block %s: %w", blockID, err))
 		}
 		return ConvertIpAddressBlockUsage(&nsxUsage, name, namespace), nil
 	}
@@ -61,7 +63,7 @@ func (s *IPBlockUsageStorage) Get(_ context.Context, namespace, name string) (*e
 	blockID := name
 	vpcInfos := s.vpcService.ListVPCInfo(namespace)
 	if len(vpcInfos) == 0 {
-		return nil, fmt.Errorf("no VPC found for namespace %s", namespace)
+		return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "ipblockusages"}, name), "ipblockusages", name, nil)
 	}
 
 	for _, entry := range vpcInfos {
@@ -76,13 +78,13 @@ func (s *IPBlockUsageStorage) Get(_ context.Context, namespace, name string) (*e
 			log.Debug("Fetching project IP block usage from NSX", "namespace", namespace, "projectID", matchedProjectID, "ipBlockID", blockID)
 			nsxUsage, err := s.nsxClient.ProjectIPBlockUsageClient.Get(orgID, matchedProjectID, blockID)
 			if err != nil {
-				return nil, fmt.Errorf("failed to get IP block usage for project %s, block %s: %w", matchedProjectID, blockID, err)
+				return nil, HandleEASError(err, "ipblockusages", name, fmt.Errorf("failed to get IP block usage for project %s, block %s: %w", matchedProjectID, blockID, err))
 			}
 			return ConvertIpAddressBlockUsage(&nsxUsage, name, namespace), nil
 		}
 	}
 
-	return nil, fmt.Errorf("IP block %q not found in namespace %s", blockID, namespace)
+	return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "ipblockusages"}, blockID), "ipblockusages", blockID, nil)
 }
 
 // resolveProjectBlock checks the given VPC's connectivity profile for external /
@@ -170,7 +172,7 @@ func (s *IPBlockUsageStorage) List(_ context.Context, namespace string) (*easv1a
 		log.Debug("Fetching project IP block usage from NSX", "orgID", orgID, "projectID", pid)
 		nsxList, err := s.nsxClient.ProjectIPBlockUsageClient.List(orgID, pid, nil, nil, nil, nil, nil, nil, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list IP block usage for project %s: %w", pid, err)
+			return nil, HandleEASError(err, "ipblockusages", "", fmt.Errorf("failed to list IP block usage for project %s: %w", pid, err))
 		}
 		items := ConvertIpAddressBlockUsageList(&nsxList, pid, namespace)
 		log.Debug("Got project IP block usage", "projectID", pid, "itemCount", len(items))

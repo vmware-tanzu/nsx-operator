@@ -45,7 +45,7 @@ func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) 
 	// Resolve VPC info from the Subnet CR's spec.vpcName.
 	subnetCR := &vpcv1alpha1.Subnet{}
 	if err := s.k8sClient.Get(ctx, k8sclient.ObjectKey{Namespace: namespace, Name: name}, subnetCR); err != nil {
-		return nil, fmt.Errorf("subnet CR %s/%s not found: %w", namespace, name, err)
+		return nil, HandleEASError(err, "subnetippools", name, fmt.Errorf("subnet CR %s/%s not found: %w", namespace, name, err))
 	}
 	if subnetCR.Spec.VPCName == "" {
 		return nil, fmt.Errorf("subnet CR %s/%s has empty spec.vpcName", namespace, name)
@@ -58,7 +58,7 @@ func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) 
 	subnets, err := s.nsxClient.SubnetsClient.List(orgID, projectID, vpcID,
 		nil, nil, nil, nil, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list subnets from NSX: %w", err)
+		return nil, HandleEASError(err, "subnetippools", name, fmt.Errorf("failed to list subnets from NSX: %w", err))
 	}
 
 	for _, subnet := range subnets.Results {
@@ -90,7 +90,7 @@ func (s *SubnetIPPoolsStorage) fetchIPPools(namespace, nsxSubnetID, name string,
 	nsxPools, err := s.nsxClient.IPPoolClient.List(info.OrgID, info.ProjectID, info.VPCID, nsxSubnetID,
 		nil, nil, nil, nil, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get subnet IP pools from NSX: %w", err)
+		return nil, HandleEASError(err, "subnetippools", name, fmt.Errorf("failed to get subnet IP pools from NSX: %w", err))
 	}
 	log.Debug("Got subnet IP pools", "subnetID", nsxSubnetID, "name", name, "poolCount", len(nsxPools.Results))
 

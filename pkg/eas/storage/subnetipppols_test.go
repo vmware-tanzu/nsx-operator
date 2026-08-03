@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -23,7 +24,7 @@ func TestSubnetIPPoolsStorage_Get_SubnetCRNotFound(t *testing.T) {
 	s := NewSubnetIPPoolsStorage(&nsx.Client{}, newFakeK8sClient())
 	_, err := s.Get(context.Background(), "ns1", "sub1")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "subnet CR")
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestSubnetIPPoolsStorage_Get_EmptyVPCName(t *testing.T) {
 	// Subnet CR exists but spec.vpcName is empty → error.
