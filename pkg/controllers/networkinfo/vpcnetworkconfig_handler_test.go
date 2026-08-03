@@ -2,6 +2,8 @@ package networkinfo
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
@@ -209,5 +211,161 @@ func TestVPCNetworkConfigurationHandler_Generic(t *testing.T) {
 			handler := createVPCNetworkConfigurationHandler(nil)
 			handler.Generic(context.TODO(), event.GenericEvent{Object: tc.vpcNetworkConfig}, queue)
 		})
+	}
+}
+
+type mockIPBlocksInfoService struct {
+	mu          sync.Mutex
+	updatedVPCs []string
+	syncCount   int
+	resetCount  int
+	processed   chan struct{}
+}
+
+func (m *mockIPBlocksInfoService) UpdateIPBlocksInfo(_ context.Context, vpcConfigCR *v1alpha1.VPCNetworkConfiguration) error {
+	m.mu.Lock()
+	m.updatedVPCs = append(m.updatedVPCs, vpcConfigCR.Name)
+	m.mu.Unlock()
+	if m.processed != nil {
+		m.processed <- struct{}{}
+	}
+	return nil
+}
+
+func (m *mockIPBlocksInfoService) SyncIPBlocksInfo(_ context.Context) error {
+	m.mu.Lock()
+	m.syncCount++
+	m.mu.Unlock()
+	if m.processed != nil {
+		m.processed <- struct{}{}
+	}
+	return nil
+}
+
+func (m *mockIPBlocksInfoService) ResetPeriodicSync() {
+	m.mu.Lock()
+	m.resetCount++
+	m.mu.Unlock()
+}
+
+func TestVPCNetworkConfigurationHandler_QueueFIFOAndCompletion(t *testing.T) {
+	const taskCount = 2000
+	mock := &mockIPBlocksInfoService{
+		processed: make(chan struct{}, taskCount),
+	}
+	handler := &VPCNetworkConfigurationHandler{
+		ipBlocksInfoService: mock,
+	}
+
+	for i := 0; i < taskCount; i++ {
+		handler.enqueueTask(vpcTask{
+			taskType: vpcTaskUpdate,
+			vpcConfig: &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("vpc-%d", i)},
+			},
+		})
+	}
+
+	for i := 0; i < taskCount; i++ {
+		<-mock.processed
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.updatedVPCs) != taskCount {
+		t.Fatalf("expected %d processed tasks, got %d", taskCount, len(mock.updatedVPCs))
+	}
+	for i := 0; i < taskCount; i++ {
+		expectedName := fmt.Sprintf("vpc-%d", i)
+		if mock.updatedVPCs[i] != expectedName {
+			t.Errorf("FIFO violation at index %d: expected %s, got %s", i, expectedName, mock.updatedVPCs[i])
+		}
+	}
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	if len(handler.tasks) != 0 {
+		t.Errorf("expected empty tasks slice, got length %d", len(handler.tasks))
+	}
+	if handler.tasks != nil {
+		t.Errorf("expected tasks slice to be reset to nil, got %v", handler.tasks)
+	}
+}
+
+func TestVPCNetworkConfigurationHandler_QueueConcurrentEnqueue(t *testing.T) {
+	const goroutines = 20
+	const tasksPerGoroutine = 100
+	const totalTasks = goroutines * tasksPerGoroutine
+
+	mock := &mockIPBlocksInfoService{
+		processed: make(chan struct{}, totalTasks),
+	}
+	handler := &VPCNetworkConfigurationHandler{
+		ipBlocksInfoService: mock,
+	}
+
+	var wg sync.WaitGroup
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(gID int) {
+			defer wg.Done()
+			for i := 0; i < tasksPerGoroutine; i++ {
+				handler.enqueueTask(vpcTask{
+					taskType: vpcTaskUpdate,
+					vpcConfig: &v1alpha1.VPCNetworkConfiguration{
+						ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("g%d-vpc-%d", gID, i)},
+					},
+				})
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	for i := 0; i < totalTasks; i++ {
+		<-mock.processed
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.updatedVPCs) != totalTasks {
+		t.Fatalf("expected %d tasks processed, got %d", totalTasks, len(mock.updatedVPCs))
+	}
+}
+
+func TestVPCNetworkConfigurationHandler_QueueTaskTypes(t *testing.T) {
+	mock := &mockIPBlocksInfoService{
+		processed: make(chan struct{}, 2),
+	}
+	handler := &VPCNetworkConfigurationHandler{
+		ipBlocksInfoService: mock,
+	}
+
+	handler.enqueueTask(vpcTask{
+		taskType: vpcTaskUpdate,
+		vpcConfig: &v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-update-vpc"},
+		},
+	})
+	<-mock.processed
+
+	handler.enqueueTask(vpcTask{
+		taskType: vpcTaskDelete,
+		vpcConfig: &v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-delete-vpc"},
+		},
+	})
+	<-mock.processed
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.updatedVPCs) != 1 || mock.updatedVPCs[0] != "test-update-vpc" {
+		t.Errorf("unexpected updated VPCs: %v", mock.updatedVPCs)
+	}
+	if mock.syncCount != 1 {
+		t.Errorf("expected syncCount == 1, got %d", mock.syncCount)
+	}
+	if mock.resetCount != 1 {
+		t.Errorf("expected resetCount == 1, got %d", mock.resetCount)
 	}
 }

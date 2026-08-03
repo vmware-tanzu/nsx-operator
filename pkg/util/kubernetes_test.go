@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
@@ -94,7 +95,23 @@ func TestGetConfig(t *testing.T) {
 			} else {
 				assert.Nil(t, err)
 				assert.Equal(t, tt.expectedHost, cfg.Host)
+				assert.Equal(t, DefaultK8sClientTimeout, cfg.Timeout)
 			}
 		})
 	}
+}
+
+func TestGetConfigEnvVars(t *testing.T) {
+	t.Setenv(K8sClientTimeoutEnv, "3m")
+	t.Setenv(CacheSyncTimeoutEnv, "10m")
+
+	assert.Equal(t, 3*time.Minute, GetK8sClientTimeout())
+	assert.Equal(t, 10*time.Minute, GetCacheSyncTimeout())
+
+	// Test invalid env vars fallback to defaults
+	t.Setenv(K8sClientTimeoutEnv, "invalid")
+	t.Setenv(CacheSyncTimeoutEnv, "invalid")
+
+	assert.Equal(t, DefaultK8sClientTimeout, GetK8sClientTimeout())
+	assert.Equal(t, DefaultCacheSyncTimeout, GetCacheSyncTimeout())
 }
