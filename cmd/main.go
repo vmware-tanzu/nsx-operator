@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -312,6 +313,7 @@ func electMaster(mgr manager.Manager, nsxClient *nsx.Client) {
 }
 
 func main() {
+	klog.SetLogger(ctrl.Log.WithName("klog"))
 	log.Info("Starting NSX Operator")
 	cfg, err := pkgutil.GetConfig()
 	if err != nil {
@@ -326,7 +328,7 @@ func main() {
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",
 		Controller: ctrlconfig.Controller{
-			CacheSyncTimeout: 5 * time.Minute,
+			CacheSyncTimeout: pkgutil.GetCacheSyncTimeout(),
 		},
 	})
 	if err != nil {
