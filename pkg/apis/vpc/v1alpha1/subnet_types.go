@@ -67,7 +67,6 @@ type SubnetSpec struct {
 	IPv6PrefixLength int `json:"ipv6PrefixLength,omitempty"`
 	// Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC.
 	// +kubebuilder:validation:Enum=Private;Public;PrivateTGW;L2Only
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	AccessMode AccessMode `json:"accessMode,omitempty"`
 	// Subnet CIDRS.
 	// +kubebuilder:validation:MinItems=0
@@ -191,7 +190,7 @@ type DHCPv6ServerAdditionalConfig struct {
 }
 
 // SubnetDHCPv6Config is a DHCPv6 configuration for Subnet.
-// +kubebuilder:validation:XValidation:rule="(!has(self.mode) || self.mode=='DHCPDeactivated' || self.mode=='DHCPRelay') && (!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges) || size(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)==0) || has(self.mode) && self.mode=='DHCPServer'", message="DHCPv6ServerAdditionalConfig must be cleared when Subnet has DHCP relay enabled or DHCP is deactivated."
+// +kubebuilder:validation:XValidation:rule="(!has(self.dhcpv6ServerAdditionalConfig) || !has(self.dhcpv6ServerAdditionalConfig.reservedIPRanges) || size(self.dhcpv6ServerAdditionalConfig.reservedIPRanges)==0) || has(self.mode) && self.mode=='DHCPServer'", message="DHCPv6ServerAdditionalConfig must be cleared when Subnet has DHCP relay enabled or DHCP is deactivated."
 type SubnetDHCPv6Config struct {
 	// DHCPv6 Mode. DHCPDeactivated will be used if it is not defined.
 	// +kubebuilder:validation:Enum=DHCPServer;DHCPRelay;DHCPDeactivated;DHCPServerStateless

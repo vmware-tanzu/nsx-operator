@@ -149,7 +149,10 @@ func (s *VPCService) ValidateNetworkConfig(nc *v1alpha1.VPCNetworkConfiguration)
 	if networkStack == v1alpha1.VLANBackedVPC {
 		return nil
 	}
-
+	// skip the check on PrivateIPs if ipFamily is IPv6
+	if s.NSXConfig != nil && s.NSXConfig.K8sConfig != nil && s.NSXConfig.K8sConfig.GetIPAddressType() == v1alpha1.IPAddressTypeIPv6 {
+		return nil
+	}
 	if len(nc.Spec.PrivateIPs) != 0 {
 		return nil
 	}
