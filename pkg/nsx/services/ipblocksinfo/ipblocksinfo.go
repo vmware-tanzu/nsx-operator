@@ -90,7 +90,9 @@ func (s *IPBlocksInfoService) StartPeriodicSync() {
 }
 
 func (s *IPBlocksInfoService) ResetPeriodicSync() {
-	s.SyncTask.resetChan <- struct{}{}
+	if s != nil && s.SyncTask != nil && s.SyncTask.resetChan != nil {
+		s.SyncTask.resetChan <- struct{}{}
+	}
 }
 
 // mergeIPCidrs merges target CIDRs into source CIDRs if not already covered by source.
