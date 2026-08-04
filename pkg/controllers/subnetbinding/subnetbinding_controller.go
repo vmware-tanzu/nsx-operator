@@ -328,7 +328,7 @@ func (r *Reconciler) releaseAutoAllocatedVlan(parentSubnetPaths []string, bindin
 	// value 0 for vlanID alongside the error. Since the caller still triggers the release function in the
 	// error branch to ensure rollback, the vlanID == 0 check acts as an internal safety guard to prevent
 	// the underlying VlanPoolService from attempting to release an unallocated/invalid VLAN 0.
-	if bindingMap.Spec.HasVlanTrafficTag() || vlanID == 0 {
+	if vlanID == 0 {
 		return
 	}
 	r.VlanPoolService.ReleasePending(parentSubnetPaths, vlanID)
@@ -336,7 +336,7 @@ func (r *Reconciler) releaseAutoAllocatedVlan(parentSubnetPaths []string, bindin
 
 func (r *Reconciler) commitAutoAllocatedVlan(parentSubnetPaths []string, bindingMap *v1alpha1.SubnetConnectionBindingMap, vlanID int64) {
 	// vlanID == 0 means the VLAN auto-allocation failed or hasn't occurred, so there is nothing to commit.
-	if bindingMap.Spec.HasVlanTrafficTag() || vlanID == 0 {
+	if vlanID == 0 {
 		return
 	}
 	r.VlanPoolService.CommitPending(parentSubnetPaths, vlanID)

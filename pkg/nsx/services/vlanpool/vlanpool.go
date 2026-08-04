@@ -132,5 +132,6 @@ func (s *Service) ValidateManualVlan(parentSubnetPaths []string, vlan int64, exc
 	if unavailableVlans(used, state.pending).Has(int(vlan)) {
 		return fmt.Errorf("vlanTrafficTag %d is already used on target Subnet or SubnetSet", vlan)
 	}
+	state.pending.Insert(int(vlan))
 	return nil
 }
