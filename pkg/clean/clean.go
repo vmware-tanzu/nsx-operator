@@ -139,6 +139,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			if err != nil {
 				return nil, err
 			}
+			// Wrap the T1 service as infra-only because SecurityPolicyService also
+			// implements the VPC cleanup interfaces.
 			return &t1SecurityPolicyCleaner{service: securityPolicyService}, nil
 		}
 	}

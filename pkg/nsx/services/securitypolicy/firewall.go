@@ -20,6 +20,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -77,10 +78,17 @@ func ResetSecurityServiceForTest() {
 	securityServices = make(map[bool]*SecurityPolicyService)
 }
 
-// GetSecurityService returns a per-mode SecurityPolicyService instance.
-// vpcMode selects whether this instance serves VPC or T1 namespaces.
-// NetworkPolicy/SecurityPolicy controllers that share the same mode share the same instance.
+// GetSecurityService returns a SecurityPolicyService instance. Legacy clusters
+// use one cluster-wide instance; clusters supporting per-namespace providers
+// use one instance per requested mode. NetworkPolicy and SecurityPolicy
+// controllers that share the same mode also share the same instance.
 func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *SecurityPolicyService {
+	if !config.IsPerNamespaceProvidersSupported() {
+		// Ignore the caller's requested mode in legacy clusters, where the network
+		// provider is cluster-wide, so every controller shares one service instance.
+		vpcMode = config.HasVPCNamespaces()
+	}
+
 	lock.RLock()
 	svc := securityServices[vpcMode]
 	lock.RUnlock()
@@ -117,19 +125,19 @@ func (service *SecurityPolicyService) securityPolicyUIDTagScope() string {
 	return common.TagScopeSecurityPolicyCRUID
 }
 
-// tagsWithOwnerScope returns a copy of tags with an owner-scope filter.
-// The filter intentionally omits a tag value so the NSX search matches every
-// resource carrying that owner scope.
-func tagsWithOwnerScope(tags []model.Tag, ownerScope string) []model.Tag {
-	result := make([]model.Tag, 0, len(tags)+1)
-	result = append(result, tags...)
+// tagFiltersWithOwnerScope returns a copy of tagFilters with a scope-only
+// owner filter. These filters are used only to build NSX search queries; they
+// are never written to resources or stored in the cache.
+func tagFiltersWithOwnerScope(tagFilters []model.Tag, ownerScope string) []model.Tag {
+	result := make([]model.Tag, 0, len(tagFilters)+1)
+	result = append(result, tagFilters...)
 	result = append(result, model.Tag{Scope: String(ownerScope)})
 	return result
 }
 
 type securityPolicyStoreInitialization struct {
 	resourceType string
-	tags         []model.Tag
+	tagFilters   []model.Tag
 	store        common.Store
 }
 
@@ -162,19 +170,19 @@ func (service *SecurityPolicyService) storeInitializations() []securityPolicySto
 			groupTags = notShareTag
 		}
 		initializations = append(initializations,
-			securityPolicyStoreInitialization{ResourceTypeGroup, tagsWithOwnerScope(groupTags, ownerScope), service.groupStore},
-			securityPolicyStoreInitialization{ResourceTypeSecurityPolicy, tagsWithOwnerScope(nil, ownerScope), service.securityPolicyStore},
-			securityPolicyStoreInitialization{ResourceTypeRule, tagsWithOwnerScope(nil, ownerScope), service.ruleStore},
+			securityPolicyStoreInitialization{ResourceTypeGroup, tagFiltersWithOwnerScope(groupTags, ownerScope), service.groupStore},
+			securityPolicyStoreInitialization{ResourceTypeSecurityPolicy, tagFiltersWithOwnerScope(nil, ownerScope), service.securityPolicyStore},
+			securityPolicyStoreInitialization{ResourceTypeRule, tagFiltersWithOwnerScope(nil, ownerScope), service.ruleStore},
 		)
 
 		// T1 SecurityPolicy has no share resources. Only VPC stores need infra
 		// and project share/group initialization.
 		if service.VPCMode {
 			initializations = append(initializations,
-				securityPolicyStoreInitialization{ResourceTypeGroup, tagsWithOwnerScope(infraShareTag, ownerScope), service.infraGroupStore},
-				securityPolicyStoreInitialization{ResourceTypeShare, tagsWithOwnerScope(infraShareTag, ownerScope), service.infraShareStore},
-				securityPolicyStoreInitialization{ResourceTypeGroup, tagsWithOwnerScope(projectShareTag, ownerScope), service.projectGroupStore},
-				securityPolicyStoreInitialization{ResourceTypeShare, tagsWithOwnerScope(projectShareTag, ownerScope), service.projectShareStore},
+				securityPolicyStoreInitialization{ResourceTypeGroup, tagFiltersWithOwnerScope(infraShareTag, ownerScope), service.infraGroupStore},
+				securityPolicyStoreInitialization{ResourceTypeShare, tagFiltersWithOwnerScope(infraShareTag, ownerScope), service.infraShareStore},
+				securityPolicyStoreInitialization{ResourceTypeGroup, tagFiltersWithOwnerScope(projectShareTag, ownerScope), service.projectGroupStore},
+				securityPolicyStoreInitialization{ResourceTypeShare, tagFiltersWithOwnerScope(projectShareTag, ownerScope), service.projectShareStore},
 			)
 		}
 	}
@@ -210,7 +218,7 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 	wg.Add(len(initializations))
 	for _, initialization := range initializations {
 		initialization := initialization
-		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, initialization.resourceType, initialization.tags, initialization.store)
+		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, initialization.resourceType, initialization.tagFilters, initialization.store)
 	}
 
 	wg.Wait()

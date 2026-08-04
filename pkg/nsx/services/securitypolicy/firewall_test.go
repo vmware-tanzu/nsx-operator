@@ -514,28 +514,63 @@ func (*emptySecurityPolicyQueryClient) List(_ string, _ *string, _ *string, _ *i
 	return model.SearchResponse{}, nil
 }
 
-func Test_GetSecurityService(t *testing.T) {
-	ResetSecurityServiceForTest()
-	config.SetMixedModeStateForTest(false, true)
-	fakeService := fakeSecurityPolicyService()
-	fakeService.NSXConfig.EnableVPCNetwork = true
-	commonService := fakeService.Service
+func TestGetSecurityServiceUsesClusterModeWhenPerNamespaceProvidersDisabled(t *testing.T) {
+	tests := []struct {
+		name           string
+		clusterVPCMode bool
+	}{
+		{name: "legacy T1", clusterVPCMode: false},
+		{name: "legacy VPC", clusterVPCMode: true},
+	}
 
-	vpcService := &vpc.VPCService{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ResetSecurityServiceForTest()
+			config.SetPerNamespaceProvidersSupportedForTest(false)
+			config.SetMixedModeStateForTest(!tt.clusterVPCMode, tt.clusterVPCMode)
+			t.Cleanup(func() {
+				ResetSecurityServiceForTest()
+				config.SetPerNamespaceProvidersSupportedForTest(false)
+				config.SetMixedModeStateForTest(false, false)
+			})
 
-	patch := gomonkey.ApplyFunc(InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanUp bool) (*SecurityPolicyService, error) {
-		return &SecurityPolicyService{Service: service, VPCMode: vpcMode}, nil
-	})
-	defer patch.Reset()
+			fakeService := fakeSecurityPolicyService()
+			fakeService.NSXConfig.EnableVPCNetwork = tt.clusterVPCMode
+			commonService := fakeService.Service
+			vpcService := &vpc.VPCService{}
 
-	spSvc := GetSecurityService(commonService, vpcService, true)
-	assert.Equal(t, clusterName, spSvc.NSXConfig.CoeConfig.Cluster)
-	assert.Equal(t, true, spSvc.NSXConfig.EnableVPCNetwork)
+			initializations := 0
+			patch := gomonkey.ApplyFunc(InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanUp bool) (*SecurityPolicyService, error) {
+				initializations++
+				return &SecurityPolicyService{Service: service, VPCMode: vpcMode}, nil
+			})
+			t.Cleanup(patch.Reset)
+
+			serviceFromOppositeMode := GetSecurityService(commonService, vpcService, !tt.clusterVPCMode)
+			serviceFromClusterMode := GetSecurityService(commonService, vpcService, tt.clusterVPCMode)
+
+			require.Same(t, serviceFromOppositeMode, serviceFromClusterMode)
+			assert.Equal(t, tt.clusterVPCMode, serviceFromClusterMode.VPCMode)
+			assert.Equal(t, clusterName, serviceFromClusterMode.NSXConfig.CoeConfig.Cluster)
+			assert.Equal(t, tt.clusterVPCMode, serviceFromClusterMode.NSXConfig.EnableVPCNetwork)
+			assert.Equal(t, 1, initializations)
+
+			lock.RLock()
+			assert.Len(t, securityServices, 1)
+			lock.RUnlock()
+		})
+	}
 }
 
 func TestGetSecurityServiceCachesEachModeConcurrently(t *testing.T) {
 	ResetSecurityServiceForTest()
-	t.Cleanup(ResetSecurityServiceForTest)
+	config.SetPerNamespaceProvidersSupportedForTest(true)
+	config.SetMixedModeStateForTest(true, true)
+	t.Cleanup(func() {
+		ResetSecurityServiceForTest()
+		config.SetPerNamespaceProvidersSupportedForTest(false)
+		config.SetMixedModeStateForTest(false, false)
+	})
 
 	fakeService := fakeSecurityPolicyService()
 	commonService := fakeService.Service
@@ -644,7 +679,7 @@ func TestInitializeSecurityPolicyFiltersStoresByOwnerScope(t *testing.T) {
 				ownerScope := ""
 				ownerTagCount := 0
 				shareCreatedFor := ""
-				for _, tag := range query.tags {
+				for _, tag := range query.tagFilters {
 					if tag.Scope != nil && ownerScopes.Has(*tag.Scope) {
 						ownerTagCount++
 						ownerScope = *tag.Scope
