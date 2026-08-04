@@ -78,14 +78,15 @@ func unavailableVlans(used, pending sets.Set[int]) sets.Set[int] {
 // otherwise the smallest free ID from [1, 4094] is used.
 // Pending allocations are tracked per parent Subnet path set so parallel reconciles do not pick the same VLAN.
 func (s *Service) Allocate(parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
-	state := s.getPoolState(parentSubnetPaths)
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
 	used, err := s.collectUsed(parentSubnetPaths, excludeCRUID, fromNSX)
 	if err != nil {
 		return 0, err
 	}
+
+	state := s.getPoolState(parentSubnetPaths)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	cleanupCommittedPending(used, state.pending)
 	unavailable := unavailableVlans(used, state.pending)
 
@@ -118,14 +119,15 @@ func (s *Service) ReleasePending(parentSubnetPaths []string, vlan int64) {
 
 // ValidateManualVlan checks that vlan is not already used on the parent Subnet paths.
 func (s *Service) ValidateManualVlan(parentSubnetPaths []string, vlan int64, excludeCRUID string, fromNSX bool) error {
-	state := s.getPoolState(parentSubnetPaths)
-	state.mu.Lock()
-	defer state.mu.Unlock()
-
 	used, err := s.collectUsed(parentSubnetPaths, excludeCRUID, fromNSX)
 	if err != nil {
 		return err
 	}
+
+	state := s.getPoolState(parentSubnetPaths)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	cleanupCommittedPending(used, state.pending)
 	if unavailableVlans(used, state.pending).Has(int(vlan)) {
 		return fmt.Errorf("vlanTrafficTag %d is already used on target Subnet or SubnetSet", vlan)
