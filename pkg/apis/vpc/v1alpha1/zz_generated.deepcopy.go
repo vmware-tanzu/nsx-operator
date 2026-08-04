@@ -1162,8 +1162,8 @@ func (in *SubnetConnectionBindingMapStatus) DeepCopyInto(out *SubnetConnectionBi
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.VLANID != nil {
-		in, out := &in.VLANID, &out.VLANID
+	if in.VLANTrafficTag != nil {
+		in, out := &in.VLANTrafficTag, &out.VLANTrafficTag
 		*out = new(int64)
 		**out = **in
 	}

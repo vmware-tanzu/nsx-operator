@@ -32,9 +32,9 @@ spec:
       jsonPath: .spec.targetSubnetSetName
       name: targetSubnetSet
       type: string
-    - description: Vlan used in the NSX SubnetConnectionBindingMap
-      jsonPath: .status.vlanID
-      name: vlanID
+    - description: VLAN traffic tag used in the NSX SubnetConnectionBindingMap
+      jsonPath: .status.vlanTrafficTag
+      name: vlanTrafficTag
       type: integer
     name: v1alpha1
     schema:
@@ -129,8 +129,8 @@ spec:
                   - type
                   type: object
                 type: array
-              vlanID:
-                description: VLANID is the realized VLAN ID for this binding.
+              vlanTrafficTag:
+                description: VLANTrafficTag is the realized VLAN traffic tag for this binding.
                 format: int64
                 type: integer
             type: object

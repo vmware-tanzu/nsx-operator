@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	gomonkey "github.com/agiledragon/gomonkey/v2"
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -214,7 +214,7 @@ func TestReconcile(t *testing.T) {
 			},
 			expectRes: controllerscommon.ResultNormal,
 		}, {
-			name: "Auto-allocate VLAN and set status.vlanID",
+			name: "Auto-allocate VLAN and set status.vlanTrafficTag",
 			objects: []client.Object{&v1alpha1.SubnetConnectionBindingMap{
 				ObjectMeta: metav1.ObjectMeta{
 					UID:       "binding-uuid-auto",
@@ -244,8 +244,8 @@ func TestReconcile(t *testing.T) {
 			verify: func(t *testing.T, r *Reconciler) {
 				got := &v1alpha1.SubnetConnectionBindingMap{}
 				require.NoError(t, r.Client.Get(context.Background(), request.NamespacedName, got))
-				require.NotNil(t, got.Status.VLANID)
-				assert.Equal(t, int64(301), *got.Status.VLANID)
+				require.NotNil(t, got.Status.VLANTrafficTag)
+				assert.Equal(t, int64(301), *got.Status.VLANTrafficTag)
 			},
 		},
 	} {

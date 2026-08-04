@@ -26,4 +26,4 @@ metadata:
 spec:
   subnetName: vlan-ext-subnet
   targetSubnetSetName: vm-default
-  # vlanTrafficTag omitted: operator auto-allocates and patches spec.vlanTrafficTag
+  # vlanTrafficTag omitted: operator auto-allocates and populates status.vlanTrafficTag

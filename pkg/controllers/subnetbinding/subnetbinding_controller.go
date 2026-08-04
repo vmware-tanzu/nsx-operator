@@ -572,7 +572,7 @@ func updateBindingMapStatusWithReadyCondition(c client.Client, ctx context.Conte
 	}
 	if len(args) > 0 {
 		vlanID := args[0].(int64)
-		bindingMap.Status.VLANID = v1alpha1.VLANTrafficTagPtr(vlanID)
+		bindingMap.Status.VLANTrafficTag = v1alpha1.VLANTrafficTagPtr(vlanID)
 	}
 	updateBindingMapCondition(c, ctx, bindingMap, condition)
 }
@@ -592,7 +592,7 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 		newConditions := []v1alpha1.Condition{condition}
 		for _, cond := range latestBindingMap.Status.Conditions {
 			if cond.Type == condition.Type {
-				if cond.Status == condition.Status && cond.Reason == condition.Reason && cond.Message == condition.Message && (latestBindingMap.Status.VLANID == nil && bindingMap.Status.VLANID == nil || latestBindingMap.Status.VLANID != nil && bindingMap.Status.VLANID != nil && *latestBindingMap.Status.VLANID == *bindingMap.Status.VLANID) {
+				if cond.Status == condition.Status && cond.Reason == condition.Reason && cond.Message == condition.Message && (latestBindingMap.Status.VLANTrafficTag == nil && bindingMap.Status.VLANTrafficTag == nil || latestBindingMap.Status.VLANTrafficTag != nil && bindingMap.Status.VLANTrafficTag != nil && *latestBindingMap.Status.VLANTrafficTag == *bindingMap.Status.VLANTrafficTag) {
 					return nil
 				}
 				continue
@@ -600,7 +600,7 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 			newConditions = append(newConditions, cond)
 		}
 		latestBindingMap.Status.Conditions = newConditions
-		latestBindingMap.Status.VLANID = bindingMap.Status.VLANID
+		latestBindingMap.Status.VLANTrafficTag = bindingMap.Status.VLANTrafficTag
 		return c.Status().Update(ctx, latestBindingMap)
 	})
 
