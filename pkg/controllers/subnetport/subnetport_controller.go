@@ -446,34 +446,27 @@ func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
 	return nil
 }
 
-func (r *SubnetPortReconciler) vmMapFunc(_ context.Context, vm client.Object) []reconcile.Request {
+func (r *SubnetPortReconciler) vmMapFunc(ctx context.Context, vm client.Object) []reconcile.Request {
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	var requests []reconcile.Request
+	spIndexValue := fmt.Sprintf("%s/%s", vm.GetNamespace(), vm.GetName())
 	err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 		return err != nil
 	}, func() error {
-		err := r.Client.List(context.TODO(), subnetPortList)
+		err := r.Client.List(ctx, subnetPortList, client.MatchingFields{util.SubnetPortNamespaceVMIndexKey: spIndexValue})
 		return err
 	})
 	if err != nil {
-		log.Error(err, "failed to list subnetport in VM handler")
+		log.Error(err, "failed to list subnetport in VM handler", "VM", spIndexValue)
 		return requests
 	}
 	for _, subnetPort := range subnetPortList.Items {
-		port := subnetPort
-		vmName, _, err := common.GetVirtualMachineNameForSubnetPort(&port)
-		if err != nil {
-			// not block the subnetport visiting because of invalid annotations
-			log.Error(err, "failed to get virtualmachine name from subnetport", "subnetPort.UID", subnetPort.UID)
-		}
-		if vmName == vm.GetName() && subnetPort.Namespace == vm.GetNamespace() {
-			requests = append(requests, reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      subnetPort.Name,
-					Namespace: subnetPort.Namespace,
-				},
-			})
-		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      subnetPort.Name,
+				Namespace: subnetPort.Namespace,
+			},
+		})
 	}
 	return requests
 }

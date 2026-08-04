@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/retry"
@@ -12,15 +13,42 @@ import (
 )
 
 const (
-	localhostIP           = "127.0.0.1"
-	localhostIPv6         = "::1"
-	defaultK8sServicePort = "6443"
-	K8sServicePortEnv     = "KUBERNETES_SERVICE_PORT"
+	localhostIP             = "127.0.0.1"
+	localhostIPv6           = "::1"
+	defaultK8sServicePort   = "6443"
+	K8sServicePortEnv       = "KUBERNETES_SERVICE_PORT"
+	K8sClientTimeoutEnv     = "K8S_CLIENT_TIMEOUT"
+	CacheSyncTimeoutEnv     = "CACHE_SYNC_TIMEOUT"
+	DefaultK8sClientTimeout = 2 * time.Minute
+	DefaultCacheSyncTimeout = 5 * time.Minute
 )
+
+func GetK8sClientTimeout() time.Duration {
+	if val := os.Getenv(K8sClientTimeoutEnv); val != "" {
+		if d, err := time.ParseDuration(val); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultK8sClientTimeout
+}
+
+func GetCacheSyncTimeout() time.Duration {
+	if val := os.Getenv(CacheSyncTimeoutEnv); val != "" {
+		if d, err := time.ParseDuration(val); err == nil && d > 0 {
+			return d
+		}
+	}
+	return DefaultCacheSyncTimeout
+}
 
 func GetConfig() (*rest.Config, error) {
 	cfg := ctrl.GetConfigOrDie()
-	cfg.Timeout = TCPReadTimeout
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = GetK8sClientTimeout()
+	}
+	cacheSyncTimeout := GetCacheSyncTimeout()
+	log.Info("Loaded Kubernetes client configuration", "QPS", cfg.QPS, "Burst", cfg.Burst, "Timeout", cfg.Timeout, "CacheSyncTimeout", cacheSyncTimeout)
+
 	var healthy bool
 	var getHealthErr error
 
