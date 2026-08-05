@@ -119,6 +119,10 @@ spec:
                         type: array
                     type: object
                 type: object
+              description:
+                description: Description of the Subnet.
+                maxLength: 1024
+                type: string
               ipAddressType:
                 default: IPv4
                 description: |-
@@ -138,6 +142,23 @@ spec:
                 type: array
                 x-kubernetes-validations:
                 - message: Value is immutable
+                  rule: self == oldSelf
+              ipBlockNames:
+                description: |-
+                  IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).
+                  The IPBlock should belong to one of the following sources:
+                  1) The VPC's private IPBlock
+                  2) The VPCConnectivityProfile's external IPBlock
+                  3) The VPCConnectivityProfile's private-TGW IPBlock
+                  4) The VPCConnectivityProfile's IPv6 IPBlock
+                items:
+                  type: string
+                maxItems: 2
+                minItems: 0
+                type: array
+                x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: IPBlockNames is immutable after creation
                   rule: self == oldSelf
               ipv4SubnetSize:
                 description: Size of IPv4 Subnet based upon estimated workload count.
