@@ -84,6 +84,22 @@ type SubnetSpec struct {
 	AdvancedConfig SubnetAdvancedConfig `json:"advancedConfig,omitempty"`
 	// Distributed VLAN Connection name.
 	VLANConnectionName string `json:"vlanConnectionName,omitempty"`
+	// Description of the Subnet.
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	Description string `json:"description,omitempty"`
+	// IPBlockNames specifies the IPBlocks used for Subnet IP allocation.
+	// The IPBlock should belong to one of the following sources:
+	// 1) The VPC's private IPBlock
+	// 2) The VPCConnectivityProfile's external IPBlock
+	// 3) The VPCConnectivityProfile's private-TGW IPBlock
+	// 4) The VPCConnectivityProfile's IPv6 IPBlock
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=0
+	// +kubebuilder:validation:MaxItems=2
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="IPBlockNames is immutable after creation"
+	IPBlockNames []string `json:"ipBlockNames,omitempty"`
 }
 
 // SubnetStatus defines the observed state of Subnet.

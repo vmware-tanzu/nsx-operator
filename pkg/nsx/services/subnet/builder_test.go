@@ -1535,3 +1535,114 @@ func TestBuildSubnetForSubnet_IPv6(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildSubnetWithDescriptionIPBlockNamesAndLabels(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+		return true
+	})
+	defer patches.Reset()
+
+	service := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+			Client:    k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-desc-test",
+			Namespace: "ns-1",
+			Labels: map[string]string{
+				"app": "frontend",
+				"env": "production",
+			},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			Description:   "Frontend Subnet for Production",
+			IPBlockNames:  []string{":ipblock-1", ":ipblock-2"},
+		},
+	}
+
+	nsxSubnet, err := service.buildSubnet(subnetCR, []model.Tag{}, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet)
+	assert.Equal(t, "Frontend Subnet for Production", *nsxSubnet.Description)
+	assert.Equal(t, []string{"/infra/ip-blocks/ipblock-1", "/infra/ip-blocks/ipblock-2"}, nsxSubnet.IpBlocks)
+
+	vpcInfo := &common.VPCResourceInfo{
+		OrgID:     "org1",
+		ProjectID: "proj1",
+		VPCID:     "vpc1",
+	}
+
+	subnetCR.Spec.IPBlockNames = []string{"vpc-block-1", "proj-block-1", ":ext-block-1"}
+	nsxSubnetWithVPC, err := service.buildSubnet(subnetCR, []model.Tag{}, []string{}, vpcInfo)
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnetWithVPC)
+	assert.Equal(t, []string{
+		"/orgs/org1/projects/proj1/infra/ip-blocks/vpc-block-1",
+		"/orgs/org1/projects/proj1/infra/ip-blocks/proj-block-1",
+		"/infra/ip-blocks/ext-block-1",
+	}, nsxSubnetWithVPC.IpBlocks)
+
+	// Check translated labels as NSX tags
+	tagMap := make(map[string]string)
+	for _, tag := range nsxSubnet.Tags {
+		if tag.Scope != nil && tag.Tag != nil {
+			tagMap[*tag.Scope] = *tag.Tag
+		}
+	}
+	assert.Equal(t, "frontend", tagMap["app"])
+	assert.Equal(t, "production", tagMap["env"])
+}
+
+func TestBuildIPBlockPaths_Branches(t *testing.T) {
+	service := &SubnetService{}
+
+	// 1. Empty ipBlockNames
+	res, err := service.buildIPBlockPaths([]string{}, nil)
+	assert.Nil(t, err)
+	assert.Nil(t, res)
+
+	// 2. Path starting with :
+	res, err = service.buildIPBlockPaths([]string{":ext-b2"}, nil)
+	assert.Nil(t, err)
+	assert.Equal(t, []string{"/infra/ip-blocks/ext-b2"}, res)
+
+	// 3. Project-scoped IPBlock
+	vpcInfoFull := &common.VPCResourceInfo{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1"}
+	res, err = service.buildIPBlockPaths([]string{"sys-block"}, vpcInfoFull)
+	assert.Nil(t, err)
+	assert.Equal(t, []string{"/orgs/org1/projects/proj1/infra/ip-blocks/sys-block"}, res)
+
+	// 4. Missing org or project info error
+	_, errMissing := service.buildIPBlockPaths([]string{"proj-block"}, nil)
+	assert.Error(t, errMissing)
+	assert.Contains(t, errMissing.Error(), "org or project info is missing")
+}

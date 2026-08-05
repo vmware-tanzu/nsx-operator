@@ -11,6 +11,9 @@ import (
 
 // Test SubnetToComparable function
 func TestSubnetToComparable(t *testing.T) {
+	s := Subnet{Id: common.String("id1")}
+	assert.Equal(t, "id1", s.Key())
+
 	tagScope1 := "fakeTagScope1"
 	tagValue1 := "fakeTagValue1"
 	tag1 := model.Tag{
@@ -354,6 +357,30 @@ func TestSubnetToComparable(t *testing.T) {
 			existingSubnet: &model.VpcSubnet{
 				Id:            &id1,
 				IpAddressType: common.String("IPV4_IPV6"),
+			},
+			expectChanged: false,
+		},
+		{
+			name: "Description changed should cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id:          &id1,
+				Description: common.String("new description"),
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id:          &id1,
+				Description: common.String("old description"),
+			},
+			expectChanged: true,
+		},
+		{
+			name: "Description same should not cause change",
+			nsxSubnet: &model.VpcSubnet{
+				Id:          &id1,
+				Description: common.String("same description"),
+			},
+			existingSubnet: &model.VpcSubnet{
+				Id:          &id1,
+				Description: common.String("same description"),
 			},
 			expectChanged: false,
 		},
