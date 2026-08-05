@@ -15,6 +15,7 @@ const (
 	IPAllocationErrorCode                     = 8212
 	ReservedIPRangesOverlappedErrorCode       = 508134
 	ReservedIPRangesOutOfSubnetRangeErrorCode = 508135
+	VpcOverlapVlanErrorCode                   = 640873
 	// MixedModeNotSupportedErrorCode is returned by NSX when both
 	// static_ip_allocation.enabled=true and subnet_dhcp_config.mode=DHCP_SERVER
 	// are set simultaneously and the NSX version does not support mixed-mode subnets.

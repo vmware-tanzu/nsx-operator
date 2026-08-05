@@ -35,7 +35,7 @@ var (
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:       "child1",
 			TargetSubnetName: "parent",
-			VLANTrafficTag:   101,
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 
@@ -47,7 +47,7 @@ var (
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:       "child1",
 			TargetSubnetName: "parent2",
-			VLANTrafficTag:   102,
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(102),
 		},
 	}
 
@@ -59,7 +59,7 @@ var (
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child1",
 			TargetSubnetSetName: "parentSet2",
-			VLANTrafficTag:      101,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 
@@ -71,7 +71,7 @@ var (
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:       "child2",
 			TargetSubnetName: "parent3",
-			VLANTrafficTag:   101,
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(101),
 		},
 	}
 
@@ -174,7 +174,7 @@ func TestGetSubnetBindingCRsBySubnet(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:       "subnet1",
 			TargetSubnetName: "subnet2",
-			VLANTrafficTag:   201,
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(201),
 		},
 	}
 	binding2 := &v1alpha1.SubnetConnectionBindingMap{
@@ -185,7 +185,7 @@ func TestGetSubnetBindingCRsBySubnet(t *testing.T) {
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:       "subnet2",
 			TargetSubnetName: "subnet3",
-			VLANTrafficTag:   201,
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(201),
 		},
 	}
 	newScheme := runtime.NewScheme()
