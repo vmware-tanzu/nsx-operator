@@ -82,7 +82,9 @@ spec:
                   rule: self == oldSelf
               ipAddressType:
                 default: IPv4
-                description: IPAddressType specifies the IP address type of the IPAddressAllocation.
+                description: |-
+                  IPAddressType specifies the IP address type of the IPAddressAllocation.
+                  IPv6 is supported starting with VCF 9.2.0.
                 enum:
                 - IPv4
                 - IPv6
@@ -101,6 +103,7 @@ spec:
                 description: |-
                   IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.
                   Defaults to 64 when ipAddressType is IPv6 and this field is not specified.
+                  Supported starting with VCF 9.2.0.
                 maximum: 128
                 minimum: 64
                 type: integer

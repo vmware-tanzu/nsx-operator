@@ -121,8 +121,9 @@ spec:
                 type: object
               ipAddressType:
                 default: IPv4
-                description: IPAddressType defines the IP address type that will be
-                  allocated for the Subnet.
+                description: |-
+                  IPAddressType defines the IP address type that will be allocated for the Subnet.
+                  IPv6 and IPv4IPv6 are supported starting with VCF 9.2.0.
                 enum:
                 - IPv4
                 - IPv6
@@ -146,7 +147,9 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               ipv6PrefixLength:
-                description: IPv6 prefix length for the Subnet (e.g. 64 means /64).
+                description: |-
+                  IPv6 prefix length for the Subnet (e.g. 64 means /64).
+                  Supported starting with VCF 9.2.0.
                 maximum: 127
                 minimum: 2
                 type: integer
@@ -184,7 +187,9 @@ spec:
                     || size(self.dhcpServerAdditionalConfig.reservedIPRanges)==0)
                     || has(self.mode) && self.mode=='DHCPServer'
               subnetDHCPv6Config:
-                description: DHCPv6 configuration for Subnet.
+                description: |-
+                  DHCPv6 configuration for Subnet.
+                  Supported starting with VCF 9.2.0.
                 properties:
                   dhcpv6ServerAdditionalConfig:
                     description: Additional DHCPv6 server config for a VPC Subnet.
