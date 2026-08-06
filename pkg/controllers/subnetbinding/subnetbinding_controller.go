@@ -474,35 +474,27 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 
 	// Validate against existing bindings in the SubnetBindingStore to prevent cyclic or cascading multi-level bindings.
 	if isParent {
-		bindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 		for _, subnetPath := range subnetPaths {
 			bindings := r.SubnetBindingService.GetSubnetConnectionBindingMapsByChildSubnet(subnetPath)
 			if len(bindings) > 0 {
-				bindingMaps = append(bindingMaps, bindings...)
-			}
-		}
-		if len(bindingMaps) > 0 {
-			bmName := getBindingMapName(bindingMaps[0])
-			return nil, &errorWithRetry{
-				message: fmt.Sprintf("Subnet CR %s is already used as a branch by %s", name, bmName),
-				error:   fmt.Errorf("the Subnet %s already works as a branch in SubnetConnectionBindingMap %s", name, bmName),
-				retry:   true,
+				bmName := getBindingMapName(bindings[0])
+				return nil, &errorWithRetry{
+					message: fmt.Sprintf("Subnet CR %s is already used as a branch by %s", name, bmName),
+					error:   fmt.Errorf("the Subnet %s already works as a branch in SubnetConnectionBindingMap %s", name, bmName),
+					retry:   true,
+				}
 			}
 		}
 	} else {
-		bindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 		for _, subnetPath := range subnetPaths {
 			bindings := r.SubnetBindingService.GetSubnetConnectionBindingMapsByParentSubnet(subnetPath)
 			if len(bindings) > 0 {
-				bindingMaps = append(bindingMaps, bindings...)
-			}
-		}
-		if len(bindingMaps) > 0 {
-			bmName := getBindingMapName(bindingMaps[0])
-			return nil, &errorWithRetry{
-				message: fmt.Sprintf("Subnet CR %s is already used as a trunk by %s", name, bmName),
-				error:   fmt.Errorf("the Subnet %s already works as a trunk in SubnetConnectionBindingMap %s", name, bmName),
-				retry:   true,
+				bmName := getBindingMapName(bindings[0])
+				return nil, &errorWithRetry{
+					message: fmt.Sprintf("Subnet CR %s is already used as a trunk by %s", name, bmName),
+					error:   fmt.Errorf("the Subnet %s already works as a trunk in SubnetConnectionBindingMap %s", name, bmName),
+					retry:   true,
+				}
 			}
 		}
 	}
