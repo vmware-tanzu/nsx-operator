@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -39,7 +41,7 @@ func (s *VPCIPAddressUsageStorage) Get(_ context.Context, namespace, vpcName str
 	log := logger.Log
 	vpcEntries := s.vpcService.ListVPCInfo(namespace)
 	if len(vpcEntries) == 0 {
-		return nil, fmt.Errorf("no VPC found for namespace %s", namespace)
+		return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "vpcipaddressusages"}, vpcName), "vpcipaddressusages", vpcName, nil)
 	}
 
 	for _, entry := range vpcEntries {
@@ -52,12 +54,12 @@ func (s *VPCIPAddressUsageStorage) Get(_ context.Context, namespace, vpcName str
 			"vpcID", info.VPCID, "projectID", info.ProjectID)
 		nsxBlocks, err := s.nsxClient.IPAddressUsageClient.Get(info.OrgID, info.ProjectID, info.VPCID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get VPC IP address usage from NSX: %w", err)
+			return nil, HandleEASError(err, "vpcipaddressusages", vpcName, fmt.Errorf("failed to get VPC IP address usage from NSX: %w", err))
 		}
 		return ConvertVpcIpAddressBlocks(&nsxBlocks, info.VPCID, namespace), nil
 	}
 
-	return nil, fmt.Errorf("VPC %q not found for namespace %s", vpcName, namespace)
+	return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "vpcipaddressusages"}, vpcName), "vpcipaddressusages", vpcName, nil)
 }
 
 // List retrieves IP address usage for all VPCs associated with the given namespace.
@@ -79,7 +81,7 @@ func (s *VPCIPAddressUsageStorage) List(_ context.Context, namespace string) (*e
 		info := entry.Info
 		nsxBlocks, err := s.nsxClient.IPAddressUsageClient.Get(info.OrgID, info.ProjectID, info.VPCID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get VPC IP address usage for VPC %s: %w", info.VPCID, err)
+			return nil, HandleEASError(err, "vpcipaddressusages", info.VPCID, fmt.Errorf("failed to get VPC IP address usage for VPC %s: %w", info.VPCID, err))
 		}
 		usage := ConvertVpcIpAddressBlocks(&nsxBlocks, info.VPCID, namespace)
 		list.Items = append(list.Items, *usage)

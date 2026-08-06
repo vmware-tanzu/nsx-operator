@@ -703,6 +703,31 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 		},
 	}
 
+	// Test case 1: DHCPv6 Server active + custom DHCP server addresses (should be set)
+	subnet1 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcpv6-custom",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"fd00:1234:5678:9abc::/64"},
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+				Mode: v1alpha1.DHCPv6ConfigModeServer,
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				DHCPServerAddresses: []string{"fd00:1234:5678:9abc::3"},
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(false),
+				},
+			},
+		},
+	}
+
+	nsxSubnet1, err := service.buildSubnet(subnet1, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet1.AdvancedConfig)
+	assert.Equal(t, []string{"fd00:1234:5678:9abc::3"}, nsxSubnet1.AdvancedConfig.DhcpServerAddresses)
+
 	// Test case 2: Static IP allocation enabled + custom DHCP server addresses (should NOT be set) - this should work without nil pointer issues
 	subnet2 := &v1alpha1.Subnet{
 		ObjectMeta: v1.ObjectMeta{

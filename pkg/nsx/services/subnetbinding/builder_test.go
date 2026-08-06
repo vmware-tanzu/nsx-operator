@@ -90,12 +90,35 @@ var (
 func TestBuildSubnetBindings(t *testing.T) {
 	service := mockService()
 	parentSubnetPaths := []string{parentSubnetPath1, parentSubnetPath2}
-	bindingMaps := service.buildSubnetBindings(binding1, parentSubnetPaths)
+	bindingMaps := service.buildSubnetBindings(binding1, 201, parentSubnetPaths)
 	require.Equal(t, 2, len(bindingMaps))
 	expBindingMaps := []*model.SubnetConnectionBindingMap{
 		bindingMap1, bindingMap2,
 	}
 	require.ElementsMatch(t, expBindingMaps, bindingMaps)
+}
+
+func TestBuildSubnetBindingsBranch(t *testing.T) {
+	service := mockService()
+	branchBinding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "cross-vpc-binding",
+			Namespace: "ns-vpc-b",
+			UID:       "uuid-cross",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:        "parent-subnet",
+			TargetSubnetName:  "child-subnet",
+			SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+			VLANTrafficTag:    v1alpha1.VLANTrafficTagPtr(201),
+		},
+	}
+	targetPaths := []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"}
+	bindingMaps := service.buildSubnetBindings(branchBinding, 201, targetPaths)
+	require.Len(t, bindingMaps, 1)
+	require.NotNil(t, bindingMaps[0].SubnetAssociation)
+	assert.Equal(t, model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH, *bindingMaps[0].SubnetAssociation)
+	assert.Equal(t, targetPaths[0], *bindingMaps[0].SubnetPath)
 }
 
 func TestBuildSubnetConnectionBindingMapCR(t *testing.T) {

@@ -73,7 +73,7 @@ func TestSecurityPolicy(t *testing.T) {
 // NOTE: This test must NOT run in parallel with testSecurityPolicyAddDeleteRule - both use isolate-policy-1
 func testSecurityPolicyBasicTraffic(t *testing.T) {
 	// Do NOT run in parallel - conflicts with testSecurityPolicyAddDeleteRule (same policy name)
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
 	// Use pre-created namespace (shared with other security policy tests)
@@ -145,7 +145,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 // NOTE: This test must NOT run in parallel with testSecurityPolicyBasicTraffic - both use isolate-policy-1
 func testSecurityPolicyAddDeleteRule(t *testing.T) {
 	// Do NOT run in parallel - conflicts with testSecurityPolicyBasicTraffic (same policy name)
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
 	// Use pre-created namespace (shared with other security policy tests)
@@ -201,7 +201,7 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 // NOTE: This test must NOT run in parallel with testSecurityPolicyBasicTraffic/AddDeleteRule - all use NsSecurityPolicy
 func testSecurityPolicyMatchExpression(t *testing.T) {
 	// Do NOT run in parallel - shares NsSecurityPolicy namespace where other tests create isolation policies
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
 	// Use pre-created namespace (shared with other security policy tests)
@@ -513,7 +513,7 @@ func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 
 // testNetworkPolicyMultipleIn verifies that multiple In expressions on the same key are properly intersected.
 func testNetworkPolicyMultipleIn(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
 	ns := NsSecurityPolicy

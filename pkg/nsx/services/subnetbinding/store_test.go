@@ -25,7 +25,7 @@ var (
 		},
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child",
-			VLANTrafficTag:      201,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(201),
 			TargetSubnetSetName: "parent",
 		},
 	}
@@ -37,7 +37,7 @@ var (
 		},
 		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
 			SubnetName:          "child2",
-			VLANTrafficTag:      202,
+			VLANTrafficTag:      v1alpha1.VLANTrafficTagPtr(202),
 			TargetSubnetSetName: "parent2",
 		},
 	}
@@ -114,15 +114,15 @@ func TestStore(t *testing.T) {
 	}
 	store.Apply(bm2)
 
-	bindings := store.getBindingsByChildSubnet(childSubnetPath1)
+	bindings := store.GetBindingsByChildSubnet(childSubnetPath1)
 	require.Equal(t, 2, len(bindings))
 	require.ElementsMatch(t, []*model.SubnetConnectionBindingMap{bm1, bm2}, bindings)
 
-	bindings = store.getBindingsByParentSubnet(parentSubnetPath1)
+	bindings = store.GetBindingsByParentSubnet(parentSubnetPath1)
 	require.Equal(t, 1, len(bindings))
 	require.Equal(t, bm1, bindings[0])
 
-	bindings = store.getBindingsByParentSubnet(parentSubnetPath2)
+	bindings = store.GetBindingsByParentSubnet(parentSubnetPath2)
 	require.Equal(t, 1, len(bindings))
 	require.Equal(t, bm2, bindings[0])
 

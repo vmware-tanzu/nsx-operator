@@ -940,7 +940,7 @@ _Appears in:_
 | `subnetName` _string_ | SubnetName is the Subnet name which this SubnetConnectionBindingMap is associated. |  |  |
 | `targetSubnetSetName` _string_ | TargetSubnetSetName specifies the target SubnetSet which a Subnet is connected to. |  | Optional: \{\} <br /> |
 | `targetSubnetName` _string_ | TargetSubnetName specifies the target Subnet which a Subnet is connected to. |  | Optional: \{\} <br /> |
-| `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. |  | Maximum: 4094 <br />Minimum: 0 <br />Required: \{\} <br /> |
+| `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. |  | Maximum: 4094 <br />Minimum: 1 <br />Required: \{\} <br /> |
 
 
 #### SubnetConnectionBindingMapStatus
@@ -1410,9 +1410,9 @@ _Appears in:_
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
-| `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets.<br />Defaults to 32. | 32 | Maximum: 65536 <br /> |
+| `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets. |  | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
-| `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Defaults to 64. | 64 | Maximum: 127 <br />Minimum: 2 <br /> |
+| `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets. |  | Maximum: 127 <br />Minimum: 2 <br /> |
 | `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
 
 

@@ -190,6 +190,8 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
 				updatedSubnet.SubnetDhcpv6Config = nsxSubnet.SubnetDhcpv6Config
 				updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
+				// AccessMode can be updated when IPAddressType is updated from IPv6 to IPv4IPv6
+				updatedSubnet.AccessMode = nsxSubnet.AccessMode
 				// Only update gateway_addresses, dhcp_server_address, connectivity_state
 				// and static_ip_allocation (enabled + pool_ranges) from AdvancedConfig.
 				if nsxSubnet.AdvancedConfig != nil {
@@ -561,6 +563,8 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		// is only updated after the updating succeeds.
 		updatedSubnet := *vpcSubnets[i] // #nosec G602
 		updatedSubnet.Tags = newTags
+		// AccessMode can be updated when IPAddressType is updated from IPv6 to IPv4IPv6
+		updatedSubnet.AccessMode = String(convertAccessMode(string(subnetsetCR.Spec.AccessMode)))
 		if service.Service.NSXClient.NSXCheckVersion(nsx.IPv6) {
 			updatedSubnet.IpAddressType = String(controllercommon.ConvertCRIPAddressTypeToNSX(subnetsetCR.Spec.IPAddressType))
 		}

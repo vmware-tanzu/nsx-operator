@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apiserver/pkg/endpoints/request"
 
@@ -37,7 +38,7 @@ func TestSubnetIPPoolsStorage_Get_NoSubnetCR(t *testing.T) {
 	ctx := request.WithNamespace(context.Background(), "ns1")
 	_, err := r.Get(ctx, "sub1", &metav1.GetOptions{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "subnet CR")
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 
 func TestSubnetIPPoolsStorage_ConvertToTable_Success(t *testing.T) {

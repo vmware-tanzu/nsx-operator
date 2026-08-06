@@ -1419,11 +1419,13 @@ func TestGetLBSsFromNSXByVPC(t *testing.T) {
 
 func TestVPCService_ValidateNetworkConfig(t *testing.T) {
 	service, _, _, _, _ := createService(t)
+	service.NSXConfig.K8sConfig = &config.K8sConfig{}
 	tests := []struct {
 		name          string
 		nc            v1alpha1.VPCNetworkConfiguration
 		expectedError string
 		networkStack  v1alpha1.NetworkStackType
+		ipFamily      string
 	}{
 		{
 			name:          "is pre-created vpc",
@@ -1467,9 +1469,19 @@ func TestVPCService_ValidateNetworkConfig(t *testing.T) {
 			expectedError: "",
 			networkStack:  v1alpha1.FullStackVPC,
 		},
+		{
+			name:          "auto-created vpc with empty private ips and ipv6",
+			nc:            v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{NSXProject: "/orgs/org/projects/project", VPC: "", PrivateIPs: []string{}}},
+			expectedError: "",
+			networkStack:  v1alpha1.FullStackVPC,
+			ipFamily:      "IPv6",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.ipFamily != "" {
+				service.NSXConfig.K8sConfig.IPFamily = tt.ipFamily
+			}
 			patches := gomonkey.ApplyFunc((*VPCService).GetNetworkStackFromNC, func(s *VPCService, nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
 				return tt.networkStack, nil
 			})
