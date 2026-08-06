@@ -53,7 +53,7 @@ type SubnetSpec struct {
 	// VPC name of the Subnet.
 	VPCName string `json:"vpcName,omitempty"`
 	// IPAddressType defines the IP address type that will be allocated for the Subnet.
-	// IPv6 and IPv4IPv6 are supported starting with VCF 9.2.0.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
 	// +kubebuilder:default=IPv4
 	IPAddressType IPAddressType `json:"ipAddressType,omitempty"`

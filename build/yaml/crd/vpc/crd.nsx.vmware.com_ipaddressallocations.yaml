@@ -84,7 +84,7 @@ spec:
                 default: IPv4
                 description: |-
                   IPAddressType specifies the IP address type of the IPAddressAllocation.
-                  IPv6 is supported starting with VCF 9.2.0.
+                  Supported starting with VCF 9.2.0.
                 enum:
                 - IPv4
                 - IPv6

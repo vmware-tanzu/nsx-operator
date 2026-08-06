@@ -123,7 +123,7 @@ spec:
                 default: IPv4
                 description: |-
                   IPAddressType defines the IP address type that will be allocated for the Subnet.
-                  IPv6 and IPv4IPv6 are supported starting with VCF 9.2.0.
+                  Supported starting with VCF 9.2.0.
                 enum:
                 - IPv4
                 - IPv6

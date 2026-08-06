@@ -35,7 +35,7 @@ type SubnetIPReservationSpec struct {
 	ReservedIPs []string `json:"reservedIPs,omitempty"`
 
 	// IPAddressType defines the IP address type of the SubnetIPReservation.
-	// IPv6 and IPv4IPv6 are supported starting with VCF 9.2.0.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddressType IPAddressType `json:"ipAddressType,omitempty"`

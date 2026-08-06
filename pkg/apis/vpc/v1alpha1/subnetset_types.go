@@ -17,7 +17,7 @@ import (
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode) || self.subnetDHCPv6Config.mode!='DHCPRelay' && self.subnetDHCPv6Config.mode!='DHCPServerStateless'", message="DHCPRelay or DHCPServerStateless is not supported in SubnetSet"
 type SubnetSetSpec struct {
 	// IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet.
-	// IPv6 and IPv4IPv6 are supported starting with VCF 9.2.0.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
 	IPAddressType IPAddressType `json:"ipAddressType,omitempty"`
 	// Size of IPv4 Subnet based upon estimated workload count.
