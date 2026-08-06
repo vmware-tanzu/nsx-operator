@@ -53,7 +53,6 @@ spec:
               defaultIPv6PrefixLength:
                 description: |-
                   Default prefix length of IPv6 Subnets.
-                  Defaults to 64.
                   Supported starting with VCF 9.2.0.
                 maximum: 127
                 minimum: 2
