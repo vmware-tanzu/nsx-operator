@@ -655,15 +655,47 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 		return true, nil
 	}
 
+	var allocatedIPNumberIPv6 int
 	if !useStaticPool {
-		// TODO: Revisit when DHCPv6 is fully supported in NSX and DHCPv6 server statistics are available.
-		// For now, always allow allocation unconditionally for SubnetPorts sourcing their IPv6
-		// address from the DHCPv6 pool.
-		log.Info("DHCPv6 mode detected; allowing allocation (DHCPv6 support pending)", "Subnet", *subnet.Path)
-		return true, nil
+		// DHCPv6 pool statistics are only exposed by NSX versions with the VpcIpv6
+		// feature enabled - dhcp-server-config-stats returns a populated DhcpIpv6 field
+		// in that case. On older NSX versions, DhcpIpv6 stays nil and we allow the
+		// allocation unconditionally, same as before.
+		if !service.NSXClient.NSXCheckVersion(nsx.IPv6) {
+			log.Info("DHCPv6 pool statistics unavailable on this NSX version; allowing allocation", "Subnet", *subnet.Path)
+			return true, nil
+		}
+		dhcpServerStats, err := service.NSXClient.DhcpServerConfigStatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			log.Error(err, "Failed to get Subnet dhcp-server-config stats for IPv6", "Subnet", *subnet.Path)
+			return false, err
+		}
+		if dhcpServerStats.DhcpIpv6 == nil || len(dhcpServerStats.DhcpIpv6.IpPoolStats) == 0 {
+			// This NSX build doesn't populate DHCPv6 stats for this Subnet (e.g. IPv4-only
+			// Subnet, or VpcIpv6 feature switch off server-side despite the client-side
+			// version gate). Fall back to allowing the allocation unconditionally.
+			log.Info("DHCPv6 pool statistics not present in response; allowing allocation", "Subnet", *subnet.Path)
+			return true, nil
+		}
+		if dhcpServerStats.DhcpIpv6.IpPoolStats[0].PoolSize != nil {
+			info.totalDhcpIPv6 = int(*dhcpServerStats.DhcpIpv6.IpPoolStats[0].PoolSize)
+		}
+		if sharedSubnet && dhcpServerStats.DhcpIpv6.IpPoolStats[0].AllocatedNumber != nil {
+			allocatedIPNumberIPv6 = int(*dhcpServerStats.DhcpIpv6.IpPoolStats[0].AllocatedNumber)
+		}
+
+		if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
+			return false, nil
+		}
+
+		existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
+		if sharedSubnet {
+			existingPortCount = max(existingPortCount, allocatedIPNumberIPv6)
+		}
+
+		return info.dirtyDhcpCountIPv6+existingPortCount+ipCount <= info.totalDhcpIPv6, nil
 	}
 
-	var allocatedIPNumberIPv6 int
 	if !isNewEntry || info.totalStaticIPv6 == 0 || sharedSubnet {
 		staticIPPoolIPv6, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv6-default")
 		if err != nil {

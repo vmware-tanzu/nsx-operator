@@ -1166,6 +1166,13 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 		},
 	}
 	subnetPortService := createSubnetPortService(t)
+	// This test doesn't exercise the DHCPv6-pool-statistics path; keep NSXCheckVersion(IPv6)
+	// false so checkIPv6Capacity's DHCP-sourced branch keeps its unconditional-allow fallback
+	// instead of calling the (unmocked) real Cluster.GetVersion().
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(subnetPortService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return false
+	})
+	defer patches.Reset()
 	// Reset Subnet totalIP without SubnetPort does not influence the port count info
 	subnetPortService.ResetSubnetTotalIP(subnetPath)
 

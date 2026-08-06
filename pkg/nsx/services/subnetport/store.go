@@ -154,7 +154,10 @@ type CountInfo struct {
 	// pool and static IP pool respectively.
 	totalDhcpIP   int
 	totalStaticIP int
-	// totalDhcpIPv6/totalStaticIPv6 are the IPv6 equivalents of the above.
+	// totalDhcpIPv6/totalStaticIPv6 are the IPv6 equivalents of totalDhcpIP/totalStaticIP.
+	// totalDhcpIPv6 is only populated on NSX versions that expose DHCPv6 pool statistics
+	// via dhcp-server-config-stats (see checkIPv6Capacity); on older versions the
+	// DHCPv6-sourced capacity check is skipped and this field stays unused.
 	totalDhcpIPv6      int
 	totalStaticIPv6    int
 	exhaustedCheckTime time.Time
