@@ -94,8 +94,17 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
 		}
+		// nsxSubnet is resolved below; the Release closure reads it lazily so it sees the
+		// resolved Subnet even though it's registered before the Subnet is fetched.
+		var nsxSubnet *model.VpcSubnet
 		if !isExisting {
-			defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType)
+			defer func() {
+				staticIPAllocationType := v1alpha1.StaticIPAllocationTypeNone
+				if nsxSubnet != nil {
+					staticIPAllocationType = util.ComputeDefaultStaticIPAllocationType(nsxSubnet, interfaceIPType)
+				}
+				r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType, staticIPAllocationType, nil)
+			}()
 		}
 		log.Info("Got NSX Subnet for Pod", "NSX Subnet path", nsxSubnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
 		node, err := r.GetNodeByName(pod.Spec.NodeName)
@@ -110,7 +119,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			log.Error(err, "Failed to check if the Subnet is a shared Subnet", "path", nsxSubnetPath)
 			return common.ResultNormal, err
 		}
-		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
+		nsxSubnet, err = r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
@@ -445,7 +454,7 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 	if subnetSet.Spec.IPAddressType == "" {
 		return false, "", subnetSetUID, subnetSetLock, "", fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
 	}
-	subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfacetype)
+	subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfacetype, "", nil)
 	if err != nil {
 		return false, subnetPath, subnetSetUID, subnetSetLock, interfacetype, err
 	}

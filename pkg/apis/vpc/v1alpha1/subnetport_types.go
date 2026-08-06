@@ -23,11 +23,8 @@ type SubnetPortSpec struct {
 	Subnet string `json:"subnet,omitempty"`
 	// SubnetSet defines the parent SubnetSet name of the SubnetPort.
 	SubnetSet string `json:"subnetSet,omitempty"`
-	// AddressBindings defines static address bindings used for the SubnetPort. Multiple
-	// bindings sharing one MAC address are supported (NSX 9.2+) for use cases such as
-	// Blueprint VM creation where a single interface needs several IP addresses. NSX
-	// requires all non-empty MACAddress values across entries to match, and rejects
-	// changing the number of entries once the SubnetPort has been created.
+	// AddressBindings defines static address bindings used for the SubnetPort.
+	// Multiple bindings sharing one MAC address are supported from VCF 9.2.
 	AddressBindings []PortAddressBinding `json:"addressBindings,omitempty"`
 	// InterfaceIPType decides the address families of static IP allocation, when
 	// DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType

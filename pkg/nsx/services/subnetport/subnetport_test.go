@@ -1169,20 +1169,20 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	// Reset Subnet totalIP without SubnetPort does not influence the port count info
 	subnetPortService.ResetSubnetTotalIP(subnetPath)
 
-	ok, err := subnetPortService.AllocatePortFromSubnet(subnet1, false, v1alpha1.IPAddressTypeIPv4)
+	ok, err := subnetPortService.AllocatePortFromSubnet(subnet1, false, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeNone, nil)
 	assert.True(t, ok)
 	require.NoError(t, err)
 
 	// Verify counter adjustments via internal Store check
 	if obj, existed := subnetPortService.SubnetPortStore.PortCountInfo.Load(subnetPath); existed {
 		info := obj.(*CountInfo)
-		assert.Equal(t, 1, info.dirtyCount)
-		assert.Equal(t, 0, info.dirtyCountIPv6)
+		assert.Equal(t, 1, info.dirtyDhcpCount)
+		assert.Equal(t, 0, info.dirtyDhcpCountIPv6)
 	}
 
 	empty := subnetPortService.IsEmptySubnet(subnetPath)
 	assert.False(t, empty)
-	subnetPortService.ReleasePortInSubnet(subnetPath, v1alpha1.IPAddressTypeIPv4)
+	subnetPortService.ReleasePortInSubnet(subnetPath, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeNone, nil)
 	empty = subnetPortService.IsEmptySubnet(subnetPath)
 	assert.True(t, empty)
 
@@ -1190,7 +1190,7 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPortService.updateExhaustedSubnet(subnetPath)
 	// Reset Subnet totalIP does not change other port count info
 	subnetPortService.ResetSubnetTotalIP(subnetPath)
-	ok, err = subnetPortService.AllocatePortFromSubnet(subnet1, false, v1alpha1.IPAddressTypeIPv4)
+	ok, err = subnetPortService.AllocatePortFromSubnet(subnet1, false, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeNone, nil)
 	assert.False(t, ok)
 	assert.Nil(t, err)
 
@@ -1209,14 +1209,14 @@ func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 		Ipv4SubnetSize: common.Int64(16),
 	}
 
-	ok, err = subnetPortService.AllocatePortFromSubnet(dualStackSubnet, false, v1alpha1.IPAddressTypeIPv4IPv6)
+	ok, err = subnetPortService.AllocatePortFromSubnet(dualStackSubnet, false, v1alpha1.IPAddressTypeIPv4IPv6, v1alpha1.StaticIPAllocationTypeNone, nil)
 	assert.True(t, ok)
 	require.NoError(t, err)
 
 	if obj, existed := subnetPortService.SubnetPortStore.PortCountInfo.Load(subnetPath); existed {
 		info := obj.(*CountInfo)
-		assert.Equal(t, 1, info.dirtyCount)
-		assert.Equal(t, 1, info.dirtyCountIPv6)
+		assert.Equal(t, 1, info.dirtyDhcpCount)
+		assert.Equal(t, 1, info.dirtyDhcpCountIPv6)
 	}
 }
 
@@ -1293,19 +1293,36 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_RELAY")},
 	}
 
+	// mixedModeSubnet has both DHCP and static IP allocation enabled at the same time
+	// (mixed mode): some SubnetPorts on it draw their IPv4 from the DHCP pool, others
+	// from the static pool, decided per-port by StaticIPAllocationType.
+	mixedModeSubnet := &model.VpcSubnet{
+		Ipv4SubnetSize: common.Int64(16),
+		IpAddresses:    []string{"10.0.0.1/28"},
+		Path:           &subnetPath,
+		Id:             &subnetId,
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(true)},
+		},
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_SERVER")},
+	}
+
 	tests := []struct {
-		name            string
-		subnet          *model.VpcSubnet
-		sharedSubnet    bool
-		interfaceIPType v1alpha1.IPAddressType // Added to test struct
-		prepareFunc     func(service *SubnetPortService) *gomonkey.Patches
-		expectedValue   bool
-		expectedErr     string
+		name                   string
+		subnet                 *model.VpcSubnet
+		sharedSubnet           bool
+		interfaceIPType        v1alpha1.IPAddressType // Added to test struct
+		staticIPAllocationType v1alpha1.StaticIPAllocationType
+		addressBindings        []v1alpha1.PortAddressBinding
+		prepareFunc            func(service *SubnetPortService) *gomonkey.Patches
+		expectedValue          bool
+		expectedErr            string
 	}{
 		{
-			name:            "Failed to get subnet static ip pool",
-			subnet:          staticSubnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
+			name:                   "Failed to get subnet static ip pool",
+			subnet:                 staticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{}, fmt.Errorf("mock static error")
@@ -1327,9 +1344,10 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedErr:   "mock dhcp error",
 		},
 		{
-			name:            "Allocate SubnetPort from static Subnet failed",
-			subnet:          staticSubnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
+			name:                   "Allocate SubnetPort from static Subnet failed",
+			subnet:                 staticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{
@@ -1362,18 +1380,20 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: false,
 		},
 		{
-			name:            "Allocate SubnetPort from static subnet with staticIpAllocation disabled failed",
-			subnet:          staticSubnetWithStaticIPAllocationDisabled,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
+			name:                   "Allocate SubnetPort from static subnet with staticIpAllocation disabled failed",
+			subnet:                 staticSubnetWithStaticIPAllocationDisabled,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return nil
 			},
 			expectedValue: true,
 		},
 		{
-			name:            "Allocate SubnetPort from static Subnet",
-			subnet:          staticSubnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
+			name:                   "Allocate SubnetPort from static Subnet",
+			subnet:                 staticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{
@@ -1384,9 +1404,10 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: true,
 		},
 		{
-			name:            "Allocate SubnetPort from static shared Subnet failed",
-			subnet:          staticSubnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv4,
+			name:                   "Allocate SubnetPort from static shared Subnet failed",
+			subnet:                 staticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
 					return model.IpAddressPool{
@@ -1420,9 +1441,10 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: true,
 		},
 		{
-			name:            "Failed to get static-ipv6-default pool",
-			subnet:          staticIPv6Subnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv6,
+			name:                   "Failed to get static-ipv6-default pool",
+			subnet:                 staticIPv6Subnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
 					if poolId == "static-ipv6-default" {
@@ -1435,9 +1457,10 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedErr:   "mock ipv6 static pool error",
 		},
 		{
-			name:            "Allocate SubnetPort from static IPv6 Subnet successful",
-			subnet:          staticIPv6Subnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv6,
+			name:                   "Allocate SubnetPort from static IPv6 Subnet successful",
+			subnet:                 staticIPv6Subnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
 					if poolId == "static-ipv6-default" {
@@ -1451,9 +1474,10 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: true,
 		},
 		{
-			name:            "Allocate Dual-Stack SubnetPort failed due to IPv4 starvation",
-			subnet:          dualStackStaticSubnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv4IPv6,
+			name:                   "Allocate Dual-Stack SubnetPort failed due to IPv4 starvation",
+			subnet:                 dualStackStaticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4IPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
 					if poolId == "static-ipv4-default" {
@@ -1469,9 +1493,10 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: false,
 		},
 		{
-			name:            "Allocate Dual-Stack SubnetPort failed due to IPv6 starvation",
-			subnet:          dualStackStaticSubnet,
-			interfaceIPType: v1alpha1.IPAddressTypeIPv4IPv6,
+			name:                   "Allocate Dual-Stack SubnetPort failed due to IPv6 starvation",
+			subnet:                 dualStackStaticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4IPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
 					if poolId == "static-ipv4-default" {
@@ -1489,6 +1514,138 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			},
 			expectedValue: false,
 		},
+		{
+			// Mixed mode: subnet has both DHCP_SERVER and static IP allocation enabled.
+			// A SubnetPort requesting a static IPv4 must be checked against the static
+			// pool, never the DHCP pool. We prove this by making the DHCP stats call
+			// error out - if the code wrongly consulted it, the test would fail.
+			name:                   "Mixed mode Subnet - static-sourced port checks static pool only",
+			subnet:                 mixedModeSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(5)},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(_ *fakeStatsClient, _, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
+					return model.DhcpServerStatistics{}, fmt.Errorf("dhcp pool must not be checked for a static-sourced port")
+				})
+				return patches
+			},
+			expectedValue: true,
+		},
+		{
+			// Same mixed mode subnet, but this port has no static allocation (DHCP-sourced
+			// IPv4). It must be checked against the DHCP pool, never the static pool.
+			name:                   "Mixed mode Subnet - dhcp-sourced port checks dhcp pool only",
+			subnet:                 mixedModeSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(_ *fakeStatsClient, _, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
+					return model.DhcpServerStatistics{
+						IpPoolStats: []model.DhcpIpPoolUsage{{PoolSize: common.Int64(5)}},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{}, fmt.Errorf("static pool must not be checked for a dhcp-sourced port")
+				})
+				return patches
+			},
+			expectedValue: true,
+		},
+		{
+			// Mixed mode: the static pool is exhausted while the DHCP pool still has
+			// room. A static-sourced port must be rejected, not silently allowed
+			// through by looking at the (irrelevant) DHCP pool's capacity.
+			name:                   "Mixed mode Subnet - static pool exhausted, dhcp pool available",
+			subnet:                 mixedModeSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(_ *fakeStatsClient, _, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
+					return model.DhcpServerStatistics{
+						IpPoolStats: []model.DhcpIpPoolUsage{{PoolSize: common.Int64(100)}},
+					}, nil
+				})
+				return patches
+			},
+			expectedValue: false,
+		},
+		{
+			// Mixed mode: the DHCP pool is exhausted while the static pool still has
+			// room. A dhcp-sourced port must be rejected, not silently allowed through
+			// by looking at the (irrelevant) static pool's capacity.
+			name:                   "Mixed mode Subnet - dhcp pool exhausted, static pool available",
+			subnet:                 mixedModeSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.DhcpServerConfigStatsClient), "Get", func(_ *fakeStatsClient, _, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
+					return model.DhcpServerStatistics{
+						IpPoolStats: []model.DhcpIpPoolUsage{{PoolSize: common.Int64(0)}},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(100)},
+					}, nil
+				})
+				return patches
+			},
+			expectedValue: false,
+		},
+		{
+			// Multi-IP addressBindings: 2 IPv4 addresses requested on a static pool
+			// with room for two such allocations (the test harness below calls
+			// AllocatePortFromSubnet twice when expectedValue is true, so capacity
+			// must cover 2x the requested count).
+			name:                   "Multi-IP addressBindings fits in static pool capacity",
+			subnet:                 staticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			addressBindings: []v1alpha1.PortAddressBinding{
+				{MACAddress: "00:11:22:33:44:55"},
+				{IPAddress: "10.0.0.2", MACAddress: "00:11:22:33:44:55"},
+			},
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(4)},
+					}, nil
+				})
+			},
+			expectedValue: true,
+		},
+		{
+			// Multi-IP addressBindings: 3 IPv4 addresses requested but the static pool
+			// only has room for 2 - must be rejected, not silently accepted as if only
+			// 1 IP were being requested.
+			name:                   "Multi-IP addressBindings exceeds static pool capacity",
+			subnet:                 staticSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			addressBindings: []v1alpha1.PortAddressBinding{
+				{MACAddress: "00:11:22:33:44:55"},
+				{IPAddress: "10.0.0.2", MACAddress: "00:11:22:33:44:55"},
+				{IPAddress: "10.0.0.3", MACAddress: "00:11:22:33:44:55"},
+			},
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(2)},
+					}, nil
+				})
+			},
+			expectedValue: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1499,7 +1656,7 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			canAllocate, err := subnetPortService.AllocatePortFromSubnet(tt.subnet, tt.sharedSubnet, tt.interfaceIPType)
+			canAllocate, err := subnetPortService.AllocatePortFromSubnet(tt.subnet, tt.sharedSubnet, tt.interfaceIPType, tt.staticIPAllocationType, tt.addressBindings)
 			assert.Equal(t, tt.expectedValue, canAllocate)
 			if tt.expectedErr != "" {
 				assert.NotNil(t, err)
@@ -1509,7 +1666,7 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			}
 
 			if tt.expectedValue {
-				canAllocate, err = subnetPortService.AllocatePortFromSubnet(tt.subnet, tt.sharedSubnet, tt.interfaceIPType)
+				canAllocate, err = subnetPortService.AllocatePortFromSubnet(tt.subnet, tt.sharedSubnet, tt.interfaceIPType, tt.staticIPAllocationType, tt.addressBindings)
 				assert.Equal(t, tt.expectedValue, canAllocate)
 				if tt.expectedErr != "" {
 					assert.NotNil(t, err)

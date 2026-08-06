@@ -105,8 +105,18 @@ func getSubnetFromVPCNetworkConfiguration(vpcService servicecommon.VPCServicePro
 	return subnetPaths, nil
 }
 
+// ResolveEffectiveStaticIPAllocationType returns the StaticIPAllocationType a SubnetPort
+// actually allocates from for the given candidate Subnet: the CR-set value if present,
+// otherwise the same default the SubnetPort controller backfills the CR with.
+func ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, nsxSubnet *model.VpcSubnet, interfaceIPType v1alpha1.IPAddressType) v1alpha1.StaticIPAllocationType {
+	if rawStaticIPAllocationType != "" {
+		return rawStaticIPAllocationType
+	}
+	return util.ComputeDefaultStaticIPAllocationType(nsxSubnet, interfaceIPType)
+}
+
 // Get a Subnet with available IPs from the pre-created SubnetSet
-func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType) (string, error) {
+func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, error) {
 	var errList []error
 	defaultSubnetSetFor := util.GetSubnetSetKind(subnetSet)
 	subnetPathsFromConfig := sets.New[string]()
@@ -142,7 +152,8 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 				continue
 			}
 		}
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceIPType)
+		effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceIPType, effectiveStaticType, addressBindings)
 		if err != nil {
 			log.Error(err, "Failed to check capacity of NSX Subnet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace, "NSXSubnet", nsxSubnet.Id)
 			errList = append(errList, err)
@@ -186,7 +197,7 @@ func IsNamespaceInTepLessMode(client k8sclient.Client, namespace string) (bool, 
 	return networkInfo.VPCs[0].NetworkStack == v1alpha1.VLANBackedVPC, nil
 }
 
-func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType) (string, *types.UID, *sync.RWMutex, error) {
+func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, *types.UID, *sync.RWMutex, error) {
 	if subnetSet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 		// From NSX Operator 9.1.1, DHCPRelay SubnetSet is no longer supported.
 		return "", nil, nil, fmt.Errorf("Creating SubnetPort on DHCPRelay SubnetSet is not supported")
@@ -199,7 +210,7 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 		if err := apiReader.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name}, subnetSet); err != nil {
 			return "", &subnetSet.UID, subnetSetLock, err
 		}
-		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService, interfaceIPType)
+		nsxSubnet, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService, interfaceIPType, rawStaticIPAllocationType, addressBindings)
 		return nsxSubnet, &subnetSet.UID, subnetSetLock, err
 	}
 	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created
@@ -207,7 +218,8 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 	defer WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 	for _, nsxSubnet := range subnetList {
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType)
+		effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType, effectiveStaticType, addressBindings)
 		if err != nil {
 			return "", nil, nil, err
 		}
@@ -230,7 +242,8 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 	if err != nil {
 		return "", nil, nil, err
 	}
-	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType)
+	effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
+	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType, effectiveStaticType, addressBindings)
 	if err != nil {
 		return "", nil, nil, err
 	}
