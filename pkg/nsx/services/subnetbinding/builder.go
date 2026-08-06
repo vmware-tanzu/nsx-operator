@@ -18,31 +18,40 @@ var (
 	Bool   = common.Bool
 )
 
-func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, parentSubnetPaths []string) []*model.SubnetConnectionBindingMap {
+func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, targetSubnetPaths []string) []*model.SubnetConnectionBindingMap {
 	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
-	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(parentSubnetPaths))
-	for i := range parentSubnetPaths {
-		path := parentSubnetPaths[i]
+	var subnetAssociation *string
+	if binding.Spec.SubnetAssociation != "" {
+		sa := model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK
+		if binding.Spec.IsBranchAssociation() {
+			sa = model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH
+		}
+		subnetAssociation = String(sa)
+	}
+	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(targetSubnetPaths))
+	for i := range targetSubnetPaths {
+		path := targetSubnetPaths[i]
 		vpcSubnetInfo, err := common.ParseVPCResourcePath(path)
 		if err != nil {
-			log.Error(err, "failed to parse parent Subnet path, ignore it")
+			log.Error(err, "failed to parse target Subnet path, ignore it")
 			continue
 		}
 		bindingMaps[i] = &model.SubnetConnectionBindingMap{
-			Id:             String(s.buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
-			DisplayName:    String(binding.Name),
-			VlanTrafficTag: Int64(vlanID),
-			SubnetPath:     &path,
-			Tags:           tags,
+			Id:                String(s.buildSubnetBindingID(binding, vpcSubnetInfo.ID)),
+			DisplayName:       String(binding.Name),
+			VlanTrafficTag:    Int64(vlanID),
+			SubnetPath:        &path,
+			SubnetAssociation: subnetAssociation,
+			Tags:              tags,
 		}
 	}
 	return bindingMaps
 }
 
 // buildSubnetBindingID generates the ID of NSX SubnetConnectionBindingMap resource, its format is like this,
-// ${SubnetConnectionBindingMap_CR}.name_hash(${parent_VpcSubnet}.Path)[:5], e.g., binding1_9bc22. Note, if
+// ${SubnetConnectionBindingMap_CR}.name_hash(${trunk_VpcSubnet}.Path)[:5], e.g., binding1_9bc22. Note, if
 // the generated id has collision with the existing NSX SubnetConnectionBindingMap.id, a random UUID is used as
-// an alternative of the parent path to generate the hash suffix.
+// an alternative of the trunk path to generate the hash suffix.
 func (s *BindingService) buildSubnetBindingID(binding *v1alpha1.SubnetConnectionBindingMap, parentSubnetPath string) string {
 	idCR := &v1.ObjectMeta{
 		Name: binding.GetName(),

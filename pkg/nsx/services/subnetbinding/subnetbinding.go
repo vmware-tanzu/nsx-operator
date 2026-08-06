@@ -54,13 +54,13 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 }
 
 // CreateOrUpdateSubnetConnectionBindingMap creates or updates the SubnetConnectionBindingMaps with the given
-// SubnetConnectionBindingMap CR and attaches it to the parentSubnets.
+// SubnetConnectionBindingMap CR under subnetPath (spec.subnetName) and targetSubnetPaths (target Subnet/SubnetSet).
 func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 	subnetBinding *v1alpha1.SubnetConnectionBindingMap,
 	vlanID int64,
-	childSubnetPath string,
-	parentSubnetPaths []string) error {
-	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, vlanID, parentSubnetPaths))
+	subnetPath string,
+	targetSubnetPaths []string) error {
+	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, vlanID, targetSubnetPaths))
 	existingBMmap := bindingMapsToMap(s.BindingStore.getBindingsByBindingMapCRUID(string(subnetBinding.UID)))
 	updatedBindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 	for k, v := range desiredBMmap {
@@ -87,7 +87,7 @@ func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
 		}
 	}
 
-	if err := s.Apply(childSubnetPath, updatedBindingMaps); err != nil {
+	if err := s.Apply(subnetPath, updatedBindingMaps); err != nil {
 		return err
 	}
 
@@ -107,11 +107,11 @@ func (s *BindingService) DeleteSubnetConnectionBindingMapsByParentSubnet(parentS
 	bindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 	// This should not happen in the production setup, adding this check is for security.
 	if parentSubnet.Path == nil {
-		log.Info("Parent VpcSubnet had no configured Path, ignoring", "subnet", *parentSubnet.Id)
+		log.Info("Trunk VpcSubnet had no configured Path, ignoring", "subnet", *parentSubnet.Id)
 		return nil
 	}
 	subnetPath := *parentSubnet.Path
-	bindingMaps = append(bindingMaps, s.BindingStore.getBindingsByParentSubnet(subnetPath)...)
+	bindingMaps = append(bindingMaps, s.BindingStore.GetBindingsByParentSubnet(subnetPath)...)
 	return s.deleteSubnetConnectionBindingMaps(bindingMaps)
 }
 
@@ -128,12 +128,12 @@ func (s *BindingService) GetSubnetConnectionBindingMapsBySubnet(subnet *model.Vp
 
 // GetSubnetConnectionBindingMapsByChildSubnet returns the SubnetConnectionBindingMaps associated with the subnet.
 func (s *BindingService) GetSubnetConnectionBindingMapsByChildSubnet(subnetPath string) []*model.SubnetConnectionBindingMap {
-	return s.BindingStore.getBindingsByChildSubnet(subnetPath)
+	return s.BindingStore.GetBindingsByChildSubnet(subnetPath)
 }
 
 // GetSubnetConnectionBindingMapsByParentSubnet returns the SubnetConnectionBindingMaps connected to the subnet.
 func (s *BindingService) GetSubnetConnectionBindingMapsByParentSubnet(subnetPath string) []*model.SubnetConnectionBindingMap {
-	return s.BindingStore.getBindingsByParentSubnet(subnetPath)
+	return s.BindingStore.GetBindingsByParentSubnet(subnetPath)
 }
 
 func (s *BindingService) GetSubnetConnectionBindingMapCRsBySubnet(subnet *model.VpcSubnet) []*v1alpha1.SubnetConnectionBindingMap {
@@ -289,9 +289,9 @@ func (s *BindingService) GetSubnetConnectionBindingMapCRName(bindingMap *model.S
 	return ""
 }
 
-// bindingMapsToMap converts a slice of NSX SubnetConnectionBindingMaps to a map, the key is the parent VpcSubnetPath
+// bindingMapsToMap converts a slice of SubnetConnectionBindingMaps to a map, the key is the trunk VpcSubnetPath
 // and the value is the SubnetConnectionBindingMap. Note, the caller should guarantee every SubnetConnectionBindingMap
-// in the slice has a different parent NSX VpcSubnet.
+// in the slice has a different trunk VpcSubnet.
 func bindingMapsToMap(bindingMaps []*model.SubnetConnectionBindingMap) map[string]*model.SubnetConnectionBindingMap {
 	bmMap := make(map[string]*model.SubnetConnectionBindingMap)
 	for _, bm := range bindingMaps {

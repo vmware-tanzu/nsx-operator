@@ -42,6 +42,14 @@ func createTestNamespaceReconciler(objs []client.Object) *NamespaceReconciler {
 
 	// Create a fake client builder
 	clientBuilder := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...)
+	clientBuilder.WithIndex(&v1alpha1.SubnetPort{}, "spec.subnet", func(rawObj client.Object) []string {
+		subnetPort := rawObj.(*v1alpha1.SubnetPort)
+		return []string{subnetPort.Spec.Subnet}
+	})
+	clientBuilder.WithIndex(&v1alpha1.SubnetIPReservation{}, "spec.subnet", func(rawObj client.Object) []string {
+		ipReservation := rawObj.(*v1alpha1.SubnetIPReservation)
+		return []string{ipReservation.Spec.Subnet}
+	})
 
 	fakeClient := clientBuilder.Build()
 
@@ -392,6 +400,30 @@ func TestCheckSubnetReferences(t *testing.T) {
 			expectedError:        false,
 		},
 		{
+			name: "Referenced as cross-namespace targetSubnetName",
+			subnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "child-subnet",
+					Namespace: "ns-vpc-b",
+				},
+			},
+			existingResources: []client.Object{
+				&v1alpha1.SubnetConnectionBindingMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "cross-binding",
+						Namespace: "ns-vpc-b",
+					},
+					Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+						SubnetName:        "parent-subnet",
+						TargetSubnetName:  "child-subnet",
+						SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+					},
+				},
+			},
+			expectedHasReference: true,
+			expectedError:        false,
+		},
+		{
 			name: "Not referenced by any resource",
 			subnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
@@ -426,32 +458,9 @@ func TestCheckSubnetReferences(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_ = createTestNamespaceReconciler(tt.existingResources)
+			r := createTestNamespaceReconciler(tt.existingResources)
 
-			// Create a helper function to check references without using field selectors
-			checkReferences := func(ctx context.Context, ns string, subnet *v1alpha1.Subnet) (bool, error) {
-				// Check if there are any SubnetPort CRs referencing this Subnet CR
-				for _, obj := range tt.existingResources {
-					if subnetPort, ok := obj.(*v1alpha1.SubnetPort); ok {
-						if subnetPort.Namespace == ns && subnetPort.Spec.Subnet == subnet.Name {
-							return true, nil
-						}
-					}
-				}
-
-				// Check if there are any SubnetConnectionBindingMap CRs referencing this Subnet CR
-				for _, obj := range tt.existingResources {
-					if binding, ok := obj.(*v1alpha1.SubnetConnectionBindingMap); ok {
-						if binding.Namespace == ns && binding.Spec.TargetSubnetName == subnet.Name {
-							return true, nil
-						}
-					}
-				}
-
-				return false, nil
-			}
-
-			hasReferences, err := checkReferences(context.Background(), "test-ns", tt.subnet)
+			hasReferences, err := r.checkSubnetReferences(context.Background(), tt.subnet.Namespace, tt.subnet)
 
 			if tt.expectedError {
 				assert.Error(t, err)
@@ -724,7 +733,7 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			expectError:             false,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
-					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet, _ string) (bool, error) {
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet) (bool, error) {
 						return false, nil
 					})
 				patches.ApplyMethod(reflect.TypeOf(subnetportService), "DeletePortCount", func(_ servicecommon.SubnetPortServiceProvider, subnetPath string) {})
@@ -750,7 +759,7 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			expectError:             true,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
-					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet, _ string) (bool, error) {
+					func(_ *NamespaceReconciler, _ context.Context, _ string, _ *v1alpha1.Subnet) (bool, error) {
 						return true, nil
 					})
 				return patches
@@ -784,7 +793,7 @@ func TestDeleteUnusedSharedSubnets(t *testing.T) {
 			expectError:             true,
 			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "checkSubnetReferences",
-					func(_ *NamespaceReconciler, _ context.Context, _ string, subnet *v1alpha1.Subnet, _ string) (bool, error) {
+					func(_ *NamespaceReconciler, _ context.Context, _ string, subnet *v1alpha1.Subnet) (bool, error) {
 						// Only subnet-1 has references
 						return subnet.Name == "subnet-1", nil
 					})
