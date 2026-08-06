@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -185,7 +186,7 @@ func TestVPCIPAddressUsageStorage_Get_NoVPC(t *testing.T) {
 	s := NewVPCIPAddressUsageStorage(&nsx.Client{}, emptyVPCProvider{})
 	_, err := s.Get(context.Background(), "ns1", "ignored")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no VPC found")
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestVPCIPAddressUsageStorage_List_NoVPC(t *testing.T) {
 	s := NewVPCIPAddressUsageStorage(&nsx.Client{}, emptyVPCProvider{})
