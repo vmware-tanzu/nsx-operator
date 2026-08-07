@@ -48,7 +48,7 @@ type EndpointRow struct {
 	// the zone domain is "example.com", nsxRecordName is "foo".
 	nsxRecordName         string
 	effectiveOwner        *ResourceRef // primary for shared FQDN row when adopting
-	contributingOwnerKeys string       // sorted, comma-separated contributing owner index keys; matches TagScopeDNSRecordContributingOwners tag value
+	contributingOwnerKeys []string     // sorted contributing owner index keys
 }
 
 func NewEndpointRow(ep *extdns.Endpoint, zonePath string, recordName string) *EndpointRow {
