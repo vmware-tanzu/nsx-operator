@@ -103,7 +103,7 @@ func (r *EndpointRow) appendRowOwnershipTags(ownerTags []model.Tag) []model.Tag 
 	if r.Endpoint != nil && r.Endpoint.Labels != nil {
 		gwKeys := strings.TrimSpace(r.Endpoint.Labels[EndpointLabelParentGateway])
 		if len(gwKeys) > 0 {
-			gwKey = compressString(gwKeys)
+			gwKey, _ = joinAndPackStrings(strings.Split(gwKeys, ","))
 		}
 	}
 	return appendGatewayAndContributionTags(tags, gwKey, r.contributingOwnerKeys)
