@@ -551,7 +551,7 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 				if resPath != nil {
 					path = *resPath
 				}
-				log.Error(err, "Failed to delete resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name, "resourcePath", path)
+				log.Error(err, "Failed to apply resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name, "resourcePath", path)
 			}
 			return err
 		}
@@ -566,7 +566,7 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 			if resName != nil {
 				name = *resName
 			}
-			log.Info("Successfully deleted resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name)
+			log.Info("Successfully applied resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name)
 		}
 		return nil
 	}
@@ -593,7 +593,7 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 			if resPath != nil {
 				path = *resPath
 			}
-			log.Error(err, "Failed to delete resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name, "resourcePath", path)
+			log.Error(err, "Failed to apply resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name, "resourcePath", path)
 		}
 		return err
 	}
@@ -608,7 +608,7 @@ func (b *PolicyTreeBuilder[T]) UpdateMultipleResourcesOnNSX(objects []T, nsxClie
 		if resName != nil {
 			name = *resName
 		}
-		log.Info("Successfully deleted resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name)
+		log.Info("Successfully applied resource", "resourceType", b.leafType, "resourceID", id, "resourceName", name)
 	}
 
 	return nil
@@ -659,7 +659,7 @@ func (builder *PolicyTreeBuilder[T]) PagingUpdateResources(ctx context.Context, 
 	pagedObjs := PagingNSXResources(objs, pageSize)
 	totalBatches := len(pagedObjs)
 
-	log.Info("Starting batch deletion", "resourceType", builder.leafType, "totalResources", totalCount, "totalBatches", totalBatches, "batchSize", pageSize)
+	log.Info("Starting batch apply", "resourceType", builder.leafType, "totalResources", totalCount, "totalBatches", totalBatches, "batchSize", pageSize)
 
 	var nsxErr error
 	successCount := 0
@@ -671,7 +671,7 @@ func (builder *PolicyTreeBuilder[T]) PagingUpdateResources(ctx context.Context, 
 
 		select {
 		case <-ctx.Done():
-			log.Info("Batch deletion interrupted by context", "resourceType", builder.leafType, "processedBatches", currentBatch-1, "totalBatches", totalBatches, "successCount", successCount, "failedCount", failedCount)
+			log.Info("Batch apply interrupted by context", "resourceType", builder.leafType, "processedBatches", currentBatch-1, "totalBatches", totalBatches, "successCount", successCount, "failedCount", failedCount)
 			return errors.Join(util.TimeoutFailed, ctx.Err())
 		default:
 			updateErr := builder.UpdateMultipleResourcesOnNSX(partialObjs, nsxClient)
@@ -684,11 +684,11 @@ func (builder *PolicyTreeBuilder[T]) PagingUpdateResources(ctx context.Context, 
 				continue
 			}
 			failedCount += len(partialObjs)
-			log.Error(updateErr, "Batch update failed", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeFailed", failedCount)
+			log.Error(updateErr, "Batch apply failed", "resourceType", builder.leafType, "batch", fmt.Sprintf("%d/%d", currentBatch, totalBatches), "batchResourceCount", len(partialObjs), "cumulativeFailed", failedCount)
 			nsxErr = updateErr
 		}
 	}
 
-	log.Info("Batch deletion completed", "resourceType", builder.leafType, "totalResources", totalCount, "successCount", successCount, "failedCount", failedCount)
+	log.Info("Batch apply completed", "resourceType", builder.leafType, "totalResources", totalCount, "successCount", successCount, "failedCount", failedCount)
 	return nsxErr
 }

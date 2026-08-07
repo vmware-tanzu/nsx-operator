@@ -109,13 +109,7 @@ func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *Reso
 			continue
 		}
 		log.Debug("Mapped DNS endpoint to zone", "dnsName", ep.DNSName, "zonePath", zonePath, "recordName", recName)
-		row, validErr := s.validateEndpointRowConflict(zonePath, ep, recName, owner)
-		if validErr != nil {
-			if validationErr == nil {
-				validationErr = &DNSZoneValidationError{Msg: "DNS endpoint validation failed for DNS zone policy", Cause: validErr}
-			}
-			continue
-		}
+		row := NewEndpointRow(ep, zonePath, recName)
 		validRows = append(validRows, *row)
 	}
 	return validRows, allowedZones, validationErr
