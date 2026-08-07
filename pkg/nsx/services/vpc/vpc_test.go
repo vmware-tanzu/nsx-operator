@@ -14,6 +14,7 @@ import (
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 	"go.uber.org/mock/gomock"
 	v1 "k8s.io/api/core/v1"
 	k8sapierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -245,6 +246,30 @@ func (c fakeIpv6NdraProfilesClient) Update(ndraProfileIdParam string, ipv6NdraPr
 	return model.Ipv6NdraProfile{}, nil
 }
 
+type fakeProjectIpv6NdraProfilesClient struct{}
+
+func (c fakeProjectIpv6NdraProfilesClient) Delete(orgIdParam string, projectIdParam string, ndraProfileIdParam string, overrideParam *bool) error {
+	return nil
+}
+
+func (c fakeProjectIpv6NdraProfilesClient) Get(orgIdParam string, projectIdParam string, ndraProfileIdParam string) (model.Ipv6NdraProfile, error) {
+	return model.Ipv6NdraProfile{}, nil
+}
+
+func (c fakeProjectIpv6NdraProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.Ipv6NdraProfileListResult, error) {
+	return model.Ipv6NdraProfileListResult{}, nil
+}
+
+func (c fakeProjectIpv6NdraProfilesClient) Patch(orgIdParam string, projectIdParam string, ndraProfileIdParam string, ipv6NdraProfileParam model.Ipv6NdraProfile, overrideParam *bool) error {
+	return nil
+}
+
+func (c fakeProjectIpv6NdraProfilesClient) Update(orgIdParam string, projectIdParam string, ndraProfileIdParam string, ipv6NdraProfileParam model.Ipv6NdraProfile, overrideParam *bool) (model.Ipv6NdraProfile, error) {
+	return model.Ipv6NdraProfile{}, nil
+}
+
+var _ project_infra.Ipv6NdraProfilesClient = fakeProjectIpv6NdraProfilesClient{}
+
 type fakeVpcsClientForRA struct{}
 
 func (c fakeVpcsClientForRA) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, isRecursiveParam *bool) error {
@@ -274,10 +299,11 @@ func TestIsRADeactivatedByVPCPath(t *testing.T) {
 		return &VPCService{
 			Service: common.Service{
 				NSXClient: &nsx.Client{
-					Cluster:                 &nsx.Cluster{},
-					VPCClient:               &fakeVpcsClientForRA{},
-					VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
-					Ipv6NdraProfileClient:   &fakeIpv6NdraProfilesClient{},
+					Cluster:                      &nsx.Cluster{},
+					VPCClient:                    &fakeVpcsClientForRA{},
+					VpcServiceProfileClient:      &fakeVpcServiceProfilesClient{},
+					Ipv6NdraProfileClient:        &fakeIpv6NdraProfilesClient{},
+					ProjectIpv6NdraProfileClient: &fakeProjectIpv6NdraProfilesClient{},
 				},
 			},
 		}
@@ -396,6 +422,25 @@ func TestIsRADeactivatedByVPCPath(t *testing.T) {
 			},
 			expectDeactivated: false,
 		},
+		{
+			name: "RA mode is DISABLED on a project-scoped Ipv6NdraProfile",
+			prepareFunc: func(t *testing.T, service *VPCService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcServiceProfile{Ipv6ProfilePaths: []string{"/orgs/default/projects/p1/infra/ipv6-ndra-profiles/ra1"}}, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.ProjectIpv6NdraProfileClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.Ipv6NdraProfile{RaMode: common.String(model.Ipv6NdraProfile_RA_MODE_DISABLED)}, nil},
+					Times:  1,
+				}})
+				return patches
+			},
+			expectDeactivated: true,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			vpcService := newVpcService()
@@ -433,16 +478,23 @@ func TestIsRADeactivatedByVPCPath_NoStaleCaching(t *testing.T) {
 	}
 
 	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
-		Values: gomonkey.Params{model.Vpc{}, nil},
+		Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.VpcServiceProfile{Ipv6ProfilePaths: []string{"/infra/ipv6-ndra-profiles/ra1"}}, nil},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.Ipv6NdraProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Ipv6NdraProfile{RaMode: common.String(model.Ipv6NdraProfile_RA_MODE_DISABLED)}, nil},
 		Times:  1,
 	}})
 	defer patches.Reset()
 	firstResult, err := vpcService.IsRADeactivatedByVPCPath(vpcPath)
 	assert.NoError(t, err)
-	assert.True(t, firstResult, "no VpcServiceProfile configured should report RA deactivated")
+	assert.True(t, firstResult, "explicit ra_mode DISABLED should report RA deactivated")
 
-	// Simulate an admin attaching an active NDRA profile to the VPC's service profile after the
-	// first lookup.
+	// Simulate an admin re-enabling RA on the attached NDRA profile after the first lookup.
 	patches.Reset()
 	patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
 		Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
@@ -459,7 +511,7 @@ func TestIsRADeactivatedByVPCPath_NoStaleCaching(t *testing.T) {
 
 	secondResult, err := vpcService.IsRADeactivatedByVPCPath(vpcPath)
 	assert.NoError(t, err)
-	assert.False(t, secondResult, "second call must reflect the newly attached NDRA profile, not a cached stale value")
+	assert.False(t, secondResult, "second call must reflect the newly re-enabled NDRA profile, not a cached stale value")
 }
 
 type fakeIPAddressAllocationClient struct{}

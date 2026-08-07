@@ -1256,7 +1256,7 @@ func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bo
 		return true, nil
 	}
 
-	ndraProfile, err := s.NSXClient.Ipv6NdraProfileClient.Get(path.Base(ndraProfilePath))
+	ndraProfile, err := s.getIpv6NdraProfile(vpcResInfo, ndraProfilePath)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read Ipv6NdraProfile from NSX", "Ipv6NdraProfile", ndraProfilePath)
@@ -1266,6 +1266,17 @@ func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bo
 	raDeactivated := ndraProfile.RaMode == nil || *ndraProfile.RaMode == model.Ipv6NdraProfile_RA_MODE_DISABLED
 	log.Debug("Resolved RA mode for VPC", "VPC", vpcResInfo.GetVPCPath(), "Ipv6NdraProfile", ndraProfilePath, "RaMode", ndraProfile.RaMode, "RADeactivated", raDeactivated)
 	return raDeactivated, nil
+}
+
+// getIpv6NdraProfile reads the Ipv6NdraProfile at the given path, which may either be an infra-level
+// profile (/infra/ipv6-ndra-profiles/<id>) or a project-level profile
+// (/orgs/<org>/projects/<project>/infra/ipv6-ndra-profiles/<id>).
+func (s *VPCService) getIpv6NdraProfile(vpcResInfo common.VPCResourceInfo, ndraProfilePath string) (model.Ipv6NdraProfile, error) {
+	ndraProfileID := path.Base(ndraProfilePath)
+	if strings.HasPrefix(ndraProfilePath, "/orgs/") {
+		return s.NSXClient.ProjectIpv6NdraProfileClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, ndraProfileID)
+	}
+	return s.NSXClient.Ipv6NdraProfileClient.Get(ndraProfileID)
 }
 
 // findIpv6NdraProfilePath returns the Ipv6NdraProfile path among the VpcServiceProfile's

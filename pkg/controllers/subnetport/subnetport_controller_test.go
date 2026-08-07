@@ -1004,10 +1004,11 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 		raDeactivated       bool
 		raErr               error
 		expectRADeactivated bool
+		expectReconcileErr  bool
 	}{
 		{name: "RA deactivated", raDeactivated: true, expectRADeactivated: true},
 		{name: "RA not deactivated", raDeactivated: false, expectRADeactivated: false},
-		{name: "RA lookup error does not fail reconcile", raErr: errors.New("lookup failed"), expectRADeactivated: false},
+		{name: "RA lookup error fails reconcile", raErr: errors.New("lookup failed"), expectReconcileErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			mockCtl := gomock.NewController(t)
@@ -1122,6 +1123,10 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 			k8sClient.EXPECT().Status().Return(statusWriter).AnyTimes()
 
 			_, err := r.Reconcile(ctx, req)
+			if tt.expectReconcileErr {
+				assert.Error(t, err)
+				return
+			}
 			assert.NoError(t, err)
 			if assert.NotNil(t, statusWriter.captured) {
 				assert.Equal(t, tt.expectRADeactivated, statusWriter.captured.Status.NetworkInterfaceConfig.RADeactivated)
