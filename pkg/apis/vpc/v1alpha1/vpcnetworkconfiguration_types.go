@@ -40,6 +40,7 @@ type VPCNetworkConfigurationSpec struct {
 	DNSZones []string `json:"dnsZones,omitempty"`
 
 	// Default prefix length of IPv6 Subnets.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Minimum:=2
 	// +kubebuilder:validation:Maximum:=127
 	DefaultIPv6PrefixLength int `json:"defaultIPv6PrefixLength,omitempty"`

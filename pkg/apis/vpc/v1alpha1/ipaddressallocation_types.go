@@ -68,11 +68,13 @@ type IPAddressAllocationSpec struct {
 	AllocationIPs string `json:"allocationIPs,omitempty"`
 	// IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.
 	// Defaults to 64 when ipAddressType is IPv6 and this field is not specified.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Minimum:=64
 	// +kubebuilder:validation:Maximum:=128
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPv6AllocationPrefixLength int `json:"ipv6AllocationPrefixLength,omitempty"`
 	// IPAddressType specifies the IP address type of the IPAddressAllocation.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6
 	// +kubebuilder:default=IPv4
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"

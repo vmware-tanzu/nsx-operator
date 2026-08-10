@@ -121,7 +121,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 
@@ -265,12 +265,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. |  | Enum: [External Private PrivateTGW] <br /> |
+| `ipAddressBlockVisibility` _[IPAddressVisibility](#ipaddressvisibility)_ | IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.<br />This field is not applicable if ipAddressType is IPv6. |  | Enum: [External Private PrivateTGW] <br />Optional: \{\} <br /> |
 | `allocationSize` _integer_ | AllocationSize specifies the size of IPv4 allocationIPs to be allocated.<br />It should be a power of 2. |  | Minimum: 1 <br /> |
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
-| `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified. |  | Maximum: 128 <br />Minimum: 64 <br /> |
-| `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation. | IPv4 | Enum: [IPv4 IPv6] <br /> |
-| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  |  |
+| `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified.<br />Supported starting with VCF 9.2.0. |  | Maximum: 128 <br />Minimum: 64 <br /> |
+| `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
+| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  | Optional: \{\} <br /> |
 
 
 #### IPAddressAllocationStatus
@@ -734,7 +734,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the ServiceEndpoint. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the ServiceEndpoint. |  | Optional: \{\} <br /> |
 
 
 #### SharedSubnet
@@ -770,7 +770,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `enabled` _boolean_ | Activate or deactivate static IP allocation for VPC Subnet Ports.<br />If the DHCP mode is DHCPDeactivated or not set, its default value is true.<br />If the DHCP mode is DHCPServer, its default value is false.<br />If the DHCP mode is DHCPRelay, its default value is false. |  |  |
-| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  |  |
+| `poolRanges` _string array_ | PoolRanges specifies the IP address ranges for static IP allocation.<br />Each entry is either a single IP address (e.g. "192.168.1.5") or a<br />dash-separated range (e.g. "192.168.1.10-192.168.1.20"). Both IPv4 and<br />IPv6 entries may appear in a single list.<br />Example value: ["192.168.1.1", "192.168.1.3-192.168.1.100"] |  | Optional: \{\} <br /> |
 
 
 #### StaticIPAllocationType
@@ -826,7 +826,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 
@@ -844,8 +844,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br /> |
-| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  |  |
+| `network` _string_ | Specify network address in CIDR format.<br />Mutually exclusive with networkIpAllocationName. |  | Format: cidr <br />Optional: \{\} <br /> |
+| `networkIpAllocationName` _string_ | Specify the name of an IPAddressAllocation CR whose allocated CIDR is used as<br />the static route network. Mutually exclusive with network. |  | Optional: \{\} <br /> |
 | `nextHops` _[NextHop](#nexthop) array_ | Next hop gateway |  | MinItems: 1 <br /> |
 
 
@@ -940,7 +940,7 @@ _Appears in:_
 | `subnetName` _string_ | SubnetName is the Subnet name which this SubnetConnectionBindingMap is associated. |  |  |
 | `targetSubnetSetName` _string_ | TargetSubnetSetName specifies the target SubnetSet which a Subnet is connected to. |  | Optional: \{\} <br /> |
 | `targetSubnetName` _string_ | TargetSubnetName specifies the target Subnet which a Subnet is connected to. |  | Optional: \{\} <br /> |
-| `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. |  | Maximum: 4094 <br />Minimum: 1 <br />Required: \{\} <br /> |
+| `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. When omitted, the system automatically allocates a VLAN ID. |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 
 
 #### SubnetConnectionBindingMapStatus
@@ -957,6 +957,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `conditions` _[Condition](#condition) array_ | Conditions described if the SubnetConnectionBindingMaps is configured on NSX or not.<br />Condition type "" |  |  |
+| `vlanTrafficTag` _integer_ | VLANTrafficTag is the realized VLAN traffic tag for this binding. |  |  |
 
 
 #### SubnetDHCPConfig
@@ -1030,7 +1031,7 @@ _Appears in:_
 | `subnet` _string_ | Subnet specifies the Subnet to reserve IPs from.<br />The Subnet needs to have static IP allocation activated. |  | Required: \{\} <br /> |
 | `numberOfIPs` _integer_ | NumberOfIPs defines number of IPs requested to be reserved. |  | Maximum: 100 <br />Minimum: 1 <br /> |
 | `reservedIPs` _string array_ | ReservedIPs represents array of Reserved IPs. It can contain IP addresses,<br />IP Address range and CIDRs.<br />Supported formats include: ["192.168.1.1", "192.168.1.3-192.168.1.100", "192.168.2.0/28",<br />"2001:db8::1", "2001:db8::1-2001:db8::ff", "2001:db8::1/64"] |  | MinItems: 1 <br /> |
-| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type of the SubnetIPReservation. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type of the SubnetIPReservation.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 
 
 #### SubnetIPReservationStatus
@@ -1154,8 +1155,8 @@ _Appears in:_
 | `subnet` _string_ | Subnet defines the parent Subnet name of the SubnetPort. |  |  |
 | `subnetSet` _string_ | SubnetSet defines the parent SubnetSet name of the SubnetPort. |  |  |
 | `addressBindings` _[PortAddressBinding](#portaddressbinding) array_ | AddressBindings defines static address bindings used for the SubnetPort. |  |  |
-| `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType<br />is set, IP families of InterfaceIPType should be a superset of<br />StaticIPAllocationType. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
-| `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. If not specified, this field<br />will be back-filled based on InterfaceIPType and Subnet configuration. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
+| `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType<br />is set, IP families of InterfaceIPType should be a superset of<br />StaticIPAllocationType.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
+| `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. If not specified, this field<br />will be back-filled based on InterfaceIPType and Subnet configuration.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
 | `portSettingName` _string_ | Name of PortSetting associated with this SubnetPort. |  |  |
 
 
@@ -1209,12 +1210,12 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for subnets in the SubnetSet.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 | `ipv4SubnetSize` _integer_ | Size of IPv4 Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
-| `ipv6PrefixLength` _integer_ | IPv6 prefix length for subnets in the SubnetSet (e.g. 64 means /64). |  | Maximum: 127 <br />Minimum: 2 <br /> |
+| `ipv6PrefixLength` _integer_ | IPv6 prefix length for subnets in the SubnetSet (e.g. 64 means /64).<br />Supported starting with VCF 9.2.0. |  | Maximum: 127 <br />Minimum: 2 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW] <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | Subnet DHCP configuration. |  |  |
-| `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for subnets in the SubnetSet. |  |  |
+| `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for subnets in the SubnetSet.<br />Supported starting with VCF 9.2.0. |  |  |
 | `subnetNames` _string_ | The names of the Subnets that have been created in advance.<br />It is mutually exclusive with the other fields like IPv4SubnetSize, AccessMode, and SubnetDHCPConfig.<br />Once this field is set, the other fields cannot be set. |  |  |
 
 
@@ -1249,13 +1250,13 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `vpcName` _string_ | VPC name of the Subnet. |  |  |
-| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for the Subnet. | IPv4 | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
+| `ipAddressType` _[IPAddressType](#ipaddresstype)_ | IPAddressType defines the IP address type that will be allocated for the Subnet.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 | `ipv4SubnetSize` _integer_ | Size of IPv4 Subnet based upon estimated workload count. |  | Maximum: 65536 <br /> |
-| `ipv6PrefixLength` _integer_ | IPv6 prefix length for the Subnet (e.g. 64 means /64). |  | Maximum: 127 <br />Minimum: 2 <br /> |
+| `ipv6PrefixLength` _integer_ | IPv6 prefix length for the Subnet (e.g. 64 means /64).<br />Supported starting with VCF 9.2.0. |  | Maximum: 127 <br />Minimum: 2 <br /> |
 | `accessMode` _[AccessMode](#accessmode)_ | Access mode of IPv4 Subnet, accessible only from within VPC or from outside VPC. |  | Enum: [Private Public PrivateTGW L2Only] <br /> |
 | `ipAddresses` _string array_ | Subnet CIDRS. |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 | `subnetDHCPConfig` _[SubnetDHCPConfig](#subnetdhcpconfig)_ | DHCP configuration for Subnet. |  |  |
-| `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for Subnet. |  |  |
+| `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for Subnet.<br />Supported starting with VCF 9.2.0. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 | `vlanConnectionName` _string_ | Distributed VLAN Connection name. |  |  |
 
@@ -1347,7 +1348,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the VPCEndpoint. |  |  |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions describes the current state of the VPCEndpoint. |  | Optional: \{\} <br /> |
 
 
 #### VPCInfo
@@ -1405,15 +1406,15 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  |  |
-| `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  |  |
+| `vpc` _string_ | NSX path of the VPC the Namespace is associated with.<br />If vpc is set, only defaultSubnetSize and defaultIPv6PrefixLength take effect, other fields are ignored. |  | Optional: \{\} <br /> |
+| `subnets` _[SharedSubnet](#sharedsubnet) array_ | Shared Subnets the Namespace is associated with. |  | Optional: \{\} <br /> |
 | `nsxProject` _string_ | NSX Project the Namespace is associated with. |  |  |
 | `vpcConnectivityProfile` _string_ | VPCConnectivityProfile Path. This profile has configuration related to creating VPC transit gateway attachment. |  |  |
 | `privateIPs` _string array_ | Private IPs. |  |  |
 | `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets. |  | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
-| `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets. |  | Maximum: 127 <br />Minimum: 2 <br /> |
-| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
+| `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Supported starting with VCF 9.2.0. |  | Maximum: 127 <br />Minimum: 2 <br /> |
+| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  | Optional: \{\} <br /> |
 
 
 #### VPCNetworkConfigurationStatus

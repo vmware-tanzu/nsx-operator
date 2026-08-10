@@ -51,7 +51,9 @@ spec:
               in the default VPCNetworkConfiguration.
             properties:
               defaultIPv6PrefixLength:
-                description: Default prefix length of IPv6 Subnets.
+                description: |-
+                  Default prefix length of IPv6 Subnets.
+                  Supported starting with VCF 9.2.0.
                 maximum: 127
                 minimum: 2
                 type: integer

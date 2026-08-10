@@ -53,6 +53,7 @@ type SubnetSpec struct {
 	// VPC name of the Subnet.
 	VPCName string `json:"vpcName,omitempty"`
 	// IPAddressType defines the IP address type that will be allocated for the Subnet.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
 	// +kubebuilder:default=IPv4
 	IPAddressType IPAddressType `json:"ipAddressType,omitempty"`
@@ -61,6 +62,7 @@ type SubnetSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPv4SubnetSize int `json:"ipv4SubnetSize,omitempty"`
 	// IPv6 prefix length for the Subnet (e.g. 64 means /64).
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Minimum:=2
 	// +kubebuilder:validation:Maximum:=127
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
@@ -76,6 +78,7 @@ type SubnetSpec struct {
 	// DHCP configuration for Subnet.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
 	// DHCPv6 configuration for Subnet.
+	// Supported starting with VCF 9.2.0.
 	SubnetDHCPv6Config SubnetDHCPv6Config `json:"subnetDHCPv6Config,omitempty"`
 	// VPC Subnet advanced configuration.
 	AdvancedConfig SubnetAdvancedConfig `json:"advancedConfig,omitempty"`
