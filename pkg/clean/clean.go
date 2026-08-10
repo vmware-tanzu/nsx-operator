@@ -59,9 +59,19 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 		return errors.Join(nsxutil.ValidationFailed, err)
 	}
 	cf.LibMode = true
-	nsxClient := nsx.GetClient(cf)
-	if nsxClient == nil {
-		return nsxutil.GetNSXClientFailed
+	clientChan := make(chan *nsx.Client, 1)
+	go func() {
+		clientChan <- nsx.GetClient(cf)
+	}()
+
+	var nsxClient *nsx.Client
+	select {
+	case nsxClient = <-clientChan:
+		if nsxClient == nil {
+			return nsxutil.GetNSXClientFailed
+		}
+	case <-ctx.Done():
+		return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 	}
 	// add timeout for initialization
 	errChan := make(chan error)
