@@ -13,6 +13,14 @@ type AddressBindingListerExpansion interface{}
 // AddressBindingNamespaceLister.
 type AddressBindingNamespaceListerExpansion interface{}
 
+// DNSRecordListerExpansion allows custom methods to be added to
+// DNSRecordLister.
+type DNSRecordListerExpansion interface{}
+
+// DNSRecordNamespaceListerExpansion allows custom methods to be added to
+// DNSRecordNamespaceLister.
+type DNSRecordNamespaceListerExpansion interface{}
+
 // IPAddressAllocationListerExpansion allows custom methods to be added to
 // IPAddressAllocationLister.
 type IPAddressAllocationListerExpansion interface{}

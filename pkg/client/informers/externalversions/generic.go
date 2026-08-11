@@ -42,6 +42,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=crd.nsx.vmware.com, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("addressbindings"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().AddressBindings().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("dnsrecords"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().DNSRecords().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("ipaddressallocations"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().IPAddressAllocations().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("ipblocksinfos"):

@@ -19,6 +19,10 @@ func (c *FakeCrdV1alpha1) AddressBindings(namespace string) v1alpha1.AddressBind
 	return newFakeAddressBindings(c, namespace)
 }
 
+func (c *FakeCrdV1alpha1) DNSRecords(namespace string) v1alpha1.DNSRecordInterface {
+	return newFakeDNSRecords(c, namespace)
+}
+
 func (c *FakeCrdV1alpha1) IPAddressAllocations(namespace string) v1alpha1.IPAddressAllocationInterface {
 	return newFakeIPAddressAllocations(c, namespace)
 }
