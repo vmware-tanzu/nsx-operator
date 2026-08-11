@@ -13,6 +13,8 @@ import (
 type Interface interface {
 	// AddressBindings returns a AddressBindingInformer.
 	AddressBindings() AddressBindingInformer
+	// DNSRecords returns a DNSRecordInformer.
+	DNSRecords() DNSRecordInformer
 	// IPAddressAllocations returns a IPAddressAllocationInformer.
 	IPAddressAllocations() IPAddressAllocationInformer
 	// IPBlocksInfos returns a IPBlocksInfoInformer.
@@ -57,6 +59,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // AddressBindings returns a AddressBindingInformer.
 func (v *version) AddressBindings() AddressBindingInformer {
 	return &addressBindingInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// DNSRecords returns a DNSRecordInformer.
+func (v *version) DNSRecords() DNSRecordInformer {
+	return &dNSRecordInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // IPAddressAllocations returns a IPAddressAllocationInformer.
