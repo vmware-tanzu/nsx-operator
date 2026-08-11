@@ -40,6 +40,8 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/dhcp_server_config"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/vpc_endpoints"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/vpc_service_endpoints"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -114,6 +116,10 @@ type Client struct {
 	ProjectIPBlockUsageClient         project_infra_ip_blocks.UsageClient
 	SubnetsClient                     vpcs.SubnetsClient
 	IPAddressAllocationClient         vpcs.IpAddressAllocationsClient
+	VpcEndpointClient                 vpcs.VpcEndpointsClient
+	VpcEndpointStatusClient           vpc_endpoints.StatusClient
+	VpcServiceEndpointClient          vpcs.VpcServiceEndpointsClient
+	VpcServiceEndpointStatusClient    vpc_service_endpoints.StatusClient
 	VPCLBSClient                      vpcs.VpcLbsClient
 	VpcLbVirtualServersClient         vpcs.VpcLbVirtualServersClient
 	VpcLbPoolsClient                  vpcs.VpcLbPoolsClient
@@ -237,6 +243,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetsClient := vpcs.NewSubnetsClient(connector)
 	subnetStatusClient := subnets.NewStatusClient(connector)
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(connectorAllowOverwrite)
+	vpcEndpointClient := vpcs.NewVpcEndpointsClient(connectorAllowOverwrite)
+	vpcEndpointStatusClient := vpc_endpoints.NewStatusClient(connector)
+	vpcServiceEndpointClient := vpcs.NewVpcServiceEndpointsClient(connectorAllowOverwrite)
+	vpcServiceEndpointStatusClient := vpc_service_endpoints.NewStatusClient(connector)
 	vpcLBSClient := vpcs.NewVpcLbsClient(connector)
 	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(connector)
 	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(connector)
@@ -317,6 +327,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		ProjectIPBlockUsageClient:         projectIPBlockUsageClient,
 		SubnetsClient:                     subnetsClient,
 		IPAddressAllocationClient:         ipAddressAllocationClient,
+		VpcEndpointClient:                 vpcEndpointClient,
+		VpcEndpointStatusClient:           vpcEndpointStatusClient,
+		VpcServiceEndpointClient:          vpcServiceEndpointClient,
+		VpcServiceEndpointStatusClient:    vpcServiceEndpointStatusClient,
 		TransitGatewayClient:              transitGatewayClient,
 		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
 		TransitGatewayStateClient:         transitGatewayStateClient,

@@ -11,10 +11,12 @@ import (
 type VPCEndpointSpec struct {
 	// ServiceEndpointName is the VPC service endpoint name being consumed.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	ServiceEndpointName string `json:"serviceEndpointName"`
 
 	// IPAllocationName defines the IPAddressAllocation CR name that supplies the IP of VPC endpoint.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAllocationName string `json:"ipAllocationName"`
 }
 
