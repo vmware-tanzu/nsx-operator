@@ -142,8 +142,6 @@ func CustomIPBlocksInfo(t *testing.T) {
 		deleteChild := true
 		err := testData.nsxClient.VPCClient.Delete(defaultOrg, defaultProject, vpcId, &deleteChild)
 		require.NoError(t, err)
-		err = testData.nsxClient.VpcAttachmentClient.Delete(defaultOrg, defaultProject, vpcId, vpcAttachmentId)
-		require.NoError(t, err)
 	}()
 
 	// Create VPCNetworkConfigurations
