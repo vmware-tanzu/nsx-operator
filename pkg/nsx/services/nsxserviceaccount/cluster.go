@@ -63,16 +63,20 @@ type NSXServiceAccountService struct {
 	common.Service
 	PrincipalIdentityStore   *PrincipalIdentityStore
 	ClusterControlPlaneStore *ClusterControlPlaneStore
+	VPCService               common.VPCServiceProvider
 }
 
 // InitializeNSXServiceAccount sync NSX resources
-func InitializeNSXServiceAccount(service common.Service) (*NSXServiceAccountService, error) {
+func InitializeNSXServiceAccount(service common.Service, vpcService common.VPCServiceProvider) (*NSXServiceAccountService, error) {
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 
 	wg.Add(2)
-	nsxServiceAccountService := &NSXServiceAccountService{Service: service}
+	nsxServiceAccountService := &NSXServiceAccountService{
+		Service:    service,
+		VPCService: vpcService,
+	}
 
 	nsxServiceAccountService.SetUpStore()
 	go nsxServiceAccountService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypePrincipalIdentity, nil, nsxServiceAccountService.PrincipalIdentityStore)
@@ -106,10 +110,17 @@ func (s *NSXServiceAccountService) SetUpStore() {
 func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	clusterName := s.getClusterName(obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
-	// TODO: Use WCPConfig.NSXTProject as project when WCPConfig.EnableWCPVPCNetwork is true
-	project := s.NSXConfig.CoeConfig.Cluster
-	vpcName := obj.Namespace + "-default-vpc"
-	vpcPath := fmt.Sprintf("/orgs/default/projects/%s/vpcs/%s", util.NormalizeId(project), vpcName)
+	var vpcPath string
+	if obj.Status.VPCPath != "" {
+		vpcPath = obj.Status.VPCPath
+	} else {
+		vpcInfo := s.VPCService.ListVPCInfo(obj.Namespace)
+		if len(vpcInfo) > 0 {
+			vpcPath = vpcInfo[0].GetVPCPath()
+		} else {
+			return fmt.Errorf("failed to listVPCInfo for namespace %s", obj.Namespace)
+		}
+	}
 
 	// get proxy
 	proxyEndpoints, err := s.getProxyEndpoints(ctx)
