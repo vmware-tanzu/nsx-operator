@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -179,6 +180,7 @@ func TestSubnetSetValidator(t *testing.T) {
 			Namespace: "ns-1",
 		},
 		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv6,
 			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
 				Mode: v1alpha1.DHCPv6ConfigModeRelay,
 			},
@@ -245,6 +247,7 @@ func TestSubnetSetValidator(t *testing.T) {
 			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcpv6-1"},
 		},
 		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv6,
 			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
 				Mode: v1alpha1.DHCPv6ConfigModeDeactivated,
 			},
@@ -257,6 +260,7 @@ func TestSubnetSetValidator(t *testing.T) {
 			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcpv6-empty"},
 		},
 		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:      v1alpha1.IPAddressTypeIPv6,
 			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{},
 		},
 	})
@@ -267,6 +271,7 @@ func TestSubnetSetValidator(t *testing.T) {
 			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcpv6-2"},
 		},
 		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv6,
 			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
 				Mode: v1alpha1.DHCPv6ConfigModeServer,
 			},
@@ -279,6 +284,7 @@ func TestSubnetSetValidator(t *testing.T) {
 			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:ns-dhcp:subnet-dhcpv6-stateless"},
 		},
 		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv6,
 			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
 				Mode: v1alpha1.DHCPv6ConfigModeServerStateless,
 			},
@@ -535,9 +541,10 @@ func TestSubnetSetValidator(t *testing.T) {
 					SubnetNames: &[]string{"subnet-dhcpv6-stateless"},
 				},
 			},
-			user:      "fake-user",
-			isAllowed: false,
-			msg:       "DHCPRelay or DHCPServerStateless Subnet ns-dhcp/subnet-dhcpv6-stateless is not supported in SubnetSet",
+			user:            "fake-user",
+			isAllowed:       false,
+			msg:             "DHCPRelay or DHCPServerStateless Subnet ns-dhcp/subnet-dhcpv6-stateless is not supported in SubnetSet",
+			accessModeCheck: true,
 		},
 		{
 			name: "Create SubnetSet of IPAddressType IPv4IPv6 with Subnet of IPAddressType IPv4",
@@ -915,6 +922,11 @@ func TestSubnetSetValidator(t *testing.T) {
 	}
 	for _, testCase := range testcases {
 		t.Run(testCase.name, func(t *testing.T) {
+			validator.nsxClient.NsxConfig = &config.NSXOperatorConfig{
+				K8sConfig: &config.K8sConfig{
+					IPFamily: "DualStack",
+				},
+			}
 			req := admission.Request{}
 			jsonData, err := json.Marshal(testCase.subnetSet)
 			assert.NoError(t, err)
@@ -1629,6 +1641,12 @@ func TestSubnetSetValidator_IPAddressTypeValidation(t *testing.T) {
 				validator.nsxClient.NsxConfig = &config.NSXOperatorConfig{
 					K8sConfig: &config.K8sConfig{
 						IPFamily: "IPv4",
+					},
+				}
+			} else if strings.Contains(testCase.name, "DHCPv6") || strings.Contains(testCase.name, "DHCPServerStateless") {
+				validator.nsxClient.NsxConfig = &config.NSXOperatorConfig{
+					K8sConfig: &config.K8sConfig{
+						IPFamily: "IPv6",
 					},
 				}
 			}
