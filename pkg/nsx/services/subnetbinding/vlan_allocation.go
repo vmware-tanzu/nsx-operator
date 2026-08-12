@@ -109,7 +109,7 @@ func (s *BindingService) listBindingMapsByParentSubnetPath(parentSubnetPath stri
 	}
 
 	pathEscaped := strings.ReplaceAll(parentSubnetPath, "/", "\\/")
-	queryParam := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((subnet_path:%s AND subnet_association:TRUNK) OR (parent_path:%s AND subnet_association:BRANCH))",
+	queryParam := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((subnet_path:%s AND NOT subnet_association:BRANCH) OR (parent_path:%s AND subnet_association:BRANCH))",
 		servicecommon.ResourceType, ResourceTypeSubnetConnectionBindingMap, pathEscaped, pathEscaped)
 
 	store := &localStore{ResourceStore: servicecommon.ResourceStore{

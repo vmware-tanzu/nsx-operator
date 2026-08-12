@@ -120,7 +120,7 @@ func TestListBindingMapsByParentSubnetPath(t *testing.T) {
 			ResourceType: String(ResourceTypeSubnetConnectionBindingMap),
 		}
 		dv, _ := common.NewConverter().ConvertToVapi(bm, model.SubnetConnectionBindingMapBindingType())
-		expectedQuery := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((subnet_path:\\/parent AND subnet_association:TRUNK) OR (parent_path:\\/parent AND subnet_association:BRANCH))",
+		expectedQuery := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((subnet_path:\\/parent AND NOT subnet_association:BRANCH) OR (parent_path:\\/parent AND subnet_association:BRANCH))",
 			common.ResourceType, ResourceTypeSubnetConnectionBindingMap)
 		fakeQueryClient.EXPECT().List(expectedQuery, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.SearchResponse{
 			Results: []*data.StructValue{dv.(*data.StructValue)},
