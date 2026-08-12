@@ -39,6 +39,8 @@ type VPCIPAddressBlock struct {
 	Visibility IPAddressVisibility `json:"visibility,omitempty"`
 	// AllocatedByVPC contains the CIDR, used IP range and subnet access mode etc.
 	AllocatedByVPC AllocatedByVPC `json:"allocatedByVPC,omitempty"`
+	// The list of Allowed Use Cases.
+	AllowedUseCases []string `json:"allowedUseCases,omitempty"`
 	// The list of CIDRs.
 	// +listType=atomic
 	CIDRs []string `json:"cidrs,omitempty"`

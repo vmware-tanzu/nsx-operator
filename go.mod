@@ -34,8 +34,8 @@ require (
 	github.com/vmware/govmomi v0.53.1
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.8.0
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.8.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.0.0-20260614145640-9b3a306dd40d
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.0.0-20260614145640-9b3a306dd40d
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.1-0.20260731022611-0b74bd8dd86c
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.1-0.20260731022611-0b74bd8dd86c
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.53.0
@@ -56,6 +56,7 @@ require (
 require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	go.uber.org/mock v0.6.0
+	k8s.io/klog/v2 v2.140.0
 	sigs.k8s.io/gateway-api v1.5.1
 )
 
@@ -157,7 +158,6 @@ require (
 	k8s.io/apiextensions-apiserver v0.35.0 // indirect
 	k8s.io/component-base v0.35.1 // indirect
 	k8s.io/gengo/v2 v2.0.0-20260408192533-25e2208e0dc3 // indirect
-	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kms v0.35.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20260414162039-ec9c827d403f // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
