@@ -1,10 +1,14 @@
 package clean
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
+
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func mockCleanupFunc() (interface{}, error) {
@@ -39,4 +43,24 @@ func TestAddCleanupService_Error(t *testing.T) {
 	assert.Len(t, service.vpcPreCleaners, 0)
 	assert.Len(t, service.vpcChildrenCleaners, 0)
 	assert.Len(t, service.infraCleaners, 0)
+}
+
+func TestCleanupService_Retriable(t *testing.T) {
+	log := logr.Discard()
+	service := &CleanupService{log: &log}
+
+	// nil error should return false
+	assert.False(t, service.retriable(nil))
+
+	// standard error should return true
+	assert.True(t, service.retriable(errors.New("some error")))
+
+	// context.Canceled should return false
+	assert.False(t, service.retriable(context.Canceled))
+
+	// context.DeadlineExceeded should return false
+	assert.False(t, service.retriable(context.DeadlineExceeded))
+
+	// TimeoutFailed should return false
+	assert.False(t, service.retriable(nsxutil.TimeoutFailed))
 }

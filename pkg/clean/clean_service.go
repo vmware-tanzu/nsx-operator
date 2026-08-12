@@ -59,11 +59,11 @@ func (c *CleanupService) AddCleanupService(f cleanupFunc) *CleanupService {
 }
 
 func (c *CleanupService) retriable(err error) bool {
-	if err != nil && !errors.As(err, &nsxutil.TimeoutFailed) {
-		c.log.Info("Retrying to clean up NSX resources", "error", err)
-		return true
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, &nsxutil.TimeoutFailed) {
+		return false
 	}
-	return false
+	c.log.Info("Retrying to clean up NSX resources", "error", err)
+	return true
 }
 
 func (c *CleanupService) cleanupBeforeVPCDeletion(ctx context.Context) error {
@@ -130,6 +130,12 @@ func (c *CleanupService) cleanupVPCResourcesByVPCPath(ctx context.Context, vpcPa
 }
 
 func (c *CleanupService) vpcWorker(ctx context.Context, queue workqueue.TypedRateLimitingInterface[string], potentialVPCs sets.Set[string], completedVPCs sets.Set[string], mu *sync.Mutex, finalErrors chan error) bool {
+	if ctx.Err() != nil {
+		c.log.Info("VPC worker stopping because context is done", "error", ctx.Err())
+		queue.ShutDown()
+		return false
+	}
+
 	vpcPath, shutdown := queue.Get()
 	if shutdown {
 		return false
@@ -142,9 +148,11 @@ func (c *CleanupService) vpcWorker(ctx context.Context, queue workqueue.TypedRat
 	c.log.Info("VPC worker processing", "vpcPath", vpcPath, "vpcID", vpcID, "requeues", queue.NumRequeues(vpcPath))
 
 	err := c.cleanupVPCResourcesByVPCPath(ctx, vpcPath)
-	if err != nil && queue.NumRequeues(vpcPath) < maxRetries {
+	if err != nil && c.retriable(err) && queue.NumRequeues(vpcPath) < maxRetries {
 		c.log.Info("VPC cleanup failed, requeuing", "vpcPath", vpcPath, "vpcID", vpcID, "requeues", queue.NumRequeues(vpcPath)+1, "maxRetries", maxRetries)
-		queue.AddAfter(vpcPath, 10*time.Second)
+		// AddAfter will bypass the rate limiter and result NumRequeues always return 0
+		// Use AddRateLimited to ensure the NumRequeues check works correctly
+		queue.AddRateLimited(vpcPath)
 		return true
 	}
 
@@ -177,7 +185,8 @@ func (c *CleanupService) cleanPreCreatedVPCs(ctx context.Context) error {
 }
 
 func (c *CleanupService) cleanupAutoCreatedVPCs(ctx context.Context) error {
-	queue := workqueue.NewTypedRateLimitingQueue[string](workqueue.DefaultTypedControllerRateLimiter[string]())
+	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](10*time.Second, 10*time.Second)
+	queue := workqueue.NewTypedRateLimitingQueue[string](limiter)
 	defer queue.ShutDown()
 
 	autoCreatedVPCs := c.vpcService.ListAutoCreatedVPCPaths()
@@ -204,6 +213,10 @@ func (c *CleanupService) cleanupAutoCreatedVPCs(ctx context.Context) error {
 	}
 
 	wg.Wait()
+
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 
 	if len(vpcFinalErrors) > 0 {
 		return <-vpcFinalErrors
