@@ -49,6 +49,10 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(self.ipAddresses) && !(has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig) && has(self.subnetDHCPv6Config.dhcpv6ServerAdditionalConfig.reservedIPRanges)) || has(self.ipAddresses)", message="ipAddresses is required to configure subnet DHCPv6 reserved ip ranges."
 // +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.gatewayAddresses) && size(self.advancedConfig.gatewayAddresses)>0) || has(self.ipAddresses)", message="ipAddresses is required when custom gatewayAddresses are specified"
 // +kubebuilder:validation:XValidation:rule="!(has(self.advancedConfig) && has(self.advancedConfig.dhcpServerAddresses) && size(self.advancedConfig.dhcpServerAddresses)>0) || has(self.ipAddresses)", message="ipAddresses is required when custom dhcpServerAddresses are specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.ipAddressType) && self.ipAddressType=='IPv6') || (!has(self.ipv4SubnetSize) || self.ipv4SubnetSize == 0)", message="ipv4SubnetSize cannot be set when ipAddressType is IPv6"
+// +kubebuilder:validation:XValidation:rule="(has(self.ipAddressType) && self.ipAddressType!='IPv4') || (!has(self.ipv6PrefixLength) || self.ipv6PrefixLength == 0)", message="ipv6PrefixLength cannot be set when ipAddressType is empty or IPv4"
+// +kubebuilder:validation:XValidation:rule="!(has(self.ipAddressType) && self.ipAddressType == 'IPv6' && has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) && size(self.subnetDHCPConfig.mode) > 0 && self.subnetDHCPConfig.mode != 'DHCPDeactivated')", message="subnetDHCPConfig cannot be set when ipAddressType is IPv6"
+// +kubebuilder:validation:XValidation:rule="!((!has(self.ipAddressType) || self.ipAddressType == 'IPv4') && has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.mode) && size(self.subnetDHCPv6Config.mode) > 0 && self.subnetDHCPv6Config.mode != 'DHCPDeactivated')", message="subnetDHCPv6Config cannot be set when ipAddressType is empty or IPv4"
 type SubnetSpec struct {
 	// VPC name of the Subnet.
 	VPCName string `json:"vpcName,omitempty"`
@@ -73,7 +77,6 @@ type SubnetSpec struct {
 	// Subnet CIDRS.
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=2
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPAddresses []string `json:"ipAddresses,omitempty"`
 	// DHCP configuration for Subnet.
 	SubnetDHCPConfig SubnetDHCPConfig `json:"subnetDHCPConfig,omitempty"`
