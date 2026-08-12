@@ -130,6 +130,14 @@ photon:
 eas:
 	docker build -t github.com/vmware-tanzu/nsx-eas -f build/image/eas/Dockerfile .
 
+.PHONY: carvel-package
+carvel-package: manifests ## Build Carvel package for nsx-operator
+	@if [ -d "../nsx-ujo/installation/carvel" ]; then \
+		$(MAKE) -C ../nsx-ujo/installation/wcp carvel-package; \
+	else \
+		echo "nsx-ujo directory not found at ../nsx-ujo"; \
+	fi
+
 .PHONY: clean
 clean:
 	@rm -rf $(BINDIR)
