@@ -25,6 +25,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -253,11 +254,12 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "3",
+					ResourceVersion: "4",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-					Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+					Phase:                 nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+					SupervisorClusterName: "k8scl-one:test",
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Dummy",
@@ -486,6 +488,9 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 				Service: servicecommon.Service{
 					NSXClient: &nsx.Client{},
 					NSXConfig: &config.NSXOperatorConfig{
+						CoeConfig: &config.CoeConfig{
+							Cluster: "k8scl-one:test",
+						},
 						NsxConfig: &config.NsxConfig{
 							EnforcementPoint: "vmc-enforcementpoint",
 						},
@@ -1102,4 +1107,66 @@ func TestNSXServiceAccountReconciler_serviceMapFunc(t *testing.T) {
 			},
 		},
 	}, requests)
+}
+
+func TestNSXServiceAccountReconciler_BackfillSupervisorClusterNameFail(t *testing.T) {
+	scheme := clientgoscheme.Scheme
+	nsxvmwarecomv1alpha1.AddToScheme(scheme)
+
+	statusUpdateCallCount := 0
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&nsxvmwarecomv1alpha1.NSXServiceAccount{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, cl client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				statusUpdateCallCount++
+				return fmt.Errorf("mock status update error")
+			},
+		}).
+		Build()
+
+	r := &NSXServiceAccountReconciler{
+		Client:   c,
+		Scheme:   scheme,
+		Recorder: fakeRecorder{},
+	}
+	r.Service = &nsxserviceaccount.NSXServiceAccountService{
+		Service: servicecommon.Service{
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "ServiceAccount", "NSXServiceAccount")
+
+	ctx := context.TODO()
+	assert.NoError(t, c.Create(ctx, &nsxvmwarecomv1alpha1.NSXServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns",
+			Name:      "sa",
+		},
+		Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+			Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+		},
+	}))
+
+	cluster := &nsx.Cluster{}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
+		return &nsx.NsxVersion{NodeVersion: "4.0.1"}, nil
+	})
+	defer patches.Reset()
+
+	result, err := r.Reconcile(ctx, controllerruntime.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sa"},
+	})
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mock status update error")
+	assert.Equal(t, ResultRequeue, result)
+	assert.Equal(t, 1, statusUpdateCallCount)
 }

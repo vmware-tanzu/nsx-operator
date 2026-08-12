@@ -45,6 +45,8 @@ var (
 		watchIngress,
 		watchNode,
 		watchNetworkPolicy,
+		watchNSXServiceAccount,
+		watchVirtualMachine,
 	}
 )
 
