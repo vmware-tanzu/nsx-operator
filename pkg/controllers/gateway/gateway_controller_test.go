@@ -520,6 +520,29 @@ func TestGatewayReconciler_Reconcile(t *testing.T) {
 			wantRes: ctrl.Result{},
 		},
 		{
+			name: "managed gateway owned by service",
+			setupMock: func(c *mockclient.MockClient, d *mockdns.MockDNSRecordProvider, s *mockgateway.MockStatusUpdater) {
+				c.EXPECT().Get(gomock.Any(), gwReq.NamespacedName, gomock.Any()).DoAndReturn(func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					gw := obj.(*gatewayv1.Gateway)
+					gw.Spec.GatewayClassName = "avi-lb"
+					gw.Name = "gw1"
+					gw.Namespace = "default"
+					gw.OwnerReferences = []metav1.OwnerReference{{Kind: "Service", Name: "svc1"}}
+					hostname := gatewayv1.Hostname("a.com")
+					gw.Spec.Listeners = []gatewayv1.Listener{{Hostname: &hostname, Name: "l1"}}
+					gw.Status.Addresses = []gatewayv1.GatewayStatusAddress{{Type: ptrGatewayAddressType(gatewayv1.IPAddressType), Value: "1.1.1.1"}}
+					gw.Status.Conditions = []metav1.Condition{{Type: string(gatewayv1.GatewayConditionProgrammed), Status: metav1.ConditionTrue}}
+					return nil
+				}).AnyTimes()
+				d.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindGateway, "default", "gw1").Return(true, nil).Times(1)
+				c.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				s.EXPECT().IncreaseSyncTotal().AnyTimes()
+				s.EXPECT().IncreaseDeleteTotal().AnyTimes()
+				s.EXPECT().DeleteSuccess(gomock.Any(), gomock.Any()).AnyTimes()
+			},
+			wantRes: ctrl.Result{},
+		},
+		{
 			name: "client get error",
 			setupMock: func(c *mockclient.MockClient, d *mockdns.MockDNSRecordProvider, s *mockgateway.MockStatusUpdater) {
 				c.EXPECT().Get(gomock.Any(), gwReq.NamespacedName, gomock.Any()).Return(errors.New("get error"))

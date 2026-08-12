@@ -63,9 +63,25 @@ func targetsFromLoadBalancerIngress(ingress []v1.LoadBalancerIngress) extdns.Tar
 	return extdns.NewTargets(vals...)
 }
 
+// isOwnedByGateway reports whether any ownerReference has the given Kind.
+func isOwnedByGateway(ownerRefs []metav1.OwnerReference) bool {
+	for i := range ownerRefs {
+		if ownerRefs[i].Kind == "Gateway" {
+			return true
+		}
+	}
+	return false
+}
+
 // buildLoadBalancerServiceDNSBatch builds owner-scoped DNS rows for a LoadBalancer Service: annotation hostnames,
 // targets from LB ingress, then ValidateEndpointsByZone for namespace VPC policy.
+// Services whose ownerReference points to a K8s Gateway are skipped to avoid duplicate DNS records
+// with Gateway-direct annotation DNS managed by the gateway reconciler.
 func buildLoadBalancerServiceDNSBatch(svc *v1.Service, w dns.DNSRecordProvider) (*dns.AggregatedDNSEndpoints, error) {
+	if isOwnedByGateway(svc.GetOwnerReferences()) {
+		log.Debug("Skipping DNS batch for LB service owned by a Gateway", "namespace", svc.Namespace, "name", svc.Name)
+		return nil, nil
+	}
 	hostnames := parseDNSHostnamesFromAnnotation(svc.GetAnnotations())
 	if len(hostnames) == 0 {
 		return nil, nil
@@ -93,12 +109,14 @@ func buildLoadBalancerServiceDNSBatch(svc *v1.Service, w dns.DNSRecordProvider) 
 	}
 	owner := &dns.ResourceRef{Kind: dns.ResourceKindService, Object: svc.GetObjectMeta()}
 	rows, _, err := w.ValidateEndpointsByZone(svc.Namespace, owner, eps)
-
-	if len(rows) == 0 {
+	if err != nil {
 		return nil, err
 	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
 	log.Info("DNS batch built for LB service", "namespace", svc.Namespace, "name", svc.Name, "rows", len(rows))
-	return dns.NewOwnerScopedAggregatedRouteDNS(owner, rows), err
+	return dns.NewOwnerScopedAggregatedRouteDNS(owner, rows), nil
 }
 
 func buildServiceDNSReadyCondition(err error) metav1.Condition {

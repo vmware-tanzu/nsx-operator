@@ -486,3 +486,40 @@ func TestConvertToRouteObject(t *testing.T) {
 	_, ok = r1.convertToRouteObject(nil)
 	assert.False(t, ok)
 }
+
+func TestIsGatewayOwnedByService(t *testing.T) {
+	tests := []struct {
+		name string
+		gw   *gatewayv1.Gateway
+		want bool
+	}{
+		{
+			name: "no_owner_refs",
+			gw:   &gatewayv1.Gateway{},
+			want: false,
+		},
+		{
+			name: "owned_by_service",
+			gw: &gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{{Kind: "Service", Name: "parent"}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "owned_by_deployment",
+			gw: &gatewayv1.Gateway{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{{Kind: "Deployment", Name: "parent"}},
+				},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isGatewayOwnedByService(tt.gw))
+		})
+	}
+}
