@@ -289,9 +289,9 @@ func TestUpdateSuccess(t *testing.T) {
 		m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns", "lb-err-rec").Return(true, nil).Times(1)
 
 		r := &ServiceLbReconciler{Client: &fc, Service: testNSXServiceForLb(), Recorder: fakeRecorder{}, DNS: m}
-		res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "lb-err-rec"}})
+		result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "lb-err-rec"}})
 		assert.NoError(t, err)
-		assert.Equal(t, ctrlcommon.ResultRequeueAfter10sec, res)
+		assert.Equal(t, ctrlcommon.ResultRequeueAfter10sec, result)
 	})
 }
 

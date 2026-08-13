@@ -123,6 +123,11 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return handleGatewayCleanup("Gateway is not in a valid management status (either unsupported GatewayClass, not programmed, or DNS is ignored), deleting DNS records")
 	}
 
+	if isGatewayOwnedByService(gw) {
+		log.Debug("Skipping annotated hostname DNS for Gateway owned by a Service", "Gateway", req.NamespacedName)
+		return handleGatewayCleanup("Gateway is owned by Service, skipping annotation DNS")
+	}
+
 	if !hasUsableGatewayIP(gw) {
 		return handleGatewayCleanup("Gateway has no valid address, DNS records should be deleted")
 	}
@@ -157,10 +162,8 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		log.Info("Reconciling Gateway failed", "Gateway", req.NamespacedName, "error", dnsErr)
 		return common.ResultRequeueAfter10sec, nil
 	}
-
 	r.StatusUpdater.UpdateSuccess(ctx, gw, nil)
 	log.Info("Reconciling Gateway", "Gateway", req.NamespacedName, "IPs", entry.IPs)
-
 	return common.ResultNormal, nil
 }
 

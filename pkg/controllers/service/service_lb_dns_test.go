@@ -122,6 +122,34 @@ func TestReconcileLoadBalancerServiceDNS(t *testing.T) {
 			},
 		},
 		{
+			name: "owned_by_gateway",
+			svc: func() *v1.Service {
+				s := makeLbSvc("ns1", "lb-gw", "u10", "app.example.com", "203.0.113.5")
+				s.OwnerReferences = []metav1.OwnerReference{{Kind: "Gateway", Name: "gw1"}}
+				return s
+			}(),
+			setupMock: func(m *mockdns.MockDNSRecordProvider) {
+				// Should skip DNS batch and delete any existing records
+				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns1", "lb-gw").Return(true, nil).Times(1)
+			},
+		},
+		{
+			name: "validate_endpoints_returns_zero_rows",
+			svc:  makeLbSvc("ns1", "lb-zero-rows", "u11", "app.example.com", "203.0.113.5"),
+			setupMock: func(m *mockdns.MockDNSRecordProvider) {
+				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil, nil).Times(1)
+				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns1", "lb-zero-rows").Return(true, nil).Times(1)
+			},
+		},
+		{
+			name: "validate_endpoints_returns_error",
+			svc:  makeLbSvc("ns1", "lb-val-err", "u12", "app.example.com", "203.0.113.5"),
+			setupMock: func(m *mockdns.MockDNSRecordProvider) {
+				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil, fmt.Errorf("some other error")).Times(1)
+			},
+			wantErr: true,
+		},
+		{
 			name: "empty_targets",
 			svc:  makeLbSvc("ns1", "lb-empty-targets", "u9", "app.example.com", ""),
 			setupMock: func(m *mockdns.MockDNSRecordProvider) {
@@ -416,4 +444,33 @@ func TestServiceLbReconciler_removeServiceDNSReadyCondition(t *testing.T) {
 	got := &v1.Service{}
 	require.NoError(t, r.Client.Get(ctx, nn, got))
 	assert.Nil(t, meta.FindStatusCondition(got.Status.Conditions, serviceDNSReadyConditionType))
+}
+
+func TestIsOwnedByGateway(t *testing.T) {
+	tests := []struct {
+		name      string
+		ownerRefs []metav1.OwnerReference
+		want      bool
+	}{
+		{
+			name:      "no_owner_refs",
+			ownerRefs: nil,
+			want:      false,
+		},
+		{
+			name:      "owned_by_gateway",
+			ownerRefs: []metav1.OwnerReference{{Kind: "Gateway", Name: "parent"}},
+			want:      true,
+		},
+		{
+			name:      "owned_by_deployment",
+			ownerRefs: []metav1.OwnerReference{{Kind: "Deployment", Name: "parent"}},
+			want:      false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isOwnedByGateway(tt.ownerRefs))
+		})
+	}
 }

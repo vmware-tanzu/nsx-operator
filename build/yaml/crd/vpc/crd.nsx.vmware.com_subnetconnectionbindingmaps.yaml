@@ -151,7 +151,8 @@ spec:
                   type: object
                 type: array
               vlanTrafficTag:
-                description: VLANTrafficTag is the realized VLAN traffic tag for this binding.
+                description: VLANTrafficTag is the realized VLAN traffic tag for this
+                  binding.
                 format: int64
                 type: integer
             type: object

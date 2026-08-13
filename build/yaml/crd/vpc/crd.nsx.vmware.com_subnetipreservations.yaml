@@ -58,7 +58,9 @@ spec:
             description: SubnetIPReservationSpec defines the desired state of SubnetIPReservation
             properties:
               ipAddressType:
-                description: IPAddressType defines the IP address type of the SubnetIPReservation.
+                description: |-
+                  IPAddressType defines the IP address type of the SubnetIPReservation.
+                  Supported starting with VCF 9.2.0.
                 enum:
                 - IPv4
                 - IPv6

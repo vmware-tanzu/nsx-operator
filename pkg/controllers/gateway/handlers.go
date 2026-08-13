@@ -145,8 +145,19 @@ func routeParentAcceptedByKey(routeNamespace string, parents []gatewayv1.RoutePa
 	return out
 }
 
-// routeDNSRequestsForListenerSet maps a ListenerSet to reconcile.Requests for Routes indexed on that LS.
+// isGatewayOwnedByService reports whether any ownerReference on the Gateway has Kind == "Service".
+// Such Gateways are created by a Service controller and their annotation DNS is managed by the
+// service reconciler, so the gateway reconciler should skip annotation DNS for them.
+func isGatewayOwnedByService(gw *gatewayv1.Gateway) bool {
+	for i := range gw.OwnerReferences {
+		if gw.OwnerReferences[i].Kind == "Service" {
+			return true
+		}
+	}
+	return false
+}
 
+// routeDNSRequestsForListenerSet maps a ListenerSet to reconcile.Requests for Routes indexed on that LS.
 func reconcileRequestsFromRouteList(list client.ObjectList) []reconcile.Request {
 	switch l := list.(type) {
 	case *gatewayv1.HTTPRouteList:
@@ -303,6 +314,10 @@ var predicateFuncsGateway = predicate.Funcs{
 		}
 
 		if !reflect.DeepEqual(oldObj.Status.Addresses, newObj.Status.Addresses) { // Gateway + Route ipCache
+			return true
+		}
+
+		if !reflect.DeepEqual(oldObj.OwnerReferences, newObj.OwnerReferences) {
 			return true
 		}
 

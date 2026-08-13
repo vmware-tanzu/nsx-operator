@@ -77,6 +77,7 @@ spec:
                   DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType
                   is set, IP families of InterfaceIPType should be a superset of
                   StaticIPAllocationType.
+                  Supported starting with VCF 9.2.0.
                 enum:
                 - IPv4
                 - IPv6
@@ -92,6 +93,7 @@ spec:
                   and static allocation are enabled), use this to define which families
                   should be allocated from the static IP pools. If not specified, this field
                   will be back-filled based on InterfaceIPType and Subnet configuration.
+                  Supported starting with VCF 9.2.0.
                 enum:
                 - IPv4
                 - IPv6

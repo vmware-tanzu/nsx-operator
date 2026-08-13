@@ -29,6 +29,7 @@ type SubnetPortSpec struct {
 	// DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType
 	// is set, IP families of InterfaceIPType should be a superset of
 	// StaticIPAllocationType.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
 	InterfaceIPType IPAddressType `json:"interfaceIPType,omitempty"`
 	// StaticIPAllocationType explicitly requests static IP allocation of the
@@ -36,6 +37,7 @@ type SubnetPortSpec struct {
 	// and static allocation are enabled), use this to define which families
 	// should be allocated from the static IP pools. If not specified, this field
 	// will be back-filled based on InterfaceIPType and Subnet configuration.
+	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6;None
 	StaticIPAllocationType StaticIPAllocationType `json:"staticIPAllocationType,omitempty"`
 	// Name of PortSetting associated with this SubnetPort.
