@@ -388,6 +388,33 @@ func (service *SubnetPortService) GetPortsOfSubnet(subnetPath string) (ports []*
 	return subnetPortList
 }
 
+// isPortStaticAllocated reports whether a realized port's addresses come from a static
+// IP pool (AllocateAddresses BOTH/IP_POOL) rather than a DHCP/MAC pool.
+func isPortStaticAllocated(port *model.VpcSubnetPort) bool {
+	if port.Attachment == nil || port.Attachment.AllocateAddresses == nil {
+		return false
+	}
+	switch *port.Attachment.AllocateAddresses {
+	case "BOTH", "IP_POOL":
+		return true
+	default:
+		return false
+	}
+}
+
+// countExistingPortsForPool counts only realized ports sourced from the pool being checked,
+// so a DHCP-sourced port on a mixed-mode Subnet doesn't count against static capacity (or
+// vice versa).
+func (service *SubnetPortService) countExistingPortsForPool(subnetPath string, useStaticPool bool) int {
+	count := 0
+	for _, port := range service.GetPortsOfSubnet(subnetPath) {
+		if isPortStaticAllocated(port) == useStaticPool {
+			count++
+		}
+	}
+	return count
+}
+
 func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) (sets.Set[string], error) {
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	err := service.Client.List(ctx, subnetPortList)
@@ -483,13 +510,10 @@ func (service *SubnetPortService) ListSubnetPortByStsUid(ns string, stsUid strin
 	return result
 }
 
-// AllocatePortFromSubnet checks the number of IPs requested by the SubnetPort on the Subnet.
-// If the Subnet has capacity for the new SubnetPort, it will increase the number of IPs
-// under creation and return true.
-// For dual-stack subnets, both IPv4 and IPv6 capacity must be available. When addressBindings
-// requests multiple IPs for a family, all of them are accounted for. staticIPAllocationType
-// decides, per family, whether the IP is drawn from the Subnet's static IP pool or its DHCP
-// pool - this matters for mixed-mode Subnets where both pools exist simultaneously.
+// AllocatePortFromSubnet checks capacity for all IPs the SubnetPort requests (addressBindings
+// may ask for more than one per family) and reserves them if available. staticIPAllocationType
+// decides, per family, whether the IP is drawn from the static pool or the DHCP pool - needed
+// for mixed-mode Subnets where both exist at once.
 func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (bool, error) {
 	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
 
@@ -549,9 +573,8 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	return true, nil
 }
 
-// checkIPv4Capacity checks if the subnet has available IPv4 capacity for ipCount more addresses.
-// useStaticPool decides whether the static IP pool or the DHCP pool is checked, matching where
-// this SubnetPort's IPv4 address is actually allocated from.
+// checkIPv4Capacity checks for ipCount more IPv4 addresses in the static or DHCP pool,
+// per useStaticPool.
 func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sharedSubnet bool, info *CountInfo, existedEntry bool, subnetInfo servicecommon.VPCResourceInfo, useStaticPool bool, ipCount int) (bool, error) {
 	dhcpMode := model.SubnetDhcpConfig_MODE_DEACTIVATED
 	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
@@ -620,7 +643,7 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 		return false, nil
 	}
 
-	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
+	existingPortCount := service.countExistingPortsForPool(*subnet.Path, useStaticPool)
 	// A shared Subnet can be used by other supervisors or other places where SubnetPort
 	// is created and not in operator cache.
 	// For DHCPServer Subnet, the allocated IP number wont change before the VM request IP
@@ -637,9 +660,8 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 	return info.dirtyDhcpCount+existingPortCount+ipCount <= info.totalDhcpIP, nil
 }
 
-// checkIPv6Capacity checks if the subnet has available IPv6 capacity for ipCount more addresses.
-// useStaticPool decides whether the static IP pool or the DHCP pool is checked, matching where
-// this SubnetPort's IPv6 address is actually allocated from.
+// checkIPv6Capacity checks for ipCount more IPv6 addresses in the static or DHCP pool,
+// per useStaticPool.
 func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sharedSubnet bool, info *CountInfo, isNewEntry bool, subnetInfo servicecommon.VPCResourceInfo, useStaticPool bool, ipCount int) (bool, error) {
 	dhcpv6Mode := model.SubnetDhcpv6Config_MODE_DEACTIVATED
 	if subnet.SubnetDhcpv6Config != nil && subnet.SubnetDhcpv6Config.Mode != nil {
@@ -657,10 +679,7 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 
 	var allocatedIPNumberIPv6 int
 	if !useStaticPool {
-		// DHCPv6 pool statistics are only exposed by NSX versions with the VpcIpv6
-		// feature enabled - dhcp-server-config-stats returns a populated DhcpIpv6 field
-		// in that case. On older NSX versions, DhcpIpv6 stays nil and we allow the
-		// allocation unconditionally, same as before.
+		// DHCPv6 pool stats need NSX's VpcIpv6 feature; on older versions DhcpIpv6 stays nil.
 		if !service.NSXClient.NSXCheckVersion(nsx.IPv6) {
 			log.Info("DHCPv6 pool statistics unavailable on this NSX version; allowing allocation", "Subnet", *subnet.Path)
 			return true, nil
@@ -671,9 +690,6 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 			return false, err
 		}
 		if dhcpServerStats.DhcpIpv6 == nil || len(dhcpServerStats.DhcpIpv6.IpPoolStats) == 0 {
-			// This NSX build doesn't populate DHCPv6 stats for this Subnet (e.g. IPv4-only
-			// Subnet, or VpcIpv6 feature switch off server-side despite the client-side
-			// version gate). Fall back to allowing the allocation unconditionally.
 			log.Info("DHCPv6 pool statistics not present in response; allowing allocation", "Subnet", *subnet.Path)
 			return true, nil
 		}
@@ -688,7 +704,7 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 			return false, nil
 		}
 
-		existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
+		existingPortCount := service.countExistingPortsForPool(*subnet.Path, false)
 		if sharedSubnet {
 			existingPortCount = max(existingPortCount, allocatedIPNumberIPv6)
 		}
@@ -714,7 +730,7 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 		return false, nil
 	}
 
-	existingPortCount := len(service.GetPortsOfSubnet(*subnet.Path))
+	existingPortCount := service.countExistingPortsForPool(*subnet.Path, true)
 	if sharedSubnet {
 		existingPortCount = max(existingPortCount, allocatedIPNumberIPv6)
 	}
@@ -735,9 +751,8 @@ func (service *SubnetPortService) updateExhaustedSubnet(path string) {
 	info.exhaustedCheckTime = time.Now()
 }
 
-// ReleasePortInSubnet decreases the number of IPs under creation for a SubnetPort.
-// interfaceIPType, staticIPAllocationType and addressBindings must match the values passed to
-// the corresponding AllocatePortFromSubnet call, so the same pool counters are decremented.
+// ReleasePortInSubnet undoes AllocatePortFromSubnet's reservation. Params must match the
+// original Allocate call so the same pool counters are decremented.
 func (service *SubnetPortService) ReleasePortInSubnet(path string, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) {
 	obj, ok := service.SubnetPortStore.PortCountInfo.Load(path)
 	if !ok {

@@ -1564,6 +1564,39 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: true,
 		},
 		{
+			// Regression test: an existing DHCP-sourced port already realized on the
+			// mixed-mode Subnet must not count against the static pool's capacity when
+			// checking a new static-sourced port. Before this fix, existingPortCount
+			// counted every realized port on the Subnet regardless of which pool it
+			// drew from, so a lone DHCP-sourced port could falsely exhaust a small
+			// static pool it never actually touched.
+			name:                   "Mixed mode Subnet - existing dhcp-sourced port does not count against static pool",
+			subnet:                 mixedModeSubnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				existingDhcpPort := &model.VpcSubnetPort{
+					Id:         common.String("existing-dhcp-port"),
+					Path:       common.String(subnetPath + "/ports/existing-dhcp-port"),
+					ParentPath: &subnetPath,
+					Attachment: &model.PortAttachment{
+						AllocateAddresses: common.String("NONE"),
+					},
+				}
+				service.SubnetPortStore.Add(existingDhcpPort)
+				// TotalIps is 2, not 1: the test harness below calls AllocatePortFromSubnet
+				// twice when expectedValue is true, so capacity must cover both calls
+				// (1 IP each). If the existing DHCP port were wrongly counted against the
+				// static pool, even a single call would fail here.
+				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
+					return model.IpAddressPool{
+						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(2)},
+					}, nil
+				})
+			},
+			expectedValue: true,
+		},
+		{
 			// Mixed mode: the static pool is exhausted while the DHCP pool still has
 			// room. A static-sourced port must be rejected, not silently allowed
 			// through by looking at the (irrelevant) DHCP pool's capacity.
