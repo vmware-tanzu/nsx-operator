@@ -17,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -62,6 +63,23 @@ func setReadyStatusFalse(k8sClient client.Client, ctx context.Context, obj clien
 	}
 }
 
+func setDeleteFailedStatus(k8sClient client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error) {
+	se := obj.(*v1alpha1.ServiceEndpoint)
+	cond := metav1.Condition{
+		Type:               "DeleteFailure",
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: se.Generation,
+		Reason:             "ServiceEndpointInUse",
+		Message:            fmt.Sprintf("NSX rejected the delete: %v", err),
+		LastTransitionTime: transitionTime,
+	}
+	if apimeta.SetStatusCondition(&se.Status.Conditions, cond) {
+		if updateErr := k8sClient.Status().Update(ctx, se); updateErr != nil {
+			log.Error(updateErr, "Failed to update status", "Name", se.Name, "Namespace", se.Namespace)
+		}
+	}
+}
+
 func setReadyStatusTrue(k8sClient client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
 	se := obj.(*v1alpha1.ServiceEndpoint)
 	cond := metav1.Condition{
@@ -96,6 +114,13 @@ func (r *ServiceEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return resultRequeue, err
 	}
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
+		if !controllerutil.ContainsFinalizer(obj, servicecommon.ServiceEndpointFinalizerName) {
+			controllerutil.AddFinalizer(obj, servicecommon.ServiceEndpointFinalizerName)
+			if err := r.Client.Update(ctx, obj); err != nil {
+				log.Error(err, "Failed to add the finalizer", "ServiceEndpoint", req.NamespacedName)
+				return resultRequeue, err
+			}
+		}
 		return r.handleUpdate(ctx, obj)
 	}
 	return r.handleDeletion(ctx, req, obj)
@@ -114,10 +139,18 @@ func (r *ServiceEndpointReconciler) handleUpdate(ctx context.Context, obj *v1alp
 func (r *ServiceEndpointReconciler) handleDeletion(ctx context.Context, req ctrl.Request, obj *v1alpha1.ServiceEndpoint) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseDeleteTotal()
 	if err := r.Service.DeleteServiceEndpoint(obj); err != nil {
-		r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
+		setDeleteFailedStatus(r.Client, ctx, obj, metav1.Now(), err)
+		r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 		return resultRequeue, err
 	}
-	r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
+	if controllerutil.ContainsFinalizer(obj, servicecommon.ServiceEndpointFinalizerName) {
+		controllerutil.RemoveFinalizer(obj, servicecommon.ServiceEndpointFinalizerName)
+		if err := r.Client.Update(ctx, obj); err != nil {
+			log.Error(err, "Failed to remove the finalizer", "ServiceEndpoint", req.NamespacedName)
+			return resultRequeue, err
+		}
+	}
+	r.StatusUpdater.DeleteSuccess(req.NamespacedName, obj)
 	return resultNormal, nil
 }
 
