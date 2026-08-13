@@ -120,12 +120,13 @@ func ConvertVpcIpAddressBlocks(nsxBlocks *model.VpcIpAddressBlocks, vpcName, nam
 			ipBlockName = ":" + ipBlockName
 		}
 		block := easv1alpha1.VPCIPAddressBlock{
-			IPBlockName:    ipBlockName,
-			CIDRs:          b.Cidrs,
-			Available:      DerefInt64(b.Available),
-			Total:          DerefInt64(b.Total),
-			PercentageUsed: DerefString(b.PercentageUsed),
-			Visibility:     visibility,
+			IPBlockName:     ipBlockName,
+			CIDRs:           b.Cidrs,
+			Available:       DerefInt64(b.Available),
+			Total:           DerefInt64(b.Total),
+			PercentageUsed:  DerefString(b.PercentageUsed),
+			Visibility:      visibility,
+			AllowedUseCases: b.AllowedUseCases,
 		}
 		block.ExcludedIPs = convertIPPoolRanges(b.ExcludedIps)
 		block.Ranges = convertIPPoolRanges(b.Ranges)

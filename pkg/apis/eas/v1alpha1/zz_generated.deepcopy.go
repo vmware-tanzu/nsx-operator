@@ -362,6 +362,11 @@ func (in *VPCIPAddress) DeepCopy() *VPCIPAddress {
 func (in *VPCIPAddressBlock) DeepCopyInto(out *VPCIPAddressBlock) {
 	*out = *in
 	in.AllocatedByVPC.DeepCopyInto(&out.AllocatedByVPC)
+	if in.AllowedUseCases != nil {
+		in, out := &in.AllowedUseCases, &out.AllowedUseCases
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.CIDRs != nil {
 		in, out := &in.CIDRs, &out.CIDRs
 		*out = make([]string, len(*in))
