@@ -156,6 +156,8 @@ func (service *VPCEndpointService) Apply(namespace string, nsxVPCEndpoint *model
 }
 
 // checkVPCEndpointRealizeState polls until NSX reports SUCCESS or ERROR.
+// TODO: confirm with NSX whether this status API is fully implemented; it hasn't
+// reliably returned SUCCESS in testing.
 func (service *VPCEndpointService) checkVPCEndpointRealizeState(orgID, projectID, vpcID, id string) error {
 	return retry.OnError(util.NSXTRealizeRetry, func(err error) bool {
 		return errors.Is(err, errNotRealized)
