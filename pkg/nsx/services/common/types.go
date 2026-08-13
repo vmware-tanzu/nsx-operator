@@ -153,6 +153,7 @@ const (
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
 	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
+	ServiceEndpointFinalizerName   = "serviceendpoint.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetPath          = "IndexKeySubnetPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
