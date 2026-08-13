@@ -187,7 +187,7 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 		if subnetSetCR != nil {
 			// Delete the default SubnetSet if it is created with auto-created Subnets and the current supported IP address type is not a superset of the SubnetSet IP address type.
 			// e.g. if the current supported IP address type is IPv4 or IPv6, and the SubnetSet IP address type is IPv4IPv6, then the SubnetSet shall be deleted and recreated
-			if !common.IsSupersetIPAddressTypes(autoCreatedIPAddressType, subnetSetCR.Spec.IPAddressType) {
+			if !common.IsSupersetIPAddressTypes(autoCreatedIPAddressType, subnetSetCR.Spec.IPAddressType) && subnetSetCR.Spec.SubnetNames == nil {
 				log.Info("Delete default SubnetSet", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "existingIPAddressType", subnetSetCR.Spec.IPAddressType, "desiredIPAddressType", autoCreatedIPAddressType)
 				err = r.Client.Delete(ctx, subnetSetCR)
 				if err != nil {
