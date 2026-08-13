@@ -133,5 +133,19 @@ func ConvertDhcpServerStatistics(nsxStats *model.DhcpServerStatistics, name, nam
 			PoolSize:            DerefInt64(p.PoolSize),
 		})
 	}
+	if nsxStats.DhcpIpv6 != nil {
+		for _, p := range nsxStats.DhcpIpv6.IpPoolStats {
+			var allocatedPercentage int64
+			if p.AllocatedPercentage != nil {
+				allocatedPercentage = int64(*p.AllocatedPercentage)
+			}
+			stats.IPv6PoolStats = append(stats.IPv6PoolStats, easv1alpha1.DHCPIPPoolUsage{
+				AllocatedNumber:     DerefInt64(p.AllocatedNumber),
+				AllocatedPercentage: allocatedPercentage,
+				ConsumedNumber:      DerefInt64(p.ConsumedNumber),
+				PoolSize:            DerefInt64(p.PoolSize),
+			})
+		}
+	}
 	return stats
 }

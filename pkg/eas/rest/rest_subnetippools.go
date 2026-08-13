@@ -41,7 +41,7 @@ type subnetIPPoolsStorage struct {
 	store *storage.SubnetIPPoolsStorage
 }
 
-func (r *subnetIPPoolsStorage) New() runtime.Object     { return &easv1alpha1.SubnetIPPools{} }
+func (r *subnetIPPoolsStorage) New() runtime.Object     { return &easv1alpha1.SubnetIPPoolsList{} }
 func (r *subnetIPPoolsStorage) Destroy()                {}
 func (r *subnetIPPoolsStorage) NamespaceScoped() bool   { return true }
 func (r *subnetIPPoolsStorage) GetSingularName() string { return "subnetippools" }
@@ -53,6 +53,16 @@ func (r *subnetIPPoolsStorage) Get(ctx context.Context, name string, _ *metav1.G
 
 func (r *subnetIPPoolsStorage) ConvertToTable(_ context.Context, object runtime.Object, _ runtime.Object) (*metav1.Table, error) {
 	table := &metav1.Table{ColumnDefinitions: subnetIPPoolsColumns}
+
+	if list, ok := object.(*easv1alpha1.SubnetIPPoolsList); ok {
+		for _, item := range list.Items {
+			// Create a local copy of item to avoid pointer issues
+			itemCopy := item
+			table.Rows = append(table.Rows, tableRow(itemCopy.Name, itemCopy.Namespace, subnetIPPoolsSummary(&itemCopy)))
+		}
+		return table, nil
+	}
+
 	obj, ok := object.(*easv1alpha1.SubnetIPPools)
 	if !ok {
 		return nil, fmt.Errorf("unsupported type %T for SubnetIPPools table", object)

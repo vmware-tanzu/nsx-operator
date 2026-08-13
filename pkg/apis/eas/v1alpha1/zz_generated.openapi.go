@@ -17,73 +17,78 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.AllocatedByVPC":            schema_pkg_apis_eas_v1alpha1_AllocatedByVPC(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.CIDRUsage":                 schema_pkg_apis_eas_v1alpha1_CIDRUsage(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DHCPIPPoolUsage":           schema_pkg_apis_eas_v1alpha1_DHCPIPPoolUsage(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsage":              schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsageList":          schema_pkg_apis_eas_v1alpha1_IPBlockUsageList(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPPoolRange":               schema_pkg_apis_eas_v1alpha1_IPPoolRange(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.PoolUsage":                 schema_pkg_apis_eas_v1alpha1_PoolUsage(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.RangeUsage":                schema_pkg_apis_eas_v1alpha1_RangeUsage(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerStats":     schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStats(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerStatsList": schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStatsList(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetIPPools":             schema_pkg_apis_eas_v1alpha1_SubnetIPPools(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetIPPoolsList":         schema_pkg_apis_eas_v1alpha1_SubnetIPPoolsList(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.UsageDetails":              schema_pkg_apis_eas_v1alpha1_UsageDetails(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddress":              schema_pkg_apis_eas_v1alpha1_VPCIPAddress(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressBlock":         schema_pkg_apis_eas_v1alpha1_VPCIPAddressBlock(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressUsage":         schema_pkg_apis_eas_v1alpha1_VPCIPAddressUsage(ref),
-		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressUsageList":     schema_pkg_apis_eas_v1alpha1_VPCIPAddressUsageList(ref),
-		v1.APIGroup{}.OpenAPIModelName():                                                       schema_pkg_apis_meta_v1_APIGroup(ref),
-		v1.APIGroupList{}.OpenAPIModelName():                                                   schema_pkg_apis_meta_v1_APIGroupList(ref),
-		v1.APIResource{}.OpenAPIModelName():                                                    schema_pkg_apis_meta_v1_APIResource(ref),
-		v1.APIResourceList{}.OpenAPIModelName():                                                schema_pkg_apis_meta_v1_APIResourceList(ref),
-		v1.APIVersions{}.OpenAPIModelName():                                                    schema_pkg_apis_meta_v1_APIVersions(ref),
-		v1.ApplyOptions{}.OpenAPIModelName():                                                   schema_pkg_apis_meta_v1_ApplyOptions(ref),
-		v1.Condition{}.OpenAPIModelName():                                                      schema_pkg_apis_meta_v1_Condition(ref),
-		v1.CreateOptions{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_CreateOptions(ref),
-		v1.DeleteOptions{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_DeleteOptions(ref),
-		v1.Duration{}.OpenAPIModelName():                                                       schema_pkg_apis_meta_v1_Duration(ref),
-		v1.FieldSelectorRequirement{}.OpenAPIModelName():                                       schema_pkg_apis_meta_v1_FieldSelectorRequirement(ref),
-		v1.FieldsV1{}.OpenAPIModelName():                                                       schema_pkg_apis_meta_v1_FieldsV1(ref),
-		v1.GetOptions{}.OpenAPIModelName():                                                     schema_pkg_apis_meta_v1_GetOptions(ref),
-		v1.GroupKind{}.OpenAPIModelName():                                                      schema_pkg_apis_meta_v1_GroupKind(ref),
-		v1.GroupResource{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_GroupResource(ref),
-		v1.GroupVersion{}.OpenAPIModelName():                                                   schema_pkg_apis_meta_v1_GroupVersion(ref),
-		v1.GroupVersionForDiscovery{}.OpenAPIModelName():                                       schema_pkg_apis_meta_v1_GroupVersionForDiscovery(ref),
-		v1.GroupVersionKind{}.OpenAPIModelName():                                               schema_pkg_apis_meta_v1_GroupVersionKind(ref),
-		v1.GroupVersionResource{}.OpenAPIModelName():                                           schema_pkg_apis_meta_v1_GroupVersionResource(ref),
-		v1.InternalEvent{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_InternalEvent(ref),
-		v1.LabelSelector{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_LabelSelector(ref),
-		v1.LabelSelectorRequirement{}.OpenAPIModelName():                                       schema_pkg_apis_meta_v1_LabelSelectorRequirement(ref),
-		v1.List{}.OpenAPIModelName():                                                           schema_pkg_apis_meta_v1_List(ref),
-		v1.ListMeta{}.OpenAPIModelName():                                                       schema_pkg_apis_meta_v1_ListMeta(ref),
-		v1.ListOptions{}.OpenAPIModelName():                                                    schema_pkg_apis_meta_v1_ListOptions(ref),
-		v1.ManagedFieldsEntry{}.OpenAPIModelName():                                             schema_pkg_apis_meta_v1_ManagedFieldsEntry(ref),
-		v1.MicroTime{}.OpenAPIModelName():                                                      schema_pkg_apis_meta_v1_MicroTime(ref),
-		v1.ObjectMeta{}.OpenAPIModelName():                                                     schema_pkg_apis_meta_v1_ObjectMeta(ref),
-		v1.OwnerReference{}.OpenAPIModelName():                                                 schema_pkg_apis_meta_v1_OwnerReference(ref),
-		v1.PartialObjectMetadata{}.OpenAPIModelName():                                          schema_pkg_apis_meta_v1_PartialObjectMetadata(ref),
-		v1.PartialObjectMetadataList{}.OpenAPIModelName():                                      schema_pkg_apis_meta_v1_PartialObjectMetadataList(ref),
-		v1.Patch{}.OpenAPIModelName():                                                          schema_pkg_apis_meta_v1_Patch(ref),
-		v1.PatchOptions{}.OpenAPIModelName():                                                   schema_pkg_apis_meta_v1_PatchOptions(ref),
-		v1.Preconditions{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_Preconditions(ref),
-		v1.RootPaths{}.OpenAPIModelName():                                                      schema_pkg_apis_meta_v1_RootPaths(ref),
-		v1.ServerAddressByClientCIDR{}.OpenAPIModelName():                                      schema_pkg_apis_meta_v1_ServerAddressByClientCIDR(ref),
-		v1.Status{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_Status(ref),
-		v1.StatusCause{}.OpenAPIModelName():                                                    schema_pkg_apis_meta_v1_StatusCause(ref),
-		v1.StatusDetails{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_StatusDetails(ref),
-		v1.Table{}.OpenAPIModelName():                                                          schema_pkg_apis_meta_v1_Table(ref),
-		v1.TableColumnDefinition{}.OpenAPIModelName():                                          schema_pkg_apis_meta_v1_TableColumnDefinition(ref),
-		v1.TableOptions{}.OpenAPIModelName():                                                   schema_pkg_apis_meta_v1_TableOptions(ref),
-		v1.TableRow{}.OpenAPIModelName():                                                       schema_pkg_apis_meta_v1_TableRow(ref),
-		v1.TableRowCondition{}.OpenAPIModelName():                                              schema_pkg_apis_meta_v1_TableRowCondition(ref),
-		v1.Time{}.OpenAPIModelName():                                                           schema_pkg_apis_meta_v1_Time(ref),
-		v1.Timestamp{}.OpenAPIModelName():                                                      schema_pkg_apis_meta_v1_Timestamp(ref),
-		v1.TypeMeta{}.OpenAPIModelName():                                                       schema_pkg_apis_meta_v1_TypeMeta(ref),
-		v1.UpdateOptions{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_UpdateOptions(ref),
-		v1.WatchEvent{}.OpenAPIModelName():                                                     schema_pkg_apis_meta_v1_WatchEvent(ref),
-		version.Info{}.OpenAPIModelName():                                                      schema_k8sio_apimachinery_pkg_version_Info(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.AllocatedByVPC":                   schema_pkg_apis_eas_v1alpha1_AllocatedByVPC(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.CIDRUsage":                        schema_pkg_apis_eas_v1alpha1_CIDRUsage(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DHCPIPPoolUsage":                  schema_pkg_apis_eas_v1alpha1_DHCPIPPoolUsage(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsage":                     schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsageList":                 schema_pkg_apis_eas_v1alpha1_IPBlockUsageList(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPPoolRange":                      schema_pkg_apis_eas_v1alpha1_IPPoolRange(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.PoolUsage":                        schema_pkg_apis_eas_v1alpha1_PoolUsage(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.RangeUsage":                       schema_pkg_apis_eas_v1alpha1_RangeUsage(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.Statistics":                       schema_pkg_apis_eas_v1alpha1_Statistics(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerStats":            schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStats(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerStatsList":        schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStatsList(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetIPPools":                    schema_pkg_apis_eas_v1alpha1_SubnetIPPools(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetIPPoolsList":                schema_pkg_apis_eas_v1alpha1_SubnetIPPoolsList(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.UsageDetails":                     schema_pkg_apis_eas_v1alpha1_UsageDetails(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCEndpointStatistics":            schema_pkg_apis_eas_v1alpha1_VPCEndpointStatistics(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCEndpointStatisticsList":        schema_pkg_apis_eas_v1alpha1_VPCEndpointStatisticsList(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddress":                     schema_pkg_apis_eas_v1alpha1_VPCIPAddress(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressBlock":                schema_pkg_apis_eas_v1alpha1_VPCIPAddressBlock(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressUsage":                schema_pkg_apis_eas_v1alpha1_VPCIPAddressUsage(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressUsageList":            schema_pkg_apis_eas_v1alpha1_VPCIPAddressUsageList(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceEndpointStatistics":     schema_pkg_apis_eas_v1alpha1_VPCServiceEndpointStatistics(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceEndpointStatisticsList": schema_pkg_apis_eas_v1alpha1_VPCServiceEndpointStatisticsList(ref),
+		v1.APIGroup{}.OpenAPIModelName():                                                              schema_pkg_apis_meta_v1_APIGroup(ref),
+		v1.APIGroupList{}.OpenAPIModelName():                                                          schema_pkg_apis_meta_v1_APIGroupList(ref),
+		v1.APIResource{}.OpenAPIModelName():                                                           schema_pkg_apis_meta_v1_APIResource(ref),
+		v1.APIResourceList{}.OpenAPIModelName():                                                       schema_pkg_apis_meta_v1_APIResourceList(ref),
+		v1.APIVersions{}.OpenAPIModelName():                                                           schema_pkg_apis_meta_v1_APIVersions(ref),
+		v1.ApplyOptions{}.OpenAPIModelName():                                                          schema_pkg_apis_meta_v1_ApplyOptions(ref),
+		v1.Condition{}.OpenAPIModelName():                                                             schema_pkg_apis_meta_v1_Condition(ref),
+		v1.CreateOptions{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_CreateOptions(ref),
+		v1.DeleteOptions{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_DeleteOptions(ref),
+		v1.Duration{}.OpenAPIModelName():                                                              schema_pkg_apis_meta_v1_Duration(ref),
+		v1.FieldSelectorRequirement{}.OpenAPIModelName():                                              schema_pkg_apis_meta_v1_FieldSelectorRequirement(ref),
+		v1.FieldsV1{}.OpenAPIModelName():                                                              schema_pkg_apis_meta_v1_FieldsV1(ref),
+		v1.GetOptions{}.OpenAPIModelName():                                                            schema_pkg_apis_meta_v1_GetOptions(ref),
+		v1.GroupKind{}.OpenAPIModelName():                                                             schema_pkg_apis_meta_v1_GroupKind(ref),
+		v1.GroupResource{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_GroupResource(ref),
+		v1.GroupVersion{}.OpenAPIModelName():                                                          schema_pkg_apis_meta_v1_GroupVersion(ref),
+		v1.GroupVersionForDiscovery{}.OpenAPIModelName():                                              schema_pkg_apis_meta_v1_GroupVersionForDiscovery(ref),
+		v1.GroupVersionKind{}.OpenAPIModelName():                                                      schema_pkg_apis_meta_v1_GroupVersionKind(ref),
+		v1.GroupVersionResource{}.OpenAPIModelName():                                                  schema_pkg_apis_meta_v1_GroupVersionResource(ref),
+		v1.InternalEvent{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_InternalEvent(ref),
+		v1.LabelSelector{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_LabelSelector(ref),
+		v1.LabelSelectorRequirement{}.OpenAPIModelName():                                              schema_pkg_apis_meta_v1_LabelSelectorRequirement(ref),
+		v1.List{}.OpenAPIModelName():                                                                  schema_pkg_apis_meta_v1_List(ref),
+		v1.ListMeta{}.OpenAPIModelName():                                                              schema_pkg_apis_meta_v1_ListMeta(ref),
+		v1.ListOptions{}.OpenAPIModelName():                                                           schema_pkg_apis_meta_v1_ListOptions(ref),
+		v1.ManagedFieldsEntry{}.OpenAPIModelName():                                                    schema_pkg_apis_meta_v1_ManagedFieldsEntry(ref),
+		v1.MicroTime{}.OpenAPIModelName():                                                             schema_pkg_apis_meta_v1_MicroTime(ref),
+		v1.ObjectMeta{}.OpenAPIModelName():                                                            schema_pkg_apis_meta_v1_ObjectMeta(ref),
+		v1.OwnerReference{}.OpenAPIModelName():                                                        schema_pkg_apis_meta_v1_OwnerReference(ref),
+		v1.PartialObjectMetadata{}.OpenAPIModelName():                                                 schema_pkg_apis_meta_v1_PartialObjectMetadata(ref),
+		v1.PartialObjectMetadataList{}.OpenAPIModelName():                                             schema_pkg_apis_meta_v1_PartialObjectMetadataList(ref),
+		v1.Patch{}.OpenAPIModelName():                                                                 schema_pkg_apis_meta_v1_Patch(ref),
+		v1.PatchOptions{}.OpenAPIModelName():                                                          schema_pkg_apis_meta_v1_PatchOptions(ref),
+		v1.Preconditions{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_Preconditions(ref),
+		v1.RootPaths{}.OpenAPIModelName():                                                             schema_pkg_apis_meta_v1_RootPaths(ref),
+		v1.ServerAddressByClientCIDR{}.OpenAPIModelName():                                             schema_pkg_apis_meta_v1_ServerAddressByClientCIDR(ref),
+		v1.Status{}.OpenAPIModelName():                                                                schema_pkg_apis_meta_v1_Status(ref),
+		v1.StatusCause{}.OpenAPIModelName():                                                           schema_pkg_apis_meta_v1_StatusCause(ref),
+		v1.StatusDetails{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_StatusDetails(ref),
+		v1.Table{}.OpenAPIModelName():                                                                 schema_pkg_apis_meta_v1_Table(ref),
+		v1.TableColumnDefinition{}.OpenAPIModelName():                                                 schema_pkg_apis_meta_v1_TableColumnDefinition(ref),
+		v1.TableOptions{}.OpenAPIModelName():                                                          schema_pkg_apis_meta_v1_TableOptions(ref),
+		v1.TableRow{}.OpenAPIModelName():                                                              schema_pkg_apis_meta_v1_TableRow(ref),
+		v1.TableRowCondition{}.OpenAPIModelName():                                                     schema_pkg_apis_meta_v1_TableRowCondition(ref),
+		v1.Time{}.OpenAPIModelName():                                                                  schema_pkg_apis_meta_v1_Time(ref),
+		v1.Timestamp{}.OpenAPIModelName():                                                             schema_pkg_apis_meta_v1_Timestamp(ref),
+		v1.TypeMeta{}.OpenAPIModelName():                                                              schema_pkg_apis_meta_v1_TypeMeta(ref),
+		v1.UpdateOptions{}.OpenAPIModelName():                                                         schema_pkg_apis_meta_v1_UpdateOptions(ref),
+		v1.WatchEvent{}.OpenAPIModelName():                                                            schema_pkg_apis_meta_v1_WatchEvent(ref),
+		version.Info{}.OpenAPIModelName():                                                             schema_k8sio_apimachinery_pkg_version_Info(ref),
 	}
 }
 
@@ -91,12 +96,12 @@ func schema_pkg_apis_eas_v1alpha1_AllocatedByVPC(ref common.ReferenceCallback) c
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Type:     []string{"object"},
-				Required: []string{"count"},
+				Type: []string{"object"},
 				Properties: map[string]spec.Schema{
 					"count": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Count of used IPs by VPC from the IP Block.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -135,6 +140,7 @@ func schema_pkg_apis_eas_v1alpha1_AllocatedByVPC(ref common.ReferenceCallback) c
 						},
 					},
 				},
+				Required: []string{"count"},
 			},
 		},
 		Dependencies: []string{
@@ -176,11 +182,11 @@ func schema_pkg_apis_eas_v1alpha1_DHCPIPPoolUsage(ref common.ReferenceCallback) 
 			SchemaProps: spec.SchemaProps{
 				Description: "DHCPIPPoolUsage represents DHCP IP pool usage statistics.",
 				Type:        []string{"object"},
-				Required:    []string{"allocatedNumber", "allocatedPercentage", "consumedNumber", "poolSize"},
 				Properties: map[string]spec.Schema{
 					"allocatedNumber": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Allocated number.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -188,6 +194,7 @@ func schema_pkg_apis_eas_v1alpha1_DHCPIPPoolUsage(ref common.ReferenceCallback) 
 					"allocatedPercentage": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Allocated percentage.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -195,6 +202,7 @@ func schema_pkg_apis_eas_v1alpha1_DHCPIPPoolUsage(ref common.ReferenceCallback) 
 					"consumedNumber": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Total number of IP addresses consumed by DHCP clients.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -202,11 +210,13 @@ func schema_pkg_apis_eas_v1alpha1_DHCPIPPoolUsage(ref common.ReferenceCallback) 
 					"poolSize": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Pool size.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
 					},
 				},
+				Required: []string{"allocatedNumber", "allocatedPercentage", "consumedNumber", "poolSize"},
 			},
 		},
 	}
@@ -218,7 +228,6 @@ func schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref common.ReferenceCallback) com
 			SchemaProps: spec.SchemaProps{
 				Description: "IPBlockUsage is the usage information of an IPBlock. It contains used IP ranges and available IP ranges statistics of an IPBlock.",
 				Type:        []string{"object"},
-				Required:    []string{"usedIPsCount", "availableIPsCount", "overallIPsCount"},
 				Properties: map[string]spec.Schema{
 					"kind": {
 						SchemaProps: spec.SchemaProps{
@@ -283,6 +292,7 @@ func schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref common.ReferenceCallback) com
 					"usedIPsCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Used IPs count in an IPBlock.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -290,6 +300,7 @@ func schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref common.ReferenceCallback) com
 					"availableIPsCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Available IP count in an IPBlock.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -297,6 +308,7 @@ func schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref common.ReferenceCallback) com
 					"overallIPsCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Total count of IPs which are present in this block.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -347,6 +359,7 @@ func schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref common.ReferenceCallback) com
 						},
 					},
 				},
+				Required: []string{"usedIPsCount", "availableIPsCount", "overallIPsCount"},
 			},
 		},
 		Dependencies: []string{
@@ -439,11 +452,11 @@ func schema_pkg_apis_eas_v1alpha1_PoolUsage(ref common.ReferenceCallback) common
 			SchemaProps: spec.SchemaProps{
 				Description: "PoolUsage represents the IP usage statistics of an IP pool.",
 				Type:        []string{"object"},
-				Required:    []string{"totalIPs", "availableIPs", "allocatedIPAllocations", "requestedIPAllocations"},
 				Properties: map[string]spec.Schema{
 					"totalIPs": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Total number of IPs in the pool.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -451,6 +464,7 @@ func schema_pkg_apis_eas_v1alpha1_PoolUsage(ref common.ReferenceCallback) common
 					"availableIPs": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Number of available IPs.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -458,6 +472,7 @@ func schema_pkg_apis_eas_v1alpha1_PoolUsage(ref common.ReferenceCallback) common
 					"allocatedIPAllocations": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Number of allocated IP allocations.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -465,11 +480,13 @@ func schema_pkg_apis_eas_v1alpha1_PoolUsage(ref common.ReferenceCallback) common
 					"requestedIPAllocations": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Number of requested IP allocations.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
 					},
 				},
+				Required: []string{"totalIPs", "availableIPs", "allocatedIPAllocations", "requestedIPAllocations"},
 			},
 		},
 	}
@@ -500,6 +517,37 @@ func schema_pkg_apis_eas_v1alpha1_RangeUsage(ref common.ReferenceCallback) commo
 		},
 		Dependencies: []string{
 			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.UsageDetails"},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_Statistics(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "Statistics contains the traffic statistics for a VPC service endpoint or VPC endpoint.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"droppedPackets": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int64",
+						},
+					},
+					"totalBytes": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int64",
+						},
+					},
+					"totalPackets": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int64",
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -538,6 +586,25 @@ func schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStats(ref common.ReferenceCall
 						},
 						SchemaProps: spec.SchemaProps{
 							Description: "DHCP IP pool usage statistics.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DHCPIPPoolUsage"),
+									},
+								},
+							},
+						},
+					},
+					"ipv6PoolStats": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-type": "atomic",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCP IPv6 pool usage statistics.",
 							Type:        []string{"array"},
 							Items: &spec.SchemaOrArray{
 								Schema: &spec.Schema{
@@ -707,8 +774,7 @@ func schema_pkg_apis_eas_v1alpha1_UsageDetails(ref common.ReferenceCallback) com
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Type:     []string{"object"},
-				Required: []string{"usedIPsCount", "overallUsedIPsCount", "availableIPsCount"},
+				Type: []string{"object"},
 				Properties: map[string]spec.Schema{
 					"usedIPRanges": {
 						VendorExtensible: spec.VendorExtensible{
@@ -773,6 +839,7 @@ func schema_pkg_apis_eas_v1alpha1_UsageDetails(ref common.ReferenceCallback) com
 					"usedIPsCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Represents IP count that are allocated from the CIDR or IP range in the org scope.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -780,6 +847,7 @@ func schema_pkg_apis_eas_v1alpha1_UsageDetails(ref common.ReferenceCallback) com
 					"overallUsedIPsCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Represents the overall IP count allocated from the CIDR or IP range across all orgs.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -787,13 +855,111 @@ func schema_pkg_apis_eas_v1alpha1_UsageDetails(ref common.ReferenceCallback) com
 					"availableIPsCount": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Represents free IP count in the CIDR or IP range.",
+							Default:     "",
 							Type:        []string{"string"},
 							Format:      "",
 						},
 					},
 				},
+				Required: []string{"usedIPsCount", "overallUsedIPsCount", "availableIPsCount"},
 			},
 		},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCEndpointStatistics(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "VPCEndpointStatistics represents the statistics of a VPC Endpoint.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1.ObjectMeta{}.OpenAPIModelName()),
+						},
+					},
+					"rx": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.Statistics"),
+						},
+					},
+					"tx": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.Statistics"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.Statistics", v1.ObjectMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCEndpointStatisticsList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "VPCEndpointStatisticsList contains a list of VPCEndpointStatistics.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1.ListMeta{}.OpenAPIModelName()),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCEndpointStatistics"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCEndpointStatistics", v1.ListMeta{}.OpenAPIModelName()},
 	}
 }
 
@@ -835,11 +1001,10 @@ func schema_pkg_apis_eas_v1alpha1_VPCIPAddressBlock(ref common.ReferenceCallback
 			SchemaProps: spec.SchemaProps{
 				Description: "VPC IP address block.",
 				Type:        []string{"object"},
-				Required:    []string{"total", "available"},
 				Properties: map[string]spec.Schema{
 					"ipBlockName": {
 						SchemaProps: spec.SchemaProps{
-							Description: "IPBlockName is the NSX resource ID of the IP block (the leaf segment of the policy path).",
+							Description: "Name of the IPBlock.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
@@ -854,6 +1019,7 @@ func schema_pkg_apis_eas_v1alpha1_VPCIPAddressBlock(ref common.ReferenceCallback
 					"total": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Total IP address space.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -861,6 +1027,7 @@ func schema_pkg_apis_eas_v1alpha1_VPCIPAddressBlock(ref common.ReferenceCallback
 					"available": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Available IP address space.",
+							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
 						},
@@ -884,6 +1051,21 @@ func schema_pkg_apis_eas_v1alpha1_VPCIPAddressBlock(ref common.ReferenceCallback
 							Description: "AllocatedByVPC contains the CIDR, used IP range and subnet access mode etc.",
 							Default:     map[string]interface{}{},
 							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.AllocatedByVPC"),
+						},
+					},
+					"allowedUseCases": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The list of Allowed Use Cases.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
 						},
 					},
 					"cidrs": {
@@ -945,6 +1127,7 @@ func schema_pkg_apis_eas_v1alpha1_VPCIPAddressBlock(ref common.ReferenceCallback
 						},
 					},
 				},
+				Required: []string{"total", "available"},
 			},
 		},
 		Dependencies: []string{
@@ -1052,6 +1235,102 @@ func schema_pkg_apis_eas_v1alpha1_VPCIPAddressUsageList(ref common.ReferenceCall
 		},
 		Dependencies: []string{
 			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressUsage", v1.ListMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCServiceEndpointStatistics(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "VPCServiceEndpointStatistics describes the statistics of a VPC Service Endpoint.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1.ObjectMeta{}.OpenAPIModelName()),
+						},
+					},
+					"rx": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.Statistics"),
+						},
+					},
+					"tx": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.Statistics"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.Statistics", v1.ObjectMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCServiceEndpointStatisticsList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "VPCServiceEndpointStatisticsList contains a list of VPCServiceEndpointStatistics.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1.ListMeta{}.OpenAPIModelName()),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceEndpointStatistics"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceEndpointStatistics", v1.ListMeta{}.OpenAPIModelName()},
 	}
 }
 

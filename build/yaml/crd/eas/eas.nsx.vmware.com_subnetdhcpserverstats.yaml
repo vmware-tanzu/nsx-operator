@@ -57,6 +57,35 @@ spec:
               type: object
             type: array
             x-kubernetes-list-type: atomic
+          ipv6PoolStats:
+            description: DHCP IPv6 pool usage statistics.
+            items:
+              description: DHCPIPPoolUsage represents DHCP IP pool usage statistics.
+              properties:
+                allocatedNumber:
+                  description: Allocated number.
+                  format: int64
+                  type: integer
+                allocatedPercentage:
+                  description: Allocated percentage.
+                  format: int64
+                  type: integer
+                consumedNumber:
+                  description: Total number of IP addresses consumed by DHCP clients.
+                  format: int64
+                  type: integer
+                poolSize:
+                  description: Pool size.
+                  format: int64
+                  type: integer
+              required:
+              - allocatedNumber
+              - allocatedPercentage
+              - consumedNumber
+              - poolSize
+              type: object
+            type: array
+            x-kubernetes-list-type: atomic
           kind:
             description: |-
               Kind is a string value representing the REST resource this object represents.
