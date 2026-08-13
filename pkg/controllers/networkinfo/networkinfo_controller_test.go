@@ -2649,45 +2649,80 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 		hasPrecreatedSubnet      bool
 		subnetSetList            []client.Object
 		expectErrStr             string
+		existingIPAddressType    v1alpha1.IPAddressType
+		subnetNames              []string
+		// Unified verification fields:
+		expectNotExists        bool
+		expectIPAddressType    v1alpha1.IPAddressType
+		expectSubnetNames      *[]string
+		expectIPv6PrefixLength int
 	}{
 		{
 			name:                     "Create default SubnetSet",
 			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4,
 			hasPrecreatedSubnet:      false,
+			expectIPAddressType:      v1alpha1.IPAddressTypeIPv4,
 		},
 		{
 			name:                     "Delete default SubnetSet 1",
 			autoCreatedIPAddressType: "",
 			hasPrecreatedSubnet:      false,
 			subnetSetList:            []client.Object{subnetSet},
+			expectNotExists:          true,
 		},
 		{
 			name:                     "Delete default SubnetSet 2",
 			autoCreatedIPAddressType: "",
 			hasPrecreatedSubnet:      true,
 			subnetSetList:            []client.Object{subnetSet},
+			expectNotExists:          true,
 		},
 		{
 			name:                     "Existing default SubnetSet",
 			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4,
 			hasPrecreatedSubnet:      false,
 			subnetSetList:            []client.Object{subnetSet},
+			expectIPAddressType:      v1alpha1.IPAddressTypeIPv4,
 		},
 		{
 			name:                     "Existing default SubnetSet with IPAddressType change",
 			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv6,
 			hasPrecreatedSubnet:      false,
 			subnetSetList:            []client.Object{subnetSet},
+			expectIPAddressType:      v1alpha1.IPAddressTypeIPv6,
+			expectIPv6PrefixLength:   80,
 		},
 		{
 			name:                     "Create default SubnetSet with IPv6",
 			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv6,
 			hasPrecreatedSubnet:      false,
+			expectIPAddressType:      v1alpha1.IPAddressTypeIPv6,
+			expectIPv6PrefixLength:   80,
 		},
 		{
 			name:                     "Create default SubnetSet with dual stack",
 			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
 			hasPrecreatedSubnet:      false,
+			expectIPAddressType:      v1alpha1.IPAddressTypeIPv4IPv6,
+			expectIPv6PrefixLength:   80,
+		},
+		{
+			name:                     "Existing default SubnetSet with subnetNames and IPAddressType change (no delete)",
+			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			existingIPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+			subnetNames:              []string{"subnet-1"},
+			hasPrecreatedSubnet:      false,
+			subnetSetList:            []client.Object{subnetSet},
+			expectIPAddressType:      v1alpha1.IPAddressTypeIPv4IPv6,
+			expectSubnetNames:        &[]string{"subnet-1"},
+		},
+		{
+			name:                     "Existing default SubnetSet without subnetNames and IPAddressType change (delete)",
+			autoCreatedIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			existingIPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+			hasPrecreatedSubnet:      false,
+			subnetSetList:            []client.Object{subnetSet},
+			expectIPAddressType:      v1alpha1.IPAddressTypeIPv4,
 		},
 	}
 
@@ -2704,6 +2739,12 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 					AccessMode:     "Public",
 					IPv4SubnetSize: 32,
 				},
+			}
+			if tc.existingIPAddressType != "" {
+				subnetSet.Spec.IPAddressType = tc.existingIPAddressType
+			}
+			if len(tc.subnetNames) > 0 {
+				subnetSet.Spec.SubnetNames = &tc.subnetNames
 			}
 
 			var objs []client.Object
@@ -2738,17 +2779,22 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 					}
 				}
 			}
-			if tc.name == "Existing default SubnetSet" {
-				updated := &v1alpha1.SubnetSet{}
-				require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-1", Name: "pod-default"}, updated))
-				// IPv6PrefixLength must not be propagated to an existing SubnetSet because
-				// NSX subnets have an immutable IPv6PrefixLength.
-				assert.Equal(t, subnetSet.Spec.IPv6PrefixLength, updated.Spec.IPv6PrefixLength)
-			}
-			if tc.name == "Existing default SubnetSet with IPAddressType change" {
-				updated := &v1alpha1.SubnetSet{}
-				require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-1", Name: "pod-default"}, updated))
-				assert.Equal(t, v1alpha1.IPAddressTypeIPv6, updated.Spec.IPAddressType)
+
+			updated := &v1alpha1.SubnetSet{}
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-1", Name: "pod-default"}, updated)
+			if tc.expectNotExists {
+				assert.True(t, apierrors.IsNotFound(err))
+			} else {
+				require.NoError(t, err)
+				if tc.expectIPAddressType != "" {
+					assert.Equal(t, tc.expectIPAddressType, updated.Spec.IPAddressType)
+				}
+				if tc.expectSubnetNames != nil {
+					assert.Equal(t, tc.expectSubnetNames, updated.Spec.SubnetNames)
+				} else {
+					assert.Nil(t, updated.Spec.SubnetNames)
+				}
+				assert.Equal(t, tc.expectIPv6PrefixLength, updated.Spec.IPv6PrefixLength)
 			}
 		})
 	}
