@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	dnsrecordcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/dnsrecord"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/gateway"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
@@ -268,6 +269,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			gateway.NewGatewayReconciler(reconcilerMgr, dnsRecordService),
 			subnetbindingcontroller.NewReconciler(reconcilerMgr, subnetService, subnetBindingService),
 			subnetipreservationcontroller.NewReconciler(reconcilerMgr, subnetIPReservationService, subnetService),
+			dnsrecordcontroller.NewDNSRecordReconciler(reconcilerMgr, dnsRecordService),
 		)
 		if lbReconciler := service.NewServiceLbReconciler(reconcilerMgr, commonService, dnsRecordService); lbReconciler != nil {
 			reconcilerList = append(reconcilerList, lbReconciler)
