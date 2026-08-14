@@ -1,0 +1,11 @@
+apiVersion: vpc.nsx.vmware.com/v1alpha1
+kind: DNSRecord
+metadata:
+  name: e2e-dnsrecord-cname
+spec:
+  domainName: example.com
+  recordName: e2e-cname
+  recordType: CNAME
+  recordValues:
+    - target.example.com
+  ttl: 600
