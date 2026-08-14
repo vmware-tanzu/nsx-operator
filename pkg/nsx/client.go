@@ -136,6 +136,8 @@ type Client struct {
 	VifsClient                        fabric.VifsClient
 	DnsZoneClient                     dns_services.ZonesClient
 	DnsRecordsClient                  projects.DnsRecordsClient
+	ProjectDnsForwarderZonesClient    project_infra.DnsForwarderZonesClient
+	InfraDnsForwarderZonesClient      infra.DnsForwarderZonesClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -263,6 +265,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	vifsClient := fabric.NewVifsClient(connector)
 	dnsZoneClient := dns_services.NewZonesClient(connector)
 	dnsRecordsClient := projects.NewDnsRecordsClient(connector)
+	projectDnsForwarderZonesClient := project_infra.NewDnsForwarderZonesClient(connector)
+	infraDnsForwarderZonesClient := infra.NewDnsForwarderZonesClient(connector)
 
 	nsxChecker := &NSXHealthChecker{
 		cluster: cluster,
@@ -339,6 +343,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		VifsClient:                        vifsClient,
 		DnsZoneClient:                     dnsZoneClient,
 		DnsRecordsClient:                  dnsRecordsClient,
+		ProjectDnsForwarderZonesClient:    projectDnsForwarderZonesClient,
+		InfraDnsForwarderZonesClient:      infraDnsForwarderZonesClient,
 	}
 	nsxClient.Cluster.SetOnProductVersionChanged(func(oldVer, newVer string) {
 		nsxClient.resetNSXVersionFeatureCache()

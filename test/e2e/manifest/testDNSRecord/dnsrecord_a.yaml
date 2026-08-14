@@ -1,0 +1,11 @@
+apiVersion: vpc.nsx.vmware.com/v1alpha1
+kind: DNSRecord
+metadata:
+  name: e2e-dnsrecord-a
+spec:
+  domainName: example.com
+  recordName: e2e-a
+  recordType: A
+  recordValues:
+    - 10.0.0.100
+  ttl: 300
