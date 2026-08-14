@@ -43,6 +43,9 @@ func (s *DNSRecordService) tagsForOwner(owner *ResourceRef) []model.Tag {
 func getRecordIDAndPathAndType(recordName, endpointRecordType, zonePath string) (string, string, string) {
 	nsxRecordType := getNSXDnsRecordType(endpointRecordType)
 	recID := strings.ReplaceAll(recordName, ".", "_")
+	if recID == "@" {
+		recID = "apex"
+	}
 	// Ignore the errors returned in `parseDnsZonePath`, as it was validated in previous steps when
 	// preparing the DNS zone maps in the service.
 	orgID, projectID, _, zoneID, _ := parseDnsZonePath(zonePath)
