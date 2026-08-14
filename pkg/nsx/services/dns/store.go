@@ -264,6 +264,8 @@ func resourceKindFromCreatedForTag(createdFor string) string {
 		return ResourceKindGateway
 	case common.TagValueDNSRecordForService:
 		return ResourceKindService
+	case common.TagValueDNSRecordForDNSRecord:
+		return ResourceKindDNSRecord
 	default:
 		return ""
 	}
@@ -282,6 +284,8 @@ func resourceKindToCreatedFor(kind string) string {
 		return common.TagValueDNSRecordForTLSRoute
 	case ResourceKindService:
 		return common.TagValueDNSRecordForService
+	case ResourceKindDNSRecord:
+		return common.TagValueDNSRecordForDNSRecord
 	default:
 		return ""
 	}
