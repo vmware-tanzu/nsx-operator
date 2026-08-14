@@ -85,7 +85,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	if !common.PodIsDeleted(pod) {
 		r.StatusUpdater.IncreaseUpdateTotal()
-		isExisting, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, err := r.GetSubnetPathForPod(ctx, pod)
+		isExisting, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, staticIPAllocationType, err := r.GetSubnetPathForPod(ctx, pod)
 		if subnetSetLock != nil {
 			defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
 		}
@@ -94,15 +94,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
 		}
-		// nsxSubnet is resolved below; the Release closure reads it lazily so it sees the
-		// resolved Subnet even though it's registered before the Subnet is fetched.
-		var nsxSubnet *model.VpcSubnet
 		if !isExisting {
 			defer func() {
-				staticIPAllocationType := v1alpha1.StaticIPAllocationTypeNone
-				if nsxSubnet != nil {
-					staticIPAllocationType = util.ComputeDefaultStaticIPAllocationType(nsxSubnet, interfaceIPType)
-				}
 				r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType, staticIPAllocationType, nil)
 			}()
 		}
@@ -119,7 +112,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			log.Error(err, "Failed to check if the Subnet is a shared Subnet", "path", nsxSubnetPath)
 			return common.ResultNormal, err
 		}
-		nsxSubnet, err = r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
+		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
@@ -418,12 +411,16 @@ func (r *PodReconciler) getSubnetByPod(pod *v1.Pod, subnetSet *v1alpha1.SubnetSe
 	return common.GetSubnetByIP(subnets, net.ParseIP(pod.Status.PodIP))
 }
 
-func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
+// GetSubnetPathForPod also returns the StaticIPAllocationType actually resolved when
+// allocating the Subnet (only meaningful when existing is false), so the caller can release
+// the same pool capacity it reserved without recomputing it later from state that may no
+// longer be available (e.g. if a later step in Reconcile fails).
+func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
 	var subnetSetLock *sync.RWMutex
 	var subnetSetUID *types.UID
 	subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.SubnetPortService.Client, pod.Namespace, servicecommon.DefaultPodNetwork)
 	if err != nil {
-		return false, "", subnetSetUID, subnetSetLock, "", err
+		return false, "", subnetSetUID, subnetSetLock, "", "", err
 	}
 	// Resolve the interface IP type from the SubnetSet up front so it stays correct on every
 	// reconcile, not just the one that first creates the SubnetPort - buildSubnetPort's static
@@ -435,7 +432,7 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(pod.GetUID())
 	if len(subnetPath) > 0 {
 		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
-		return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, nil
+		return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, "", nil
 	}
 	log.Info("Got default SubnetSet for Pod, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "pod.Name", pod.Name, "pod.UID", pod.UID)
 	if r.restoreMode {
@@ -444,22 +441,22 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 			subnetPath, err = r.getSubnetByPod(pod, subnetSet)
 			if err != nil {
 				log.Error(err, "Failed to find Subnet for restored Pod", "Pod", pod)
-				return false, "", subnetSetUID, subnetSetLock, "", err
+				return false, "", subnetSetUID, subnetSetLock, "", "", err
 			}
 			log.Debug("NSX SubnetPort will be restored on the existing NSX Subnet", "pod.UID", pod.UID, "subnetPath", subnetPath)
-			return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, nil
+			return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, "", nil
 		}
 	}
 	// SubnetSet can be created without IPAddressType, we need to wait for the value initialized by subnetset controller
 	if subnetSet.Spec.IPAddressType == "" {
-		return false, "", subnetSetUID, subnetSetLock, "", fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
+		return false, "", subnetSetUID, subnetSetLock, "", "", fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
 	}
-	subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfacetype, "", nil)
+	subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err := common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfacetype, "", nil)
 	if err != nil {
-		return false, subnetPath, subnetSetUID, subnetSetLock, interfacetype, err
+		return false, subnetPath, subnetSetUID, subnetSetLock, interfacetype, staticIPAllocationType, err
 	}
 	log.Info("Allocated NSX Subnet for Pod", "nsxSubnetPath", subnetPath, "pod.Name", pod.Name, "pod.UID", pod.UID)
-	return false, subnetPath, subnetSetUID, subnetSetLock, interfacetype, nil
+	return false, subnetPath, subnetSetUID, subnetSetLock, interfacetype, staticIPAllocationType, nil
 }
 
 func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string, name string) error {

@@ -106,7 +106,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		r.StatusUpdater.IncreaseUpdateTotal()
 
 		old_status := subnetPort.Status.DeepCopy()
-		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, staticIPAllocationType, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
 		if subnetSetLock != nil {
 			defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
 		}
@@ -120,10 +120,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultRequeue, err
 		}
 		if !isExisting {
-			// Read subnetPort.Spec lazily: StaticIPAllocationType is backfilled later in this
-			// Reconcile (updateSubnetPortIPType), and Release must match what Allocate used.
+			// staticIPAllocationType is the value actually resolved and used by Allocate above,
+			// not re-derived later from subnetPort.Spec (which may still be blank at this point).
 			defer func() {
-				r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
+				r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType, staticIPAllocationType, subnetPort.Spec.AddressBindings)
 			}()
 		}
 
@@ -920,7 +920,7 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 	return common.GetSubnetByIP(subnets, gatewayIP)
 }
 
-func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, subnetSetUID *types.UID, subnetSetLock *sync.RWMutex, interfaceType v1alpha1.IPAddressType, err error) {
+func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, subnetSetUID *types.UID, subnetSetLock *sync.RWMutex, interfaceType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, err error) {
 	var subnetCR *v1alpha1.Subnet
 	subnetCR, isStale, err = r.getSubnetCR(ctx, subnetPort)
 	if err != nil {
@@ -930,7 +930,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	existingSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 	if err != nil {
 		log.Error(err, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
-		return false, false, "", nil, nil, "", err
+		return false, false, "", nil, nil, "", "", err
 	}
 	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
 		subnetPath = *existingSubnetPort.ParentPath
@@ -965,8 +965,8 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 		var canAllocate bool
 		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetCR.Spec.IPAddressType)
-		effectiveStaticType := common.ResolveEffectiveStaticIPAllocationType(subnetPort.Spec.StaticIPAllocationType, nsxSubnet, interfaceType)
-		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceType, effectiveStaticType, subnetPort.Spec.AddressBindings)
+		staticIPAllocationType = common.ResolveEffectiveStaticIPAllocationType(subnetPort.Spec.StaticIPAllocationType, nsxSubnet, interfaceType)
+		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceType, staticIPAllocationType, subnetPort.Spec.AddressBindings)
 		if err != nil {
 			return
 		}
@@ -996,7 +996,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
 		log.Info("Got SubnetSet for SubnetPort CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
+		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
 		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return
@@ -1018,7 +1018,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		}
 		log.Info("Got default SubnetSet for SubnetPort CR, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
-		subnetPath, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
+		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
 		if err != nil {
 			return
 		}

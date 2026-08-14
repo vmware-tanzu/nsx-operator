@@ -300,6 +300,75 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			obj:       subnetPortCR,
 		},
 		{
+			name: "UpdateAddAddressBindings",
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					namespaceCR := &corev1.Namespace{}
+					namespaceCR.UID = "ns1"
+					return nil
+				})
+				service.SubnetPortStore.Add(&nsxSubnetPort)
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.PortStateClient), "Get", func(c *fakePortStateClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, enforcementPointPathParam *string, sourceParam *string) (model.SegmentPortState, error) {
+					return model.SegmentPortState{
+						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
+				return patches
+			},
+			wantErr:   false,
+			nsxSubnet: nsxSubnet2,
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      subnetPortName,
+					Namespace: namespace,
+					UID:       "00000000-0000-0000-0000-000000000001",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					AddressBindings: []v1alpha1.PortAddressBinding{
+						{IPAddress: "10.0.0.10", MACAddress: "00:11:22:33:44:55"},
+						{IPAddress: "10.0.0.11", MACAddress: "00:11:22:33:44:55"},
+					},
+				},
+			},
+		},
+		{
+			name: "UpdateRemoveAddressBindings",
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					namespaceCR := &corev1.Namespace{}
+					namespaceCR.UID = "ns1"
+					return nil
+				})
+				service.SubnetPortStore.Add(&nsxSubnetPort)
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.PortStateClient), "Get", func(c *fakePortStateClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, enforcementPointPathParam *string, sourceParam *string) (model.SegmentPortState, error) {
+					return model.SegmentPortState{
+						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
+				return patches
+			},
+			wantErr:   false,
+			nsxSubnet: nsxSubnet2,
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      subnetPortName,
+					Namespace: namespace,
+					UID:       "00000000-0000-0000-0000-000000000001",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					AddressBindings: []v1alpha1.PortAddressBinding{},
+				},
+			},
+		},
+		{
 			name: "Update",
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
 				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
@@ -1884,6 +1953,102 @@ func TestSubnetPortService_portAlreadyRealized(t *testing.T) {
 		},
 	}
 	assert.True(t, service.portAlreadyRealized(subnetPortMultiBindingFull, nsxSubnetPortWithBOTH))
+
+	nsxSubnetPortWithMACPOOL := &model.VpcSubnetPort{
+		Attachment: &model.PortAttachment{
+			AllocateAddresses: common.String("MAC_POOL"),
+			Id:                common.String("attachment-id"),
+		},
+	}
+
+	// DHCP subnet, no addressBindings: realized as soon as MAC lands, IP count is irrelevant
+	// since AllocateAddresses is MAC_POOL, not BOTH/IP_POOL.
+	subnetPortDHCPNoBindings := &v1alpha1.SubnetPort{
+		Spec: v1alpha1.SubnetPortSpec{
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{
+				{Reason: "SubnetPortReady", Status: corev1.ConditionTrue},
+			},
+			Attachment: v1alpha1.PortAttachment{ID: "some-id"},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{Gateway: "some-gateway"}},
+				MACAddress:  "04:50:56:00:b4:24",
+			},
+		},
+	}
+	assert.True(t, service.portAlreadyRealized(subnetPortDHCPNoBindings, nsxSubnetPortWithMACPOOL))
+
+	// DHCP subnet, multiple MAC-only addressBindings (pool-allocated, sharing one MAC):
+	// still realized as soon as MAC lands, regardless of how many bindings were requested.
+	subnetPortDHCPMultiBindings := &v1alpha1.SubnetPort{
+		Spec: v1alpha1.SubnetPortSpec{
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{MACAddress: "04:50:56:00:b4:24"},
+				{MACAddress: "04:50:56:00:b4:24"},
+			},
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{
+				{Reason: "SubnetPortReady", Status: corev1.ConditionTrue},
+			},
+			Attachment: v1alpha1.PortAttachment{ID: "some-id"},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{Gateway: "some-gateway"}},
+				MACAddress:  "04:50:56:00:b4:24",
+			},
+		},
+	}
+	assert.True(t, service.portAlreadyRealized(subnetPortDHCPMultiBindings, nsxSubnetPortWithMACPOOL))
+
+	// Mixed-mode subnet, dual-stack interface but only IPv4 statically allocated, no explicit
+	// addressBindings: expect only 1 realized IP, not 2 - the IPv6 side comes from DHCP/SLAAC
+	// and is never reflected via AllocateAddresses BOTH/IP_POOL.
+	subnetPortMixedNoBindings := &v1alpha1.SubnetPort{
+		Spec: v1alpha1.SubnetPortSpec{
+			InterfaceIPType:        v1alpha1.IPAddressTypeIPv4IPv6,
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{
+				{Reason: "SubnetPortReady", Status: corev1.ConditionTrue},
+			},
+			Attachment: v1alpha1.PortAttachment{ID: "some-id"},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{IPAddress: "172.26.26.10", Gateway: "some-gateway"},
+				},
+				MACAddress: "04:50:56:00:b4:24",
+			},
+		},
+	}
+	assert.True(t, service.portAlreadyRealized(subnetPortMixedNoBindings, nsxSubnetPortWithBOTH))
+
+	// Mixed-mode subnet, IPv4-only static allocation, 2 explicit addressBindings (multi-IP on
+	// the static side): expectedIPCount comes from len(AddressBindings), not StaticIPAllocationType.
+	subnetPortMixedMultiBindings := &v1alpha1.SubnetPort{
+		Spec: v1alpha1.SubnetPortSpec{
+			InterfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{IPAddress: "172.26.26.10", MACAddress: "04:50:56:00:b4:24"},
+				{IPAddress: "172.26.26.11", MACAddress: "04:50:56:00:b4:24"},
+			},
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Attachment: v1alpha1.PortAttachment{ID: "some-id"},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{IPAddress: "172.26.26.10", Gateway: "some-gateway"},
+				},
+				MACAddress: "04:50:56:00:b4:24",
+			},
+		},
+	}
+	assert.False(t, service.portAlreadyRealized(subnetPortMixedMultiBindings, nsxSubnetPortWithBOTH),
+		"only 1 of 2 requested static IPs realized - must not be considered ready")
 
 	// Pod: realized (annotation exists)
 	pod := &corev1.Pod{}
