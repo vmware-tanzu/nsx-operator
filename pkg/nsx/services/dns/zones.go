@@ -16,7 +16,8 @@ import (
 	extprovider "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/provider"
 )
 
-// NSX Policy path: /orgs/{org}/projects/{project}/dns-services/{dnsService}/zones/{zoneId}
+// NSX Policy path regexes:
+// Standard project DNS zone: /orgs/{org}/projects/{project}/dns-services/{dnsService}/zones/{zoneId}
 var dnsZonePathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-services/([^/]+)/zones/([^/]+)$`)
 
 // parseDnsZonePath splits a Policy zone path into org, project, DNS service, and zone ID.
@@ -25,11 +26,16 @@ func parseDnsZonePath(zonePath string) (orgID, projectID, dnsServiceID, zoneID s
 	if p == "" {
 		return "", "", "", "", fmt.Errorf("empty DNS zone path")
 	}
-	matches := dnsZonePathRe.FindStringSubmatch(p)
-	if len(matches) != 5 {
-		return "", "", "", "", fmt.Errorf("invalid DNS zone path %q: expected /orgs/{org}/projects/{project}/dns-services/{dns-service}/zones/{zone}", zonePath)
+	if p != zonePath {
+		return "", "", "", "", fmt.Errorf("invalid DNS zone path %q: surrounding whitespace is not allowed", zonePath)
 	}
-	return matches[1], matches[2], matches[3], matches[4], nil
+	if matches := dnsZonePathRe.FindStringSubmatch(p); len(matches) == 5 {
+		return matches[1], matches[2], matches[3], matches[4], nil
+	}
+	if strings.Contains(p, "/dns-forwarder-zones/") {
+		return "", "", "", "", fmt.Errorf("DNS forwarder zones are not supported for DNS records: %q; expected a DnsZone path under /orgs/{org}/projects/{project}/dns-services/{dns-service}/zones/{zone}", zonePath)
+	}
+	return "", "", "", "", fmt.Errorf("invalid DNS zone path %q: expected /orgs/{org}/projects/{project}/dns-services/{dns-service}/zones/{zone}", zonePath)
 }
 
 // endpointDNSNameIsWildcard reports whether dnsName requests a wildcard apex record (e.g. "*.example.com").
@@ -64,7 +70,7 @@ func (s *DNSRecordService) getZonePathForHostname(z extprovider.ZoneIDName, host
 		return "", "", fmt.Errorf("hostname %q does not match any allowed DNS domain in the namespace", hostname)
 	}
 	if normalizedFQDN == matchedDomain {
-		return "", "", fmt.Errorf("hostname %q must not equal to the allowed DNS domain %q", hostname, matchedDomain)
+		return "@", zonePath, nil
 	}
 	suffix := "." + matchedDomain
 	if !strings.HasSuffix(normalizedFQDN, suffix) || normalizedFQDN == suffix {
@@ -80,7 +86,13 @@ func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *Reso
 		"owner", owner.GetName(), "endpoints", len(eps))
 	vpcConfig, err := s.VPCService.GetVPCNetworkConfigByNamespace(namespace)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to find VPCNetworkConfiguration for the Namespace %s", namespace)
+		if strings.Contains(err.Error(), "failed to locate default NetworkConfig") {
+			return nil, nil, &DNSZoneValidationError{Msg: fmt.Sprintf("default VPCNetworkConfiguration for the Namespace %s does not exist", namespace), Cause: err}
+		}
+		return nil, nil, fmt.Errorf("failed to find VPCNetworkConfiguration for the Namespace %s: %w", namespace, err)
+	}
+	if vpcConfig == nil {
+		return nil, nil, &DNSZoneValidationError{Msg: fmt.Sprintf("VPCNetworkConfiguration for the Namespace %s does not exist", namespace)}
 	}
 
 	allowedZones, err := s.SyncDNSZonesByVpcNetworkConfig(vpcConfig)
@@ -124,25 +136,37 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 	log.Info("Syncing DNS zones for VPCNetworkConfig", "zones", len(dnsZonePaths))
 
 	dnsZoneDomainMapping := make(map[string]string)
+	domainZonePaths := make(map[string]string)
+	normalizedZones := make(extprovider.ZoneIDName)
 	for _, p := range dnsZonePaths {
+		// Validate cached paths too, including entries produced by older versions.
+		if _, _, _, _, err := parseDnsZonePath(p); err != nil {
+			return nil, &DNSZoneValidationError{Msg: "invalid configured DNS zone path", Cause: err}
+		}
 		domain, found := s.DNSZoneMap.get(p)
-		if found {
+		if !found {
+			log.Info("Fetching DNS zone domain from NSX", "path", p)
+			zone, err := s.getDNSZoneFromNSX(p)
+			if err != nil {
+				log.Error(err, "failed to retrieve DNS zone from NSX", "path", p)
+				return nil, err
+			}
+			if zone.DnsDomainName == nil {
+				return nil, &DNSZoneValidationError{Msg: fmt.Sprintf("DNS zone %s returned from NSX with no domain name", p)}
+			}
+			domain = strings.TrimSpace(*zone.DnsDomainName)
+			log.Info("DNS zone domain fetched from NSX and cached", "path", p, "domain", domain)
+			s.DNSZoneMap.set(p, domain)
+		} else {
 			log.Debug("DNS zone domain resolved from cache", "path", p, "domain", domain)
-			dnsZoneDomainMapping[p] = domain
-			continue
 		}
-		log.Info("Fetching DNS zone domain from NSX", "path", p)
-		zone, err := s.getDNSZoneFromNSX(p)
-		if err != nil {
-			log.Error(err, "failed to retrieve DNS zone from NSX", "path", p)
-			return nil, err
+		// Match the same IDNA normalization used when selecting a zone for a record.
+		normalizedZones.Add(p, domain)
+		canonicalDomain := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(normalizedZones[p]), "."))
+		if existingPath, exists := domainZonePaths[canonicalDomain]; exists && existingPath != p {
+			return nil, &DNSZoneValidationError{Msg: fmt.Sprintf("DNS domain %q is configured in multiple zones: %s and %s", canonicalDomain, existingPath, p)}
 		}
-		if zone.DnsDomainName == nil {
-			return nil, fmt.Errorf("DNS zone %s returned from NSX with no domain name", p)
-		}
-		domain = strings.TrimSpace(*zone.DnsDomainName)
-		log.Info("DNS zone domain fetched from NSX and cached", "path", p, "domain", domain)
-		s.DNSZoneMap.set(p, domain)
+		domainZonePaths[canonicalDomain] = p
 		dnsZoneDomainMapping[p] = domain
 	}
 	return dnsZoneDomainMapping, nil
@@ -164,7 +188,7 @@ func (s *DNSRecordService) getDNSZoneFromNSX(zonePath string) (*model.DnsZone, e
 func generateZoneIdFromMap(allowedZones map[string]string) extprovider.ZoneIDName {
 	z := make(extprovider.ZoneIDName)
 	for zonePath, domainName := range allowedZones {
-		z.Add(zonePath, domainName)
+		z.Add(zonePath, strings.TrimSuffix(strings.TrimSpace(domainName), "."))
 	}
 	return z
 }
