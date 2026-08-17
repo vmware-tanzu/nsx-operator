@@ -495,8 +495,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		}
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "path1", nil, nil, "", nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "path1", nil, nil, "", "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
