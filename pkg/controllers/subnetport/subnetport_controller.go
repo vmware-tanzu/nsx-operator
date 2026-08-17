@@ -160,7 +160,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			log.Error(err, "Failed to determine RA mode for SubnetPort's VPC", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to determine RA mode for SubnetPort's VPC", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 
 		isVmSubnetPort := true

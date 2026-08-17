@@ -1238,8 +1238,8 @@ func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bo
 		log.Error(err, "Failed to read VPC object from NSX", "VPC", vpcResInfo.GetVPCPath())
 		return false, err
 	}
-	if vpc.VpcServiceProfile == nil {
-		log.Debug("No VpcServiceProfile configured on VPC, treating RA as deactivated", "VPC", vpcResInfo.GetVPCPath())
+	if vpc.VpcServiceProfile == nil || *vpc.VpcServiceProfile == "" {
+		log.Info("No VpcServiceProfile configured on VPC, treating RA as deactivated", "VPC", vpcResInfo.GetVPCPath())
 		return true, nil
 	}
 
