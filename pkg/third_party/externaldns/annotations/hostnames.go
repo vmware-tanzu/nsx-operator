@@ -18,7 +18,7 @@ func SplitHostnameAnnotation(input string) []string {
 }
 
 // HostnamesFromAnnotations extracts hostnames from the annotation identified by hostnameKey
-// (e.g. nsx.vmware.com/hostname or external-dns.alpha.kubernetes.io/hostname).
+// (e.g. external-dns.alpha.kubernetes.io/hostname).
 func HostnamesFromAnnotations(input map[string]string, hostnameKey string) []string {
 	if hostnameKey == "" {
 		return nil

@@ -356,7 +356,7 @@ func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
 	}
 }
 
-// networkInfoToGatewayDNSRequests enqueues Gateways in the NetworkInfo namespace that are managed, have a usable LB IP, and set nsx.vmware.com/hostname.
+// networkInfoToGatewayDNSRequests enqueues Gateways in the NetworkInfo namespace that are managed, have a usable LB IP, and set external-dns.alpha.kubernetes.io/hostname.
 func (r *GatewayReconciler) networkInfoToGatewayDNSRequests(ctx context.Context, obj client.Object) []reconcile.Request {
 	ni, ok := obj.(*v1alpha1.NetworkInfo)
 	if !ok || ni == nil {
