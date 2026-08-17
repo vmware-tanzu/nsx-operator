@@ -413,11 +413,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				v1sp.Spec.Subnet = "subnet1"
 				v1sp.Spec.AddressBindings = []v1alpha1.PortAddressBinding{
 					{
-						IPAddress: "1.2.3.5",
+						IPAddress:  "1.2.3.5",
 						MACAddress: "00:11:22:33:44:55",
 					},
 					{
-						IPAddress: "1.2.3.6",
+						IPAddress:  "1.2.3.6",
 						MACAddress: "00:11:22:33:44:55",
 					},
 				}
@@ -1068,7 +1068,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return nil
 		})
 		defer patchesIPAllocDelete.Reset()
-
 
 		patches4 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath", func(_ *mock.MockSubnetServiceProvider, _ string, _ bool) (*model.VpcSubnet, error) {
 			return &model.VpcSubnet{
@@ -3566,7 +3565,6 @@ func TestSubnetPortReconciler_UpdateSubnetPortIPType(t *testing.T) {
 			},
 		}
 
-
 		subClient.EXPECT().Update(ctx, subnetPort).Return(nil)
 
 		err := r.updateSubnetPortIPType(ctx, subnetPort, v1alpha1.IPAddressTypeIPv4, &model.VpcSubnet{
@@ -3593,7 +3591,6 @@ func TestSubnetPortReconciler_UpdateSubnetPortIPType(t *testing.T) {
 				StaticIPAllocationType: "",
 			},
 		}
-
 
 		subClient.EXPECT().Update(ctx, subnetPort).Return(nil)
 
