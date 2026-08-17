@@ -104,7 +104,7 @@ func (s *NSXServiceAccountService) SetUpStore() {
 }
 
 func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
-	clusterName := s.getClusterName(obj.Namespace, obj.Name)
+	clusterName := s.getClusterName(obj.Status.ClusterName, obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
 	// TODO: Use WCPConfig.NSXTProject as project when WCPConfig.EnableWCPVPCNetwork is true
 	project := s.NSXConfig.CoeConfig.Cluster
@@ -336,6 +336,30 @@ func (s *NSXServiceAccountService) getProxyEndpoints(ctx context.Context) (v1alp
 	return proxyEndpoints, nil
 }
 
+func (s *NSXServiceAccountService) getClusterControlPlaneByNSXServiceAccountUID(uid string) (*model.ClusterControlPlane, error) {
+	objs, err := s.ClusterControlPlaneStore.ByIndex(common.TagScopeNSXServiceAccountCRUID, uid)
+	if err != nil {
+		return nil, err
+	}
+	for _, obj := range objs {
+		ccp := obj.(*model.ClusterControlPlane)
+		return ccp, nil
+	}
+	return nil, nil
+}
+
+func (s *NSXServiceAccountService) getPrincipalIdentityByNSXServiceAccountUID(uid string) (*mpmodel.PrincipalIdentity, error) {
+	objs, err := s.PrincipalIdentityStore.ByIndex(common.TagScopeNSXServiceAccountCRUID, uid)
+	if err != nil {
+		return nil, err
+	}
+	for _, obj := range objs {
+		pi := obj.(*mpmodel.PrincipalIdentity)
+		return pi, nil
+	}
+	return nil, nil
+}
+
 func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, namespacedName types.NamespacedName, uid types.UID) error {
 	isDeleteSecret := false
 	nsxsa := &v1alpha1.NSXServiceAccount{}
@@ -345,8 +369,6 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 		isDeleteSecret = true
 	}
 
-	clusterName := s.getClusterName(namespacedName.Namespace, namespacedName.Name)
-	normalizedClusterName := util.NormalizeId(clusterName)
 	// delete Secret
 	if isDeleteSecret {
 		secretName := namespacedName.Name + SecretSuffix
@@ -357,25 +379,28 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 		}
 	}
 
-	isDeleteCCP := true
-	isDeletePI := true
-	if !isDeleteSecret {
-		isDeletePI = len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(uid))) > 0
-		isDeleteCCP = len(s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(uid))) > 0
-	}
 	// delete ClusterControlPlane
-	if isDeleteCCP {
-		if err := s.DeleteClusterControlPlane(ctx, normalizedClusterName); err != nil {
+	ccp, err := s.getClusterControlPlaneByNSXServiceAccountUID(string(uid))
+	if err != nil {
+		log.Error(err, "failed to search ClusterControlPlaneStore by NSXServiceAccount UID", "UID", uid)
+		return err
+	}
+	if ccp != nil && ccp.Id != nil {
+		if err := s.DeleteClusterControlPlane(ctx, *ccp.Id); err != nil {
 			err = nsxutil.TransNSXApiError(err)
-			log.Error(err, "failed to delete", "ClusterControlPlane", normalizedClusterName)
+			log.Error(err, "failed to delete", "ClusterControlPlane", *ccp.Id)
 			return err
 		}
-		s.ClusterControlPlaneStore.Delete(&model.ClusterControlPlane{Id: &normalizedClusterName})
+		s.ClusterControlPlaneStore.Delete(ccp)
 	}
 
 	// delete PI
-	if piobj := s.PrincipalIdentityStore.GetByKey(normalizedClusterName); isDeletePI && (piobj != nil) {
-		pi := piobj.(*mpmodel.PrincipalIdentity)
+	pi, err := s.getPrincipalIdentityByNSXServiceAccountUID(string(uid))
+	if err != nil {
+		log.Error(err, "failed to search PrincipalIdentityStore by NSXServiceAccount UID", "UID", uid)
+		return err
+	}
+	if pi != nil {
 		if err := s.NSXClient.PrincipalIdentitiesClient.Delete(*pi.Id); err != nil {
 			err = nsxutil.TransNSXApiError(err)
 			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name)
@@ -400,7 +425,7 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount, ca []byte,
 	nsxRestoreStatus *v1alpha1.NSXRestoreStatus) error {
 
-	clusterName := s.getClusterName(obj.Namespace, obj.Name)
+	clusterName := s.getClusterName(obj.Status.ClusterName, obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
 	secretName := obj.Name + SecretSuffix
 	secretNamespace := obj.Namespace
@@ -551,32 +576,33 @@ func (s *NSXServiceAccountService) ListNSXServiceAccountRealization() sets.Set[s
 }
 
 func (s *NSXServiceAccountService) GetNSXServiceAccountNameByUID(uid string) (namespacedName types.NamespacedName) {
-	objs, err := s.PrincipalIdentityStore.ByIndex(common.TagScopeNSXServiceAccountCRUID, uid)
+	pi, err := s.getPrincipalIdentityByNSXServiceAccountUID(uid)
 	if err != nil {
-		log.Error(err, "failed to search PrincipalIdentityStore by UID")
+		log.Error(err, "failed to search PrincipalIdentityStore by NSXServiceAccount UID", "UID", uid)
 		return
 	}
-	for _, obj := range objs {
-		pi := obj.(*mpmodel.PrincipalIdentity)
+	if pi != nil {
 		for _, tag := range pi.Tags {
-			switch *tag.Scope {
-			case common.TagScopeNamespace:
-				namespacedName.Namespace = *tag.Tag
-			case common.TagScopeNSXServiceAccountCRName:
-				namespacedName.Name = *tag.Tag
-			}
-			if namespacedName.Name != "" && namespacedName.Namespace != "" {
-				return
+			if tag.Scope != nil {
+				switch *tag.Scope {
+				case common.TagScopeNamespace:
+					namespacedName.Namespace = *tag.Tag
+				case common.TagScopeNSXServiceAccountCRName:
+					namespacedName.Name = *tag.Tag
+				}
+				if namespacedName.Name != "" && namespacedName.Namespace != "" {
+					return
+				}
 			}
 		}
 	}
-	objs, err = s.ClusterControlPlaneStore.ByIndex(common.TagScopeNSXServiceAccountCRUID, uid)
+
+	ccp, err := s.getClusterControlPlaneByNSXServiceAccountUID(uid)
 	if err != nil {
-		log.Error(err, "failed to search ClusterControlPlaneStore by UID")
+		log.Error(err, "failed to search ClusterControlPlaneStore by NSXServiceAccount UID", "UID", uid)
 		return
 	}
-	for _, obj := range objs {
-		ccp := obj.(*model.ClusterControlPlane)
+	if ccp != nil {
 		for _, tag := range ccp.Tags {
 			if tag.Scope != nil {
 				switch *tag.Scope {
@@ -594,8 +620,11 @@ func (s *NSXServiceAccountService) GetNSXServiceAccountNameByUID(uid string) (na
 	return
 }
 
-func (s *NSXServiceAccountService) getClusterName(namespace, name string) string {
-	return fmt.Sprintf("%s-%s-%s", s.NSXConfig.CoeConfig.Cluster, namespace, name)
+func (s *NSXServiceAccountService) getClusterName(clusterName, namespace, name string) string {
+	if clusterName != "" {
+		return clusterName
+	}
+	return fmt.Sprintf("%s_%s_%s", s.NSXConfig.CoeConfig.Cluster, namespace, name)
 }
 
 func GenerateNSXServiceAccountConditions(existingConditions []metav1.Condition, generation int64, realizedStatus metav1.ConditionStatus, realizedReason string, message string) []metav1.Condition {
