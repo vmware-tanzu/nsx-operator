@@ -76,6 +76,11 @@ spec:
                   required:
                   - count
                   type: object
+                allowedUseCases:
+                  description: The list of Allowed Use Cases.
+                  items:
+                    type: string
+                  type: array
                 available:
                   description: Available IP address space.
                   format: int64

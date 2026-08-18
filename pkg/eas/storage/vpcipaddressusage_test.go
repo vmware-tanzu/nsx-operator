@@ -94,14 +94,16 @@ func TestConvertVpcIpAddressBlocks_WithRangesAndAllocatedByVPC(t *testing.T) {
 	pathSubnet := "/orgs/o1/projects/p1/vpcs/v1/subnets/sub-1"
 	addrOther := "10.0.0.7"
 	pathOther := "/some/other/path/leaf"
+	allowedUseCases := []string{"LB_FRONTEND"}
 
 	nsx := &model.VpcIpAddressBlocks{
 		IpBlocks: []model.VpcIpAddressBlock{
 			{
-				Cidrs:          []string{"10.0.0.0/8"},
-				PercentageUsed: &pct,
-				ExcludedIps:    []model.IpPoolRange{{Start: &start, End: &end}},
-				Ranges:         []model.IpPoolRange{{Start: &start, End: &end}},
+				Cidrs:           []string{"10.0.0.0/8"},
+				PercentageUsed:  &pct,
+				ExcludedIps:     []model.IpPoolRange{{Start: &start, End: &end}},
+				Ranges:          []model.IpPoolRange{{Start: &start, End: &end}},
+				AllowedUseCases: allowedUseCases,
 				AllocatedByVpc: &model.AllocatedByVpc{
 					AccessMode: &am,
 					Count:      &count,
@@ -121,6 +123,7 @@ func TestConvertVpcIpAddressBlocks_WithRangesAndAllocatedByVPC(t *testing.T) {
 	assert.Equal(t, "10.0.0.1", b.ExcludedIPs[0].Start)
 	assert.Equal(t, "10.0.0.10", b.ExcludedIPs[0].End)
 	require.Len(t, b.Ranges, 1)
+	assert.Equal(t, allowedUseCases, b.AllowedUseCases)
 	assert.Equal(t, easv1alpha1.PublicSubnet, b.AllocatedByVPC.AccessMode)
 	assert.Equal(t, int64(3), b.AllocatedByVPC.Count)
 	require.Len(t, b.AllocatedByVPC.IPAddresses, 3)
