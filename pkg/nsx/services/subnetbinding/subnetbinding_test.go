@@ -3,22 +3,27 @@ package subnetbinding
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	orgroot_mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	search_mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/searchclient"
 	bindingmap_mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/subnetconnectionbindingmapclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vlanpool"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -370,11 +375,12 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 			}
 			tc.prepareFunc()
 
-			err := svc.CreateOrUpdateSubnetConnectionBindingMap(binding1, 201, *childSubnet.Path, []string{*parentSubnet2.Path})
+			vlanID, err := svc.CreateOrUpdateSubnetConnectionBindingMap(binding1, 201, *childSubnet.Path, []string{*parentSubnet2.Path})
 			if tc.expErr != "" {
 				require.EqualError(t, err, tc.expErr)
 			} else {
 				require.Nil(t, err)
+				assert.Equal(t, int64(201), vlanID)
 			}
 
 			bms := svc.BindingStore.List()
@@ -531,6 +537,228 @@ func TestDeleteSubnetConnectionBindingMaps(t *testing.T) {
 			}
 			bms := svc.BindingStore.List()
 			assert.ElementsMatch(t, tc.expBindingMapsInStore, bms)
+		})
+	}
+}
+
+func TestCreateOrUpdateSubnetConnectionBindingMap_FallbackAndErrors(t *testing.T) {
+	vlanOverlapError := nsxutil.NewNSXApiError(&model.ApiError{
+		ErrorCode:    Int64(int64(nsxutil.VpcOverlapVlanErrorCode)),
+		ErrorMessage: String("VLAN overlapped"),
+	}, stderrors.ErrorType_ERROR)
+	genericError := fmt.Errorf("generic internal error")
+
+	bmAuto := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-auto",
+			UID:       "uuid-auto",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child",
+			TargetSubnetName: "subnet-parent",
+		},
+	}
+
+	bmManual := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-manual",
+			UID:       "uuid-manual",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child",
+			TargetSubnetName: "subnet-parent",
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(201),
+		},
+	}
+
+	bmBranch := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-branch",
+			UID:       "uuid-branch",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:        "trunk-subnet",
+			TargetSubnetName:  "branch-subnet",
+			SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+		},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		bindingMap *v1alpha1.SubnetConnectionBindingMap
+		patches    func(svc *BindingService) *gomonkey.Patches
+		expVlan    int64
+		expErr     error
+	}{
+		{
+			name:       "ReconcileVlanTrafficTag initial error",
+			bindingMap: bmAuto,
+			patches: func(svc *BindingService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(svc), "ReconcileVlanTrafficTag",
+					func(_ *BindingService, bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, targetSubnetPaths []string, fromNSX bool) (int64, error) {
+						return 0, &vlanpool.VlanAllocationError{Err: fmt.Errorf("pool exhausted")}
+					})
+			},
+			expVlan: 0,
+			expErr:  &vlanpool.VlanAllocationError{Err: fmt.Errorf("pool exhausted")},
+		},
+		{
+			name:       "VPC overlap error triggers fallback success",
+			bindingMap: bmAuto,
+			patches: func(svc *BindingService) *gomonkey.Patches {
+				reconcileCalls := 0
+				internalCalls := 0
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc), "ReconcileVlanTrafficTag",
+					func(_ *BindingService, bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, targetSubnetPaths []string, fromNSX bool) (int64, error) {
+						reconcileCalls++
+						if reconcileCalls == 1 {
+							assert.False(t, fromNSX)
+							return 101, nil
+						}
+						assert.True(t, fromNSX)
+						return 102, nil
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(svc), "createOrUpdateBindingMapInternal",
+					func(_ *BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, subnetPath string, targetSubnetPaths []string) error {
+						internalCalls++
+						if internalCalls == 1 {
+							assert.Equal(t, int64(101), vlanID)
+							return vlanOverlapError
+						}
+						assert.Equal(t, int64(102), vlanID)
+						return nil
+					})
+				return patches
+			},
+			expVlan: 102,
+			expErr:  nil,
+		},
+		{
+			name:       "VPC overlap error fallback ReconcileVlanTrafficTag fails",
+			bindingMap: bmAuto,
+			patches: func(svc *BindingService) *gomonkey.Patches {
+				reconcileCalls := 0
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc), "ReconcileVlanTrafficTag",
+					func(_ *BindingService, bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, targetSubnetPaths []string, fromNSX bool) (int64, error) {
+						reconcileCalls++
+						if reconcileCalls == 1 {
+							return 101, nil
+						}
+						return 0, fmt.Errorf("fallback reconcile failed")
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(svc), "createOrUpdateBindingMapInternal",
+					func(_ *BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, subnetPath string, targetSubnetPaths []string) error {
+						return vlanOverlapError
+					})
+				return patches
+			},
+			expVlan: 0,
+			expErr:  fmt.Errorf("fallback reconcile failed"),
+		},
+		{
+			name:       "VPC overlap error fallback createOrUpdateBindingMapInternal fails",
+			bindingMap: bmAuto,
+			patches: func(svc *BindingService) *gomonkey.Patches {
+				reconcileCalls := 0
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc), "ReconcileVlanTrafficTag",
+					func(_ *BindingService, bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, targetSubnetPaths []string, fromNSX bool) (int64, error) {
+						reconcileCalls++
+						if reconcileCalls == 1 {
+							return 101, nil
+						}
+						return 102, nil
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(svc), "createOrUpdateBindingMapInternal",
+					func(_ *BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, subnetPath string, targetSubnetPaths []string) error {
+						if vlanID == 101 {
+							return vlanOverlapError
+						}
+						return fmt.Errorf("secondary apply failed")
+					})
+				return patches
+			},
+			expVlan: 0,
+			expErr:  fmt.Errorf("secondary apply failed"),
+		},
+		{
+			name:       "Manual VLAN VPC overlap error does not trigger fallback",
+			bindingMap: bmManual,
+			patches: func(svc *BindingService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc), "ReconcileVlanTrafficTag",
+					func(_ *BindingService, bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, targetSubnetPaths []string, fromNSX bool) (int64, error) {
+						return 201, nil
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(svc), "createOrUpdateBindingMapInternal",
+					func(_ *BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, subnetPath string, targetSubnetPaths []string) error {
+						return vlanOverlapError
+					})
+				return patches
+			},
+			expVlan: 0,
+			expErr:  vlanOverlapError,
+		},
+		{
+			name:       "Non-overlap internal error returns directly",
+			bindingMap: bmAuto,
+			patches: func(svc *BindingService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc), "ReconcileVlanTrafficTag",
+					func(_ *BindingService, bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, targetSubnetPaths []string, fromNSX bool) (int64, error) {
+						return 101, nil
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(svc), "createOrUpdateBindingMapInternal",
+					func(_ *BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, subnetPath string, targetSubnetPaths []string) error {
+						return genericError
+					})
+				return patches
+			},
+			expVlan: 0,
+			expErr:  genericError,
+		},
+		{
+			name:       "Branch mode passes trunk subnet path for VLAN allocation",
+			bindingMap: bmBranch,
+			patches: func(svc *BindingService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc), "ReconcileVlanTrafficTag",
+					func(_ *BindingService, bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, parentSubnetPaths []string, fromNSX bool) (int64, error) {
+						assert.Equal(t, []string{"/trunk-subnet"}, parentSubnetPaths)
+						return 105, nil
+					})
+				patches.ApplyPrivateMethod(reflect.TypeOf(svc), "createOrUpdateBindingMapInternal",
+					func(_ *BindingService, subnetBinding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, subnetPath string, targetSubnetPaths []string) error {
+						assert.Equal(t, int64(105), vlanID)
+						return nil
+					})
+				return patches
+			},
+			expVlan: 105,
+			expErr:  nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &BindingService{
+				BindingStore: SetupStore(),
+			}
+			svc.VlanPoolService = vlanpool.NewService(svc)
+			if tc.patches != nil {
+				patches := tc.patches(svc)
+				defer patches.Reset()
+			}
+
+			subnetPath := "/child"
+			if tc.bindingMap.Spec.IsBranchAssociation() {
+				subnetPath = "/trunk-subnet"
+			}
+			vlanID, err := svc.CreateOrUpdateSubnetConnectionBindingMap(tc.bindingMap, -1, subnetPath, []string{"/parent"})
+			if tc.expErr != nil {
+				require.Error(t, err)
+				assert.Equal(t, tc.expErr.Error(), err.Error())
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expVlan, vlanID)
+			}
 		})
 	}
 }

@@ -2,17 +2,22 @@ package subnetbinding
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	search_mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/searchclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vlanpool"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -115,7 +120,9 @@ func TestListBindingMapsByParentSubnetPath(t *testing.T) {
 			ResourceType: String(ResourceTypeSubnetConnectionBindingMap),
 		}
 		dv, _ := common.NewConverter().ConvertToVapi(bm, model.SubnetConnectionBindingMapBindingType())
-		fakeQueryClient.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.SearchResponse{
+		expectedQuery := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((subnet_path:\\/parent AND NOT subnet_association:BRANCH) OR (parent_path:\\/parent AND subnet_association:BRANCH))",
+			common.ResourceType, ResourceTypeSubnetConnectionBindingMap)
+		fakeQueryClient.EXPECT().List(expectedQuery, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.SearchResponse{
 			Results: []*data.StructValue{dv.(*data.StructValue)},
 		}, nil).Times(1)
 
@@ -174,4 +181,139 @@ func TestBindingMapCRUID(t *testing.T) {
 	bm2 := &model.SubnetConnectionBindingMap{}
 	uid2 := bindingMapCRUID(bm2)
 	assert.Equal(t, "", uid2)
+}
+
+func TestReconcileVlanTrafficTag(t *testing.T) {
+	bm1 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-1",
+			UID:       "uuid-1",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-1",
+			TargetSubnetName: "subnet-parent-1",
+			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(201),
+		},
+	}
+	bm2 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "bm-2",
+			UID:       "uuid-2",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       "subnet-child-2",
+			TargetSubnetName: "subnet-parent-2",
+		},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		bindingMap *v1alpha1.SubnetConnectionBindingMap
+		preferred  int64
+		patches    func(t *testing.T, svc *BindingService) *gomonkey.Patches
+		expErr     bool
+		expVlan    *int64
+		fromNSX    bool
+	}{
+		{
+			name:       "Manual VLAN successfully validated",
+			bindingMap: bm1,
+			preferred:  -1,
+			patches: func(t *testing.T, svc *BindingService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(svc.VlanPoolService), "ValidateManualVlan", func(_ *vlanpool.Service, parentSubnetPaths []string, vlan int64, excludeCRUID string, fromNSX bool) error {
+					return nil
+				})
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(201),
+		},
+		{
+			name:       "Manual VLAN validation failed",
+			bindingMap: bm1,
+			preferred:  -1,
+			patches: func(t *testing.T, svc *BindingService) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(svc.VlanPoolService), "ValidateManualVlan", func(_ *vlanpool.Service, parentSubnetPaths []string, vlan int64, excludeCRUID string, fromNSX bool) error {
+					return fmt.Errorf("conflict")
+				})
+			},
+			expErr: true,
+		},
+		{
+			name:       "Auto allocate VLAN successfully with preferred VLAN ID",
+			bindingMap: bm2,
+			preferred:  300,
+			patches: func(t *testing.T, svc *BindingService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.Equal(t, int64(300), preferred)
+					return 300, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(300),
+		},
+		{
+			name:       "Auto allocate VLAN from cache when fromNSX is false",
+			bindingMap: bm2,
+			preferred:  -1,
+			patches: func(t *testing.T, svc *BindingService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc.BindingStore), "GetByIndex", func(_ *BindingStore, key string, value string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{
+						{
+							VlanTrafficTag: v1alpha1.VLANTrafficTagPtr(100),
+						},
+					}
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(100),
+			fromNSX: false,
+		},
+		{
+			name:       "Bypass cache and allocate VLAN when fromNSX is true",
+			bindingMap: bm2,
+			preferred:  -1,
+			patches: func(t *testing.T, svc *BindingService) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc.BindingStore), "GetByIndex", func(_ *BindingStore, key string, value string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{
+						{
+							VlanTrafficTag: v1alpha1.VLANTrafficTagPtr(100),
+						},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(svc.VlanPoolService), "Allocate", func(_ *vlanpool.Service, parentSubnetPaths []string, excludeCRUID string, preferred int64, fromNSX bool) (int64, error) {
+					assert.True(t, fromNSX)
+					return 101, nil
+				})
+				return patches
+			},
+			expErr:  false,
+			expVlan: v1alpha1.VLANTrafficTagPtr(101),
+			fromNSX: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bm := tc.bindingMap.DeepCopy()
+			svc := &BindingService{
+				BindingStore: SetupStore(),
+			}
+			svc.VlanPoolService = vlanpool.NewService(svc)
+			if tc.patches != nil {
+				patches := tc.patches(t, svc)
+				defer patches.Reset()
+			}
+			vlanID, err := svc.ReconcileVlanTrafficTag(bm, tc.preferred, []string{"/parent"}, tc.fromNSX)
+			if tc.expErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tc.expVlan != nil {
+					assert.Equal(t, *tc.expVlan, vlanID)
+				}
+			}
+		})
+	}
 }

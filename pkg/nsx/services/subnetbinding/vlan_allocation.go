@@ -8,8 +8,44 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vlanpool"
 )
+
+func (s *BindingService) getVlanPoolService() *vlanpool.Service {
+	if s.VlanPoolService == nil {
+		s.VlanPoolService = vlanpool.NewService(s)
+	}
+	return s.VlanPoolService
+}
+
+func (s *BindingService) ReconcileVlanTrafficTag(bindingMap *v1alpha1.SubnetConnectionBindingMap, preferred int64, parentSubnetPaths []string, fromNSX bool) (int64, error) {
+	vlanPoolSvc := s.getVlanPoolService()
+	if bindingMap.Spec.HasVlanTrafficTag() {
+		vlan := *bindingMap.Spec.VLANTrafficTag
+		if err := vlanPoolSvc.ValidateManualVlan(parentSubnetPaths, vlan, string(bindingMap.UID), fromNSX); err != nil {
+			return 0, err
+		}
+		return vlan, nil
+	}
+
+	// Try to reuse already allocated VLAN from cache
+	if !fromNSX {
+		existingBMs := s.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
+		if len(existingBMs) > 0 && existingBMs[0].VlanTrafficTag != nil {
+			vlan := *existingBMs[0].VlanTrafficTag
+			return vlan, nil
+		}
+	}
+
+	vlan, err := vlanPoolSvc.Allocate(parentSubnetPaths, string(bindingMap.UID), preferred, fromNSX)
+	if err != nil {
+		return 0, err
+	}
+
+	return vlan, nil
+}
 
 // CollectUsedVlansOnParentSubnetsFromCache returns VLAN tags already used on the given parent Subnet paths by
 // querying local cache.
@@ -73,9 +109,8 @@ func (s *BindingService) listBindingMapsByParentSubnetPath(parentSubnetPath stri
 	}
 
 	pathEscaped := strings.ReplaceAll(parentSubnetPath, "/", "\\/")
-	// TODO：update here to support bridge mode.
-	queryParam := fmt.Sprintf("%s:%s AND marked_for_delete:false AND subnet_path:%s",
-		servicecommon.ResourceType, ResourceTypeSubnetConnectionBindingMap, pathEscaped)
+	queryParam := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((subnet_path:%s AND NOT subnet_association:BRANCH) OR (parent_path:%s AND subnet_association:BRANCH))",
+		servicecommon.ResourceType, ResourceTypeSubnetConnectionBindingMap, pathEscaped, pathEscaped)
 
 	store := &localStore{ResourceStore: servicecommon.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),

@@ -50,12 +50,36 @@ func TestAllocate_PoolExhausted(t *testing.T) {
 	svc := &Service{collector: &fakeVlanCollector{used: used}}
 	_, err := svc.Allocate([]string{"/parent"}, "", -1, false)
 	require.Error(t, err)
+	assert.True(t, IsVlanAllocationError(err))
 }
 
 func TestValidateManualVlan_Conflict(t *testing.T) {
 	svc := &Service{collector: &fakeVlanCollector{used: sets.New(50)}}
 	err := svc.ValidateManualVlan([]string{"/parent"}, 50, "", false)
 	require.Error(t, err)
+	assert.True(t, IsVlanAllocationError(err))
+}
+
+func TestIsVlanAllocationError(t *testing.T) {
+	assert.False(t, IsVlanAllocationError(nil))
+	assert.False(t, IsVlanAllocationError(assert.AnError))
+
+	allocErr := &VlanAllocationError{Err: assert.AnError}
+	assert.True(t, IsVlanAllocationError(allocErr))
+	assert.Equal(t, assert.AnError.Error(), allocErr.Error())
+	assert.Equal(t, assert.AnError, allocErr.Unwrap())
+}
+
+func TestCommitPending_ZeroVlan(t *testing.T) {
+	svc := &Service{collector: &fakeVlanCollector{used: sets.New[int]()}}
+	parentPaths := []string{"/parent"}
+
+	// CommitPending with vlan 0 should be a no-op safety guard
+	svc.CommitPending(parentPaths, 0)
+
+	// Verify state is clean
+	state := svc.getPoolState(parentPaths)
+	assert.Equal(t, 0, state.pending.Len())
 }
 
 func TestAllocate_ParallelPreferredDoesNotDuplicate(t *testing.T) {

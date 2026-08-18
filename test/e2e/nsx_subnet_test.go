@@ -121,6 +121,7 @@ func TestSubnetSet(t *testing.T) {
 		RunSubtest(t, "case=SubnetBindingAutoVLANWithExistingBinding", SubnetBindingAutoVLANWithExistingBinding)
 		RunSubtest(t, "case=SubnetBindingAutoVLANAllocation", SubnetBindingAutoVLANAllocation)
 		RunSubtest(t, "case=SubnetBindingManualVLANAllocation", SubnetBindingManualVLANAllocation)
+		RunSubtest(t, "case=SubnetBindingBranchAssociation", SubnetBindingBranchAssociation)
 	})
 }
 
@@ -1890,6 +1891,31 @@ func SubnetBindingManualVLANAllocation(t *testing.T) {
 	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName1)
 	require.NoError(t, err, "BindingMap %s should be ready and have the manual status.vlanTrafficTag", bindingName1)
 	assert.Equal(t, manualVlan, vlan, "status.vlanTrafficTag should match the user-specified VLANTrafficTag")
+}
+
+// SubnetBindingBranchAssociation tests that branch subnet association works and auto-allocates a VLAN.
+func SubnetBindingBranchAssociation(t *testing.T) {
+	parentSubnetName, childSubnetNames := createBindingTestSubnets(t, 1)
+	childSubnetName1 := childSubnetNames[0]
+	bindingName1 := "binding-branch-1-" + getRandomString()
+
+	binding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{Name: bindingName1, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:        childSubnetName1,
+			TargetSubnetName:  parentSubnetName,
+			SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Create(context.TODO(), binding, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName1, v1.DeleteOptions{})
+	})
+
+	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName1)
+	require.NoError(t, err, "BindingMap %s should be ready and have an auto-allocated status.vlanTrafficTag with branch association", bindingName1)
+	assert.True(t, vlan >= 1 && vlan <= 4094, "Allocated VLAN should be between 1 and 4094")
 }
 
 func createBindingTestSubnets(t *testing.T, numChildren int) (parentSubnetName string, childSubnetNames []string) {

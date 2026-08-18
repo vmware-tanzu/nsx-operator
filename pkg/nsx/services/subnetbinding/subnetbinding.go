@@ -12,6 +12,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vlanpool"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -26,7 +27,8 @@ var (
 type BindingService struct {
 	builder *servicecommon.PolicyTreeBuilder[*model.SubnetConnectionBindingMap]
 	servicecommon.Service
-	BindingStore *BindingStore
+	BindingStore    *BindingStore
+	VlanPoolService *vlanpool.Service
 }
 
 // InitializeService initializes SubnetConnectionBindingMap service.
@@ -40,6 +42,7 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 		BindingStore: SetupStore(),
 		builder:      builder,
 	}
+	bindingService.VlanPoolService = vlanpool.NewService(bindingService)
 
 	wg.Add(1)
 	go service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetConnectionBindingMap, nil, bindingService.BindingStore)
@@ -55,7 +58,54 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 
 // CreateOrUpdateSubnetConnectionBindingMap creates or updates the SubnetConnectionBindingMaps with the given
 // SubnetConnectionBindingMap CR under subnetPath (spec.subnetName) and targetSubnetPaths (target Subnet/SubnetSet).
+// It reconciles VLAN traffic tag allocation and handles fallback logic if NSX VLAN overlap occurs.
 func (s *BindingService) CreateOrUpdateSubnetConnectionBindingMap(
+	subnetBinding *v1alpha1.SubnetConnectionBindingMap,
+	preferredVlan int64,
+	subnetPath string,
+	targetSubnetPaths []string) (int64, error) {
+
+	parentSubnetPaths := targetSubnetPaths
+	if subnetBinding.Spec.IsBranchAssociation() {
+		parentSubnetPaths = []string{subnetPath}
+	}
+
+	// reconcileVlanAndBindingMapFn encapsulates the logic of allocating a VLAN and applying the SubnetConnectionBindingMap.
+	// It ensures that the pending VLAN allocation is properly committed on success or released on failure.
+	reconcileVlanAndBindingMapFn := func(fromNSX bool) (int64, error) {
+		vlanID, err := s.ReconcileVlanTrafficTag(subnetBinding, preferredVlan, parentSubnetPaths, fromNSX)
+		if err != nil {
+			return 0, err
+		}
+		err = s.createOrUpdateBindingMapInternal(subnetBinding, vlanID, subnetPath, targetSubnetPaths)
+		if err == nil {
+			s.getVlanPoolService().CommitPending(parentSubnetPaths, vlanID)
+			return vlanID, nil
+		}
+		s.getVlanPoolService().ReleasePending(parentSubnetPaths, vlanID)
+		return 0, err
+	}
+
+	// First attempt: try to allocate a VLAN using the local cache to avoid expensive NSX API calls.
+	vlanID, err := reconcileVlanAndBindingMapFn(false)
+	if err == nil {
+		return vlanID, nil
+	}
+
+	// Fallback attempt: if the VLAN allocation conflicts with NSX (e.g., due to out-of-sync local cache)
+	// and the user hasn't explicitly specified a VLAN, query NSX directly for the latest used VLANs and retry.
+	if !subnetBinding.Spec.HasVlanTrafficTag() && nsxutil.IsVpcOverlapVlanError(err) {
+		log.Info("VLAN allocation conflict with NSX cache, fallback to query NSX", "SubnetConnectionBindingMap", subnetBinding.Name)
+		newVlanID, applyErr := reconcileVlanAndBindingMapFn(true)
+		if applyErr != nil {
+			return 0, applyErr
+		}
+		return newVlanID, nil
+	}
+	return 0, err
+}
+
+func (s *BindingService) createOrUpdateBindingMapInternal(
 	subnetBinding *v1alpha1.SubnetConnectionBindingMap,
 	vlanID int64,
 	subnetPath string,
