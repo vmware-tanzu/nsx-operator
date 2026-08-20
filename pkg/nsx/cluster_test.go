@@ -5,10 +5,13 @@ package nsx
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -19,6 +22,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -37,7 +41,7 @@ func TestNewCluster(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	_, err := NewCluster(config)
 	assert.True(t, err == nil, fmt.Sprintf("Created cluster failed %v", err))
 }
@@ -95,7 +99,7 @@ func TestCluster_NewRestConnector(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	c, _ := NewCluster(config)
 	con := c.NewRestConnector()
 	assert.NotNil(t, con)
@@ -114,7 +118,7 @@ func TestCluster_createTransport(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	c, _ := NewCluster(config)
 	assert.NotNil(t, c.createTransport(10))
 }
@@ -267,7 +271,7 @@ func TestCluster_getVersion(t *testing.T) {
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, _ := NewCluster(config)
 	nsxVersion, err := cluster.GetVersion()
 	assert.Equal(t, err, nil)
@@ -308,7 +312,7 @@ func TestCluster_GetVersion_invokesOnProductVersionChangedWhenProductVersionChan
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
@@ -356,7 +360,7 @@ func TestCluster_GetVersion_noOnProductVersionChangedWhenVersionUnchanged(t *tes
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
@@ -399,7 +403,7 @@ func TestCluster_GetVersion_noPanicWhenOnProductVersionChangedNil(t *testing.T) 
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
@@ -569,4 +573,108 @@ func TestFetchLicense(t *testing.T) {
 	err = cluster.FetchLicense()
 	assert.Nil(t, err)
 
+}
+func TestCluster_getDialTLSContext(t *testing.T) {
+	cluster := &Cluster{
+		config: &Config{},
+	}
+
+	// Test 1: CA file provided
+	cluster.config.CAFile = []string{"/tmp/dummy.crt"}
+	dialFunc := cluster.getDialTLSContext(time.Second)
+	assert.NotNil(t, dialFunc)
+
+	// Test 2: Thumbprint provided
+	cluster.config.CAFile = nil
+	cluster.config.Thumbprint = []string{"12:34:56"}
+	dialFunc = cluster.getDialTLSContext(time.Second)
+	assert.NotNil(t, dialFunc)
+
+	// Test 3: Neither CA nor Thumbprint provided (Insecure=false)
+	cluster.config.CAFile = nil
+	cluster.config.Thumbprint = nil
+	dialFunc = cluster.getDialTLSContext(time.Second)
+	assert.NotNil(t, dialFunc)
+}
+
+func TestClusterTLSContextCancellationClosesConnection(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	closed := make(chan struct{})
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- conn
+		_, _ = io.Copy(io.Discard, conn)
+		close(closed)
+	}()
+
+	cluster := &Cluster{config: &Config{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		conn, err := cluster.getDialTLSContext(time.Second)(ctx, "tcp", listener.Addr().String())
+		if conn != nil {
+			_ = conn.Close()
+		}
+		done <- err
+	}()
+	select {
+	case conn := <-accepted:
+		defer conn.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("TLS dial did not reach the peer")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("TLS dial did not honor context cancellation")
+	}
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("canceled TLS dial left its socket open")
+	}
+}
+
+func TestClusterConnectionDeadlineDoesNotLimitResponseBody(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		// Stay open longer than the connection deadline after completing TLS.
+		timer := time.NewTimer(200 * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			_, _ = io.WriteString(w, "healthy")
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	for _, insecure := range []bool{false, true} {
+		t.Run(fmt.Sprintf("insecure=%t", insecure), func(t *testing.T) {
+			cluster := &Cluster{config: &Config{
+				Insecure:   insecure,
+				Thumbprint: []string{fmt.Sprintf("%x", sha256.Sum256(server.Certificate().Raw))},
+			}}
+			client := &http.Client{
+				Transport: cluster.createHTTPTransport(100*time.Millisecond, time.Second),
+				Timeout:   2 * time.Second,
+			}
+			defer client.CloseIdleConnections()
+			resp, err := client.Get(server.URL)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.Equal(t, "healthy", string(body))
+		})
+	}
 }
