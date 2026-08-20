@@ -379,12 +379,11 @@ func (nsxConfig *NsxConfig) validateCert() error {
 	mCount := len(nsxConfig.NsxApiManagers)
 	tpCount := len(nsxConfig.Thumbprint)
 	// Prefer LeafCertFile, otherwise fallback to CaFile
+	if len(nsxConfig.LeafCertFile) > 0 {
+		nsxConfig.CaFile = nsxConfig.LeafCertFile
+	}
 	caCount := len(nsxConfig.CaFile)
 	ca := nsxConfig.CaFile
-	if len(nsxConfig.LeafCertFile) > 0 {
-		caCount = len(nsxConfig.LeafCertFile)
-		ca = nsxConfig.LeafCertFile
-	}
 
 	// ca file has high priority than thumbprint
 	// ca file(thumbprint) == 1 or equal to manager count

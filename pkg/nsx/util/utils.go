@@ -577,7 +577,7 @@ func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
 // If CA cert is passed, TLS config will do native cert check for connection.
 // Otherwise, exact byte-to-byte check will be performed.
 // Error is returned if pem invalid or not a certificate.
-func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
+func GetTLSConfigForCert(pemCerts []byte, isLeafCert bool) (*tls.Config, error) {
 	block, _ := pem.Decode(pemCerts)
 	if block == nil {
 		err := errors.New("decode ca file fail")
@@ -596,8 +596,10 @@ func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
 		return nil, err
 	}
 
+	log.Info("Dump CERT", "IsCA", cert.IsCA, "Subject", cert.Subject.String(), "IPAddresses", cert.IPAddresses, "DNSNames", cert.DNSNames)
+
 	// Native cert verification in case of CA cert
-	if cert.IsCA {
+	if cert.IsCA && !isLeafCert {
 		log.Info("Configured CA cert", "subject", cert.Subject)
 		certPool := x509.NewCertPool()
 		certPool.AddCert(cert)
