@@ -11,6 +11,7 @@
 
 ### Resource Types
 - [AddressBinding](#addressbinding)
+- [DNSRecord](#dnsrecord)
 - [IPAddressAllocation](#ipaddressallocation)
 - [IPBlocksInfo](#ipblocksinfo)
 - [NetworkInfo](#networkinfo)
@@ -231,6 +232,84 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `reservedIPRanges` _string array_ | Reserved IPv6 ranges.<br />Supported formats include: ["2001:db8::1", "2001:db8::1-2001:db8::ff"] |  |  |
+
+
+#### DNSRecord
+
+
+
+DNSRecord is the Schema for the DNS record API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `DNSRecord` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[DNSRecordSpec](#dnsrecordspec)_ |  |  |  |
+| `status` _[DNSRecordStatus](#dnsrecordstatus)_ |  |  |  |
+
+
+#### DNSRecordSpec
+
+
+
+DNSRecordSpec defines the desired state of DNSRecord.
+
+
+
+_Appears in:_
+- [DNSRecord](#dnsrecord)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `domainName` _string_ | DomainName specifies the DNS domain for this record. |  | MaxLength: 255 <br />Required: \{\} <br /> |
+| `recordName` _string_ | RecordName specifies the DNS record name or, for PTR records, the host-octet label.<br />For A/AAAA/CNAME: the hostname portion of the FQDN (e.g., "api" for "api.coke.com").<br />For PTR: the host octet of the IP address (e.g., "10" for 10.0.0.10). |  | MaxLength: 255 <br />Required: \{\} <br /> |
+| `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA CNAME PTR NS TXT] <br />Required: \{\} <br /> |
+| `recordValues` _string array_ | RecordValues specifies the DNS record data values. |  | MinItems: 1 <br />Required: \{\} <br /> |
+| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  | Optional: \{\} <br /> |
+| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  | Optional: \{\} <br /> |
+
+
+#### DNSRecordStatus
+
+
+
+DNSRecordStatus defines the observed state of DNSRecord.
+
+
+
+_Appears in:_
+- [DNSRecord](#dnsrecord)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  | Optional: \{\} <br /> |
+
+
+#### DNSRecordType
+
+_Underlying type:_ _string_
+
+DNSRecordType defines the supported DNS record types.
+
+
+
+_Appears in:_
+- [DNSRecordSpec](#dnsrecordspec)
+
+| Field | Description |
+| --- | --- |
+| `A` |  |
+| `AAAA` |  |
+| `CNAME` |  |
+| `PTR` |  |
+| `NS` |  |
+| `TXT` |  |
 
 
 #### IPAddressAllocation
@@ -905,6 +984,23 @@ _Appears in:_
 | `dhcpServerAddresses` _string array_ | DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet.<br />Supports up to 2 addresses for dual-stack Subnets (1 IPv4 + 1 IPv6). |  | MaxItems: 2 <br /> |
 
 
+#### SubnetAssociation
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [SubnetConnectionBindingMapSpec](#subnetconnectionbindingmapspec)
+
+| Field | Description |
+| --- | --- |
+| `Trunk` | SubnetAssociationTrunk means targetSubnetName is the trunk Subnet in the binding.<br />This is the default when subnetAssociation is unset.<br /> |
+| `Branch` | SubnetAssociationBranch means TargetSubnetName is the branch Subnet in the binding.<br />SubnetConnectionBindingMap is created under SubnetName (trunk Subnet).<br /> |
+
+
 #### SubnetConnectionBindingMap
 
 
@@ -940,6 +1036,7 @@ _Appears in:_
 | `subnetName` _string_ | SubnetName is the Subnet name which this SubnetConnectionBindingMap is associated. |  |  |
 | `targetSubnetSetName` _string_ | TargetSubnetSetName specifies the target SubnetSet which a Subnet is connected to. |  | Optional: \{\} <br /> |
 | `targetSubnetName` _string_ | TargetSubnetName specifies the target Subnet which a Subnet is connected to. |  | Optional: \{\} <br /> |
+| `subnetAssociation` _[SubnetAssociation](#subnetassociation)_ | SubnetAssociation indicates the role of TargetSubnetName in the binding.<br />Trunk: TargetSubnetName is the trunk Subnet (default behavior).<br />Branch: TargetSubnetName is the branch Subnet; SubnetName is the trunk Subnet that hosts the binding map.<br />Supported starting with VCF 9.2.0. |  | Enum: [Trunk Branch] <br />Optional: \{\} <br /> |
 | `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. When omitted, the system automatically allocates a VLAN ID. |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 
 

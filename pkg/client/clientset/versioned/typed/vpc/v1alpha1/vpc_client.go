@@ -16,6 +16,7 @@ import (
 type CrdV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	AddressBindingsGetter
+	DNSRecordsGetter
 	IPAddressAllocationsGetter
 	IPBlocksInfosGetter
 	NetworkInfosGetter
@@ -39,6 +40,10 @@ type CrdV1alpha1Client struct {
 
 func (c *CrdV1alpha1Client) AddressBindings(namespace string) AddressBindingInterface {
 	return newAddressBindings(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) DNSRecords(namespace string) DNSRecordInterface {
+	return newDNSRecords(c, namespace)
 }
 
 func (c *CrdV1alpha1Client) IPAddressAllocations(namespace string) IPAddressAllocationInterface {
