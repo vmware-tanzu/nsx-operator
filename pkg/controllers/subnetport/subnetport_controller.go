@@ -232,14 +232,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
 				RADeactivated:             raDeactivated,
 			}
-			if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(subnetPort.Spec.AddressBindings) > 0 {
+			if staticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
 					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings)
-					if len(realizedIPAddresses) > 0 {
+					if staticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone && len(realizedIPAddresses) > 0 {
 						subnetPort.Status.NetworkInterfaceConfig.IPAddresses = realizedIPAddresses
 					}
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
-				} else if !util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && len(subnetPort.Spec.AddressBindings) > 0 {
+				} else if staticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone && len(subnetPort.Spec.AddressBindings) > 0 {
 					// StaticIPAllocation disabled: propagate MAC from spec since there's no realized binding yet.
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
 				}

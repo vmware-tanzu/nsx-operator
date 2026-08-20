@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -1635,7 +1636,7 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 		{
 			// Regression test: an existing DHCP-sourced port already realized on the
 			// mixed-mode Subnet must not count against the static pool's capacity when
-			// checking a new static-sourced port. Before this fix, existingPortCount
+			// checking a new static-sourced port. Before this fix, existingIPCount
 			// counted every realized port on the Subnet regardless of which pool it
 			// drew from, so a lone DHCP-sourced port could falsely exhaust a small
 			// static pool it never actually touched.
@@ -2310,6 +2311,191 @@ func TestMergeSubnetPortAddressBinding(t *testing.T) {
 				} else {
 					assert.Nil(t, result[i].MacAddress)
 				}
+			}
+		})
+	}
+}
+
+func TestCountNSXAddressBindingsByFamily(t *testing.T) {
+	tests := []struct {
+		name     string
+		bindings []model.PortAddressBindingEntry
+		wantIPv4 int
+		wantIPv6 int
+	}{
+		{
+			name:     "Empty bindings",
+			bindings: []model.PortAddressBindingEntry{},
+			wantIPv4: 0,
+			wantIPv6: 0,
+		},
+		{
+			name: "Binding with nil IP",
+			bindings: []model.PortAddressBindingEntry{
+				{IpAddress: nil},
+			},
+			wantIPv4: 1,
+			wantIPv6: 0,
+		},
+		{
+			name: "Binding with empty IP string",
+			bindings: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("")},
+			},
+			wantIPv4: 1,
+			wantIPv6: 0,
+		},
+		{
+			name: "IPv4 binding",
+			bindings: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("192.168.1.1")},
+			},
+			wantIPv4: 1,
+			wantIPv6: 0,
+		},
+		{
+			name: "IPv6 binding",
+			bindings: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("2001:db8::1")},
+			},
+			wantIPv4: 0,
+			wantIPv6: 1,
+		},
+		{
+			name: "Mixed bindings",
+			bindings: []model.PortAddressBindingEntry{
+				{IpAddress: common.String("192.168.1.1")},
+				{IpAddress: common.String("2001:db8::1")},
+				{IpAddress: nil},
+			},
+			wantIPv4: 2,
+			wantIPv6: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotIPv4, gotIPv6 := countNSXAddressBindingsByFamily(tt.bindings)
+			if gotIPv4 != tt.wantIPv4 {
+				t.Errorf("countNSXAddressBindingsByFamily() gotIPv4 = %v, want %v", gotIPv4, tt.wantIPv4)
+			}
+			if gotIPv6 != tt.wantIPv6 {
+				t.Errorf("countNSXAddressBindingsByFamily() gotIPv6 = %v, want %v", gotIPv6, tt.wantIPv6)
+			}
+		})
+	}
+}
+
+func TestReleasePortInSubnet(t *testing.T) {
+	service := &SubnetPortService{
+		SubnetPortStore: &SubnetPortStore{
+			PortCountInfo: sync.Map{},
+		},
+	}
+
+	subnetPath := "test-subnet"
+
+	// Create CountInfo to put in store
+	info := &CountInfo{
+		dirtyDhcpCount:       5,
+		dirtyDhcpCountIPv6:   5,
+		dirtyStaticCount:     5,
+		dirtyStaticCountIPv6: 5,
+	}
+	service.SubnetPortStore.PortCountInfo.Store(subnetPath, info)
+
+	tests := []struct {
+		name                   string
+		path                   string
+		interfaceIPType        v1alpha1.IPAddressType
+		staticIPAllocationType v1alpha1.StaticIPAllocationType
+		addressBindings        []v1alpha1.PortAddressBinding
+		expectedDhcpCount      int
+		expectedDhcpV6Count    int
+		expectedStaticCount    int
+		expectedStaticV6Count  int
+	}{
+		{
+			name:                   "Subnet not found",
+			path:                   "non-existent-subnet",
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			addressBindings:        nil,
+			expectedDhcpCount:      5,
+		},
+		{
+			name:                   "Release DHCP IPv4 (no explicit bindings)",
+			path:                   subnetPath,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			addressBindings:        nil,
+			expectedDhcpCount:      4,
+			expectedDhcpV6Count:    5,
+			expectedStaticCount:    5,
+			expectedStaticV6Count:  5,
+		},
+		{
+			name:                   "Release Static IPv4 (single binding)",
+			path:                   subnetPath,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			addressBindings: []v1alpha1.PortAddressBinding{
+				{IPAddress: "192.168.1.1"},
+			},
+			expectedDhcpCount:     4,
+			expectedDhcpV6Count:   5,
+			expectedStaticCount:   4,
+			expectedStaticV6Count: 5,
+		},
+		{
+			name:                   "Release Static IPv6 (multiple bindings)",
+			path:                   subnetPath,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			addressBindings: []v1alpha1.PortAddressBinding{
+				{IPAddress: "2001:db8::1"},
+				{IPAddress: "2001:db8::2"},
+			},
+			expectedDhcpCount:     4,
+			expectedDhcpV6Count:   5,
+			expectedStaticCount:   4,
+			expectedStaticV6Count: 3,
+		},
+		{
+			name:                   "Release DHCP IPv4IPv6 (no explicit bindings)",
+			path:                   subnetPath,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4IPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			addressBindings:        nil,
+			expectedDhcpCount:      3,
+			expectedDhcpV6Count:    4,
+			expectedStaticCount:    4,
+			expectedStaticV6Count:  3,
+		},
+		{
+			name:                   "Underflow protection DHCP",
+			path:                   subnetPath,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			addressBindings: []v1alpha1.PortAddressBinding{
+				{}, {}, {}, {}, {}, {}, {}, // Try to release 7 when only 3 are left
+			},
+			expectedDhcpCount:     3, // Expected behavior: error logged, counter unchanged
+			expectedDhcpV6Count:   4,
+			expectedStaticCount:   4,
+			expectedStaticV6Count: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service.ReleasePortInSubnet(tt.path, tt.interfaceIPType, tt.staticIPAllocationType, tt.addressBindings)
+
+			if tt.path == subnetPath {
+				assert.Equal(t, tt.expectedDhcpCount, info.dirtyDhcpCount)
+				assert.Equal(t, tt.expectedDhcpV6Count, info.dirtyDhcpCountIPv6)
+				assert.Equal(t, tt.expectedStaticCount, info.dirtyStaticCount)
+				assert.Equal(t, tt.expectedStaticV6Count, info.dirtyStaticCountIPv6)
 			}
 		})
 	}

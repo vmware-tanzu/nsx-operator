@@ -434,11 +434,11 @@ func countNSXAddressBindingsByFamily(bindings []model.PortAddressBindingEntry) (
 	return ipv4Count, ipv6Count
 }
 
-// countExistingPortsForPool counts IPs (not ports) consumed from the pool being checked, for
+// countExistingIPsForPool counts IPs (not ports) consumed from the pool being checked, for
 // the given family. Only ports sourced from that pool are counted, so a DHCP-sourced port on
 // a mixed-mode Subnet doesn't count against static capacity (or vice versa). A port with
 // multiple bindings in the requested family counts for all of them, not just one.
-func (service *SubnetPortService) countExistingPortsForPool(subnetPath string, useStaticPool bool, useIPv6 bool) int {
+func (service *SubnetPortService) countExistingIPsForPool(subnetPath string, useStaticPool bool, useIPv6 bool) int {
 	count := 0
 	for _, port := range service.GetPortsOfSubnet(subnetPath) {
 		if isPortStaticAllocated(port) != useStaticPool {
@@ -687,7 +687,7 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 		return false, nil
 	}
 
-	existingPortCount := service.countExistingPortsForPool(*subnet.Path, useStaticPool, false)
+	existingIPCount := service.countExistingIPsForPool(*subnet.Path, useStaticPool, false)
 	// A shared Subnet can be used by other supervisors or other places where SubnetPort
 	// is created and not in operator cache.
 	// For DHCPServer Subnet, the allocated IP number wont change before the VM request IP
@@ -695,13 +695,13 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 	// Thus we use the max number of port record in store and allocated number from API to
 	// reduce the possibility to create SubnetPort on a Subnet without available IP
 	if sharedSubnet {
-		existingPortCount = max(existingPortCount, allocatedIPNumber)
+		existingIPCount = max(existingIPCount, allocatedIPNumber)
 	}
 
 	if useStaticPool {
-		return info.dirtyStaticCount+existingPortCount+ipCount <= info.totalStaticIP, nil
+		return info.dirtyStaticCount+existingIPCount+ipCount <= info.totalStaticIP, nil
 	}
-	return info.dirtyDhcpCount+existingPortCount+ipCount <= info.totalDhcpIP, nil
+	return info.dirtyDhcpCount+existingIPCount+ipCount <= info.totalDhcpIP, nil
 }
 
 // checkIPv6Capacity checks for ipCount more IPv6 addresses in the static or DHCP pool,
@@ -748,12 +748,12 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 			return false, nil
 		}
 
-		existingPortCount := service.countExistingPortsForPool(*subnet.Path, false, true)
+		existingIPCount := service.countExistingIPsForPool(*subnet.Path, false, true)
 		if sharedSubnet {
-			existingPortCount = max(existingPortCount, allocatedIPNumberIPv6)
+			existingIPCount = max(existingIPCount, allocatedIPNumberIPv6)
 		}
 
-		return info.dirtyDhcpCountIPv6+existingPortCount+ipCount <= info.totalDhcpIPv6, nil
+		return info.dirtyDhcpCountIPv6+existingIPCount+ipCount <= info.totalDhcpIPv6, nil
 	}
 
 	if !isNewEntry || info.totalStaticIPv6 == 0 || sharedSubnet {
@@ -774,12 +774,12 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 		return false, nil
 	}
 
-	existingPortCount := service.countExistingPortsForPool(*subnet.Path, true, true)
+	existingIPCount := service.countExistingIPsForPool(*subnet.Path, true, true)
 	if sharedSubnet {
-		existingPortCount = max(existingPortCount, allocatedIPNumberIPv6)
+		existingIPCount = max(existingIPCount, allocatedIPNumberIPv6)
 	}
 
-	return info.dirtyStaticCountIPv6+existingPortCount+ipCount <= info.totalStaticIPv6, nil
+	return info.dirtyStaticCountIPv6+existingIPCount+ipCount <= info.totalStaticIPv6, nil
 }
 
 func (service *SubnetPortService) updateExhaustedSubnet(path string) {
