@@ -40,7 +40,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -341,7 +341,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return false, nil
 		})
 		defer patchesIsSharedSubnetPath.Reset()
-		err := util.NewRealizeStateError("CreateOrUpdateSubnetPort failed", 0)
+		err := nsxutil.NewRealizeStateError("CreateOrUpdateSubnetPort failed", 0)
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
 				return nil, err

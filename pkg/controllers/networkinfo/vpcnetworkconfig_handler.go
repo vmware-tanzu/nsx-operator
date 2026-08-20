@@ -3,8 +3,9 @@ package networkinfo
 import (
 	"context"
 	"reflect"
-	"sync"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,79 +23,74 @@ import (
 // - VPC Network Configuration deletion: Delete VPC Network Configuration from cache.
 // - VPC Network Configuration update:	Only support updating external/private ipblocks, update values in cache
 
-type vpcTaskType int
-
-const (
-	vpcTaskUpdate vpcTaskType = iota
-	vpcTaskDelete
-)
-
-const (
-	vpcTaskQueueCapacity = 1000
-)
-
-type vpcTask struct {
-	taskType  vpcTaskType
-	vpcConfig *v1alpha1.VPCNetworkConfiguration
-}
-
 type VPCNetworkConfigurationHandler struct {
 	Client              client.Client
 	vpcService          commontypes.VPCServiceProvider
 	ipBlocksInfoService commontypes.IPBlocksInfoServiceProvider
 
-	initOnce sync.Once
-	taskChan chan vpcTask
+	queue workqueue.TypedRateLimitingInterface[types.NamespacedName]
 }
 
-func (h *VPCNetworkConfigurationHandler) ensureWorker() {
-	h.initOnce.Do(func() {
-		h.taskChan = make(chan vpcTask, vpcTaskQueueCapacity)
-		go h.workerLoop()
-	})
-}
-
-func (h *VPCNetworkConfigurationHandler) enqueueTask(t vpcTask) {
-	h.ensureWorker()
-	select {
-	case h.taskChan <- t:
-	default:
-		log.Error(nil, "VPCNetworkConfiguration task channel full, dropping task", "taskType", t.taskType, "VPCNetworkConfiguration", t.vpcConfig.Name)
+// NewVPCNetworkConfigurationHandler creates a new VPCNetworkConfigurationHandler and starts its worker.
+func NewVPCNetworkConfigurationHandler(client client.Client, vpcService commontypes.VPCServiceProvider, ipBlocksInfoService commontypes.IPBlocksInfoServiceProvider) *VPCNetworkConfigurationHandler {
+	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[types.NamespacedName](1*time.Second, 30*time.Second)
+	h := &VPCNetworkConfigurationHandler{
+		Client:              client,
+		vpcService:          vpcService,
+		ipBlocksInfoService: ipBlocksInfoService,
+		queue:               workqueue.NewTypedRateLimitingQueue[types.NamespacedName](limiter),
 	}
+	go h.workerLoop()
+	return h
+}
+
+func (h *VPCNetworkConfigurationHandler) enqueueTask(req types.NamespacedName) {
+	h.queue.Add(req)
 }
 
 func (h *VPCNetworkConfigurationHandler) workerLoop() {
-	for t := range h.taskChan {
-		switch t.taskType {
-		case vpcTaskUpdate:
-			if err := h.ipBlocksInfoService.UpdateIPBlocksInfo(context.Background(), t.vpcConfig); err != nil {
-				log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", t.vpcConfig.Name)
-			}
-		case vpcTaskDelete:
-			if err := h.ipBlocksInfoService.SyncIPBlocksInfo(context.Background()); err != nil {
-				log.Error(err, "failed to synchronize IPBlocksInfo when deleting", "VPCNetworkConfiguration", t.vpcConfig.Name)
-			} else {
-				h.ipBlocksInfoService.ResetPeriodicSync()
-			}
+	for {
+		req, shutdown := h.queue.Get()
+		if shutdown {
+			return
 		}
+
+		err := h.processTask(req)
+		if err != nil {
+			log.Error(err, "Failed to process VPCNetworkConfiguration task, requeuing", "VPCNetworkConfiguration", req.Name)
+			h.queue.AddRateLimited(req)
+		} else {
+			h.queue.Forget(req)
+		}
+		h.queue.Done(req)
 	}
 }
 
+func (h *VPCNetworkConfigurationHandler) processTask(req types.NamespacedName) error {
+	vpcConfig := &v1alpha1.VPCNetworkConfiguration{}
+	err := h.Client.Get(context.Background(), req, vpcConfig)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// VPCNetworkConfiguration has been deleted
+			if syncErr := h.ipBlocksInfoService.SyncIPBlocksInfo(context.Background()); syncErr != nil {
+				return syncErr
+			}
+			h.ipBlocksInfoService.ResetPeriodicSync()
+			return nil
+		}
+		return err
+	}
+
+	// VPCNetworkConfiguration exists (Create/Update)
+	return h.ipBlocksInfoService.UpdateIPBlocksInfo(context.Background(), vpcConfig)
+}
+
 func (h *VPCNetworkConfigurationHandler) Create(_ context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
-	// Enqueue update task to single background worker thread to avoid blocking Informer CacheSync
-	h.enqueueTask(vpcTask{
-		taskType:  vpcTaskUpdate,
-		vpcConfig: vpcConfigCR,
-	})
+	h.enqueueTask(types.NamespacedName{Name: e.Object.GetName(), Namespace: e.Object.GetNamespace()})
 }
 
 func (h *VPCNetworkConfigurationHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
-	h.enqueueTask(vpcTask{
-		taskType:  vpcTaskDelete,
-		vpcConfig: vpcConfigCR,
-	})
+	h.enqueueTask(types.NamespacedName{Name: e.Object.GetName(), Namespace: e.Object.GetNamespace()})
 }
 
 func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -139,10 +135,7 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		return
 	}
 
-	h.enqueueTask(vpcTask{
-		taskType:  vpcTaskUpdate,
-		vpcConfig: newNc,
-	})
+	h.enqueueTask(types.NamespacedName{Name: newNc.GetName(), Namespace: newNc.GetNamespace()})
 }
 
 var VPCNetworkConfigurationPredicate = predicate.Funcs{

@@ -640,11 +640,11 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 			// For modified network config, currently only support appending ips to private ip blocks,
 			// and modifying the pre-created subnets.
 			&v1alpha1.VPCNetworkConfiguration{},
-			&VPCNetworkConfigurationHandler{
-				Client:              mgr.GetClient(),
-				vpcService:          r.Service,
-				ipBlocksInfoService: r.IPBlocksInfoService,
-			},
+			NewVPCNetworkConfigurationHandler(
+				mgr.GetClient(),
+				r.Service,
+				r.IPBlocksInfoService,
+			),
 			builder.WithPredicates(VPCNetworkConfigurationPredicate)).
 		Watches(
 			&v1alpha1.SubnetSet{},
