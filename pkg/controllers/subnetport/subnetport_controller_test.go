@@ -1190,8 +1190,8 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 				}).Times(2)
 
 			patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-				func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-					return true, false, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+				func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+					return true, false, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet-1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 				})
 			defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 
