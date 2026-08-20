@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"sync"
 
@@ -1214,6 +1215,82 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 	}
 
 	return &vpc, nil
+}
+
+// IsRADeactivatedByVPCPath determines whether IPv6 Router Advertisement is deactivated for the
+// VPC that owns the given NSX path (a VPC path or any path nested under a VPC, e.g. a Subnet
+// path). It resolves the VPC's VpcServiceProfile, finds the referenced Ipv6NdraProfile, and
+// checks its RaMode. If no VpcServiceProfile or no Ipv6NdraProfile is configured, RA is
+// considered deactivated: NSX does not push any ra_config to the dataplane in that case, so no
+// Router Advertisements are actually sent on the wire, which is dataplane-equivalent to an
+// explicit ra_mode of DISABLED. Not cached: an admin can change VPC RA config at any time, and a
+// stale positive would silently mislead every SubnetPort in the VPC until the operator restarts.
+func (s *VPCService) IsRADeactivatedByVPCPath(vpcPath string) (bool, error) {
+	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "Failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
+		return false, err
+	}
+	return s.resolveRADeactivated(vpcResInfo)
+}
+
+func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bool, error) {
+	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read VPC object from NSX", "VPC", vpcResInfo.GetVPCPath())
+		return false, err
+	}
+	if vpc.VpcServiceProfile == nil || *vpc.VpcServiceProfile == "" {
+		log.Info("No VpcServiceProfile configured on VPC, treating RA as deactivated", "VPC", vpcResInfo.GetVPCPath())
+		return true, nil
+	}
+
+	profile, err := s.NSXClient.VpcServiceProfileClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, path.Base(*vpc.VpcServiceProfile))
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read VpcServiceProfile from NSX", "VpcServiceProfile", *vpc.VpcServiceProfile)
+		return false, err
+	}
+
+	ndraProfilePath := findIpv6NdraProfilePath(profile.Ipv6ProfilePaths)
+	if ndraProfilePath == "" {
+		log.Debug("No Ipv6NdraProfile referenced by VpcServiceProfile, treating RA as deactivated", "VpcServiceProfile", *vpc.VpcServiceProfile)
+		return true, nil
+	}
+
+	ndraProfile, err := s.getIpv6NdraProfile(vpcResInfo, ndraProfilePath)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read Ipv6NdraProfile from NSX", "Ipv6NdraProfile", ndraProfilePath)
+		return false, err
+	}
+
+	raDeactivated := ndraProfile.RaMode == nil || *ndraProfile.RaMode == model.Ipv6NdraProfile_RA_MODE_DISABLED
+	log.Debug("Resolved RA mode for VPC", "VPC", vpcResInfo.GetVPCPath(), "Ipv6NdraProfile", ndraProfilePath, "RaMode", ndraProfile.RaMode, "RADeactivated", raDeactivated)
+	return raDeactivated, nil
+}
+
+// getIpv6NdraProfile reads the Ipv6NdraProfile at the given path, which may either be an infra-level
+// profile (/infra/ipv6-ndra-profiles/<id>) or a project-level profile
+// (/orgs/<org>/projects/<project>/infra/ipv6-ndra-profiles/<id>).
+func (s *VPCService) getIpv6NdraProfile(vpcResInfo common.VPCResourceInfo, ndraProfilePath string) (model.Ipv6NdraProfile, error) {
+	ndraProfileID := path.Base(ndraProfilePath)
+	if strings.HasPrefix(ndraProfilePath, "/orgs/") {
+		return s.NSXClient.ProjectIpv6NdraProfileClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, ndraProfileID)
+	}
+	return s.NSXClient.Ipv6NdraProfileClient.Get(ndraProfileID)
+}
+
+// findIpv6NdraProfilePath returns the Ipv6NdraProfile path among the VpcServiceProfile's
+// Ipv6ProfilePaths (which may also contain an Ipv6DadProfile path), or "" if none is present.
+func findIpv6NdraProfilePath(ipv6ProfilePaths []string) string {
+	for _, p := range ipv6ProfilePaths {
+		if strings.Contains(p, "/ipv6-ndra-profiles/") {
+			return p
+		}
+	}
+	return ""
 }
 
 func (s *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
