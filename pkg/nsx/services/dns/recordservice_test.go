@@ -91,7 +91,7 @@ func registerBodiesForBatch(t *testing.T, env *testDNSSvc, batch *AggregatedDNSE
 		return
 	}
 	for _, row := range batch.Rows {
-		rec := env.BuildDnsRecord(batch.Owner, row)
+		rec, _ := env.BuildDnsRecord(batch.Owner, row)
 		if rec == nil || rec.Id == nil {
 			continue
 		}
@@ -350,7 +350,8 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 				ep := extdns.NewEndpoint("gw.example.com", extdns.RecordTypeA, "10.0.0.1")
 				ep.WithLabel(EndpointLabelParentGateway, "app/gw1")
 				row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "gw.example.com"}
-				require.NotNil(t, env.BuildDnsRecord(owner, row))
+				rec, _ := env.BuildDnsRecord(owner, row)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 				key := recordStoreKey(row.zonePath, row.nsxRecordName, row.Endpoint.RecordType)
 				require.NotNil(t, env.DNSRecordStore.GetByKey(key))
@@ -369,7 +370,8 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 				epG := extdns.NewEndpoint("gw.example.com", extdns.RecordTypeA, "10.0.0.1")
 				epG.WithLabel(EndpointLabelParentGateway, "app/gw1")
 				rowG := EndpointRow{Endpoint: epG, zonePath: z, nsxRecordName: "gw.example.com"}
-				require.NotNil(t, env.BuildDnsRecord(gwOwner, rowG))
+				rec, _ := env.BuildDnsRecord(gwOwner, rowG)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(gwOwner, []EndpointRow{rowG}))
 				hrEp := extdns.NewEndpoint("r.example.com", extdns.RecordTypeA, "10.0.0.2")
 				hrEp.WithLabel(EndpointLabelParentGateway, "app/gw1")
@@ -378,7 +380,9 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 					Kind:   ResourceKindHTTPRoute,
 					Object: &metav1.ObjectMeta{Namespace: "app", Name: "hr1", UID: types.UID("u-hr")},
 				}
-				require.NotNil(t, env.BuildDnsRecord(hrOwner, *hrRow))
+				rec, err := env.BuildDnsRecord(hrOwner, *hrRow)
+				require.NoError(t, err)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(hrOwner, []EndpointRow{*hrRow}))
 				requireNoErrDeleteDNS(ctx, t, env, ResourceKindGateway, "app", "gw1")
 				require.Nil(t, env.DNSRecordStore.GetByKey(recordStoreKey(rowG.zonePath, rowG.nsxRecordName, rowG.Endpoint.RecordType)))
@@ -396,7 +400,8 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 					Kind:   ResourceKindHTTPRoute,
 					Object: &metav1.ObjectMeta{Namespace: ns, Name: "hr1", UID: types.UID("uid-hr1")},
 				}
-				require.NotNil(t, env.BuildDnsRecord(hrOwner, *row))
+				rec, _ := env.BuildDnsRecord(hrOwner, *row)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(hrOwner, []EndpointRow{*row}))
 				require.True(t, env.ListReferredGatewayNN().Has(types.NamespacedName{Namespace: "demo", Name: "gw1"}))
 				groups := env.ListRecordOwnerResource()
@@ -586,14 +591,15 @@ func TestCreateOrUpdateRecords_ownerScoped_mergeUpdatesTargets(t *testing.T) {
 	recordName := "x.example.com"
 	ep0 := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "10.0.0.1")
 	ep0.WithLabel(EndpointLabelParentGateway, "ns/gw")
-	require.NotNil(t, env.BuildDnsRecord(owner, EndpointRow{Endpoint: ep0, zonePath: z, nsxRecordName: recordName}))
+	rec, _ := env.BuildDnsRecord(owner, EndpointRow{Endpoint: ep0, zonePath: z, nsxRecordName: recordName})
+	require.NotNil(t, rec)
 	for _, targets := range [][]string{{"10.0.0.1"}, {"10.0.0.2"}} {
 		ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, targets...)
 		ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
 		row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: recordName}
 		requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	}
-	rec := store.GetByKey(recordStoreKey(testDNSZonePathZ, recordName, extdns.RecordTypeA))
+	rec = store.GetByKey(recordStoreKey(testDNSZonePathZ, recordName, extdns.RecordTypeA))
 	require.NotNil(t, rec)
 	vals := append([]string(nil), rec.RecordValues...)
 	require.Equal(t, []string{"10.0.0.2"}, vals)
@@ -609,7 +615,8 @@ func Test_CreateOrUpdateRecords_Service_DeleteByOwnerNN(t *testing.T) {
 	ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "10.0.0.1")
 	ep.WithLabel(EndpointLabelParentGateway, "ns1/lbsvc")
 	row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "x.example.com"}
-	require.NotNil(t, env.BuildDnsRecord(owner, row))
+	rec, _ := env.BuildDnsRecord(owner, row)
+	require.NotNil(t, rec)
 	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	require.Len(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindService, "ns1", "lbsvc"), 1)
 	requireNoErrDeleteDNS(ctx, t, env, ResourceKindService, "ns1", "lbsvc")
@@ -688,40 +695,6 @@ func TestDeleteDnsRecordOnNSX(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestContributingHelpers_table(t *testing.T) {
-	t.Run("parseContributingOwnersTag", func(t *testing.T) {
-		require.Nil(t, parseContributingOwnersTag(""))
-		got := parseContributingOwnersTag(" b/a/x , a/b/y ")
-		require.Equal(t, []string{"a/b/y", "b/a/x"}, got)
-	})
-	t.Run("mergeContributingOwnerKeys", func(t *testing.T) {
-		primary := "p"
-		got := mergeContributingOwnerKeys([]string{"x", primary, "y"}, "z", primary)
-		require.Equal(t, []string{"x", "y", "z"}, got)
-	})
-	t.Run("parseOwnerNNIndexKey", func(t *testing.T) {
-		cf, ns, n, ok := parseOwnerNNIndexKey("httproute/ns1/r1")
-		require.True(t, ok)
-		require.Equal(t, servicecommon.TagValueDNSRecordForHTTPRoute, cf)
-		require.Equal(t, "ns1", ns)
-		require.Equal(t, "r1", n)
-	})
-	t.Run("replaceContributingOwnersInTags", func(t *testing.T) {
-		oldStr, _ := joinAndPackStrings([]string{"old"})
-		tags := []model.Tag{
-			modelTag(servicecommon.TagScopeDNSRecordContributingOwners, oldStr),
-			modelTag(servicecommon.TagScopeCluster, "c"),
-		}
-		out := replaceContributingOwnersInTags(tags, []string{"k1", "k2"})
-		require.Len(t, out, 2)
-		k1k2Str, _ := joinAndPackStrings([]string{"k1", "k2"})
-		require.ElementsMatch(t, []model.Tag{
-			modelTag(servicecommon.TagScopeCluster, "c"),
-			modelTag(servicecommon.TagScopeDNSRecordContributingOwners, k1k2Str),
-		}, out)
-	})
-}
-
 func TestAppendRecordOwnershipTags_table(t *testing.T) {
 	clusterTag := modelTag(servicecommon.TagScopeCluster, "cls")
 	baseTags := []model.Tag{clusterTag}
@@ -766,7 +739,8 @@ func TestAppendRecordOwnershipTags_table(t *testing.T) {
 			if tc.contributingKeys != "" {
 				keys = strings.Split(tc.contributingKeys, ",")
 			}
-			got := appendGatewayAndContributionTags(in, tc.gwKey, keys)
+			got, err := appendGatewayAndContributionTags(in, tc.gwKey, keys)
+			require.NoError(t, err)
 			gotScopes := make([]string, 0, len(got))
 			for _, tg := range got {
 				if tg.Scope != nil {
@@ -966,7 +940,8 @@ func TestClassifyOwnerRemoval_table(t *testing.T) {
 			modelTag(servicecommon.TagScopeDNSRecordOwnerName, name),
 		}
 		if len(contribs) > 0 {
-			plain, overflow := formatContributingOwnersTag(contribs)
+			plain, overflow, err := formatContributingOwnersTag(contribs)
+			require.NoError(t, err)
 			tags = append(tags, modelTag(servicecommon.TagScopeDNSRecordContributingOwners, plain))
 			if overflow != "" {
 				tags = append(tags, modelTag(servicecommon.TagScopeDNSRecordAdditionalContributingOwners, overflow))
@@ -1095,7 +1070,8 @@ func TestCleanupInfraResources(t *testing.T) {
 	ep := extdns.NewEndpoint("cl.example.com", extdns.RecordTypeA, "192.0.2.1")
 	ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
 	row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "cl.example.com"}
-	require.NotNil(t, env.BuildDnsRecord(owner, row))
+	rec, _ := env.BuildDnsRecord(owner, row)
+	require.NotNil(t, rec)
 	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	require.NotEmpty(t, store.ListDNSRecords())
 
@@ -1216,6 +1192,35 @@ func TestCreateOrUpdateRecords_errorPaths_table(t *testing.T) {
 		mut, err := env.CreateOrUpdateRecords(ctx, NewOwnerScopedAggregatedRouteDNS(owner, nil))
 		require.NoError(t, err)
 		require.False(t, mut)
+	})
+
+	t.Run("gateway tags exceed maximum tag capacity", func(t *testing.T) {
+		env := newTestDNSRecordService(t, BuildDNSRecordStore())
+		owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "gw"}}
+
+		// Generate a huge gateway keys list that will cause truncation
+		var gwKeys []string
+		for i := 0; i < 50; i++ {
+			gwKeys = append(gwKeys, fmt.Sprintf("gateway/namespace-%d/name-%d", i, i))
+		}
+		hugeGwKeysStr := strings.Join(gwKeys, ",")
+
+		ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "1.1.1.1")
+		ep.Labels = map[string]string{
+			EndpointLabelParentGateway: hugeGwKeysStr,
+		}
+
+		batch := &AggregatedDNSEndpoints{
+			Owner: owner,
+			Rows: []EndpointRow{{
+				Endpoint: ep,
+				zonePath: "zone",
+			}},
+		}
+
+		_, err := env.CreateOrUpdateRecords(ctx, batch)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "gateway index list exceeds maximum tag capacity")
 	})
 }
 

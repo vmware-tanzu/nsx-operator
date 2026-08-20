@@ -21,7 +21,7 @@ func TestJoinAndPackStrings(t *testing.T) {
 		keys = append(keys, fmt.Sprintf("http_route/namespace-%d/name-%d", i, i))
 	}
 
-	plain, overflow := joinAndPackStrings(keys)
+	plain, overflow, truncated := joinAndPackStrings(keys)
 
 	// Plain string should not exceed 255 characters
 	require.LessOrEqual(t, len(plain), 255)
@@ -39,19 +39,48 @@ func TestJoinAndPackStrings(t *testing.T) {
 	for _, k := range overflowKeys {
 		require.True(t, strings.HasPrefix(k, "http_route/"))
 	}
+
+	// Since we generated 50 keys and each is ~30 chars, total is ~1500 chars.
+	// Two 255-char buffers can only hold ~510 chars, so it MUST be truncated.
+	require.True(t, truncated)
 }
 
 func TestJoinAndPackStrings_EdgeCases(t *testing.T) {
 	// Empty slice
-	plain, overflow := joinAndPackStrings(nil)
+	plain, overflow, truncated := joinAndPackStrings(nil)
 	require.Empty(t, plain)
 	require.Empty(t, overflow)
+	require.False(t, truncated)
 
 	// Small slice (no overflow)
 	keys := []string{"http_route/ns1/name1", "http_route/ns2/name2"}
-	plain, overflow = joinAndPackStrings(keys)
+	plain, overflow, truncated = joinAndPackStrings(keys)
 	require.Equal(t, "http_route/ns1/name1,http_route/ns2/name2", plain)
 	require.Empty(t, overflow)
+	require.False(t, truncated)
+}
+
+func TestFormatContributingOwnersTag(t *testing.T) {
+	// Empty keys
+	tag1, tag2, err := formatContributingOwnersTag(nil)
+	require.NoError(t, err)
+	require.Empty(t, tag1)
+	require.Empty(t, tag2)
+
+	// Small keys
+	tag1, tag2, err = formatContributingOwnersTag([]string{"key1", "key2"})
+	require.NoError(t, err)
+	require.Equal(t, "key1,key2", tag1)
+	require.Empty(t, tag2)
+
+	// Large keys that cause truncation
+	var keys []string
+	for i := 0; i < 50; i++ {
+		keys = append(keys, fmt.Sprintf("http_route/namespace-%d/name-%d", i, i))
+	}
+	_, _, err = formatContributingOwnersTag(keys)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "contributing owners count exceeds maximum tag capacity")
 }
 
 func TestParseContributingOwnersTag(t *testing.T) {
@@ -82,18 +111,21 @@ func TestAppendGatewayAndContributionTags(t *testing.T) {
 	tags := []model.Tag{{Scope: common.String("existing"), Tag: common.String("value")}}
 
 	// Empty gateway, empty contrib
-	out := appendGatewayAndContributionTags(tags, "", nil)
+	out, err := appendGatewayAndContributionTags(tags, "", nil)
+	require.NoError(t, err)
 	require.Len(t, out, 1)
 
 	// With gateway, empty contrib
-	out = appendGatewayAndContributionTags(tags, "gw-key", nil)
+	out, err = appendGatewayAndContributionTags(tags, "gw-key", nil)
+	require.NoError(t, err)
 	require.Len(t, out, 2)
 	require.Equal(t, common.TagScopeDNSRecordGatewayIndexList, *out[1].Scope)
 	require.Equal(t, "gw-key", *out[1].Tag)
 
 	// With contrib (small)
 	contribKeys := []string{"key1", "key2"}
-	out = appendGatewayAndContributionTags(tags, "", contribKeys)
+	out, err = appendGatewayAndContributionTags(tags, "", contribKeys)
+	require.NoError(t, err)
 	require.Len(t, out, 2)
 	require.Equal(t, common.TagScopeDNSRecordContributingOwners, *out[1].Scope)
 	require.Equal(t, "key1,key2", *out[1].Tag)
@@ -105,7 +137,7 @@ func TestParseContributingOwnersFromRecord(t *testing.T) {
 		keys = append(keys, fmt.Sprintf("http_route/namespace-%d/name-%d", i, i))
 	}
 
-	plain, overflow := joinAndPackStrings(keys)
+	plain, overflow, _ := joinAndPackStrings(keys)
 
 	rec := &model.DnsRecord{
 		Tags: []model.Tag{
@@ -126,34 +158,71 @@ func TestParseContributingOwnersFromRecord(t *testing.T) {
 	}
 }
 
-func TestReplaceContributingOwnersInTagsWithOverflow(t *testing.T) {
-	var keys []string
-	for i := 0; i < 50; i++ {
-		keys = append(keys, fmt.Sprintf("http_route/namespace-%d/name-%d", i, i))
-	}
-
+func TestReplaceContributingOwnersInTags(t *testing.T) {
 	tags := []model.Tag{
 		{Scope: common.String(common.TagScopeCluster), Tag: common.String("c1")},
+		{Scope: common.String(common.TagScopeDNSRecordContributingOwners), Tag: common.String("old_plain")},
+		{Scope: common.String(common.TagScopeDNSRecordAdditionalContributingOwners), Tag: common.String("old_overflow")},
 	}
 
-	out := replaceContributingOwnersInTags(tags, keys)
+	t.Run("normal replacement without overflow", func(t *testing.T) {
+		keys := []string{"http_route/ns1/name1"}
+		out, err := replaceContributingOwnersInTags(tags, keys)
+		require.NoError(t, err)
+		require.Len(t, out, 2)
+		require.Equal(t, common.TagScopeCluster, *out[0].Scope)
+		require.Equal(t, common.TagScopeDNSRecordContributingOwners, *out[1].Scope)
+		require.Equal(t, "http_route/ns1/name1", *out[1].Tag)
+	})
 
-	// Should have Cluster, ContributingOwners, and AdditionalContributingOwners tags
-	require.Len(t, out, 3)
-
-	hasPlain := false
-	hasOverflow := false
-	for _, tag := range out {
-		if *tag.Scope == common.TagScopeDNSRecordContributingOwners {
-			hasPlain = true
-			require.LessOrEqual(t, len(*tag.Tag), 255)
+	t.Run("replacement with overflow but no truncation", func(t *testing.T) {
+		// Generate enough keys to spill into the second tag, but not exceed both 255-byte limits.
+		// 10 keys of ~30 chars = ~300 chars.
+		var keys []string
+		for i := 0; i < 10; i++ {
+			keys = append(keys, fmt.Sprintf("http_route/namespace-%d/name-%d", i, i))
 		}
-		if *tag.Scope == common.TagScopeDNSRecordAdditionalContributingOwners {
-			hasOverflow = true
-			require.LessOrEqual(t, len(*tag.Tag), 255)
-		}
-	}
+		out, err := replaceContributingOwnersInTags(tags, keys)
+		require.NoError(t, err)
+		require.Len(t, out, 3)
 
-	require.True(t, hasPlain)
-	require.True(t, hasOverflow)
+		hasPlain := false
+		hasOverflow := false
+		for _, tag := range out {
+			if *tag.Scope == common.TagScopeDNSRecordContributingOwners {
+				hasPlain = true
+				require.LessOrEqual(t, len(*tag.Tag), 255)
+			}
+			if *tag.Scope == common.TagScopeDNSRecordAdditionalContributingOwners {
+				hasOverflow = true
+				require.LessOrEqual(t, len(*tag.Tag), 255)
+			}
+		}
+		require.True(t, hasPlain)
+		require.True(t, hasOverflow)
+	})
+
+	t.Run("replacement with truncation returns error", func(t *testing.T) {
+		// Generate huge number of keys to force truncation
+		var keys []string
+		for i := 0; i < 50; i++ {
+			keys = append(keys, fmt.Sprintf("http_route/namespace-%d/name-%d", i, i))
+		}
+		out, err := replaceContributingOwnersInTags(tags, keys)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "contributing owners count exceeds maximum tag capacity")
+		require.Nil(t, out)
+	})
+}
+
+func TestParseOwnerNNIndexKey(t *testing.T) {
+	cf, ns, n, ok := parseOwnerNNIndexKey("httproute/ns1/r1")
+	require.True(t, ok)
+	require.Equal(t, common.TagValueDNSRecordForHTTPRoute, cf)
+	require.Equal(t, "ns1", ns)
+	require.Equal(t, "r1", n)
+
+	// Invalid format
+	_, _, _, ok = parseOwnerNNIndexKey("invalid")
+	require.False(t, ok)
 }

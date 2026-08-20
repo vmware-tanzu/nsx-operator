@@ -4,6 +4,7 @@
 package dns
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 
@@ -53,15 +54,18 @@ func parseContributingOwnersTag(raw string) []string {
 	return out
 }
 
-func formatContributingOwnersTag(keys []string) (string, string) {
+func formatContributingOwnersTag(keys []string) (string, string, error) {
 	if len(keys) == 0 {
-		return "", ""
+		return "", "", nil
 	}
-	contributionTag, extraTag := joinAndPackStrings(keys)
+	contributionTag, extraTag, truncated := joinAndPackStrings(keys)
+	if truncated {
+		return "", "", fmt.Errorf("contributing owners count exceeds maximum tag capacity")
+	}
 	if len(extraTag) > 0 {
 		log.Info("Tag length exceeds dns_contributing_owners limit (255), putting remaining in dns_contributing_owners_ext")
 	}
-	return contributionTag, extraTag
+	return contributionTag, extraTag, nil
 }
 
 // mergeContributingOwnerKeys returns sorted unique contributing keys (excludes primaryNNKey).
@@ -123,12 +127,15 @@ func ownerNNIndexKeyForResourceRef(owner *ResourceRef) string {
 // appendGatewayAndContributionTags appends the optional GatewayIndexList and ContributingOwners tags
 // onto tags when their values are non-empty, returning the extended slice. The caller is
 // responsible for passing a slice it owns so this function may append to it directly.
-func appendGatewayAndContributionTags(tags []model.Tag, gwKey string, contribKeys []string) []model.Tag {
+func appendGatewayAndContributionTags(tags []model.Tag, gwKey string, contribKeys []string) ([]model.Tag, error) {
 	if gwKey = strings.TrimSpace(gwKey); gwKey != "" {
 		tags = append(tags, modelTag(common.TagScopeDNSRecordGatewayIndexList, gwKey))
 	}
 	if len(contribKeys) > 0 {
-		plain, overflow := formatContributingOwnersTag(contribKeys)
+		plain, overflow, err := formatContributingOwnersTag(contribKeys)
+		if err != nil {
+			return nil, err
+		}
 		if plain != "" {
 			tags = append(tags, modelTag(common.TagScopeDNSRecordContributingOwners, plain))
 		}
@@ -136,10 +143,10 @@ func appendGatewayAndContributionTags(tags []model.Tag, gwKey string, contribKey
 			tags = append(tags, modelTag(common.TagScopeDNSRecordAdditionalContributingOwners, overflow))
 		}
 	}
-	return tags
+	return tags, nil
 }
 
-func replaceContributingOwnersInTags(tags []model.Tag, newContribKeys []string) []model.Tag {
+func replaceContributingOwnersInTags(tags []model.Tag, newContribKeys []string) ([]model.Tag, error) {
 	out := make([]model.Tag, 0)
 	for _, t := range tags {
 		if t.Scope == nil {
@@ -151,7 +158,10 @@ func replaceContributingOwnersInTags(tags []model.Tag, newContribKeys []string) 
 		out = append(out, t)
 	}
 	if len(newContribKeys) > 0 {
-		plain, overflow := formatContributingOwnersTag(newContribKeys)
+		plain, overflow, err := formatContributingOwnersTag(newContribKeys)
+		if err != nil {
+			return nil, err
+		}
 		if plain != "" {
 			out = append(out, modelTag(common.TagScopeDNSRecordContributingOwners, plain))
 		}
@@ -159,14 +169,14 @@ func replaceContributingOwnersInTags(tags []model.Tag, newContribKeys []string) 
 			out = append(out, modelTag(common.TagScopeDNSRecordAdditionalContributingOwners, overflow))
 		}
 	}
-	return out
+	return out, nil
 }
 
 // joinAndPackStrings sorts and joins src strings into two comma-separated
 // chunks (primary and overflow), each strictly bounded to 255 bytes.
-func joinAndPackStrings(src []string) (string, string) {
+func joinAndPackStrings(src []string) (string, string, bool) {
 	if len(src) == 0 {
-		return "", ""
+		return "", "", false
 	}
 
 	sorted := slices.Clone(src)
@@ -212,5 +222,5 @@ func joinAndPackStrings(src []string) (string, string) {
 		log.Info("Tag length exceeds the extra tag's limit (255), truncating additional inputs")
 	}
 
-	return sb.String(), overflowSB.String()
+	return sb.String(), overflowSB.String(), truncated
 }
