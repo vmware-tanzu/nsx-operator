@@ -42,20 +42,24 @@ func filterTag(tags []model.Tag, tagScope string) []string {
 	return res
 }
 
-// indexBySecurityPolicyUID is used to get index of a resource, usually, which is the UID of the CR controller reconciles,
-// index is used to filter out resources which are related to the CR
-func indexBySecurityPolicyUID(obj interface{}) ([]string, error) {
-	switch o := obj.(type) {
-	case *model.SecurityPolicy:
-		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
-	case *model.Group:
-		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
-	case *model.Rule:
-		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
-	case *model.Share:
-		return filterTag(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
-	default:
-		return nil, errors.New("indexBySecurityPolicyUID doesn't support unknown type")
+// indexBySecurityPolicyUIDForScope returns an index function that uses the
+// SecurityPolicy UID scope owned by a specific service instance. T1 and VPC
+// services coexist in mixed mode, so the scope must not be read from mutable
+// process-wide state when the index function runs.
+func indexBySecurityPolicyUIDForScope(indexScope string) func(interface{}) ([]string, error) {
+	return func(obj interface{}) ([]string, error) {
+		switch o := obj.(type) {
+		case *model.SecurityPolicy:
+			return filterTag(o.Tags, indexScope), nil
+		case *model.Group:
+			return filterTag(o.Tags, indexScope), nil
+		case *model.Rule:
+			return filterTag(o.Tags, indexScope), nil
+		case *model.Share:
+			return filterTag(o.Tags, indexScope), nil
+		default:
+			return nil, errors.New("indexBySecurityPolicyUID doesn't support unknown type")
+		}
 	}
 }
 
@@ -135,12 +139,14 @@ func filterRuleHash(tags []model.Tag, indexScope string) []string {
 	return res
 }
 
-func indexSPByUUIDAndRuleHash(obj interface{}) ([]string, error) {
-	switch o := obj.(type) {
-	case *model.Rule:
-		return filterRuleHash(o.Tags, common.TagValueScopeSecurityPolicyUID), nil
-	default:
-		return nil, errors.New("indexSPByUUIDAndRuleHash doesn't support unknown type")
+func indexSPByUUIDAndRuleHashForScope(indexScope string) func(interface{}) ([]string, error) {
+	return func(obj interface{}) ([]string, error) {
+		switch o := obj.(type) {
+		case *model.Rule:
+			return filterRuleHash(o.Tags, indexScope), nil
+		default:
+			return nil, errors.New("indexSPByUUIDAndRuleHash doesn't support unknown type")
+		}
 	}
 }
 
