@@ -108,19 +108,20 @@ const (
 	TagScopeStatefulSetUID             string = "nsx-op/sts_uid"
 
 	// Tags and annotations for DNS record use case.
-	TagScopeDNSRecordFor                string = "nsx-op/dns_for" // value: gateway, service, xxroutes
-	TagScopeDNSRecordGatewayIndexList   string = "nsx-op/dns_gateway_index_list"
-	TagScopeDNSRecordOwnerNamespace     string = "nsx-op/dns_owner_namespace"
-	TagScopeDNSRecordOwnerName          string = "nsx-op/dns_owner_name"
-	TagScopeDNSRecordContributingOwners string = "nsx-op/dns_contributing_owners"
-	TagValueDNSRecordForGateway         string = "gateway"
-	TagValueDNSRecordForHTTPRoute       string = "httproute"
-	TagValueDNSRecordForGRPCRoute       string = "grpcroute"
-	TagValueDNSRecordForTLSRoute        string = "tlsroute"
-	TagValueDNSRecordForService         string = "service"
-	AnnotationDNSHostnameKey            string = "external-dns.alpha.kubernetes.io/hostname"
-	AnnotationDNSHostnameSourceKey      string = "external-dns.alpha.kubernetes.io/gateway-hostname-source"
-	AnnotationsDNSSkip                  string = "dns.nsx.vmware.com/skip"
+	TagScopeDNSRecordFor                          string = "nsx-op/dns_for" // value: gateway, service, xxroutes
+	TagScopeDNSRecordGatewayIndexList             string = "nsx-op/dns_gateway_index_list"
+	TagScopeDNSRecordOwnerNamespace               string = "nsx-op/dns_owner_namespace"
+	TagScopeDNSRecordOwnerName                    string = "nsx-op/dns_owner_name"
+	TagScopeDNSRecordContributingOwners           string = "nsx-op/dns_contributing_owners"
+	TagScopeDNSRecordAdditionalContributingOwners string = "nsx-op/dns_contributing_owners_ext"
+	TagValueDNSRecordForGateway                   string = "gateway"
+	TagValueDNSRecordForHTTPRoute                 string = "httproute"
+	TagValueDNSRecordForGRPCRoute                 string = "grpcroute"
+	TagValueDNSRecordForTLSRoute                  string = "tlsroute"
+	TagValueDNSRecordForService                   string = "service"
+	AnnotationDNSHostnameKey                      string = "external-dns.alpha.kubernetes.io/hostname"
+	AnnotationDNSHostnameSourceKey                string = "external-dns.alpha.kubernetes.io/gateway-hostname-source"
+	AnnotationsDNSSkip                            string = "dns.nsx.vmware.com/skip"
 
 	// TagScopePodIndex is the NSX tag scope for Pod label apps.kubernetes.io/pod-index when synced onto the port (not set in BuildBasicTags).
 	TagScopePodIndex   string = "apps.kubernetes.io/pod-index"

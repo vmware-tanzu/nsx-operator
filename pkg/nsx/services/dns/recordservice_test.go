@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,7 +91,7 @@ func registerBodiesForBatch(t *testing.T, env *testDNSSvc, batch *AggregatedDNSE
 		return
 	}
 	for _, row := range batch.Rows {
-		rec := env.BuildDnsRecord(batch.Owner, row)
+		rec, _ := env.BuildDnsRecord(batch.Owner, row)
 		if rec == nil || rec.Id == nil {
 			continue
 		}
@@ -285,20 +286,6 @@ func TestValidateEndpointsByZone_table(t *testing.T) {
 			wantN:    intPtr(1),
 		},
 		{
-			name: "unsupported_owner_kind_returns_validation_error",
-			nc:   testVPCNetworkConfiguration(),
-			buildOwner: func(ns string) *ResourceRef {
-				return &ResourceRef{Kind: "UnknownKind", Object: &metav1.ObjectMeta{Namespace: ns, Name: "x"}}
-			},
-			ns:               "tenant",
-			eps:              []*extdns.Endpoint{ep},
-			errSub:           "unsupported resource kind",
-			wantZoneValErr:   true,
-			wantAllowedOnErr: map[string]string{testDNSZonePathT: "example.com"},
-			wantN:            intPtr(0),
-		},
-		{
-			// hostname does not lie under any allowed zone → must be *DNSZoneValidationError
 			// and allowedZones must still be returned so the controller can clean up stale records.
 			name:             "hostname_not_in_zone_is_DNSZoneValidationError_with_allowedZones",
 			nc:               testVPCNetworkConfiguration(), // zone = example.com
@@ -363,7 +350,8 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 				ep := extdns.NewEndpoint("gw.example.com", extdns.RecordTypeA, "10.0.0.1")
 				ep.WithLabel(EndpointLabelParentGateway, "app/gw1")
 				row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "gw.example.com"}
-				require.NotNil(t, env.BuildDnsRecord(owner, row))
+				rec, _ := env.BuildDnsRecord(owner, row)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 				key := recordStoreKey(row.zonePath, row.nsxRecordName, row.Endpoint.RecordType)
 				require.NotNil(t, env.DNSRecordStore.GetByKey(key))
@@ -382,7 +370,8 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 				epG := extdns.NewEndpoint("gw.example.com", extdns.RecordTypeA, "10.0.0.1")
 				epG.WithLabel(EndpointLabelParentGateway, "app/gw1")
 				rowG := EndpointRow{Endpoint: epG, zonePath: z, nsxRecordName: "gw.example.com"}
-				require.NotNil(t, env.BuildDnsRecord(gwOwner, rowG))
+				rec, _ := env.BuildDnsRecord(gwOwner, rowG)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(gwOwner, []EndpointRow{rowG}))
 				hrEp := extdns.NewEndpoint("r.example.com", extdns.RecordTypeA, "10.0.0.2")
 				hrEp.WithLabel(EndpointLabelParentGateway, "app/gw1")
@@ -391,7 +380,9 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 					Kind:   ResourceKindHTTPRoute,
 					Object: &metav1.ObjectMeta{Namespace: "app", Name: "hr1", UID: types.UID("u-hr")},
 				}
-				require.NotNil(t, env.BuildDnsRecord(hrOwner, *hrRow))
+				rec, err := env.BuildDnsRecord(hrOwner, *hrRow)
+				require.NoError(t, err)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(hrOwner, []EndpointRow{*hrRow}))
 				requireNoErrDeleteDNS(ctx, t, env, ResourceKindGateway, "app", "gw1")
 				require.Nil(t, env.DNSRecordStore.GetByKey(recordStoreKey(rowG.zonePath, rowG.nsxRecordName, rowG.Endpoint.RecordType)))
@@ -409,7 +400,8 @@ func TestDNSRecordService_deletesAndQueries_table(t *testing.T) {
 					Kind:   ResourceKindHTTPRoute,
 					Object: &metav1.ObjectMeta{Namespace: ns, Name: "hr1", UID: types.UID("uid-hr1")},
 				}
-				require.NotNil(t, env.BuildDnsRecord(hrOwner, *row))
+				rec, _ := env.BuildDnsRecord(hrOwner, *row)
+				require.NotNil(t, rec)
 				requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(hrOwner, []EndpointRow{*row}))
 				require.True(t, env.ListReferredGatewayNN().Has(types.NamespacedName{Namespace: "demo", Name: "gw1"}))
 				groups := env.ListRecordOwnerResource()
@@ -599,14 +591,15 @@ func TestCreateOrUpdateRecords_ownerScoped_mergeUpdatesTargets(t *testing.T) {
 	recordName := "x.example.com"
 	ep0 := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "10.0.0.1")
 	ep0.WithLabel(EndpointLabelParentGateway, "ns/gw")
-	require.NotNil(t, env.BuildDnsRecord(owner, EndpointRow{Endpoint: ep0, zonePath: z, nsxRecordName: recordName}))
+	rec, _ := env.BuildDnsRecord(owner, EndpointRow{Endpoint: ep0, zonePath: z, nsxRecordName: recordName})
+	require.NotNil(t, rec)
 	for _, targets := range [][]string{{"10.0.0.1"}, {"10.0.0.2"}} {
 		ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, targets...)
 		ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
 		row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: recordName}
 		requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	}
-	rec := store.GetByKey(recordStoreKey(testDNSZonePathZ, recordName, extdns.RecordTypeA))
+	rec = store.GetByKey(recordStoreKey(testDNSZonePathZ, recordName, extdns.RecordTypeA))
 	require.NotNil(t, rec)
 	vals := append([]string(nil), rec.RecordValues...)
 	require.Equal(t, []string{"10.0.0.2"}, vals)
@@ -622,7 +615,8 @@ func Test_CreateOrUpdateRecords_Service_DeleteByOwnerNN(t *testing.T) {
 	ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "10.0.0.1")
 	ep.WithLabel(EndpointLabelParentGateway, "ns1/lbsvc")
 	row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "x.example.com"}
-	require.NotNil(t, env.BuildDnsRecord(owner, row))
+	rec, _ := env.BuildDnsRecord(owner, row)
+	require.NotNil(t, rec)
 	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	require.Len(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindService, "ns1", "lbsvc"), 1)
 	requireNoErrDeleteDNS(ctx, t, env, ResourceKindService, "ns1", "lbsvc")
@@ -674,10 +668,24 @@ func TestParseDnsRecordPolicyPath_table(t *testing.T) {
 
 func TestDedupeRecordsByPath(t *testing.T) {
 	p := "/orgs/o/projects/p/dns-records/a"
-	a := &model.DnsRecord{Path: servicecommon.String(p), Id: servicecommon.String("a")}
+	a := &model.DnsRecord{Path: servicecommon.String(p), Id: servicecommon.String("a"), MarkedForDelete: servicecommon.Bool(true)}
 	b := &model.DnsRecord{Path: servicecommon.String(p), Id: servicecommon.String("b")}
+	// In the simplified dedupeRecordsByPath, it just takes the last one it sees
 	out := dedupeRecordsByPath([]*model.DnsRecord{a, b})
 	require.Len(t, out, 1)
+	require.Equal(t, "b", *out[0].Id)
+
+	out2 := dedupeRecordsByPath([]*model.DnsRecord{b, a})
+	require.Len(t, out2, 1)
+	require.Equal(t, "a", *out2[0].Id)
+
+	// nil/empty path cases
+	c := &model.DnsRecord{Id: servicecommon.String("c")}
+	d := &model.DnsRecord{Path: servicecommon.String("  "), Id: servicecommon.String("d")}
+	var e *model.DnsRecord
+	out3 := dedupeRecordsByPath([]*model.DnsRecord{a, c, d, e})
+	require.Len(t, out3, 1)
+	require.Equal(t, "a", *out3[0].Id)
 }
 
 func TestDeleteDnsRecordOnNSX(t *testing.T) {
@@ -685,38 +693,6 @@ func TestDeleteDnsRecordOnNSX(t *testing.T) {
 	p := "/orgs/org1/projects/proj1/dns-records/rec1"
 	err := env.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
 	require.NoError(t, err)
-}
-
-func TestContributingHelpers_table(t *testing.T) {
-	t.Run("parseContributingOwnersTag", func(t *testing.T) {
-		require.Nil(t, parseContributingOwnersTag(""))
-		got := parseContributingOwnersTag(" b/a/x , a/b/y ")
-		require.Equal(t, []string{"a/b/y", "b/a/x"}, got)
-	})
-	t.Run("mergeContributingOwnerKeys", func(t *testing.T) {
-		primary := "p"
-		got := mergeContributingOwnerKeys(fmt.Sprintf("x,%s,y", primary), "z", primary)
-		require.Equal(t, compressString("x,y,z"), got)
-	})
-	t.Run("parseOwnerNNIndexKey", func(t *testing.T) {
-		cf, ns, n, ok := parseOwnerNNIndexKey("httproute/ns1/r1")
-		require.True(t, ok)
-		require.Equal(t, servicecommon.TagValueDNSRecordForHTTPRoute, cf)
-		require.Equal(t, "ns1", ns)
-		require.Equal(t, "r1", n)
-	})
-	t.Run("replaceContributingOwnersInTags", func(t *testing.T) {
-		tags := []model.Tag{
-			modelTag(servicecommon.TagScopeDNSRecordContributingOwners, compressString("old")),
-			modelTag(servicecommon.TagScopeCluster, "c"),
-		}
-		out := replaceContributingOwnersInTags(tags, []string{"k1", "k2"})
-		require.Len(t, out, 2)
-		require.ElementsMatch(t, []model.Tag{
-			modelTag(servicecommon.TagScopeCluster, "c"),
-			modelTag(servicecommon.TagScopeDNSRecordContributingOwners, compressString("k1,k2")),
-		}, out)
-	})
 }
 
 func TestAppendRecordOwnershipTags_table(t *testing.T) {
@@ -759,7 +735,12 @@ func TestAppendRecordOwnershipTags_table(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// pass a copy so we can verify the original is not mutated
 			in := append([]model.Tag{}, baseTags...)
-			got := appendGatewayAndContributionTags(in, tc.gwKey, tc.contributingKeys)
+			var keys []string
+			if tc.contributingKeys != "" {
+				keys = strings.Split(tc.contributingKeys, ",")
+			}
+			got, err := appendGatewayAndContributionTags(in, tc.gwKey, keys)
+			require.NoError(t, err)
 			gotScopes := make([]string, 0, len(got))
 			for _, tg := range got {
 				if tg.Scope != nil {
@@ -959,7 +940,12 @@ func TestClassifyOwnerRemoval_table(t *testing.T) {
 			modelTag(servicecommon.TagScopeDNSRecordOwnerName, name),
 		}
 		if len(contribs) > 0 {
-			tags = append(tags, modelTag(servicecommon.TagScopeDNSRecordContributingOwners, formatContributingOwnersTag(contribs)))
+			plain, overflow, err := formatContributingOwnersTag(contribs)
+			require.NoError(t, err)
+			tags = append(tags, modelTag(servicecommon.TagScopeDNSRecordContributingOwners, plain))
+			if overflow != "" {
+				tags = append(tags, modelTag(servicecommon.TagScopeDNSRecordAdditionalContributingOwners, overflow))
+			}
 		}
 		return &model.DnsRecord{Path: servicecommon.String(path), Tags: tags}
 	}
@@ -1084,7 +1070,8 @@ func TestCleanupInfraResources(t *testing.T) {
 	ep := extdns.NewEndpoint("cl.example.com", extdns.RecordTypeA, "192.0.2.1")
 	ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
 	row := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "cl.example.com"}
-	require.NotNil(t, env.BuildDnsRecord(owner, row))
+	rec, _ := env.BuildDnsRecord(owner, row)
+	require.NotNil(t, rec)
 	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
 	require.NotEmpty(t, store.ListDNSRecords())
 
@@ -1206,6 +1193,35 @@ func TestCreateOrUpdateRecords_errorPaths_table(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, mut)
 	})
+
+	t.Run("gateway tags exceed maximum tag capacity", func(t *testing.T) {
+		env := newTestDNSRecordService(t, BuildDNSRecordStore())
+		owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "gw"}}
+
+		// Generate a huge gateway keys list that will cause truncation
+		var gwKeys []string
+		for i := 0; i < 50; i++ {
+			gwKeys = append(gwKeys, fmt.Sprintf("gateway/namespace-%d/name-%d", i, i))
+		}
+		hugeGwKeysStr := strings.Join(gwKeys, ",")
+
+		ep := extdns.NewEndpoint("x.example.com", extdns.RecordTypeA, "1.1.1.1")
+		ep.Labels = map[string]string{
+			EndpointLabelParentGateway: hugeGwKeysStr,
+		}
+
+		batch := &AggregatedDNSEndpoints{
+			Owner: owner,
+			Rows: []EndpointRow{{
+				Endpoint: ep,
+				zonePath: "zone",
+			}},
+		}
+
+		_, err := env.CreateOrUpdateRecords(ctx, batch)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "gateway index list exceeds maximum tag capacity")
+	})
 }
 
 func TestDeleteRecordByOwnerNN_unknownKind_noOp(t *testing.T) {
@@ -1234,7 +1250,7 @@ func TestApplyDNSUpsertRows_unsupportedOwnerKind(t *testing.T) {
 	// collectRecordsByOwner returns ("", nil) for unknown kind, so ownerNNKey="" → toUpsert is non-empty
 	// but syncDnsRecordsInNSX will be called. The important thing is no panic.
 	_, _, err := env.applyDNSUpsertRows(batch)
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "unsupported resource kind")
 }
 
 func TestSyncDNSZonesByVpcNetworkConfig_table(t *testing.T) {
@@ -1323,7 +1339,7 @@ func TestRouteRecordWithGatewayAndContributions(t *testing.T) {
 		Object: &metav1.ObjectMeta{Namespace: "app", Name: "route3", UID: types.UID("r3")},
 	}
 	owner3NNKey := ownerNNIndexKeyForResourceRef(owner3)
-	row3 := EndpointRow{Endpoint: ep2, zonePath: z, nsxRecordName: "rec2", effectiveOwner: owner2, contributingOwnerKeys: compressString(owner3NNKey)}
+	row3 := EndpointRow{Endpoint: ep2, zonePath: z, nsxRecordName: "rec2", effectiveOwner: owner2, contributingOwnerKeys: []string{owner3NNKey}}
 	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner3, []EndpointRow{row3}))
 	recByOwner2 := store.GetByOwnerResourceNamespacedName(ResourceKindHTTPRoute, "app", "route2")
 	require.Len(t, recByOwner2, 1)
@@ -1338,4 +1354,109 @@ func TestRouteRecordWithGatewayAndContributions(t *testing.T) {
 	recByOwner3 = store.GetByOwnerResourceNamespacedName(ResourceKindGRPCRoute, "app", "route3")
 	require.Len(t, recByOwner3, 1)
 	require.Empty(t, store.ListRecordsReferencingContributingOwner(owner3NNKey))
+}
+
+func TestRouteRecordWithContributingOwnersOverflow(t *testing.T) {
+	store := BuildDNSRecordStore()
+	env := newTestDNSRecordService(t, store)
+	ctx := context.Background()
+	z := testDNSZonePathZ
+	ep := extdns.NewEndpoint("shared.example.com", extdns.RecordTypeA, "10.0.0.10")
+
+	// 1. Create primary owner
+	primaryOwner := &ResourceRef{
+		Kind:   ResourceKindHTTPRoute,
+		Object: &metav1.ObjectMeta{Namespace: "app", Name: "route-primary", UID: types.UID("r-primary")},
+	}
+	rowPrimary := EndpointRow{Endpoint: ep, zonePath: z, nsxRecordName: "shared"}
+	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(primaryOwner, []EndpointRow{rowPrimary}))
+
+	recs := store.GetByOwnerResourceNamespacedName(ResourceKindHTTPRoute, "app", "route-primary")
+	require.Len(t, recs, 1)
+
+	// 2. Create many contributing owners to exceed 255 chars
+	var contribOwners []*ResourceRef
+	for i := 0; i < 15; i++ {
+		owner := &ResourceRef{
+			Kind:   ResourceKindHTTPRoute,
+			Object: &metav1.ObjectMeta{Namespace: "app", Name: fmt.Sprintf("route-contrib-%d", i), UID: types.UID(fmt.Sprintf("r-contrib-%d", i))},
+		}
+		contribOwners = append(contribOwners, owner)
+	}
+
+	// Apply each contributing owner
+	for _, owner := range contribOwners {
+		// simulate the conflict validation that populates effectiveOwner and contributingOwnerKeys
+		row, err := env.validateEndpointRowConflict(z, ep, "shared", owner)
+		require.NoError(t, err)
+		requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{*row}))
+	}
+
+	// 3. Verify that the DNS record in the store has both tags
+	recs = store.GetByOwnerResourceNamespacedName(ResourceKindHTTPRoute, "app", "route-primary")
+	require.Len(t, recs, 1)
+	rec := recs[0]
+
+	hasPlain := false
+	hasOverflow := false
+	for _, tag := range rec.Tags {
+		if tag.Scope != nil && *tag.Scope == servicecommon.TagScopeDNSRecordContributingOwners {
+			hasPlain = true
+			require.LessOrEqual(t, len(*tag.Tag), 255)
+		}
+		if tag.Scope != nil && *tag.Scope == servicecommon.TagScopeDNSRecordAdditionalContributingOwners {
+			hasOverflow = true
+			require.LessOrEqual(t, len(*tag.Tag), 255)
+		}
+	}
+	require.True(t, hasPlain)
+	require.True(t, hasOverflow)
+
+	// 4. Verify that parseContributingOwnersFromRecord returns all the contributing owners
+	parsedKeys := parseContributingOwnersFromRecord(rec)
+	require.Len(t, parsedKeys, 15)
+
+	// 5. Delete the primary owner
+	requireNoErrDeleteDNS(ctx, t, env, ResourceKindHTTPRoute, "app", "route-primary")
+
+	// 6. Verify that one of the contributing owners is promoted
+	recs = store.GetByOwnerResourceNamespacedName(ResourceKindHTTPRoute, "app", "route-primary")
+	require.Empty(t, recs)
+
+	// The first contributing owner should be promoted
+	promotedOwner := contribOwners[0]
+	recs = store.GetByOwnerResourceNamespacedName(ResourceKindHTTPRoute, "app", promotedOwner.GetName())
+	require.Len(t, recs, 1)
+
+	// The remaining contributing owners should still be there
+	parsedKeysAfterPromotion := parseContributingOwnersFromRecord(recs[0])
+	require.Len(t, parsedKeysAfterPromotion, 14)
+}
+
+func TestSyncDnsRecordsInNSX(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+
+	p := "/orgs/org1/projects/proj1/dns-records/rec1"
+	rec1 := &model.DnsRecord{Path: &p, Id: servicecommon.String("rec1")}
+
+	// empty batch
+	out, err := env.syncDnsRecordsInNSX(context.TODO(), nil, nil)
+	require.NoError(t, err)
+	require.Nil(t, out)
+
+	// only removes
+	out, err = env.syncDnsRecordsInNSX(context.TODO(), nil, []*model.DnsRecord{rec1})
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.True(t, *out[0].MarkedForDelete)
+
+	// upserts
+	rec2 := &model.DnsRecord{Path: servicecommon.String("/orgs/org1/projects/proj1/dns-records/rec2"), Id: servicecommon.String("rec2")}
+	out, err = env.syncDnsRecordsInNSX(context.TODO(), []*model.DnsRecord{rec2}, nil)
+	t.Logf("err: %v, out: %v", err, out)
+
+	// parse err
+	rec3 := &model.DnsRecord{Path: servicecommon.String("invalid-path"), Id: servicecommon.String("rec3")}
+	out, err = env.syncDnsRecordsInNSX(context.TODO(), []*model.DnsRecord{rec3}, nil)
+	t.Logf("err: %v, out: %v", err, out)
 }

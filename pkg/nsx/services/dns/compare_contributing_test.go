@@ -144,7 +144,7 @@ func TestResourceRefFromDNSRecord_table(t *testing.T) {
 	}
 }
 
-func TestPrimaryOwnerNNIndexKeyFromRecord_table(t *testing.T) {
+func TestGetDNSRecordOwnerNamespacedName(t *testing.T) {
 	tests := []struct {
 		name    string
 		rec     *model.DnsRecord
@@ -176,7 +176,7 @@ func TestPrimaryOwnerNNIndexKeyFromRecord_table(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.wantKey, primaryOwnerNNIndexKeyFromRecord(tc.rec))
+			require.Equal(t, tc.wantKey, getDNSRecordOwnerNamespacedName(tc.rec))
 		})
 	}
 }
