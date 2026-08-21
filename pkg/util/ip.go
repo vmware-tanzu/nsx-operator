@@ -264,3 +264,34 @@ func IPAddressTypeIncludesIPv6(ipType v1alpha1.IPAddressType) bool {
 func IPAddressTypeIncludesIPv4(ipType v1alpha1.IPAddressType) bool {
 	return ipType != v1alpha1.IPAddressTypeIPv6
 }
+
+// StaticIPAllocationTypeIncludesIPv4 reports whether the given StaticIPAllocationType requests
+// static allocation of IPv4 addresses (i.e. IPv4-only or dual-stack).
+func StaticIPAllocationTypeIncludesIPv4(allocationType v1alpha1.StaticIPAllocationType) bool {
+	return allocationType == v1alpha1.StaticIPAllocationTypeIPv4 || allocationType == v1alpha1.StaticIPAllocationTypeIPv4IPv6
+}
+
+// StaticIPAllocationTypeIncludesIPv6 reports whether the given StaticIPAllocationType requests
+// static allocation of IPv6 addresses (i.e. IPv6-only or dual-stack).
+func StaticIPAllocationTypeIncludesIPv6(allocationType v1alpha1.StaticIPAllocationType) bool {
+	return allocationType == v1alpha1.StaticIPAllocationTypeIPv6 || allocationType == v1alpha1.StaticIPAllocationTypeIPv4IPv6
+}
+
+// CountAddressBindingsByFamily returns the number of IPv4 and IPv6 addresses requested by the
+// given PortAddressBindings. A binding with no IPAddress set (pool-allocated) is counted as
+// IPv4, matching NSX's behavior of always allocating pool-based bindings from the IPv4 pool.
+func CountAddressBindingsByFamily(addressBindings []v1alpha1.PortAddressBinding) (ipv4Count, ipv6Count int) {
+	for _, binding := range addressBindings {
+		if binding.IPAddress == "" {
+			ipv4Count++
+			continue
+		}
+		ip := net.ParseIP(binding.IPAddress)
+		if ip != nil && ip.To4() == nil {
+			ipv6Count++
+		} else {
+			ipv4Count++
+		}
+	}
+	return ipv4Count, ipv6Count
+}

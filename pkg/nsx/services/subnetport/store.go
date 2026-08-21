@@ -141,15 +141,25 @@ type SubnetPortStore struct {
 }
 
 type CountInfo struct {
-	// dirtyCount defines the number of SubnetPorts under creation in the Subnet (IPv4)
-	dirtyCount int
-	// dirtyCountIPv6 defines the number of SubnetPorts under creation in the Subnet (IPv6)
-	dirtyCountIPv6 int
-	lock           sync.Mutex
-	// totalIP defines the number of available IPv4 in the Subnet
-	totalIP int
-	// totalIPv6 defines the number of available IPv6 in the Subnet
-	totalIPv6          int
+	// dirtyDhcpCount/dirtyStaticCount defines the number of IPv4 addresses requested by
+	// SubnetPorts under creation in the Subnet, split by the pool the address is allocated
+	// from. On a non-mixed-mode Subnet only one of the two pools exists and is used.
+	dirtyDhcpCount   int
+	dirtyStaticCount int
+	// dirtyDhcpCountIPv6/dirtyStaticCountIPv6 are the IPv6 equivalents of the above.
+	dirtyDhcpCountIPv6   int
+	dirtyStaticCountIPv6 int
+	lock                 sync.Mutex
+	// totalDhcpIP/totalStaticIP defines the number of available IPv4 in the Subnet's DHCP
+	// pool and static IP pool respectively.
+	totalDhcpIP   int
+	totalStaticIP int
+	// totalDhcpIPv6/totalStaticIPv6 are the IPv6 equivalents of totalDhcpIP/totalStaticIP.
+	// totalDhcpIPv6 is only populated on NSX versions that expose DHCPv6 pool statistics
+	// via dhcp-server-config-stats (see checkIPv6Capacity); on older versions the
+	// DHCPv6-sourced capacity check is skipped and this field stays unused.
+	totalDhcpIPv6      int
+	totalStaticIPv6    int
 	exhaustedCheckTime time.Time
 }
 

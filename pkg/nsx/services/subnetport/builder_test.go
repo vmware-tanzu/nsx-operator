@@ -1659,3 +1659,77 @@ func TestBuildSubnetPortMACVersionGating(t *testing.T) {
 		assert.Equal(t, "aa:bb:cc:dd:ee:ff", *port.AddressBindings[0].MacAddress)
 	}
 }
+
+// TestBuildSubnetPortMultipleSameMACBindings verifies spec 2.4.3 (Blueprint VM
+// creation): a SubnetPort can carry more than 2 addressBindings entries sharing one
+// MAC address, with a mix of explicit and omitted IPs, and buildSubnetPort passes
+// all of them through to NSX unchanged (NSX itself enforces MAC consistency and
+// fills in omitted IPs from the pool).
+func TestBuildSubnetPortMultipleSameMACBindings(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	nsxClient := &nsx.Client{}
+	tr := true
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client:    k8sClient,
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+					VpcWcpEnhance:    &tr,
+				},
+				CoeConfig: &config.CoeConfig{Cluster: "fake_cluster"},
+			},
+		},
+		SubnetPortStore: setupStore(),
+	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool { return true })
+	defer patches.Reset()
+
+	ctx := context.Background()
+	namespace := &corev1.Namespace{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), namespace).Return(nil).Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			return nil
+		}).AnyTimes()
+
+	staticEnabled := &tr
+	staticSubnet := &model.VpcSubnet{
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: staticEnabled},
+		},
+		Path: common.String("fake_path"),
+	}
+
+	sp := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7acd",
+			Name:      "fake_subnetport_multi",
+			Namespace: "fake_ns",
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{IPAddress: "10.0.0.2", MACAddress: "00:11:22:33:44:55"},
+				{IPAddress: "10.0.0.3", MACAddress: "00:11:22:33:44:55"},
+				{MACAddress: "00:11:22:33:44:55"}, // IP omitted: allocated from pool by NSX
+			},
+		},
+	}
+
+	port, err := service.buildSubnetPort(sp, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Nil(t, err)
+	// staticIPAllocationType set + MAC specified -> IP_POOL (allocate omitted IPs, use specified MAC).
+	assert.Equal(t, "IP_POOL", *port.Attachment.AllocateAddresses)
+	if assert.Len(t, port.AddressBindings, 3) {
+		assert.Equal(t, "10.0.0.2", *port.AddressBindings[0].IpAddress)
+		assert.Equal(t, "00:11:22:33:44:55", *port.AddressBindings[0].MacAddress)
+		assert.Equal(t, "10.0.0.3", *port.AddressBindings[1].IpAddress)
+		assert.Equal(t, "00:11:22:33:44:55", *port.AddressBindings[1].MacAddress)
+		assert.Nil(t, port.AddressBindings[2].IpAddress)
+		assert.Equal(t, "00:11:22:33:44:55", *port.AddressBindings[2].MacAddress)
+	}
+}
