@@ -84,6 +84,9 @@ spec:
                 - IPv6
                 - IPv4IPv6
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               portSettingName:
                 description: Name of PortSetting associated with this SubnetPort.
                 type: string
@@ -101,6 +104,9 @@ spec:
                 - IPv4IPv6
                 - None
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               subnet:
                 description: Subnet defines the parent Subnet name of the SubnetPort.
                 type: string
@@ -112,6 +118,10 @@ spec:
             - message: Only one of subnet or subnetSet can be specified or both set
                 to empty in which case default SubnetSet for VM will be used
               rule: '!has(self.subnetSet) || !has(self.subnet)'
+            - message: interfaceIPType is required once set
+              rule: '!has(oldSelf.interfaceIPType) || has(self.interfaceIPType)'
+            - message: staticIPAllocationType is required once set
+              rule: '!has(oldSelf.staticIPAllocationType) || has(self.staticIPAllocationType)'
           status:
             description: SubnetPortStatus defines the observed state of SubnetPort.
             properties:
@@ -191,6 +201,9 @@ spec:
                 type: object
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: spec is required once set
+          rule: '!has(oldSelf.spec) || has(self.spec)'
     selectableFields:
     - jsonPath: .spec.subnet
     served: true
