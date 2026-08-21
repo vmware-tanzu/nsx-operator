@@ -84,6 +84,10 @@ const (
 	TagScopeSubnetBindingCRUID         string = "nsx-op/subnetbinding_uid"
 	TagScopeSubnetIPReservationCRUID   string = "nsx-op/subnetipreservation_uid"
 	TagScopeSubnetIPReservationCRName  string = "nsx-op/subnetipreservation_name"
+	TagScopeServiceEndpointCRName      string = "nsx-op/serviceendpoint_name"
+	TagScopeServiceEndpointCRUID       string = "nsx-op/serviceendpoint_uid"
+	TagScopeVPCEndpointCRName          string = "nsx-op/vpcendpoint_name"
+	TagScopeVPCEndpointCRUID           string = "nsx-op/vpcendpoint_uid"
 	TagValueGroupScope                 string = "scope"
 	TagValueGroupSource                string = "source"
 	TagValueGroupDestination           string = "destination"
@@ -149,6 +153,7 @@ const (
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
 	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
+	ServiceEndpointFinalizerName   = "serviceendpoint.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetPath          = "IndexKeySubnetPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
@@ -248,6 +253,8 @@ var (
 	ResourceTypeSubnet              = "VpcSubnet"
 	ResourceTypeIPPool              = "IpAddressPool"
 	ResourceTypeIPAddressAllocation = "VpcIpAddressAllocation"
+	ResourceTypeVpcEndpoint         = "VpcEndpoint"
+	ResourceTypeVpcServiceEndpoint  = "VpcServiceEndpoint"
 	ResourceTypeIPPoolBlockSubnet   = "IpAddressPoolBlockSubnet"
 	ResourceTypeNode                = "HostTransportNode"
 
