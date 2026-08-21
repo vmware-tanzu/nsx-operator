@@ -241,56 +241,59 @@ func (cluster *Cluster) getCaFile(addr string) string {
 	return cafile
 }
 
+func (cluster *Cluster) getDialTLSContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
+		var config *tls.Config
+		cafile := cluster.getCaFile(addr)
+		caCount := len(cluster.config.CAFile)
+		log.Info("Create Transport", "ca file", cafile, "caCount", caCount)
+		if caCount > 0 {
+			caCert, err := os.ReadFile(cafile)
+			if err != nil {
+				log.Error(err, "Create transport", "read ca file", cafile)
+				return nil, err
+			}
+
+			config, err = util.GetTLSConfigForCert(caCert, cluster.config.IsLeafCert)
+			if err != nil {
+				log.Error(err, "Create transport", "get TLS config from cert", cafile)
+				return nil, err
+			}
+		} else {
+			thumbprint := cluster.getThumbprint(addr)
+			tpCount := len(cluster.config.Thumbprint)
+			log.Info("Create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
+			// #nosec G402: ignore insecure options
+			config = &tls.Config{
+				InsecureSkipVerify: true,
+				VerifyConnection: func(cs tls.ConnectionState) error {
+					// not check thumbprint if no thumbprint config
+					if tpCount > 0 {
+						if err := util.VerifyNsxCertWithThumbprint(cs.PeerCertificates[0].Raw, thumbprint); err != nil {
+							return err
+						}
+					}
+					return nil
+				},
+			}
+		}
+		conn, err := tls.Dial(network, addr, config)
+		if err != nil {
+			log.Error(err, "Failed to do transport connect to", "addr", addr)
+			return nil, err
+
+		}
+		return conn, nil
+	}
+}
+
 func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 	tr := &http.Transport{
 		IdleConnTimeout: idle * time.Second,
 	}
 	log.Info("Cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
 	if !cluster.config.Insecure {
-		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
-			var config *tls.Config
-			cafile := cluster.getCaFile(addr)
-			caCount := len(cluster.config.CAFile)
-			log.Info("Create Transport", "ca file", cafile, "caCount", caCount)
-			if caCount > 0 {
-				caCert, err := os.ReadFile(cafile)
-				if err != nil {
-					log.Error(err, "Create transport", "read ca file", cafile)
-					return nil, err
-				}
-
-				config, err = util.GetTLSConfigForCert(caCert)
-				if err != nil {
-					log.Error(err, "Create transport", "get TLS config from cert", cafile)
-					return nil, err
-				}
-			} else {
-				thumbprint := cluster.getThumbprint(addr)
-				tpCount := len(cluster.config.Thumbprint)
-				log.Info("Create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
-				// #nosec G402: ignore insecure options
-				config = &tls.Config{
-					InsecureSkipVerify: true,
-					VerifyConnection: func(cs tls.ConnectionState) error {
-						// not check thumbprint if no thumbprint config
-						if tpCount > 0 {
-							if err := util.VerifyNsxCertWithThumbprint(cs.PeerCertificates[0].Raw, thumbprint); err != nil {
-								return err
-							}
-						}
-						return nil
-					},
-				}
-			}
-			conn, err := tls.Dial(network, addr, config)
-			if err != nil {
-				log.Error(err, "Failed to do transport connect to", "addr", addr)
-				return nil, err
-
-			}
-			return conn, nil
-		}
-		tr.DialTLSContext = dial
+		tr.DialTLSContext = cluster.getDialTLSContext()
 	} else {
 		// #nosec G402: ignore insecure options
 		tr.TLSClientConfig = &tls.Config{
@@ -308,11 +311,16 @@ func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) *
 }
 
 func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) *http.Client {
-	// #nosec G402: ignore insecure options
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
 	transport := &http.Transport{
-		TLSClientConfig: &tlsConfig,
 		IdleConnTimeout: idle * time.Second,
+	}
+	if !cluster.config.Insecure {
+		transport.DialTLSContext = cluster.getDialTLSContext()
+	} else {
+		// #nosec G402: ignore insecure options
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
 	}
 	noBClient := http.Client{
 		Transport: transport,
