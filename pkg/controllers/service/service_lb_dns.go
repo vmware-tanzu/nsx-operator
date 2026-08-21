@@ -35,7 +35,7 @@ const (
 	reasonServiceDNSRecordFailed     = "DNSRecordFailed"
 )
 
-// parseDNSHostnamesFromAnnotation returns trimmed unique FQDNs from nsx.vmware.com/hostname using the same
+// parseDNSHostnamesFromAnnotation returns trimmed unique FQDNs from external-dns.alpha.kubernetes.io/hostname using the same
 // gateway-hostname-source + hostname annotation path as Gateway direct DNS (comma-separated tokens are supported).
 func parseDNSHostnamesFromAnnotation(annotations map[string]string) []string {
 	if len(annotations) == 0 {
