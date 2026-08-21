@@ -451,15 +451,17 @@ func TestSubnetService_GetSubnetByCR(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		patches := tc.prepareFunc()
-		subnets, err := service.GetSubnetByCR(tc.subnetCR)
-		if tc.expectedErr != "" {
-			assert.Contains(t, err.Error(), tc.expectedErr)
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, tc.expectedSubnet, subnets)
-		}
-		patches.Reset()
+		t.Run(tc.name, func(t *testing.T) {
+			patches := tc.prepareFunc()
+			defer patches.Reset()
+			subnets, err := service.GetSubnetByCR(tc.subnetCR)
+			if tc.expectedErr != "" {
+				assert.Contains(t, err.Error(), tc.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tc.expectedSubnet, subnets)
+			}
+		})
 	}
 }
 
@@ -1071,6 +1073,42 @@ func TestBuildSubnetCR(t *testing.T) {
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    common.Bool(true),
 							PoolRanges: []string{"172.26.0.10-172.26.0.12"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:           "Build Subnet CR with Description",
+			ns:             "test-ns",
+			subnetName:     "test-subnet-desc",
+			vpcFullID:      "proj-1:vpc-1",
+			associatedName: "proj-1:vpc-1:test-subnet-desc",
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Private"),
+				Ipv4SubnetSize: common.Int64(24),
+				Description:    common.String("Subnet description text"),
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet-desc",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "proj-1:vpc-1:test-subnet-desc",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName:        "proj-1:vpc-1",
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+					IPv4SubnetSize: 24,
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					Description:    "Subnet description text",
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(false),
 						},
 					},
 				},

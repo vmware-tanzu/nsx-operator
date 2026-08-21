@@ -70,6 +70,7 @@ func (subnet *Subnet) Value() data.DataValue {
 		SubnetDhcpv6Config: subnetDhcpv6Config,
 		IpAddressType:      subnet.IpAddressType,
 		AdvancedConfig:     advancedConfig,
+		Description:        subnet.Description,
 	}
 	dataValue, _ := (*model.VpcSubnet)(s).GetDataValue__()
 	return dataValue
