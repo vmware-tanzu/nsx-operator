@@ -58,9 +58,10 @@ var (
 )
 
 var (
-	vmOrInterfaceNotFoundError  = fmt.Errorf("VM or interface not found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
-	subnetPortRealizationError  = fmt.Errorf("SubnetPort realization error") //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
-	multipleInterfaceFoundError = fmt.Errorf("multiple interfaces found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	vmOrInterfaceNotFoundError          = fmt.Errorf("VM or interface not found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	subnetPortRealizationError          = fmt.Errorf("SubnetPort realization error") //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	multipleInterfaceFoundError         = fmt.Errorf("multiple interfaces found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	errorAddressBindingIPv6NotSupported = fmt.Errorf("address binding is not supported for IPv6")
 )
 
 // SubnetPortReconciler reconciles a SubnetPort object
@@ -164,7 +165,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if nsxSubnet != nil && nsxSubnet.IpAddressType != nil {
 				parentIPAddressType = common.ConvertNSXIPAddressTypeToCR(*nsxSubnet.IpAddressType)
 			}
-			interfaceIPType = subnetport.GetDefaultInterfaceIPType(interfaceIPType, parentIPAddressType)
+			interfaceIPType, err = subnetport.GetDefaultInterfaceIPType(interfaceIPType, parentIPAddressType)
+			if err != nil {
+				return common.ResultNormal, err
+			}
 		}
 		err = r.updateSubnetPortIPType(ctx, subnetPort, interfaceIPType, nsxSubnet)
 		if err != nil {
@@ -185,11 +189,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			(*labels)[servicecommon.LabelImageFetcher] = "true"
 		}
-		ab := r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
-		err = r.IpAddressAllocationService.CreateIPAddressAllocationForAddressBinding(ab, subnetPort, r.restoreMode)
-		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
-			return common.ResultRequeue, err
+		var ab *v1alpha1.AddressBinding
+		if interfaceIPType != v1alpha1.IPAddressTypeIPv6 {
+			ab = r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
+			err = r.IpAddressAllocationService.CreateIPAddressAllocationForAddressBinding(ab, subnetPort, r.restoreMode)
+			if err != nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+				return common.ResultRequeue, err
+			}
 		}
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
 		if err != nil {
@@ -973,7 +980,11 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		var canAllocate bool
-		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetCR.Spec.IPAddressType)
+
+		interfaceType, err = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetCR.Spec.IPAddressType)
+		if err != nil {
+			return
+		}
 		staticIPAllocationType = common.ResolveEffectiveStaticIPAllocationType(subnetPort.Spec.StaticIPAllocationType, nsxSubnet, interfaceType)
 		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceType, staticIPAllocationType, subnetPort.Spec.AddressBindings)
 		if err != nil {
@@ -1003,7 +1014,10 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("Waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
 			return
 		}
-		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
+		interfaceType, err = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
+		if err != nil {
+			return
+		}
 		log.Info("Got SubnetSet for SubnetPort CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
 		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
@@ -1026,7 +1040,10 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		log.Info("Got default SubnetSet for SubnetPort CR, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		interfaceType = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
+		interfaceType, err = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
+		if err != nil {
+			return
+		}
 		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
 		if err != nil {
 			return
@@ -1357,17 +1374,21 @@ func (r *SubnetPortReconciler) collectAddressBindingGarbage(ctx context.Context,
 
 func setAddressBindingStatusBySubnetPort(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 	ipAddress := ""
-	nsxSubnetPort, err := subnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
-	if err != nil {
-		log.Error(err, "Failed to get VpcSubnetPort from cache using SubnetPort CR", "CR UID", subnetPort.UID)
-		e = err
-	} else if nsxSubnetPort == nil {
-		log.Info("Missing SubnetPort", "id", subnetPort.UID)
-		if e == nil {
-			e = vmOrInterfaceNotFoundError
+	if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv6 {
+		e = errorAddressBindingIPv6NotSupported
+	} else {
+		nsxSubnetPort, err := subnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
+		if err != nil {
+			log.Error(err, "Failed to get VpcSubnetPort from cache using SubnetPort CR", "CR UID", subnetPort.UID)
+			e = err
+		} else if nsxSubnetPort == nil {
+			log.Info("Missing SubnetPort", "id", subnetPort.UID)
+			if e == nil {
+				e = vmOrInterfaceNotFoundError
+			}
+		} else if nsxSubnetPort.ExternalAddressBinding != nil && nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != nil {
+			ipAddress = *nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress
 		}
-	} else if nsxSubnetPort.ExternalAddressBinding != nil && nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != nil {
-		ipAddress = *nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress
 	}
 	ab := subnetPortService.GetAddressBindingBySubnetPort(subnetPort)
 	if ab == nil {

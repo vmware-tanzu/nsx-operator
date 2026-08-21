@@ -308,6 +308,10 @@ func getCluster(service *SubnetPortService) string {
 }
 
 func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort, restoreMode bool) (*model.ExternalAddressBinding, error) {
+	if sp.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv6 {
+		// IPv6 is not supported in ExternalAddressBinding
+		return nil, nil
+	}
 	addressBinding := service.GetAddressBindingBySubnetPort(sp)
 	if addressBinding == nil {
 		return nil, nil

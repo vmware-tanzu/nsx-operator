@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -895,12 +896,18 @@ func (service *SubnetPortService) GetAllVIFs() (*VifStore, error) {
 // when interfaceIPType is not set,
 // the default value is IPv4 if parent Subnet/SubnetSet IPAddressType is IPv4 or IPv4IPv6;
 // the default value is IPv6 if parent Subnet/SubnetSet IPAddressType is IPv6.
-func GetDefaultInterfaceIPType(interfaceIPType v1alpha1.IPAddressType, parentIPAddressType v1alpha1.IPAddressType) v1alpha1.IPAddressType {
+func GetDefaultInterfaceIPType(interfaceIPType v1alpha1.IPAddressType, parentIPAddressType v1alpha1.IPAddressType) (v1alpha1.IPAddressType, error) {
 	if interfaceIPType != "" {
-		return interfaceIPType
+		if parentIPAddressType == "" {
+			return "", fmt.Errorf("Subnet/SubnetSet IPAddressType is not determined")
+		}
+		if !controllercommon.IsSupersetIPAddressTypes(parentIPAddressType, interfaceIPType) {
+			return "", fmt.Errorf("Subnet/SubnetSet IPAddressType %q is not a superset of interfaceIPType %q", parentIPAddressType, interfaceIPType)
+		}
+		return interfaceIPType, nil
 	}
 	if parentIPAddressType == v1alpha1.IPAddressTypeIPv6 {
-		return v1alpha1.IPAddressTypeIPv6
+		return v1alpha1.IPAddressTypeIPv6, nil
 	}
-	return v1alpha1.IPAddressTypeIPv4
+	return v1alpha1.IPAddressTypeIPv4, nil
 }
