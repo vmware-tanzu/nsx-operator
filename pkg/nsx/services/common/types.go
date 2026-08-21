@@ -60,6 +60,7 @@ const (
 	TagScopeAddressBindingCRUID        string = "nsx-op/addressbinding_uid"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
+	TagScopeNativeGroupType            string = "nsx-op/native_group"
 	TagScopeManagedBy                  string = "nsx/managed-by"
 	TagScopeEnable                     string = "ENABLED"
 	AutoCreatedTagValue                string = "nsx-op"
@@ -179,6 +180,11 @@ const (
 	// PathSegmentDnsRecords is the NSX Policy URL path segment for project-scoped DNS records
 	// (full path: /orgs/{org}/projects/{project}/dns-records/{id}). Must match PolicyResourceDnsRecord.PathKey.
 	PathSegmentDnsRecords = "dns-records"
+
+	MemberTypeNamespace      = "Namespace"
+	MemberTypeVirtualMachine = "VirtualMachine"
+	VMTypePod                = "POD"
+	VMTypeRegular            = "REGULAR"
 )
 
 var (
