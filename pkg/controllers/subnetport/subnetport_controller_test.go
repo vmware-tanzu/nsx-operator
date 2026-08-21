@@ -215,6 +215,38 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		assert.Equal(t, err, ret)
 	})
 
+	// GetDefaultInterfaceIPType in Reconcile fails
+	t.Run("failed with GetDefaultInterfaceIPType error", func(t *testing.T) {
+		err := errors.New("mocked interface type error in reconcile")
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "subnet-path-1", nil, nil, "", "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+
+		patchesGetDefaultInterfaceIPType := gomonkey.ApplyFunc(subnetport.GetDefaultInterfaceIPType,
+			func(interfaceIPType v1alpha1.IPAddressType, parentIPAddressType v1alpha1.IPAddressType) (v1alpha1.IPAddressType, error) {
+				return "", err
+			})
+		defer patchesGetDefaultInterfaceIPType.Reset()
+
+		// 1st: Reconciler fetching the resource
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Spec.Subnet = "subnet1"
+				return nil
+			})
+
+		_, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, err, ret)
+	})
+
 	// getVirtualMachine fails
 	t.Run("failed with getVirtualMachine", func(t *testing.T) {
 		err := errors.New("getVirtualMachine failed")
@@ -3092,6 +3124,35 @@ func TestSubnetPortReconciler_setAddressBindingStatusBySubnetPort(t *testing.T) 
 			},
 			args: args{
 				subnetPort:     &v1alpha1.SubnetPort{},
+				transitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+				e:              nil,
+			},
+		},
+		{
+			name: "IPv6SubnetPort",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.SubnetPortStore), "GetVpcSubnetPortByUID",
+					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return nil, nil
+					})
+				patches.ApplyMethodSeq(r.SubnetPortService, "GetAddressBindingBySubnetPort", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{&v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}},
+					Times:  1,
+				}})
+				patches.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, &v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}, ab)
+					assert.Equal(t, metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), transitionTime)
+					assert.Equal(t, errorAddressBindingIPv6NotSupported, e)
+					assert.Equal(t, "", ipAddress)
+				})
+				return patches
+			},
+			args: args{
+				subnetPort: &v1alpha1.SubnetPort{
+					Spec: v1alpha1.SubnetPortSpec{
+						InterfaceIPType: v1alpha1.IPAddressTypeIPv6,
+					},
+				},
 				transitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
 				e:              nil,
 			},
