@@ -421,7 +421,10 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 	// allocation matrix depends on this being accurate even for an already-existing port.
 	var interfacetype v1alpha1.IPAddressType
 	if subnetSet.Spec.IPAddressType != "" {
-		interfacetype = subnetport.GetDefaultInterfaceIPType(subnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType)
+		interfacetype, err = subnetport.GetDefaultInterfaceIPType(subnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType)
+		if err != nil {
+			return false, "", subnetSetUID, subnetSetLock, "", err
+		}
 	}
 	subnetPath := r.SubnetPortService.GetSubnetPathForSubnetPortFromStore(pod.GetUID())
 	if len(subnetPath) > 0 {

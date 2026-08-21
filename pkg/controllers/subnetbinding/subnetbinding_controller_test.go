@@ -370,6 +370,9 @@ func TestValidateDependency(t *testing.T) {
 			Namespace: namespace,
 			UID:       types.UID("target-set-uuid"),
 		},
+		Spec: v1alpha1.SubnetSetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+		},
 	}
 
 	bindingCR1 := &v1alpha1.SubnetConnectionBindingMap{
@@ -554,6 +557,60 @@ func TestValidateDependency(t *testing.T) {
 			},
 			expSubnet:        "/orgs/default/projects/default/vpcs/vpc-a/subnets/parent-subnet",
 			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"},
+		}, {
+			name:       "Subnet and TargetSubnet IPAddressType mismatch",
+			bindingMap: bindingCR1,
+			objects: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: childSubnet, Namespace: namespace, UID: types.UID("child-uuid")},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: targetSubnet, Namespace: namespace, UID: types.UID("target-uuid")},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv6},
+				},
+			},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "child-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/subnet-child")}}
+					}
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/subnet-parent")}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{}
+				})
+				return patches
+			},
+			expErr: "IPAddressType mismatch between Subnet subnet (IPv4) and Target targetSubnet (IPv6)",
+			expMsg: "Subnet subnet IPAddressType IPv4 does not match Target targetSubnet IPAddressType IPv6",
+		}, {
+			name:       "Subnet and TargetSubnetSet IPAddressType mismatch",
+			bindingMap: bindingCR2,
+			objects: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: childSubnet, Namespace: namespace, UID: types.UID("child-uuid")},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
+				},
+				&v1alpha1.SubnetSet{
+					ObjectMeta: metav1.ObjectMeta{Name: targetSubnetSet, Namespace: namespace, UID: types.UID("target-set-uuid")},
+					Spec:       v1alpha1.SubnetSetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv6},
+				},
+			},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/subnet-child")}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet", func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/subnet-parent")}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{}
+				})
+				return patches
+			},
+			expErr: "IPAddressType mismatch between Subnet subnet (IPv4) and Target targetSubnetSet (IPv6)",
+			expMsg: "Subnet subnet IPAddressType IPv4 does not match Target targetSubnetSet IPAddressType IPv6",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -768,7 +825,7 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			patches := tc.patches(t, r)
 			defer patches.Reset()
 
-			paths, err := r.validateVpcSubnetsBySubnetCR(ctx, subnetNamespace, subnetName, tc.isParent)
+			paths, _, err := r.validateVpcSubnetsBySubnetCR(ctx, subnetNamespace, subnetName, tc.isParent)
 			if tc.expErr != "" {
 				require.NotNil(t, err)
 				require.EqualError(t, err.error, tc.expErr)
@@ -791,6 +848,9 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			Namespace: namespace,
 			UID:       "subnetset-uuid-1",
 		},
+		Spec: v1alpha1.SubnetSetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+		},
 	}
 	sharedSubnetCR := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -806,16 +866,18 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			UID:       "subnetset-uuid-1",
 		},
 		Spec: v1alpha1.SubnetSetSpec{
-			SubnetNames: &[]string{"subnet-1"},
+			SubnetNames:   &[]string{"subnet-1"},
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
 		},
 	}
 	for _, tc := range []struct {
-		name    string
-		objects []client.Object
-		patches func(t *testing.T, r *Reconciler) *gomonkey.Patches
-		expErr  string
-		expMsg  string
-		paths   []string
+		name     string
+		objects  []client.Object
+		patches  func(t *testing.T, r *Reconciler) *gomonkey.Patches
+		expErr   string
+		expMsg   string
+		expRetry bool
+		paths    []string
 	}{
 		{
 			name: "Failed to get SubnetSet CR",
@@ -836,7 +898,7 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 				return patches
 			},
 			objects: []client.Object{subnetSetCR},
-			expMsg:  "SubnetSet CR net1 is not realized on NSX",
+			expMsg:  "SubnetSet CR net1 has no auto-scaled Subnet realized on NSX",
 			expErr:  "no existing NSX VpcSubnet created by SubnetSet CR 'default/net1'",
 		}, {
 			name: "SubnetSet CR is realized",
@@ -872,14 +934,19 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			paths, err := r.validateVpcSubnetsBySubnetSetCR(ctx, namespace, name)
+			paths, ipType, err := r.validateVpcSubnetsBySubnetSetCR(ctx, namespace, name)
 			if tc.expErr != "" {
 				require.NotNil(t, err)
 				require.EqualError(t, err.error, tc.expErr)
 				require.Equal(t, tc.expMsg, err.message)
-				require.False(t, err.retry)
+				if tc.expRetry {
+					require.True(t, err.retry)
+				} else {
+					require.False(t, err.retry)
+				}
 			} else {
 				require.Nil(t, err)
+				require.Equal(t, v1alpha1.IPAddressTypeIPv4, ipType)
 			}
 			require.ElementsMatch(t, tc.paths, paths)
 		})
