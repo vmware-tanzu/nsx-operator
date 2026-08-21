@@ -775,6 +775,32 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			expectedInterfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			restoreMode:             true,
 		},
+		{
+			name: "GetDefaultInterfaceIPType_Error",
+			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
+					func(s *subnetport.SubnetPortService, uid types.UID) string {
+						return ""
+					})
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return &v1alpha1.SubnetSet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "subnetset-1",
+								UID:  "uid-1",
+							},
+							Spec: v1alpha1.SubnetSetSpec{
+								IPAddressType: v1alpha1.IPAddressTypeIPv4,
+							},
+						}, nil
+					})
+				patches.ApplyFunc(subnetport.GetDefaultInterfaceIPType, func(interfaceIPType v1alpha1.IPAddressType, parentIPAddressType v1alpha1.IPAddressType) (v1alpha1.IPAddressType, error) {
+					return "", errors.New("mocked interface type error")
+				})
+				return patches
+			},
+			expectedErr: "mocked interface type error",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
