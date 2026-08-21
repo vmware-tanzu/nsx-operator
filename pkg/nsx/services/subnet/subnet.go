@@ -119,6 +119,10 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 					updatedSubnet.SubnetDhcpConfig = nsxSubnet.SubnetDhcpConfig
 					updatedSubnet.SubnetDhcpv6Config = nsxSubnet.SubnetDhcpv6Config
 					updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
+					updatedSubnet.IpAddresses = nsxSubnet.IpAddresses
+					// Allow to update ipv4SubnetSize or ipv6PrefixLength when ipAddressType is updated with new IPv4 or IPv6 capability
+					updatedSubnet.Ipv4SubnetSize, updatedSubnet.Ipv6PrefixLength = getUpdatedSubnetSizesAndPrefixes(existingSubnet, nsxSubnet.Ipv4SubnetSize, nsxSubnet.Ipv6PrefixLength, obj.Spec.IPAddressType)
+					updatedSubnet.AccessMode = nsxSubnet.AccessMode
 					nsxSubnet = &updatedSubnet
 				} else {
 					changed = false
@@ -169,16 +173,29 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			nsxSubnet.Id = common.String(*existingSubnet.Id)
 			nsxSubnet.DisplayName = common.String(*existingSubnet.DisplayName)
 
-			// In some cases, the existingSubnet has GatewayAddresses and DhcpServerAddresses and the built nsxSubnet doesn't, but they are actually should be recognized as not changed.
-			// If gateway_addresses / dhcp_server_address is not explicitly specified, keep the original value
-			if nsxSubnet.AdvancedConfig != nil && existingSubnet.AdvancedConfig != nil {
-				if len(nsxSubnet.AdvancedConfig.GatewayAddresses) == 0 {
-					nsxSubnet.AdvancedConfig.GatewayAddresses = existingSubnet.AdvancedConfig.GatewayAddresses
-				}
-				if len(nsxSubnet.AdvancedConfig.DhcpServerAddresses) == 0 {
-					nsxSubnet.AdvancedConfig.DhcpServerAddresses = existingSubnet.AdvancedConfig.DhcpServerAddresses
-				}
+			// Merge IpAddresses, GatewayAddresses, and DhcpServerAddresses
+			nsxSubnet.IpAddresses = mergeAddresses(existingSubnet.IpAddresses, nsxSubnet.IpAddresses)
+
+			var existingGateways, existingDhcpServers []string
+			if existingSubnet.AdvancedConfig != nil {
+				existingGateways = existingSubnet.AdvancedConfig.GatewayAddresses
+				existingDhcpServers = existingSubnet.AdvancedConfig.DhcpServerAddresses
 			}
+			var buildingGateways, buildingDhcpServers []string
+			if nsxSubnet.AdvancedConfig != nil {
+				buildingGateways = nsxSubnet.AdvancedConfig.GatewayAddresses
+				buildingDhcpServers = nsxSubnet.AdvancedConfig.DhcpServerAddresses
+			}
+
+			mergedGateways := mergeAddresses(existingGateways, buildingGateways)
+			mergedDhcpServers := mergeAddresses(existingDhcpServers, buildingDhcpServers)
+
+			if nsxSubnet.AdvancedConfig == nil {
+				nsxSubnet.AdvancedConfig = &model.SubnetAdvancedConfig{}
+			}
+			nsxSubnet.AdvancedConfig.GatewayAddresses = mergedGateways
+			nsxSubnet.AdvancedConfig.DhcpServerAddresses = mergedDhcpServers
+
 			changed = common.CompareResource(SubnetToComparable(existingSubnet), SubnetToComparable(nsxSubnet))
 			if changed {
 				// Only ipAddressType, tags, dhcp and specific advancedConfig fields are expected to be updated
@@ -192,6 +209,10 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
 				// AccessMode can be updated when IPAddressType is updated from IPv6 to IPv4IPv6
 				updatedSubnet.AccessMode = nsxSubnet.AccessMode
+				// Ipaddresses can be set when IPAddressType is updated from IPv4/IPv6 to IPv4IPv6
+				updatedSubnet.IpAddresses = nsxSubnet.IpAddresses
+				// Allow to update ipv4SubnetSize or ipv6PrefixLength when ipAddressType is updated with new IPv4 or IPv6 capability
+				updatedSubnet.Ipv4SubnetSize, updatedSubnet.Ipv6PrefixLength = getUpdatedSubnetSizesAndPrefixes(existingSubnet, nsxSubnet.Ipv4SubnetSize, nsxSubnet.Ipv6PrefixLength, subnet.Spec.IPAddressType)
 				// Only update gateway_addresses, dhcp_server_address, connectivity_state
 				// and static_ip_allocation (enabled + pool_ranges) from AdvancedConfig.
 				if nsxSubnet.AdvancedConfig != nil {
@@ -568,6 +589,14 @@ func (service *SubnetService) UpdateSubnetSet(ns string, vpcSubnets []*model.Vpc
 		if service.Service.NSXClient.NSXCheckVersion(nsx.IPv6) {
 			updatedSubnet.IpAddressType = String(controllercommon.ConvertCRIPAddressTypeToNSX(subnetsetCR.Spec.IPAddressType))
 		}
+		var newIpv4SubnetSize, newIpv6PrefixLength *int64
+		if subnetsetCR.Spec.IPv4SubnetSize > 0 {
+			newIpv4SubnetSize = Int64(int64(subnetsetCR.Spec.IPv4SubnetSize))
+		}
+		if subnetsetCR.Spec.IPv6PrefixLength > 0 {
+			newIpv6PrefixLength = Int64(int64(subnetsetCR.Spec.IPv6PrefixLength))
+		}
+		updatedSubnet.Ipv4SubnetSize, updatedSubnet.Ipv6PrefixLength = getUpdatedSubnetSizesAndPrefixes(&updatedSubnet, newIpv4SubnetSize, newIpv6PrefixLength, subnetsetCR.Spec.IPAddressType)
 		// Update the SubnetSet DHCP Config
 		if updatedSubnet.SubnetDhcpConfig != nil {
 			// Generate a new SubnetDhcpConfig for updatedSubnet to
@@ -1106,5 +1135,61 @@ func (service *SubnetService) removeSubnetSetConditionOnSuccess(obj client.Objec
 
 	if retryErr != nil {
 		log.Error(retryErr, "Failed to update SubnetSet status", "SubnetSet", obj.GetName())
+	}
+}
+
+func splitAddresseByIPType(addresses []string) ([]string, []string) {
+	var v4, v6 []string
+	for _, addr := range addresses {
+		isV6 := false
+		if strings.Contains(addr, "/") {
+			isV6 = util.IsIPv6CIDR(addr)
+		} else {
+			isV6 = util.IsIPv6(addr)
+		}
+		if isV6 {
+			v6 = append(v6, addr)
+		} else {
+			v4 = append(v4, addr)
+		}
+	}
+	return v4, v6
+}
+
+func mergeAddresses(existing, building []string) []string {
+	existingV4, existingV6 := splitAddresseByIPType(existing)
+	buildingV4, buildingV6 := splitAddresseByIPType(building)
+
+	var result []string
+	if len(buildingV4) > 0 {
+		result = append(result, buildingV4...)
+	} else {
+		result = append(result, existingV4...)
+	}
+
+	if len(buildingV6) > 0 {
+		result = append(result, buildingV6...)
+	} else {
+		result = append(result, existingV6...)
+	}
+
+	return result
+}
+
+// Get the updated subnet sizes and prefixes if IPAddressType is updated from IPv4/IPv6 to IPv4IPv6
+// Setting subnet sizes and prefixes from nil to default value without IPAddressType changing will be
+// blocked by NSX, so this function is used to only update for the newly added IPAddressType
+func getUpdatedSubnetSizesAndPrefixes(existingSubnet *model.VpcSubnet, newIpv4SubnetSize *int64, newIpv6PrefixLength *int64, newIPType v1alpha1.IPAddressType) (*int64, *int64) {
+	oldIPType := v1alpha1.IPAddressTypeIPv4
+	if existingSubnet.IpAddressType != nil {
+		oldIPType = controllercommon.ConvertNSXIPAddressTypeToCR(*existingSubnet.IpAddressType)
+	}
+
+	if oldIPType == v1alpha1.IPAddressTypeIPv4 && newIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
+		return existingSubnet.Ipv4SubnetSize, newIpv6PrefixLength
+	} else if oldIPType == v1alpha1.IPAddressTypeIPv6 && newIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
+		return newIpv4SubnetSize, existingSubnet.Ipv6PrefixLength
+	} else {
+		return existingSubnet.Ipv4SubnetSize, existingSubnet.Ipv6PrefixLength
 	}
 }

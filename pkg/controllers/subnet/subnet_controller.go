@@ -311,6 +311,12 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) (bool, error
 		return false, err
 	}
 	for _, status := range statusList {
+		if status.NetworkAddress == nil {
+			return false, fmt.Errorf("status NetworkAddress is nil for NSX Subnet %s", *nsxSubnet.Id)
+		}
+		if status.GatewayAddress == nil {
+			return false, fmt.Errorf("status GatewayAddress is nil for NSX Subnet %s", *nsxSubnet.Id)
+		}
 		obj.Status.NetworkAddresses = append(obj.Status.NetworkAddresses, *status.NetworkAddress)
 		obj.Status.GatewayAddresses = append(obj.Status.GatewayAddresses, *status.GatewayAddress)
 		// DHCPServerAddress is only for the Subnet with DHCP enabled

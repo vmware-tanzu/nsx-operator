@@ -528,7 +528,7 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			object:          updatedSubnetIP,
 			oldObject:       oldSubnet,
 			user:            "non-nsx-operator",
-			want:            admission.Denied("ipAddresses is immutable"),
+			want:            admission.Denied("Subnet ipAddresses can only be updated when ipAddressType transitions from IPv4 or IPv6 to IPv4IPv6"),
 			accessModeCheck: true,
 		},
 		{

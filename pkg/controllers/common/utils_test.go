@@ -1491,3 +1491,220 @@ func TestValidateAccessModeTransition(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateIPAddressesTransition(t *testing.T) {
+	tests := []struct {
+		name    string
+		oldIPs  []string
+		newIPs  []string
+		oldType v1alpha1.IPAddressType
+		newType v1alpha1.IPAddressType
+		wantErr string
+	}{
+		{
+			name:    "No change in IP addresses",
+			oldIPs:  []string{"10.0.0.0/24"},
+			newIPs:  []string{"10.0.0.0/24"},
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4,
+			wantErr: "",
+		},
+		{
+			name:    "IPv4 to IPv4IPv6 transition with valid IPv6 added",
+			oldIPs:  []string{"10.0.0.0/24"},
+			newIPs:  []string{"10.0.0.0/24", "2001:db8::/64"},
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "",
+		},
+		{
+			name:    "IPv6 to IPv4IPv6 transition with valid IPv4 added",
+			oldIPs:  []string{"2001:db8::/64"},
+			newIPs:  []string{"2001:db8::/64", "10.0.0.0/24"},
+			oldType: v1alpha1.IPAddressTypeIPv6,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "",
+		},
+		{
+			name:    "IPv4 to IPv4IPv6 transition with IPv4 added instead of IPv6",
+			oldIPs:  []string{"10.0.0.0/24"},
+			newIPs:  []string{"10.0.0.0/24", "192.168.0.0/24"},
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "only IPv6 addresses can be added when transitioning from IPv4 to IPv4IPv6",
+		},
+		{
+			name:    "IPv6 to IPv4IPv6 transition with IPv6 added instead of IPv4",
+			oldIPs:  []string{"2001:db8::/64"},
+			newIPs:  []string{"2001:db8::/64", "2001:db8:1::/64"},
+			oldType: v1alpha1.IPAddressTypeIPv6,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "only IPv4 addresses can be added when transitioning from IPv6 to IPv4IPv6",
+		},
+		{
+			name:    "Existing IP address removed",
+			oldIPs:  []string{"10.0.0.0/24"},
+			newIPs:  []string{"2001:db8::/64"},
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "existing ipAddresses cannot be removed or modified",
+		},
+		{
+			name:    "Existing IP address modified",
+			oldIPs:  []string{"10.0.0.0/24"},
+			newIPs:  []string{"10.0.1.0/24", "2001:db8::/64"},
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4IPv6,
+			wantErr: "existing ipAddresses cannot be removed or modified",
+		},
+		{
+			name:    "IP addresses changed without IPAddressType transition to IPv4IPv6",
+			oldIPs:  []string{"10.0.0.0/24"},
+			newIPs:  []string{"10.0.0.0/24", "2001:db8::/64"},
+			oldType: v1alpha1.IPAddressTypeIPv4,
+			newType: v1alpha1.IPAddressTypeIPv4,
+			wantErr: "ipAddresses can only be updated when ipAddressType transitions from IPv4 or IPv6 to IPv4IPv6",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateIPAddressesTransition(tt.oldIPs, tt.newIPs, tt.oldType, tt.newType)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGetPrecreatedSubnetSetIPAddressType(t *testing.T) {
+	scheme := runtime.NewScheme()
+	v1alpha1.AddToScheme(scheme)
+
+	tests := []struct {
+		name               string
+		subnetNames        *[]string
+		ipAddressType      v1alpha1.IPAddressType
+		supervisorIPFamily v1alpha1.IPAddressType
+		existingSubnets    []*v1alpha1.Subnet
+		expectedType       v1alpha1.IPAddressType
+		wantErr            string
+	}{
+		{
+			name:               "ipAddressType is already set",
+			subnetNames:        &[]string{"subnet-1"},
+			ipAddressType:      v1alpha1.IPAddressTypeIPv6,
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			expectedType:       v1alpha1.IPAddressTypeIPv6,
+			wantErr:            "",
+		},
+		{
+			name:               "subnetNames is nil",
+			subnetNames:        nil,
+			ipAddressType:      "",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv6,
+			expectedType:       v1alpha1.IPAddressTypeIPv4,
+			wantErr:            "",
+		},
+		{
+			name:               "subnetNames is empty",
+			subnetNames:        &[]string{},
+			ipAddressType:      "",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv6,
+			expectedType:       v1alpha1.IPAddressTypeIPv4,
+			wantErr:            "",
+		},
+		{
+			name:               "subnet does not exist in k8s",
+			subnetNames:        &[]string{"non-existent"},
+			ipAddressType:      "",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4,
+			expectedType:       "",
+			wantErr:            "\"non-existent\" not found",
+		},
+		{
+			name:               "subnets exist, all IPv4, supervisor IPv4",
+			subnetNames:        &[]string{"subnet-1", "subnet-2"},
+			ipAddressType:      "",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4,
+			existingSubnets: []*v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: ""},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-2", Namespace: "ns-1"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
+				},
+			},
+			expectedType: v1alpha1.IPAddressTypeIPv4,
+			wantErr:      "",
+		},
+		{
+			name:               "subnets exist, IPv6, supervisor IPv4IPv6",
+			subnetNames:        &[]string{"subnet-1"},
+			ipAddressType:      "",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			existingSubnets: []*v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv6},
+				},
+			},
+			expectedType: v1alpha1.IPAddressTypeIPv6,
+			wantErr:      "",
+		},
+		{
+			name:               "subnets exist, IPv4, supervisor IPv4IPv6",
+			subnetNames:        &[]string{"subnet-1"},
+			ipAddressType:      "",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			existingSubnets: []*v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
+				},
+			},
+			expectedType: v1alpha1.IPAddressTypeIPv4,
+			wantErr:      "",
+		},
+		{
+			name:               "subnets exist, IPv4 and IPv6, supervisor IPv4IPv6 - no intersection",
+			subnetNames:        &[]string{"subnet-1", "subnet-2"},
+			ipAddressType:      "",
+			supervisorIPFamily: v1alpha1.IPAddressTypeIPv4IPv6,
+			existingSubnets: []*v1alpha1.Subnet{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-1", Namespace: "ns-1"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "subnet-2", Namespace: "ns-1"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv6},
+				},
+			},
+			expectedType: "",
+			wantErr:      "IP address types of Subnets in SubnetSet do not have intersection",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var objects []client.Object
+			for _, s := range tt.existingSubnets {
+				objects = append(objects, s)
+			}
+			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			res, err := GetPrecreatedSubnetSetIPAddressType(context.Background(), k8sClient, "ns-1", tt.subnetNames, tt.ipAddressType, tt.supervisorIPFamily)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedType, res)
+			} else {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			}
+		})
+	}
+}

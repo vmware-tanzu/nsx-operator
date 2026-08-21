@@ -2608,6 +2608,106 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 	}
 }
 
+func TestSubnetService_CreateOrUpdateSubnet_AddressMerging(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	uuidStr := "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       types.UID(uuidStr),
+			Name:      "subnet1",
+			Namespace: "ns1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			IPAddresses:   []string{"2001:db8::/64"},
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+				Mode: v1alpha1.DHCPv6ConfigModeServer,
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				GatewayAddresses:    []string{"2001:db8::1"},
+				DHCPServerAddresses: []string{"2001:db8::2"},
+			},
+		},
+	}
+
+	basicTags := []model.Tag{
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String(string("ns1"))},
+	}
+
+	tags := []model.Tag{
+		{Scope: String(common.TagScopeCluster), Tag: String(string("k8scl-one:test"))},
+		{Scope: String(common.TagScopeVersion), Tag: String(string("1.0.0"))},
+		{Scope: String(common.TagScopeSubnetCRName), Tag: String("subnet1")},
+		{Scope: String(common.TagScopeSubnetCRUID), Tag: String(uuidStr)},
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String(string("ns1"))},
+	}
+
+	subnetId := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	subnetName := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+
+	fakeVPCPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9"
+	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
+
+	existingSubnet := &model.VpcSubnet{
+		Id:          String(subnetId),
+		DisplayName: String(subnetName),
+		Tags:        tags,
+		IpAddresses: []string{"10.0.0.0/24"},
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			GatewayAddresses:    []string{"10.0.0.1"},
+			DhcpServerAddresses: []string{"10.0.0.2"},
+		},
+	}
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				SubnetsClient:      &fakeSubnetsClient{},
+				SubnetStatusClient: &fakeSubnetStatusClient{},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	require.NoError(t, service.SubnetStore.Apply(existingSubnet))
+
+	patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
+		assert.ElementsMatch(t, []string{"10.0.0.0/24", "2001:db8::/64"}, nsxSubnet.IpAddresses)
+		assert.ElementsMatch(t, []string{"10.0.0.1", "2001:db8::1"}, nsxSubnet.AdvancedConfig.GatewayAddresses)
+		assert.ElementsMatch(t, []string{"10.0.0.2", "2001:db8::2"}, nsxSubnet.AdvancedConfig.DhcpServerAddresses)
+		return nsxSubnet, nil
+	})
+	patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return true
+	})
+	defer patches.Reset()
+
+	_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+	require.NoError(t, err)
+}
+
 func Test_isSubnetReady(t *testing.T) {
 	subnetReady := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -3065,6 +3165,185 @@ func TestSubnetService_GetAllGatewayPrefixesOfSubnet_Integration(t *testing.T) {
 			if err == nil || !tt.wantErr {
 				assert.Equal(t, tt.expectedResults, results)
 			}
+		})
+	}
+}
+
+func TestMergeAddresses(t *testing.T) {
+	tests := []struct {
+		name     string
+		existing []string
+		building []string
+		expected []string
+	}{
+		{
+			name:     "IPv4 only",
+			existing: []string{"172.26.0.1"},
+			building: []string{"172.26.0.2"},
+			expected: []string{"172.26.0.2"},
+		},
+		{
+			name:     "IPv6 only",
+			existing: []string{"2026:f206::1"},
+			building: []string{"2026:f206::2"},
+			expected: []string{"2026:f206::2"},
+		},
+		{
+			name:     "CIDR gateway merge - building has IPv6 CIDR only",
+			existing: []string{"172.26.0.65/27"},
+			building: []string{"2026:f206:0:f::1/64"},
+			expected: []string{"172.26.0.65/27", "2026:f206:0:f::1/64"},
+		},
+		{
+			name:     "CIDR gateway merge - building has IPv4 CIDR only",
+			existing: []string{"2026:f206:0:f::1/64"},
+			building: []string{"172.26.0.65/27"},
+			expected: []string{"172.26.0.65/27", "2026:f206:0:f::1/64"},
+		},
+		{
+			name:     "Dual-stack mix - building has both IPv4 and IPv6",
+			existing: []string{"172.26.0.1", "2026:f206::1"},
+			building: []string{"172.26.0.2", "2026:f206::2"},
+			expected: []string{"172.26.0.2", "2026:f206::2"},
+		},
+		{
+			name:     "Existing dual-stack, building IPv4 only (retains existing IPv6)",
+			existing: []string{"172.26.0.1", "2026:f206::1"},
+			building: []string{"172.26.0.2"},
+			expected: []string{"172.26.0.2", "2026:f206::1"},
+		},
+		{
+			name:     "Existing dual-stack, building IPv6 only (retains existing IPv4)",
+			existing: []string{"172.26.0.1", "2026:f206::1"},
+			building: []string{"2026:f206::2"},
+			expected: []string{"172.26.0.1", "2026:f206::2"},
+		},
+		{
+			name:     "Empty existing and building",
+			existing: []string{},
+			building: []string{},
+			expected: []string{},
+		},
+		{
+			name:     "Empty existing, building has IPv4 and IPv6",
+			existing: []string{},
+			building: []string{"172.26.0.2", "2026:f206::2"},
+			expected: []string{"172.26.0.2", "2026:f206::2"},
+		},
+		{
+			name:     "Existing has IPv4 and IPv6, building empty (retains all existing)",
+			existing: []string{"172.26.0.1", "2026:f206::1"},
+			building: []string{},
+			expected: []string{"172.26.0.1", "2026:f206::1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mergeAddresses(tt.existing, tt.building)
+			assert.ElementsMatch(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSplitAddresseByIPType(t *testing.T) {
+	tests := []struct {
+		name       string
+		addresses  []string
+		expectedV4 []string
+		expectedV6 []string
+	}{
+		{
+			name:       "IPv4 and IPv6 mix",
+			addresses:  []string{"10.0.0.1", "2001:db8::1", "192.168.1.0/24", "2001:db8:1::/64"},
+			expectedV4: []string{"10.0.0.1", "192.168.1.0/24"},
+			expectedV6: []string{"2001:db8::1", "2001:db8:1::/64"},
+		},
+		{
+			name:       "IPv4 only",
+			addresses:  []string{"10.0.0.1", "192.168.1.0/24"},
+			expectedV4: []string{"10.0.0.1", "192.168.1.0/24"},
+			expectedV6: nil,
+		},
+		{
+			name:       "IPv6 only",
+			addresses:  []string{"2001:db8::1", "2001:db8:1::/64"},
+			expectedV4: nil,
+			expectedV6: []string{"2001:db8::1", "2001:db8:1::/64"},
+		},
+		{
+			name:       "Empty list",
+			addresses:  []string{},
+			expectedV4: nil,
+			expectedV6: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v4, v6 := splitAddresseByIPType(tt.addresses)
+			assert.Equal(t, tt.expectedV4, v4)
+			assert.Equal(t, tt.expectedV6, v6)
+		})
+	}
+}
+
+func TestGetUpdatedSubnetSizesAndPrefixes(t *testing.T) {
+	size32 := int64(32)
+	size64 := int64(64)
+	tests := []struct {
+		name                string
+		existingSubnet      *model.VpcSubnet
+		newIpv4SubnetSize   *int64
+		newIpv6PrefixLength *int64
+		newIPType           v1alpha1.IPAddressType
+		expectedSize        *int64
+		expectedPrefix      *int64
+	}{
+		{
+			name: "IPv4 to IPv4IPv6 transition - copies prefix, preserves size",
+			existingSubnet: &model.VpcSubnet{
+				IpAddressType:  common.String("IPV4"),
+				Ipv4SubnetSize: &size32,
+			},
+			newIpv4SubnetSize:   nil,
+			newIpv6PrefixLength: &size64,
+			newIPType:           v1alpha1.IPAddressTypeIPv4IPv6,
+			expectedSize:        &size32,
+			expectedPrefix:      &size64,
+		},
+		{
+			name: "IPv6 to IPv4IPv6 transition - copies size, preserves prefix",
+			existingSubnet: &model.VpcSubnet{
+				IpAddressType:    common.String("IPV6"),
+				Ipv6PrefixLength: &size64,
+			},
+			newIpv4SubnetSize:   &size32,
+			newIpv6PrefixLength: nil,
+			newIPType:           v1alpha1.IPAddressTypeIPv4IPv6,
+			expectedSize:        &size32,
+			expectedPrefix:      &size64,
+		},
+		{
+			name: "No transition - preserves both",
+			existingSubnet: &model.VpcSubnet{
+				IpAddressType:    common.String("IPV4"),
+				Ipv4SubnetSize:   &size32,
+				Ipv6PrefixLength: nil,
+			},
+			newIpv4SubnetSize:   &size64,
+			newIpv6PrefixLength: &size64,
+			newIPType:           v1alpha1.IPAddressTypeIPv4,
+			expectedSize:        &size32,
+			expectedPrefix:      nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			size, prefix := getUpdatedSubnetSizesAndPrefixes(tt.existingSubnet, tt.newIpv4SubnetSize, tt.newIpv6PrefixLength, tt.newIPType)
+			assert.Equal(t, tt.expectedSize, size)
+			assert.Equal(t, tt.expectedPrefix, prefix)
 		})
 	}
 }

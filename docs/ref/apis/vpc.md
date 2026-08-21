@@ -905,6 +905,23 @@ _Appears in:_
 | `dhcpServerAddresses` _string array_ | DHCPServerAddresses specifies custom DHCP server IP addresses for the Subnet.<br />Supports up to 2 addresses for dual-stack Subnets (1 IPv4 + 1 IPv6). |  | MaxItems: 2 <br /> |
 
 
+#### SubnetAssociation
+
+_Underlying type:_ _string_
+
+
+
+
+
+_Appears in:_
+- [SubnetConnectionBindingMapSpec](#subnetconnectionbindingmapspec)
+
+| Field | Description |
+| --- | --- |
+| `Trunk` | SubnetAssociationTrunk means targetSubnetName is the trunk Subnet in the binding.<br />This is the default when subnetAssociation is unset.<br /> |
+| `Branch` | SubnetAssociationBranch means TargetSubnetName is the branch Subnet in the binding.<br />SubnetConnectionBindingMap is created under SubnetName (trunk Subnet).<br /> |
+
+
 #### SubnetConnectionBindingMap
 
 
@@ -940,6 +957,7 @@ _Appears in:_
 | `subnetName` _string_ | SubnetName is the Subnet name which this SubnetConnectionBindingMap is associated. |  |  |
 | `targetSubnetSetName` _string_ | TargetSubnetSetName specifies the target SubnetSet which a Subnet is connected to. |  | Optional: \{\} <br /> |
 | `targetSubnetName` _string_ | TargetSubnetName specifies the target Subnet which a Subnet is connected to. |  | Optional: \{\} <br /> |
+| `subnetAssociation` _[SubnetAssociation](#subnetassociation)_ | SubnetAssociation indicates the role of TargetSubnetName in the binding.<br />Trunk: TargetSubnetName is the trunk Subnet (default behavior).<br />Branch: TargetSubnetName is the branch Subnet; SubnetName is the trunk Subnet that hosts the binding map.<br />Supported starting with VCF 9.2.0. |  | Enum: [Trunk Branch] <br />Optional: \{\} <br /> |
 | `vlanTrafficTag` _integer_ | VLANTrafficTag is the VLAN tag configured in the binding. Note, the value of VLANTrafficTag should be<br />unique on the target Subnet or SubnetSet. When omitted, the system automatically allocates a VLAN ID. |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 
 

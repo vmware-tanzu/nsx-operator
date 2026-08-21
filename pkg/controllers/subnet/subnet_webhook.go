@@ -14,7 +14,6 @@ import (
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -96,16 +95,15 @@ func (v *SubnetValidator) Handle(ctx context.Context, req admission.Request) adm
 			if oldSubnet.Spec.VLANConnectionName != subnet.Spec.VLANConnectionName {
 				return admission.Denied(fmt.Sprintf("Subnet %s/%s: spec.vlanConnectionName can only be updated by NSX Operator", subnet.Namespace, subnet.Name))
 			}
-			if !nsxutil.CompareArraysWithoutOrder(oldSubnet.Spec.IPAddresses, subnet.Spec.IPAddresses) {
-				return admission.Denied("ipAddresses is immutable")
-			}
-		}
-
-		if !common.IsSharedSubnet(subnet) {
+			// Non nsx operator users will update the auto-created Subnet,
+			// which have restrictions on updating ipAddressType, accessMode and ipAddresses
 			if err := controllercommon.ValidateIPAddressTypeTransition(oldSubnet.Spec.IPAddressType, subnet.Spec.IPAddressType); err != nil {
 				return admission.Denied(fmt.Sprintf("Subnet %s", err))
 			}
 			if err := controllercommon.ValidateAccessModeTransition(oldSubnet.Spec.AccessMode, subnet.Spec.AccessMode, oldSubnet.Spec.IPAddressType, subnet.Spec.IPAddressType); err != nil {
+				return admission.Denied(fmt.Sprintf("Subnet %s", err))
+			}
+			if err := controllercommon.ValidateIPAddressesTransition(oldSubnet.Spec.IPAddresses, subnet.Spec.IPAddresses, oldSubnet.Spec.IPAddressType, subnet.Spec.IPAddressType); err != nil {
 				return admission.Denied(fmt.Sprintf("Subnet %s", err))
 			}
 		}
