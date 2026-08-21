@@ -2808,6 +2808,35 @@ func TestSubnetPortReconciler_setAddressBindingStatusBySubnetPort(t *testing.T) 
 				e:              nil,
 			},
 		},
+		{
+			name: "IPv6SubnetPort",
+			prepareFunc: func(r *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.SubnetPortStore), "GetVpcSubnetPortByUID",
+					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return nil, nil
+					})
+				patches.ApplyMethodSeq(r.SubnetPortService, "GetAddressBindingBySubnetPort", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{&v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}},
+					Times:  1,
+				}})
+				patches.ApplyFunc(setAddressBindingStatus, func(client client.Client, ctx context.Context, ab *v1alpha1.AddressBinding, transitionTime metav1.Time, e error, ipAddress string) {
+					assert.Equal(t, &v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}, ab)
+					assert.Equal(t, metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), transitionTime)
+					assert.Equal(t, errorAddressBindingIPv6NotSupported, e)
+					assert.Equal(t, "", ipAddress)
+				})
+				return patches
+			},
+			args: args{
+				subnetPort: &v1alpha1.SubnetPort{
+					Spec: v1alpha1.SubnetPortSpec{
+						InterfaceIPType: v1alpha1.IPAddressTypeIPv6,
+					},
+				},
+				transitionTime: metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
+				e:              nil,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -3531,6 +3560,427 @@ func TestSubnetPortReconciler_updateSubnetPortStatusConditions(t *testing.T) {
 				k8sClient.EXPECT().Status().Return(fakewriter)
 			}
 			updateSubnetPortStatusConditions(k8sClient, context.TODO(), tt.subnetPort, tt.newConditions)
+		})
+	}
+}
+
+func TestSubnetPortReconciler_validateRealizedBindingsIPType(t *testing.T) {
+	enabled := true
+	disabled := false
+
+	tests := []struct {
+		name               string
+		restoreMode        bool
+		subnetPort         *v1alpha1.SubnetPort
+		nsxSubnet          *model.VpcSubnet
+		nsxSubnetPortState *model.SegmentPortState
+		expectErr          bool
+		errStr             string
+	}{
+		{
+			name:        "restore mode is true",
+			restoreMode: true,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{},
+			expectErr:          false,
+		},
+		{
+			name:        "static IP allocation disabled on subnet",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					InterfaceIPType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &disabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{},
+			expectErr:          false,
+		},
+		{
+			name:        "StaticIPAllocationType is None",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{},
+			expectErr:          false,
+		},
+		{
+			name:        "empty realized bindings",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{},
+			},
+			expectErr: true,
+			errStr:    "IP and MAC are missing for SubnetPort",
+		},
+		{
+			name:        "IPv4 allocation but has no IPv4",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress: ptr.To("2001:db8::1"),
+						},
+					},
+				},
+			},
+			expectErr: true,
+			errStr:    "IP and MAC are missing or not fully realized for SubnetPort",
+		},
+		{
+			name:        "IPv4 allocation and has IPv4",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress: ptr.To("192.168.1.10"),
+						},
+					},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name:        "IPv6 allocation but has no IPv6",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress: ptr.To("192.168.1.10"),
+						},
+					},
+				},
+			},
+			expectErr: true,
+			errStr:    "IP and MAC are missing or not fully realized for SubnetPort",
+		},
+		{
+			name:        "IPv6 allocation and has IPv6",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress: ptr.To("2001:db8::1"),
+						},
+					},
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name:        "Dual stack allocation but has only IPv4",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress: ptr.To("192.168.1.10"),
+						},
+					},
+				},
+			},
+			expectErr: true,
+			errStr:    "IP and MAC are missing or not fully realized for SubnetPort",
+		},
+		{
+			name:        "Dual stack allocation and has both",
+			restoreMode: false,
+			subnetPort: &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: &enabled,
+					},
+				},
+			},
+			nsxSubnetPortState: &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress: ptr.To("192.168.1.10"),
+						},
+					},
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress: ptr.To("2001:db8::1"),
+						},
+					},
+				},
+			},
+			expectErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &SubnetPortReconciler{
+				restoreMode: tt.restoreMode,
+			}
+			err := r.validateRealizedBindingsIPType(tt.subnetPort, tt.nsxSubnet, tt.nsxSubnetPortState)
+			if tt.expectErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errStr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSubnetPortReconciler_adjustIPAddressesForInterfaceIPType(t *testing.T) {
+	tests := []struct {
+		name       string
+		desired    v1alpha1.IPAddressType
+		initialIPs []v1alpha1.NetworkInterfaceIPAddress
+		expected   []v1alpha1.NetworkInterfaceIPAddress
+	}{
+		{
+			name:    "v4 desired, has both -> keep only v4",
+			desired: v1alpha1.IPAddressTypeIPv4,
+			initialIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.1.10/24", Gateway: "192.168.1.1"},
+				{IPAddress: "2001:db8::1/64", Gateway: "2001:db8::100"},
+			},
+			expected: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.1.10/24", Gateway: "192.168.1.1"},
+			},
+		},
+		{
+			name:    "v6 desired, has both -> keep only v6",
+			desired: v1alpha1.IPAddressTypeIPv6,
+			initialIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.1.10/24", Gateway: "192.168.1.1"},
+				{IPAddress: "2001:db8::1/64", Gateway: "2001:db8::100"},
+			},
+			expected: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "2001:db8::1/64", Gateway: "2001:db8::100"},
+			},
+		},
+		{
+			name:    "v4v6 desired, has only v4 -> append empty v6 gateway placeholder",
+			desired: v1alpha1.IPAddressTypeIPv4IPv6,
+			initialIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.1.10/24", Gateway: "192.168.1.1"},
+			},
+			expected: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.1.10/24", Gateway: "192.168.1.1"},
+				{Gateway: ""},
+			},
+		},
+		{
+			name:    "v4v6 desired, has only v6 -> append empty v4 gateway placeholder",
+			desired: v1alpha1.IPAddressTypeIPv4IPv6,
+			initialIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "2001:db8::1/64", Gateway: "2001:db8::100"},
+			},
+			expected: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "2001:db8::1/64", Gateway: "2001:db8::100"},
+				{Gateway: ""},
+			},
+		},
+		{
+			name:    "v4v6 desired, has both -> keep both",
+			desired: v1alpha1.IPAddressTypeIPv4IPv6,
+			initialIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.1.10/24", Gateway: "192.168.1.1"},
+				{IPAddress: "2001:db8::1/64", Gateway: "2001:db8::100"},
+			},
+			expected: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.1.10/24", Gateway: "192.168.1.1"},
+				{IPAddress: "2001:db8::1/64", Gateway: "2001:db8::100"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &SubnetPortReconciler{}
+			sp := &v1alpha1.SubnetPort{
+				Spec: v1alpha1.SubnetPortSpec{
+					InterfaceIPType: tt.desired,
+				},
+				Status: v1alpha1.SubnetPortStatus{
+					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+						IPAddresses: tt.initialIPs,
+					},
+				},
+			}
+			r.adjustIPAddressesForInterfaceIPType(sp)
+			assert.Equal(t, tt.expected, sp.Status.NetworkInterfaceConfig.IPAddresses)
+		})
+	}
+}
+
+func Test_getIPAddressFamily(t *testing.T) {
+	tests := []struct {
+		name          string
+		ipConfig      v1alpha1.NetworkInterfaceIPAddress
+		expected      v1alpha1.IPAddressType
+		expectSuccess bool
+	}{
+		{
+			name: "valid IPv4",
+			ipConfig: v1alpha1.NetworkInterfaceIPAddress{
+				Gateway:   "192.168.1.1",
+				IPAddress: "192.168.1.10/24",
+			},
+			expected:      v1alpha1.IPAddressTypeIPv4,
+			expectSuccess: true,
+		},
+		{
+			name: "valid IPv6",
+			ipConfig: v1alpha1.NetworkInterfaceIPAddress{
+				Gateway:   "2001:db8::1",
+				IPAddress: "2001:db8::10/64",
+			},
+			expected:      v1alpha1.IPAddressTypeIPv6,
+			expectSuccess: true,
+		},
+		{
+			name: "empty IP but IPv4 gateway",
+			ipConfig: v1alpha1.NetworkInterfaceIPAddress{
+				Gateway: "192.168.1.1",
+			},
+			expected:      v1alpha1.IPAddressTypeIPv4,
+			expectSuccess: true,
+		},
+		{
+			name: "empty IP but IPv6 gateway",
+			ipConfig: v1alpha1.NetworkInterfaceIPAddress{
+				Gateway: "fe80::1",
+			},
+			expected:      v1alpha1.IPAddressTypeIPv6,
+			expectSuccess: true,
+		},
+		{
+			name:          "both empty",
+			ipConfig:      v1alpha1.NetworkInterfaceIPAddress{},
+			expected:      "",
+			expectSuccess: false,
+		},
+		{
+			name: "invalid IP and gateway",
+			ipConfig: v1alpha1.NetworkInterfaceIPAddress{
+				IPAddress: "invalid-ip",
+				Gateway:   "invalid-gateway",
+			},
+			expected:      "",
+			expectSuccess: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			family, ok := getIPAddressFamily(tt.ipConfig)
+			assert.Equal(t, tt.expectSuccess, ok)
+			assert.Equal(t, tt.expected, family)
 		})
 	}
 }

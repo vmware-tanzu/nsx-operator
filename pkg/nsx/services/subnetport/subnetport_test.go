@@ -1885,3 +1885,95 @@ func TestMergeSubnetPortAddressBinding(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDefaultInterfaceIPType(t *testing.T) {
+	tests := []struct {
+		name                string
+		interfaceIPType     v1alpha1.IPAddressType
+		parentIPAddressType v1alpha1.IPAddressType
+		want                v1alpha1.IPAddressType
+		wantErr             bool
+	}{
+		{
+			name:                "interfaceIPType is empty, parent is IPv6",
+			interfaceIPType:     "",
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv6,
+			want:                v1alpha1.IPAddressTypeIPv6,
+			wantErr:             false,
+		},
+		{
+			name:                "interfaceIPType is empty, parent is IPv4",
+			interfaceIPType:     "",
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			want:                v1alpha1.IPAddressTypeIPv4,
+			wantErr:             false,
+		},
+		{
+			name:                "interfaceIPType is empty, parent is IPv4IPv6",
+			interfaceIPType:     "",
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			want:                v1alpha1.IPAddressTypeIPv4,
+			wantErr:             false,
+		},
+		{
+			name:                "interfaceIPType is IPv4, parent is IPv4",
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			want:                v1alpha1.IPAddressTypeIPv4,
+			wantErr:             false,
+		},
+		{
+			name:                "interfaceIPType is IPv4, parent is IPv4IPv6",
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			want:                v1alpha1.IPAddressTypeIPv4,
+			wantErr:             false,
+		},
+		{
+			name:                "interfaceIPType is IPv6, parent is IPv6",
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv6,
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv6,
+			want:                v1alpha1.IPAddressTypeIPv6,
+			wantErr:             false,
+		},
+		{
+			name:                "interfaceIPType is IPv6, parent is IPv4IPv6",
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv6,
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			want:                v1alpha1.IPAddressTypeIPv6,
+			wantErr:             false,
+		},
+		{
+			name:                "interfaceIPType is IPv6, parent is IPv4 (incompatible)",
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv6,
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			want:                "",
+			wantErr:             true,
+		},
+		{
+			name:                "interfaceIPType is IPv4, parent is IPv6 (incompatible)",
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			parentIPAddressType: v1alpha1.IPAddressTypeIPv6,
+			want:                "",
+			wantErr:             true,
+		},
+		{
+			name:                "interfaceIPType is IPv4, parent is empty (not determined)",
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			parentIPAddressType: "",
+			want:                "",
+			wantErr:             true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetDefaultInterfaceIPType(tt.interfaceIPType, tt.parentIPAddressType)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
