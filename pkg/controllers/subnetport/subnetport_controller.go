@@ -210,8 +210,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			// In restore mode, we do not update the SubnetPort status to retian the status, so no need to check the realized bindings
 			// Check StaticIPAllocationType as mixed mode Subnet also have static ip allocation enabled but SubnetPort may be created in dhcp pool
-			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && subnetPort.Spec.StaticIPAllocationType != "None" {
-				if len(nsxSubnetPortState.RealizedBindings) == 0 {
+			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && staticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
+				// Wait until every requested static family is realized, not just any binding,
+				// since mixed-mode Subnets can realize the DHCP family first.
+				if !realizedBindingsCoverStaticFamilies(nsxSubnetPortState.RealizedBindings, staticIPAllocationType) {
 					err = errors.New("IP and MAC are missing for SubnetPort")
 					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 					return common.ResultNormal, err
@@ -1025,6 +1027,36 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 	}
 	return
+}
+
+// realizedBindingsCoverStaticFamilies reports whether realizedBindings has an IP for
+// every address family in staticIPAllocationType.
+func realizedBindingsCoverStaticFamilies(realizedBindings []model.AddressBindingEntry, staticIPAllocationType v1alpha1.StaticIPAllocationType) bool {
+	hasIPv4, hasIPv6 := false, false
+	for _, binding := range realizedBindings {
+		if binding.Binding == nil || binding.Binding.IpAddress == nil {
+			continue
+		}
+		ip := net.ParseIP(*binding.Binding.IpAddress)
+		if ip == nil {
+			continue
+		}
+		if ip.To4() != nil {
+			hasIPv4 = true
+		} else {
+			hasIPv6 = true
+		}
+	}
+	switch staticIPAllocationType {
+	case v1alpha1.StaticIPAllocationTypeIPv4:
+		return hasIPv4
+	case v1alpha1.StaticIPAllocationTypeIPv6:
+		return hasIPv6
+	case v1alpha1.StaticIPAllocationTypeIPv4IPv6:
+		return hasIPv4 && hasIPv6
+	default:
+		return false
+	}
 }
 
 // networkInterfaceIPAddressesFromRealizedBindings builds one entry per realized

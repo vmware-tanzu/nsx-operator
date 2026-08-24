@@ -2419,6 +2419,66 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 	}
 }
 
+func TestRealizedBindingsCoverStaticFamilies(t *testing.T) {
+	ipv4Binding := model.AddressBindingEntry{Binding: &model.PacketAddressClassifier{IpAddress: servicecommon.String("10.0.0.2")}}
+	ipv6Binding := model.AddressBindingEntry{Binding: &model.PacketAddressClassifier{IpAddress: servicecommon.String("fe80::1")}}
+
+	tests := []struct {
+		name                   string
+		realizedBindings       []model.AddressBindingEntry
+		staticIPAllocationType v1alpha1.StaticIPAllocationType
+		expected               bool
+	}{
+		{
+			name:                   "No realized bindings",
+			realizedBindings:       nil,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expected:               false,
+		},
+		{
+			name:                   "IPv4 requested and realized",
+			realizedBindings:       []model.AddressBindingEntry{ipv4Binding},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expected:               true,
+		},
+		{
+			name: "Mixed-mode Subnet: StaticIPAllocationType IPv6 but only the DHCP IPv4 is realized yet",
+			realizedBindings: []model.AddressBindingEntry{
+				ipv4Binding,
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			expected:               false,
+		},
+		{
+			name: "Mixed-mode Subnet: StaticIPAllocationType IPv6 and the static IPv6 binding is realized alongside DHCP IPv4",
+			realizedBindings: []model.AddressBindingEntry{
+				ipv4Binding,
+				ipv6Binding,
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			expected:               true,
+		},
+		{
+			name:                   "Dual-stack static: only IPv4 realized so far",
+			realizedBindings:       []model.AddressBindingEntry{ipv4Binding},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
+			expected:               false,
+		},
+		{
+			name:                   "Dual-stack static: both families realized",
+			realizedBindings:       []model.AddressBindingEntry{ipv4Binding, ipv6Binding},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
+			expected:               true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, realizedBindingsCoverStaticFamilies(tt.realizedBindings, tt.staticIPAllocationType))
+		})
+	}
+}
+
 func TestSubnetPortReconciler_getVirtualMachine(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
