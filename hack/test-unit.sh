@@ -173,9 +173,14 @@ echo "${PACKAGES}" | sed 's/^/    /'
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+EXTRA_TEST_FLAGS=""
+if [ "${UPDATE_SNAPS:-false}" = "true" ]; then
+    EXTRA_TEST_FLAGS="-p 1"
+fi
+
 # Execute the command and capture both output and errors
 if GOARCH=amd64 KUBEBUILDER_ASSETS="$KUBEBUILDER_ASSETS" go test -race -gcflags=all=-l \
-    -count=1 -coverpkg="$COVERPKG" -covermode=atomic \
+    -count=1 -coverpkg="$COVERPKG" -covermode=atomic $EXTRA_TEST_FLAGS \
     ${PACKAGES} -v -coverprofile "$(pwd)/.coverage/coverage-unit.out" 2>&1 | \
     tee "$TEMP_OUTPUT" | \
     while IFS= read -r line; do
