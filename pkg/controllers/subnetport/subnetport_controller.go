@@ -170,6 +170,9 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			return common.ResultNormal, err
 		}
+		if staticIPAllocationType == "" {
+			staticIPAllocationType = subnetPort.Spec.StaticIPAllocationType
+		}
 		raDeactivated, err := r.VPCService.IsRADeactivatedByVPCPath(nsxSubnetPath)
 		if err != nil {
 			log.Error(err, "Failed to determine RA mode for SubnetPort's VPC", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
