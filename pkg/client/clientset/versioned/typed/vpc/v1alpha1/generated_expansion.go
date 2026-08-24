@@ -7,6 +7,8 @@ package v1alpha1
 
 type AddressBindingExpansion interface{}
 
+type DNSRecordExpansion interface{}
+
 type IPAddressAllocationExpansion interface{}
 
 type IPBlocksInfoExpansion interface{}
