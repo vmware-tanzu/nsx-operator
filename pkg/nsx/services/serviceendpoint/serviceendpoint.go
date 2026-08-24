@@ -179,26 +179,16 @@ func (service *ServiceEndpointService) DeleteServiceEndpoint(obj interface{}) er
 }
 
 func (service *ServiceEndpointService) DeleteServiceEndpointByNamespacedName(namespace, name string) error {
-	objs := service.ServiceEndpointStore.List()
+	key := types.NamespacedName{Namespace: namespace, Name: name}.String()
+	objs := service.ServiceEndpointStore.GetByIndex(indexNamespacedName, key)
 	for _, obj := range objs {
 		serviceEndpoint, ok := obj.(*model.VpcServiceEndpoint)
 		if !ok {
 			continue
 		}
-		namespaceMatch, nameMatch := false, false
-		for _, tag := range serviceEndpoint.Tags {
-			if *tag.Scope == common.TagScopeNamespace && *tag.Tag == namespace {
-				namespaceMatch = true
-			}
-			if *tag.Scope == common.TagScopeServiceEndpointCRName && *tag.Tag == name {
-				nameMatch = true
-			}
-		}
-		if namespaceMatch && nameMatch {
-			if err := service.DeleteServiceEndpoint(serviceEndpoint); err != nil {
-				log.Error(err, "Failed to delete ServiceEndpoint", "Namespace", namespace, "Name", name)
-				return err
-			}
+		if err := service.DeleteServiceEndpoint(serviceEndpoint); err != nil {
+			log.Error(err, "Failed to delete ServiceEndpoint", "Namespace", namespace, "Name", name)
+			return err
 		}
 	}
 	return nil

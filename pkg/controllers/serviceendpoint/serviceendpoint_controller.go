@@ -17,7 +17,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -114,13 +113,6 @@ func (r *ServiceEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return resultRequeue, err
 	}
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(obj, servicecommon.ServiceEndpointFinalizerName) {
-			controllerutil.AddFinalizer(obj, servicecommon.ServiceEndpointFinalizerName)
-			if err := r.Client.Update(ctx, obj); err != nil {
-				log.Error(err, "Failed to add the finalizer", "ServiceEndpoint", req.NamespacedName)
-				return resultRequeue, err
-			}
-		}
 		return r.handleUpdate(ctx, obj)
 	}
 	return r.handleDeletion(ctx, req, obj)
@@ -142,13 +134,6 @@ func (r *ServiceEndpointReconciler) handleDeletion(ctx context.Context, req ctrl
 		setDeleteFailedStatus(r.Client, ctx, obj, metav1.Now(), err)
 		r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 		return resultRequeue, err
-	}
-	if controllerutil.ContainsFinalizer(obj, servicecommon.ServiceEndpointFinalizerName) {
-		controllerutil.RemoveFinalizer(obj, servicecommon.ServiceEndpointFinalizerName)
-		if err := r.Client.Update(ctx, obj); err != nil {
-			log.Error(err, "Failed to remove the finalizer", "ServiceEndpoint", req.NamespacedName)
-			return resultRequeue, err
-		}
 	}
 	r.StatusUpdater.DeleteSuccess(req.NamespacedName, obj)
 	return resultNormal, nil
