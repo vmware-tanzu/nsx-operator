@@ -59,7 +59,7 @@ spec:
               addressBindings:
                 description: |-
                   AddressBindings defines static address bindings used for the SubnetPort.
-                  Multiple bindings sharing one MAC address are supported from VCF 9.2.
+                  Multiple bindings sharing one MAC address are supported starting with VCF 9.2.0.
                 items:
                   description: PortAddressBinding defines static addresses for the
                     Port.

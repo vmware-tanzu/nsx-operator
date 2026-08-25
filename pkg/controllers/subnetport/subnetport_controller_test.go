@@ -2372,6 +2372,30 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 			expectedMAC: "aa:bb:cc:dd:ee:ff",
 		},
 		{
+			// Mixed-mode Subnet: StaticIPAllocationType=IPv6 realizes the IPv6 binding, but
+			// DHCP independently keeps allocating the IPv4 family since it isn't statically
+			// pinned. Both are genuinely present on the port at once, so both must be
+			// reported here - this isn't scoped to "static addresses only", it reflects the
+			// real interface state. realizedBindingsCoverStaticFamilies already relies on
+			// this same assumption (see its "realized alongside DHCP IPv4" case).
+			name: "Mixed-mode: DHCP-realized IPv4 + static-realized IPv6 both reported",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("2001:db8::165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "172.26.0.165"},
+				{IPAddress: "2001:db8::165"},
+			},
+			expectedMAC: "00:50:56:ba:d6:7a",
+		},
+		{
 			name: "Multi-IP addressBindings sharing one MAC (spec 2.4.3): 3 same-family entries",
 			realizedBindings: []model.AddressBindingEntry{
 				{Binding: &model.PacketAddressClassifier{

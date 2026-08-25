@@ -170,9 +170,6 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			return common.ResultNormal, err
 		}
-		if staticIPAllocationType == "" {
-			staticIPAllocationType = subnetPort.Spec.StaticIPAllocationType
-		}
 		raDeactivated, err := r.VPCService.IsRADeactivatedByVPCPath(nsxSubnetPath)
 		if err != nil {
 			log.Error(err, "Failed to determine RA mode for SubnetPort's VPC", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
@@ -213,10 +210,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			// In restore mode, we do not update the SubnetPort status to retian the status, so no need to check the realized bindings
 			// Check StaticIPAllocationType as mixed mode Subnet also have static ip allocation enabled but SubnetPort may be created in dhcp pool
-			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && staticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
+			// Use subnetPort.Spec.StaticIPAllocationType, not the value resolved above: that one is empty on
+			// reconciles of an already-realized port, while updateSubnetPortIPType keeps Spec backfilled.
+			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
 				// Wait until every requested static family is realized, not just any binding,
 				// since mixed-mode Subnets can realize the DHCP family first.
-				if !realizedBindingsCoverStaticFamilies(nsxSubnetPortState.RealizedBindings, staticIPAllocationType) {
+				if !realizedBindingsCoverStaticFamilies(nsxSubnetPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType) {
 					err = errors.New("IP and MAC are missing for SubnetPort")
 					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 					return common.ResultNormal, err
@@ -237,14 +236,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
 				RADeactivated:             raDeactivated,
 			}
-			if staticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
+			if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
 					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings)
-					if staticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone && len(realizedIPAddresses) > 0 {
+					if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone && len(realizedIPAddresses) > 0 {
 						subnetPort.Status.NetworkInterfaceConfig.IPAddresses = realizedIPAddresses
 					}
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
-				} else if staticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone && len(subnetPort.Spec.AddressBindings) > 0 {
+				} else if subnetPort.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone && len(subnetPort.Spec.AddressBindings) > 0 {
 					// StaticIPAllocation disabled: propagate MAC from spec since there's no realized binding yet.
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
 				}
@@ -1064,6 +1063,10 @@ func realizedBindingsCoverStaticFamilies(realizedBindings []model.AddressBinding
 
 // networkInterfaceIPAddressesFromRealizedBindings builds one entry per realized
 // binding with an IP, plus the shared MAC address, independent of binding count.
+// On a mixed-mode Subnet, realizedBindings can legitimately contain addresses from
+// more than one family at once (e.g. a DHCP-realized IPv4 alongside a statically
+// realized IPv6) - all of them are returned, unfiltered, since this reflects the
+// port's actual interface state rather than being scoped to static addresses only.
 func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.AddressBindingEntry) ([]v1alpha1.NetworkInterfaceIPAddress, string) {
 	macAddress := ""
 	ipAddresses := make([]v1alpha1.NetworkInterfaceIPAddress, 0, len(realizedBindings))
