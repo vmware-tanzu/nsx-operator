@@ -50,6 +50,19 @@ func hasT1ActivationAnnotation(annotations map[string]string) bool {
 	return false
 }
 
+// resolveNamespaceProvider determines whether a namespace belongs to T1 and/or VPC
+// provider based on its annotations. If both VPC and T1 annotations are present on
+// the same namespace, this is an illegal state; it logs an error and returns (false, false).
+func resolveNamespaceProvider(annotations map[string]string) (isT1 bool, isVPC bool) {
+	hasVPC := strings.TrimSpace(annotations[VPCNetworkConfigAnnotation]) != ""
+	hasT1 := hasT1ActivationAnnotation(annotations)
+	if hasVPC && hasT1 {
+		log.Error(nil, "Conflicting network provider annotations (both T1 and VPC are present); namespace will be ignored")
+		return false, false
+	}
+	return hasT1, hasVPC
+}
+
 var (
 	capabilitiesGVR = schema.GroupVersionResource{
 		Group:    "iaas.vmware.com",
@@ -149,11 +162,12 @@ func scanNamespaceProvidersFromAPI(ctx context.Context, clientset kubernetes.Int
 		list, err := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 		if err == nil {
 			for _, item := range list.Items {
-				annotations := item.GetAnnotations()
-				if _, ok := annotations[VPCNetworkConfigAnnotation]; ok {
-					hasVPC = true
-				} else if hasT1ActivationAnnotation(annotations) {
+				isT1, isVPC := resolveNamespaceProvider(item.GetAnnotations())
+				if isT1 {
 					hasT1 = true
+				}
+				if isVPC {
+					hasVPC = true
 				}
 				if hasT1 && hasVPC {
 					break
@@ -190,11 +204,12 @@ func scanNamespaceProvidersFromCache(ctx context.Context, reader client.Reader) 
 		return false, false, err
 	}
 	for _, item := range nsList.Items {
-		annotations := item.GetAnnotations()
-		if _, ok := annotations[VPCNetworkConfigAnnotation]; ok {
-			hasVPC = true
-		} else if hasT1ActivationAnnotation(annotations) {
+		isT1, isVPC := resolveNamespaceProvider(item.GetAnnotations())
+		if isT1 {
 			hasT1 = true
+		}
+		if isVPC {
+			hasVPC = true
 		}
 		if hasT1 && hasVPC {
 			break
@@ -299,6 +314,10 @@ func InitMixedMode(ctx context.Context, cfg *rest.Config, enableVPCNetwork bool)
 }
 
 func initMixedModeWithClients(ctx context.Context, clientset kubernetes.Interface, dynClient dynamic.Interface, enableVPCNetwork bool) {
+	stateMu.Lock()
+	storedEnableVPCNetwork = enableVPCNetwork
+	stateMu.Unlock()
+
 	// checkPerNamespaceProvidersSupported retries on transient errors; runs outside
 	// the mutex to avoid holding the lock during potentially many retries.
 	supported, _ := checkPerNamespaceProvidersSupported(ctx, dynClient)
@@ -321,7 +340,6 @@ func initMixedModeWithClients(ctx context.Context, clientset kubernetes.Interfac
 	stateMu.Lock()
 	defer stateMu.Unlock()
 	storedClientset = clientset
-	storedEnableVPCNetwork = enableVPCNetwork
 	// The capability can be changed in day2. However, we intentionally do NOT poll or watch this capability during runtime to save API Server overhead.
 	// By design, if it changes from deactivated to activated, an external component will restart the nsx-operator pod; changing from activated to deactivated is not a valid scenario.
 	perNamespaceProvidersSupported = &supported
@@ -425,7 +443,8 @@ func IsPerNamespaceProvidersSupported() bool {
 
 // IsVPCNamespace reports whether ns should be treated as a VPC namespace.
 // In mixed mode (when per-namespace providers are supported), a non-empty
-// VPCNetworkConfigAnnotation marks a VPC namespace.
+// VPCNetworkConfigAnnotation marks a VPC namespace. When both VPC and T1 annotations
+// are present on the namespace, it returns false (illegal conflicting state).
 // In legacy mode (pre-9.2), the whole cluster runs a single provider, so the
 // cluster-level HasVPCNamespaces flag (derived from EnableVPCNetwork) is
 // returned regardless of the namespace.
@@ -436,21 +455,24 @@ func IsVPCNamespace(ns *v1.Namespace) bool {
 		return false
 	}
 	if IsPerNamespaceProvidersSupported() {
-		return strings.TrimSpace(ns.Annotations[VPCNetworkConfigAnnotation]) != ""
+		_, isVPC := resolveNamespaceProvider(ns.Annotations)
+		return isVPC
 	}
 	return HasVPCNamespaces()
 }
 
 // IsT1Namespace reports whether ns should be treated as a T1 namespace.
 // In mixed mode (when per-namespace providers are supported), an explicit T1 activation
-// annotation (nsx.vmware.com/t1_default_config, etc.) marks a T1 namespace.
+// annotation (nsx.vmware.com/t1_default_config, etc.) marks a T1 namespace. When both
+// VPC and T1 annotations are present on the namespace, it returns false (illegal conflicting state).
 // In legacy mode (pre-9.2), the cluster-level HasT1Namespaces flag is returned.
 func IsT1Namespace(ns *v1.Namespace) bool {
 	if ns == nil {
 		return false
 	}
 	if IsPerNamespaceProvidersSupported() {
-		return hasT1ActivationAnnotation(ns.Annotations)
+		isT1, _ := resolveNamespaceProvider(ns.Annotations)
+		return isT1
 	}
 	return HasT1Namespaces()
 }
