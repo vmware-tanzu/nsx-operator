@@ -238,8 +238,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
-					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings)
-					if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone && len(realizedIPAddresses) > 0 {
+					// networkInterfaceIPAddressesFromRealizedBindings already drops any
+					// address whose family isn't covered by StaticIPAllocationType, so a
+					// DHCP-realized address never lands in status here.
+					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType)
+					if len(realizedIPAddresses) > 0 {
 						subnetPort.Status.NetworkInterfaceConfig.IPAddresses = realizedIPAddresses
 					}
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
@@ -1062,18 +1065,28 @@ func realizedBindingsCoverStaticFamilies(realizedBindings []model.AddressBinding
 }
 
 // networkInterfaceIPAddressesFromRealizedBindings builds one entry per realized
-// binding with an IP, plus the shared MAC address, independent of binding count.
-// On a mixed-mode Subnet, realizedBindings can legitimately contain addresses from
-// more than one family at once (e.g. a DHCP-realized IPv4 alongside a statically
-// realized IPv6) - all of them are returned, unfiltered, since this reflects the
-// port's actual interface state rather than being scoped to static addresses only.
-func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.AddressBindingEntry) ([]v1alpha1.NetworkInterfaceIPAddress, string) {
+// binding whose family is covered by staticIPAllocationType, plus the shared MAC
+// address. DHCP-realized addresses of a family not covered by staticIPAllocationType
+// are dropped on purpose: SubnetPort only reconciles on CR events, but a DHCP lease
+// can change at any time, so showing it in status risks going stale until an
+// unrelated reconcile happens to refresh it. Statically allocated addresses don't
+// have that problem, since they only change via a CR spec change, which itself
+// triggers a reconcile.
+func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.AddressBindingEntry, staticIPAllocationType v1alpha1.StaticIPAllocationType) ([]v1alpha1.NetworkInterfaceIPAddress, string) {
 	macAddress := ""
 	ipAddresses := make([]v1alpha1.NetworkInterfaceIPAddress, 0, len(realizedBindings))
 	for _, binding := range realizedBindings {
 		if binding.Binding != nil && binding.Binding.IpAddress != nil {
 			if macAddress == "" && binding.Binding.MacAddress != nil {
 				macAddress = strings.Trim(*binding.Binding.MacAddress, "\"")
+			}
+			ip := net.ParseIP(*binding.Binding.IpAddress)
+			isIPv4 := ip != nil && ip.To4() != nil
+			if isIPv4 && !util.StaticIPAllocationTypeIncludesIPv4(staticIPAllocationType) {
+				continue
+			}
+			if !isIPv4 && !util.StaticIPAllocationTypeIncludesIPv6(staticIPAllocationType) {
+				continue
 			}
 			ipAddresses = append(ipAddresses, v1alpha1.NetworkInterfaceIPAddress{
 				Gateway:   "",

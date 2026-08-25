@@ -2329,16 +2329,18 @@ func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 
 func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 	tests := []struct {
-		name             string
-		realizedBindings []model.AddressBindingEntry
-		expectedIPs      []v1alpha1.NetworkInterfaceIPAddress
-		expectedMAC      string
+		name                   string
+		realizedBindings       []model.AddressBindingEntry
+		staticIPAllocationType v1alpha1.StaticIPAllocationType
+		expectedIPs            []v1alpha1.NetworkInterfaceIPAddress
+		expectedMAC            string
 	}{
 		{
-			name:             "No realized bindings",
-			realizedBindings: nil,
-			expectedIPs:      []v1alpha1.NetworkInterfaceIPAddress{},
-			expectedMAC:      "",
+			name:                   "No realized bindings",
+			realizedBindings:       nil,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expectedIPs:            []v1alpha1.NetworkInterfaceIPAddress{},
+			expectedMAC:            "",
 		},
 		{
 			name: "Single IPv4 binding",
@@ -2348,6 +2350,7 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
 				}},
 			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
 				{IPAddress: "10.0.0.2"},
 			},
@@ -2365,6 +2368,7 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
 				}},
 			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
 			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
 				{IPAddress: "10.0.0.2"},
 				{IPAddress: "fe80::1"},
@@ -2372,13 +2376,13 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 			expectedMAC: "aa:bb:cc:dd:ee:ff",
 		},
 		{
-			// Mixed-mode Subnet: StaticIPAllocationType=IPv6 realizes the IPv6 binding, but
-			// DHCP independently keeps allocating the IPv4 family since it isn't statically
-			// pinned. Both are genuinely present on the port at once, so both must be
-			// reported here - this isn't scoped to "static addresses only", it reflects the
-			// real interface state. realizedBindingsCoverStaticFamilies already relies on
-			// this same assumption (see its "realized alongside DHCP IPv4" case).
-			name: "Mixed-mode: DHCP-realized IPv4 + static-realized IPv6 both reported",
+			// Mixed-mode Subnet: StaticIPAllocationType=IPv6 only. DHCP independently
+			// realizes an IPv4 address too, but it must NOT be shown in status: SubnetPort
+			// only reconciles on CR events, while a DHCP lease can change at any time, so
+			// showing it here would risk status going stale until an unrelated reconcile
+			// happens to refresh it. The static IPv6 address doesn't have that problem,
+			// since it only changes via a CR spec change, which itself triggers a reconcile.
+			name: "Mixed-mode: DHCP-realized IPv4 is dropped, only static-realized IPv6 is shown",
 			realizedBindings: []model.AddressBindingEntry{
 				{Binding: &model.PacketAddressClassifier{
 					IpAddress:  servicecommon.String("172.26.0.165"),
@@ -2389,11 +2393,26 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
 				}},
 			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
 			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
-				{IPAddress: "172.26.0.165"},
 				{IPAddress: "2001:db8::165"},
 			},
 			expectedMAC: "00:50:56:ba:d6:7a",
+		},
+		{
+			// Pure DHCP: StaticIPAllocationType=None. No family is statically requested,
+			// so the DHCP-realized IPv4 must be dropped entirely - status should show no
+			// IP at all, same as before this filtering was added.
+			name: "Pure DHCP: StaticIPAllocationType=None drops the DHCP-realized IPv4",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			expectedIPs:            []v1alpha1.NetworkInterfaceIPAddress{},
+			expectedMAC:            "00:50:56:ba:d6:7a",
 		},
 		{
 			name: "Multi-IP addressBindings sharing one MAC (spec 2.4.3): 3 same-family entries",
@@ -2411,6 +2430,7 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 					MacAddress: servicecommon.String("00:11:22:33:44:55"),
 				}},
 			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
 				{IPAddress: "192.168.0.2"},
 				{IPAddress: "192.168.0.3"},
@@ -2427,6 +2447,7 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 					MacAddress: servicecommon.String("00:11:22:33:44:55"),
 				}},
 			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
 				{IPAddress: "192.168.0.2"},
 			},
@@ -2436,7 +2457,7 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ipAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(tt.realizedBindings)
+			ipAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(tt.realizedBindings, tt.staticIPAllocationType)
 			assert.Equal(t, tt.expectedIPs, ipAddresses)
 			assert.Equal(t, tt.expectedMAC, macAddress)
 		})
