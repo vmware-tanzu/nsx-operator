@@ -255,7 +255,7 @@ func (c *CleanupService) cleanupVPCResources(ctx context.Context) error {
 func (c *CleanupService) cleanupInfraResources(ctx context.Context) error {
 	if err := retry.OnError(Backoff, c.retriable, func() error {
 		cleanersCount := len(c.infraCleaners)
-		cleanErrs := make([]error, 0)
+		cleanErrs := make(chan error, cleanersCount)
 		wgForInfraCleaners := sync.WaitGroup{}
 		wgForInfraCleaners.Add(cleanersCount)
 
@@ -265,17 +265,18 @@ func (c *CleanupService) cleanupInfraResources(ctx context.Context) error {
 				defer wgForInfraCleaners.Done()
 				err := cleaner.CleanupInfraResources(ctx)
 				if err != nil {
-					cleanErrs = append(cleanErrs, err)
+					cleanErrs <- err
 				}
 			}()
 		}
 
 		wgForInfraCleaners.Wait()
-		if len(cleanErrs) > 0 {
-			return cleanErrs[0]
+		close(cleanErrs)
+		var errs []error
+		for err := range cleanErrs {
+			errs = append(errs, err)
 		}
-
-		return nil
+		return errors.Join(errs...)
 	}); err != nil {
 		return err
 	}

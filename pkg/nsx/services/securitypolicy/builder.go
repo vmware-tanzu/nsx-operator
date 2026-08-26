@@ -54,7 +54,7 @@ func (service *SecurityPolicyService) buildSecurityPolicyName(obj *v1alpha1.Secu
 }
 
 func (service *SecurityPolicyService) buildSecurityPolicyIDAndName(obj *v1alpha1.SecurityPolicy, createdFor string) (string, string) {
-	indexScope := common.TagValueScopeSecurityPolicyUID
+	indexScope := service.securityPolicyUIDTagScope()
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
@@ -289,8 +289,8 @@ func (service *SecurityPolicyService) buildTargetTags(obj *v1alpha1.SecurityPoli
 }
 
 func (service *SecurityPolicyService) buildBasicTags(obj *v1alpha1.SecurityPolicy, createdFor string) []model.Tag {
-	scopeOwnerName := common.TagValueScopeSecurityPolicyName
-	scopeOwnerUID := common.TagValueScopeSecurityPolicyUID
+	scopeOwnerName := service.securityPolicyNameTagScope()
+	scopeOwnerUID := service.securityPolicyUIDTagScope()
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		scopeOwnerName = common.TagScopeNetworkPolicyName
 		scopeOwnerUID = common.TagScopeNetworkPolicyUID
@@ -2062,7 +2062,7 @@ func (service *SecurityPolicyService) getPolicyAppliedGroupByCRUID(indexScope, u
 }
 
 func (service *SecurityPolicyService) getAppliedGroupByRuleID(createdFor, uid string, ruleID string) *model.Group {
-	indexScope := common.TagValueScopeSecurityPolicyUID
+	indexScope := service.securityPolicyUIDTagScope()
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}

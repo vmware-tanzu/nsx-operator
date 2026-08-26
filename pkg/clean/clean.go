@@ -143,9 +143,20 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 			return subnet.InitializeSubnetService(service)
 		}
 	}
-	wrapInitializeSecurityPolicy := func(service common.Service) cleanupFunc {
+	wrapInitializeT1SecurityPolicy := func(service common.Service) cleanupFunc {
 		return func() (interface{}, error) {
-			return securitypolicy.InitializeSecurityPolicy(service, vpcService, true)
+			securityPolicyService, err := securitypolicy.InitializeSecurityPolicy(service, vpcService, false, false)
+			if err != nil {
+				return nil, err
+			}
+			// Wrap the T1 service as infra-only because SecurityPolicyService also
+			// implements the VPC cleanup interfaces.
+			return &t1SecurityPolicyCleaner{service: securityPolicyService}, nil
+		}
+	}
+	wrapInitializeVPCSecurityPolicy := func(service common.Service) cleanupFunc {
+		return func() (interface{}, error) {
+			return securitypolicy.InitializeSecurityPolicy(service, vpcService, true, true)
 		}
 	}
 	wrapInitializeVPC := func(service common.Service) cleanupFunc {
@@ -229,7 +240,8 @@ func InitializeCleanupService(cf *config.NSXOperatorConfig, nsxClient *nsx.Clien
 	loggedAdd("SubnetBinding", wrapInitializeSubnetBinding(commonService))
 	loggedAdd("SubnetIPReservation", wrapInitializeSubnetIPReservation(commonService))
 	loggedAdd("SubnetService", wrapInitializeSubnetService(commonService))
-	loggedAdd("SecurityPolicy", wrapInitializeSecurityPolicy(commonService))
+	loggedAdd("T1SecurityPolicy", wrapInitializeT1SecurityPolicy(commonService))
+	loggedAdd("VPCSecurityPolicy", wrapInitializeVPCSecurityPolicy(commonService))
 	loggedAdd("StaticRoute", wrapInitializeStaticRoute(commonService))
 	loggedAdd("VPC", wrapInitializeVPC(commonService))
 	loggedAdd("IPAddressAllocation", wrapInitializeIPAddressAllocation(commonService))

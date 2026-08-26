@@ -20,6 +20,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -40,6 +41,7 @@ var (
 
 type SecurityPolicyService struct {
 	common.Service
+	VPCMode             bool
 	securityPolicyStore *SecurityPolicyStore
 	ruleStore           *RuleStore
 	groupStore          *GroupStore
@@ -64,36 +66,136 @@ type GroupShare struct {
 }
 
 var (
-	securityService *SecurityPolicyService
-	lock            = &sync.Mutex{}
+	securityServices = make(map[bool]*SecurityPolicyService)
+	lock             = &sync.RWMutex{}
 )
 
-// GetSecurityService get singleton SecurityPolicy Service instance, NetworkPolicy/SecurityPolicy controller share the same instance.
-func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider) *SecurityPolicyService {
-	if securityService == nil {
-		lock.Lock()
-		defer lock.Unlock()
-		if securityService == nil {
-			var err error
-			if securityService, err = InitializeSecurityPolicy(service, vpcService, false); err != nil {
-				log.Error(err, "Failed to initialize SecurityPolicy service")
-				os.Exit(1)
-			}
+// ResetSecurityServiceForTest clears the per-mode singleton map.
+// Must only be used from test code.
+func ResetSecurityServiceForTest() {
+	lock.Lock()
+	defer lock.Unlock()
+	securityServices = make(map[bool]*SecurityPolicyService)
+}
+
+// GetSecurityService returns a SecurityPolicyService instance. Legacy clusters
+// use one cluster-wide instance; clusters supporting per-namespace providers
+// use one instance per requested mode. NetworkPolicy and SecurityPolicy
+// controllers that share the same mode also share the same instance.
+func GetSecurityService(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *SecurityPolicyService {
+	if !config.IsPerNamespaceProvidersSupported() {
+		// Ignore the caller's requested mode in legacy clusters, where the network
+		// provider is cluster-wide, so every controller shares one service instance.
+		vpcMode = config.HasVPCNamespaces()
+	}
+
+	lock.RLock()
+	svc := securityServices[vpcMode]
+	lock.RUnlock()
+	if svc != nil {
+		return svc
+	}
+
+	lock.Lock()
+	defer lock.Unlock()
+	if svc = securityServices[vpcMode]; svc != nil {
+		return svc
+	}
+	var err error
+	svc, err = InitializeSecurityPolicy(service, vpcService, vpcMode, false)
+	if err != nil {
+		log.Error(err, "Failed to initialize SecurityPolicy service", "vpcMode", vpcMode)
+		os.Exit(1)
+	}
+	securityServices[vpcMode] = svc
+	return svc
+}
+
+func (service *SecurityPolicyService) securityPolicyNameTagScope() string {
+	if service.VPCMode {
+		return common.TagScopeSecurityPolicyName
+	}
+	return common.TagScopeSecurityPolicyCRName
+}
+
+func (service *SecurityPolicyService) securityPolicyUIDTagScope() string {
+	if service.VPCMode {
+		return common.TagScopeSecurityPolicyUID
+	}
+	return common.TagScopeSecurityPolicyCRUID
+}
+
+// tagFiltersWithOwnerScope returns a copy of tagFilters with a scope-only
+// owner filter. These filters are used only to build NSX search queries; they
+// are never written to resources or stored in the cache.
+func tagFiltersWithOwnerScope(tagFilters []model.Tag, ownerScope string) []model.Tag {
+	result := make([]model.Tag, 0, len(tagFilters)+1)
+	result = append(result, tagFilters...)
+	result = append(result, model.Tag{Scope: String(ownerScope)})
+	return result
+}
+
+type securityPolicyStoreInitialization struct {
+	resourceType string
+	tagFilters   []model.Tag
+	store        common.Store
+}
+
+func (service *SecurityPolicyService) storeInitializations() []securityPolicyStoreInitialization {
+	infraShareTag := []model.Tag{{
+		Scope: String(common.TagScopeNSXShareCreatedFor),
+		Tag:   String(common.TagValueShareCreatedForInfra),
+	}}
+	projectShareTag := []model.Tag{{
+		Scope: String(common.TagScopeNSXShareCreatedFor),
+		Tag:   String(common.TagValueShareCreatedForProject),
+	}}
+	notShareTag := []model.Tag{{
+		Scope: String(common.TagScopeNSXShareCreatedFor),
+		Tag:   String(common.TagValueShareNotCreated),
+	}}
+
+	ownerScopes := []string{service.securityPolicyUIDTagScope()}
+	if service.VPCMode {
+		// SecurityPolicy and NetworkPolicy resources use different owner scopes.
+		// Search tag clauses are joined with AND, so each owner scope requires a
+		// separate query into the same store.
+		ownerScopes = append(ownerScopes, common.TagScopeNetworkPolicyUID)
+	}
+
+	initializations := make([]securityPolicyStoreInitialization, 0, len(ownerScopes)*7)
+	for _, ownerScope := range ownerScopes {
+		groupTags := []model.Tag(nil)
+		if service.VPCMode {
+			groupTags = notShareTag
+		}
+		initializations = append(initializations,
+			securityPolicyStoreInitialization{ResourceTypeGroup, tagFiltersWithOwnerScope(groupTags, ownerScope), service.groupStore},
+			securityPolicyStoreInitialization{ResourceTypeSecurityPolicy, tagFiltersWithOwnerScope(nil, ownerScope), service.securityPolicyStore},
+			securityPolicyStoreInitialization{ResourceTypeRule, tagFiltersWithOwnerScope(nil, ownerScope), service.ruleStore},
+		)
+
+		// T1 SecurityPolicy has no share resources. Only VPC stores need infra
+		// and project share/group initialization.
+		if service.VPCMode {
+			initializations = append(initializations,
+				securityPolicyStoreInitialization{ResourceTypeGroup, tagFiltersWithOwnerScope(infraShareTag, ownerScope), service.infraGroupStore},
+				securityPolicyStoreInitialization{ResourceTypeShare, tagFiltersWithOwnerScope(infraShareTag, ownerScope), service.infraShareStore},
+				securityPolicyStoreInitialization{ResourceTypeGroup, tagFiltersWithOwnerScope(projectShareTag, ownerScope), service.projectGroupStore},
+				securityPolicyStoreInitialization{ResourceTypeShare, tagFiltersWithOwnerScope(projectShareTag, ownerScope), service.projectShareStore},
+			)
 		}
 	}
-	return securityService
+	return initializations
 }
 
 // InitializeSecurityPolicy sync NSX resources
-func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServiceProvider, forCleanUp bool) (*SecurityPolicyService, error) {
+func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanUp bool) (*SecurityPolicyService, error) {
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
-
-	wg.Add(7)
 
 	securityPolicyService := &SecurityPolicyService{
 		Service: service,
+		VPCMode: vpcMode,
 	}
 
 	if forCleanUp {
@@ -106,62 +208,40 @@ func InitializeSecurityPolicy(service common.Service, vpcService common.VPCServi
 		securityPolicyService.infraGroupBuilder, _ = common.PolicyPathInfraGroup.NewPolicyTreeBuilder()
 	}
 
-	if IsVPCEnabled(securityPolicyService) {
-		common.TagValueScopeSecurityPolicyName = common.TagScopeSecurityPolicyName
-		common.TagValueScopeSecurityPolicyUID = common.TagScopeSecurityPolicyUID
-	}
-	indexScope := common.TagValueScopeSecurityPolicyUID
+	indexScope := securityPolicyService.securityPolicyUIDTagScope()
 	securityPolicyService.setUpStore(indexScope, forCleanUp)
 	securityPolicyService.vpcService = vpcService
 
-	infraShareTag := []model.Tag{
-		{
-			Scope: String(common.TagScopeNSXShareCreatedFor),
-			Tag:   String(common.TagValueShareCreatedForInfra),
-		},
-	}
-	projectShareTag := []model.Tag{
-		{
-			Scope: String(common.TagScopeNSXShareCreatedFor),
-			Tag:   String(common.TagValueShareCreatedForProject),
-		},
-	}
-	notShareTag := []model.Tag{
-		{
-			Scope: String(common.TagScopeNSXShareCreatedFor),
-			Tag:   String(common.TagValueShareNotCreated),
-		},
+	initializations := securityPolicyService.storeInitializations()
+
+	fatalErrors := make(chan error, len(initializations))
+	wg.Add(len(initializations))
+	for _, initialization := range initializations {
+		initialization := initialization
+		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, initialization.resourceType, initialization.tagFilters, initialization.store)
 	}
 
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, infraShareTag, securityPolicyService.infraGroupStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeShare, infraShareTag, securityPolicyService.infraShareStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, projectShareTag, securityPolicyService.projectGroupStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeShare, projectShareTag, securityPolicyService.projectShareStore)
-
-	if IsVPCEnabled(securityPolicyService) {
-		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, notShareTag, securityPolicyService.groupStore)
-	} else {
-		go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeGroup, nil, securityPolicyService.groupStore)
-	}
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSecurityPolicy, nil, securityPolicyService.securityPolicyStore)
-	go securityPolicyService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, nil, securityPolicyService.ruleStore)
-
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return securityPolicyService, err
 	}
 
 	return securityPolicyService, nil
 }
 
+// SetUpStoreForTest initializes stores for test code.
+func (s *SecurityPolicyService) SetUpStoreForTest(indexScope string, indexWithVPCPath bool) {
+	s.setUpStore(indexScope, indexWithVPCPath)
+}
+
+func (s *SecurityPolicyService) GetSecurityPolicyStoreForTest() *SecurityPolicyStore {
+	return s.securityPolicyStore
+}
+
 func (s *SecurityPolicyService) setUpStore(indexScope string, indexWithVPCPath bool) {
+	indexBySecurityPolicyUID := indexBySecurityPolicyUIDForScope(indexScope)
+	indexSPByUUIDAndRuleHash := indexSPByUUIDAndRuleHashForScope(indexScope)
 	vpcResourceIndexWrapper := func(indexers cache.Indexers) cache.Indexers {
 		indexers[indexScope] = indexBySecurityPolicyUID
 		indexers[common.TagScopeNetworkPolicyUID] = indexByNetworkPolicyUID
@@ -503,7 +583,7 @@ func (service *SecurityPolicyService) getFinalSecurityPolicyResource(obj *v1alph
 	if len(nsxSecurityPolicy.Scope) == 0 {
 		log.Info("SecurityPolicy has empty policy-level appliedTo field")
 	}
-	indexScope := common.TagValueScopeSecurityPolicyUID
+	indexScope := service.securityPolicyUIDTagScope()
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
@@ -690,7 +770,7 @@ func (service *SecurityPolicyService) deleteT1SecurityPolicy(spUid types.UID) er
 	// And for SecurityPolicy GC or cleanup process, which means that SecurityPolicy doesn't exist in K8s any more,
 	// but still has corresponding NSX SecurityPolicy object.
 	// Using SecurityPolicy's UID from store to get NSX SecurityPolicy object
-	indexScope := common.TagValueScopeSecurityPolicyUID
+	indexScope := service.securityPolicyUIDTagScope()
 	existingSecurityPolices := securityPolicyStore.GetByIndex(indexScope, string(spUid))
 	if len(existingSecurityPolices) == 0 {
 		log.Info("NSX SecurityPolicy is not found in store, skip deleting it", "nsxSecurityPolicyUID", spUid)
@@ -750,7 +830,7 @@ func (service *SecurityPolicyService) deleteT1SecurityPolicy(spUid types.UID) er
 }
 
 func (service *SecurityPolicyService) deleteVPCSecurityPolicy(spUID types.UID, isGC bool, createdFor string) error {
-	indexScope := common.TagValueScopeSecurityPolicyUID
+	indexScope := service.securityPolicyUIDTagScope()
 	if createdFor == common.ResourceTypeNetworkPolicy {
 		indexScope = common.TagScopeNetworkPolicyUID
 	}
@@ -1309,7 +1389,7 @@ func (service *SecurityPolicyService) applyVPCGroupShareStore(nsxGroups []model.
 }
 
 func (service *SecurityPolicyService) ListSecurityPolicyID() sets.Set[string] {
-	indexScope := common.TagValueScopeSecurityPolicyUID
+	indexScope := service.securityPolicyUIDTagScope()
 	return service.getGCSecurityPolicyIDSet(indexScope)
 }
 
@@ -1322,12 +1402,21 @@ func (service *SecurityPolicyService) ListSecurityPolicyByName(ns, name string) 
 	var result []*model.SecurityPolicy
 	securityPolicies := service.securityPolicyStore.GetByIndex(common.TagScopeNamespace, ns)
 	for _, securityPolicy := range securityPolicies {
-		securityPolicyCRName := nsxutil.FindTag(securityPolicy.Tags, common.TagValueScopeSecurityPolicyName)
+		securityPolicyCRName := nsxutil.FindTag(securityPolicy.Tags, service.securityPolicyNameTagScope())
 		if securityPolicyCRName == name {
 			result = append(result, securityPolicy)
 		}
 	}
 	return result
+}
+
+// GetSecurityPolicyUID returns the Kubernetes owner UID recorded on an NSX
+// SecurityPolicy using this service instance's T1 or VPC tag scope.
+func (service *SecurityPolicyService) GetSecurityPolicyUID(securityPolicy *model.SecurityPolicy) string {
+	if securityPolicy == nil {
+		return ""
+	}
+	return nsxutil.FindTag(securityPolicy.Tags, service.securityPolicyUIDTagScope())
 }
 
 func (service *SecurityPolicyService) ListNetworkPolicyByName(ns, name string) []*model.SecurityPolicy {

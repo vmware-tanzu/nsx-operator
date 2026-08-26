@@ -20,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -148,10 +147,7 @@ func TestEnqueueRequestForPod_Raw(t *testing.T) {
 			}
 
 			// Mock util.IsSystemNamespace
-			patches := gomonkey.ApplyFunc(securitypolicy.IsVPCEnabled, func(_ interface{}) bool {
-				return false
-			})
-			patches.ApplyFunc(util.IsSystemNamespace, func(client.Client, string, *v1.Namespace) (bool, error) {
+			patches := gomonkey.ApplyFunc(util.IsSystemNamespace, func(client.Client, string, *v1.Namespace) (bool, error) {
 				return tc.isSystemNs, tc.isSystemNsErr
 			})
 			// Mock reconcileNetworkPolicy to avoid actual reconciliation

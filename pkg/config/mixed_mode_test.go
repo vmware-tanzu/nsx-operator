@@ -522,6 +522,57 @@ func TestIsVPCNamespace(t *testing.T) {
 	})
 }
 
+func TestIsT1Namespace(t *testing.T) {
+	t.Run("nil namespace", func(t *testing.T) {
+		resetMixedModeState()
+		assert.False(t, IsT1Namespace(nil))
+	})
+
+	t.Run("per-namespace on t1 annotation", func(t *testing.T) {
+		resetMixedModeState()
+		supported := true
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		stateMu.Unlock()
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "t1-ns",
+				Annotations: map[string]string{
+					T1DefaultConfigAnnotation: "true",
+				},
+			},
+		}
+		assert.True(t, IsT1Namespace(ns))
+	})
+
+	t.Run("per-namespace on bare namespace counts as false", func(t *testing.T) {
+		resetMixedModeState()
+		supported := true
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		stateMu.Unlock()
+		ns := makeNamespace("bare", "")
+		assert.False(t, IsT1Namespace(ns))
+	})
+
+	t.Run("per-namespace off IsT1Namespace uses cluster flags", func(t *testing.T) {
+		resetMixedModeState()
+		supported := false
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		hasT1Namespaces = true
+		hasVPCNamespaces = false
+		stateMu.Unlock()
+		ns := makeNamespace("any", "")
+		assert.True(t, IsT1Namespace(ns))
+		stateMu.Lock()
+		hasT1Namespaces = false
+		hasVPCNamespaces = true
+		stateMu.Unlock()
+		assert.False(t, IsT1Namespace(ns))
+	})
+}
+
 // ---------- Getters and SetMixedModeStateForTest ----------
 
 func TestGettersAndSetMixedModeStateForTest(t *testing.T) {

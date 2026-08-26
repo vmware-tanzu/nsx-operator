@@ -27,8 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -448,82 +448,107 @@ func TestSecurityPolicyReconciler_Reconcile(t *testing.T) {
 }
 
 func TestSecurityPolicyReconciler_GarbageCollector(t *testing.T) {
-	service := &securitypolicy.SecurityPolicyService{
-		Service: common.Service{
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					EnforcementPoint: "vmc-enforcementpoint",
-				},
-				CoeConfig: &config.CoeConfig{
-					EnableVPCNetwork: false,
-				},
+	ctx := context.Background()
+
+	for _, testCase := range []struct {
+		name             string
+		vpcMode          bool
+		uidScope         string
+		foreignUIDScope  string
+		liveUID          string
+		staleUID         string
+		foreignUID       string
+		expectedListType client.ObjectList
+		populateList     func(client.ObjectList)
+	}{
+		{
+			name:             "T1 GC lists legacy CRs and ignores VPC-tagged resources",
+			vpcMode:          false,
+			uidScope:         common.TagScopeSecurityPolicyCRUID,
+			foreignUIDScope:  common.TagScopeSecurityPolicyUID,
+			liveUID:          "t1-live",
+			staleUID:         "t1-stale",
+			foreignUID:       "vpc-foreign",
+			expectedListType: &v1alpha1.SecurityPolicyList{},
+			populateList: func(list client.ObjectList) {
+				legacyList := list.(*v1alpha1.SecurityPolicyList)
+				legacyList.Items = append(legacyList.Items, v1alpha1.SecurityPolicy{ObjectMeta: metav1.ObjectMeta{UID: "t1-live"}})
 			},
 		},
+		{
+			name:             "VPC GC lists VPC CRs and ignores T1-tagged resources",
+			vpcMode:          true,
+			uidScope:         common.TagScopeSecurityPolicyUID,
+			foreignUIDScope:  common.TagScopeSecurityPolicyCRUID,
+			liveUID:          "vpc-live",
+			staleUID:         "vpc-stale",
+			foreignUID:       "t1-foreign",
+			expectedListType: &crdv1alpha1.SecurityPolicyList{},
+			populateList: func(list client.ObjectList) {
+				vpcList := list.(*crdv1alpha1.SecurityPolicyList)
+				vpcList.Items = append(vpcList.Items, crdv1alpha1.SecurityPolicy{ObjectMeta: metav1.ObjectMeta{UID: "vpc-live"}})
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			service := &securitypolicy.SecurityPolicyService{
+				Service: common.Service{
+					NSXConfig: &config.NSXOperatorConfig{
+						NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"},
+						CoeConfig: &config.CoeConfig{EnableVPCNetwork: testCase.vpcMode},
+					},
+				},
+				VPCMode: testCase.vpcMode,
+			}
+			service.SetUpStoreForTest(testCase.uidScope, false)
+
+			for _, policy := range []*model.SecurityPolicy{
+				{
+					Id:   ptr.To("shared-live-nsx-id"),
+					Tags: []model.Tag{{Scope: ptr.To(testCase.uidScope), Tag: ptr.To(testCase.liveUID)}},
+				},
+				{
+					Id:   ptr.To("shared-stale-nsx-id"),
+					Tags: []model.Tag{{Scope: ptr.To(testCase.uidScope), Tag: ptr.To(testCase.staleUID)}},
+				},
+				{
+					Id:   ptr.To("foreign-mode-nsx-id"),
+					Tags: []model.Tag{{Scope: ptr.To(testCase.foreignUIDScope), Tag: ptr.To(testCase.foreignUID)}},
+				},
+			} {
+				require.NoError(t, service.GetSecurityPolicyStoreForTest().Apply(policy))
+			}
+
+			mockCtl := gomock.NewController(t)
+			k8sClient := mock_client.NewMockClient(mockCtl)
+			reconciler := &SecurityPolicyReconciler{
+				Client:        k8sClient,
+				Service:       service,
+				isVPCMode:     testCase.vpcMode,
+				StatusUpdater: ctrcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy"),
+			}
+
+			k8sClient.EXPECT().List(gomock.Any(), gomock.AssignableToTypeOf(testCase.expectedListType)).DoAndReturn(
+				func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+					testCase.populateList(list)
+					return nil
+				},
+			)
+
+			deletedUIDs := make([]types.UID, 0, 1)
+			patch := gomonkey.ApplyMethodFunc(service, "DeleteSecurityPolicy", func(uid types.UID, isGC bool, createdFor string) error {
+				assert.True(t, isGC)
+				assert.Equal(t, common.ResourceTypeSecurityPolicy, createdFor)
+				deletedUIDs = append(deletedUIDs, uid)
+				return nil
+			})
+			defer patch.Reset()
+
+			require.NoError(t, reconciler.CollectGarbage(ctx))
+			assert.Equal(t, []types.UID{types.UID(testCase.staleUID)}, deletedUIDs)
+			assert.NotContains(t, service.ListSecurityPolicyID(), testCase.foreignUID)
+		})
 	}
-	mockCtl := gomock.NewController(t)
-	defer mockCtl.Finish()
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	r := &SecurityPolicyReconciler{
-		Client:        k8sClient,
-		Scheme:        nil,
-		Service:       service,
-		StatusUpdater: ctrcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy"),
-	}
-	ctx := context.Background()
-	policyList := &v1alpha1.SecurityPolicyList{}
-
-	// gc collect item "2345", local store has more item than k8s cache
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
-		return nil
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
-		a := sets.New[string]()
-		a.Insert("1234")
-		a.Insert("2345")
-		return a
-	})
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SecurityPolicyList)
-		a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
-		return nil
-	})
-	r.CollectGarbage(ctx)
-
-	// local store has same item as k8s cache
-	patch.Reset()
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
-		a := sets.New[string]()
-		a.Insert("1234")
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(r.Service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj interface{}, isGc bool, createdFor string) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-	k8sClient.EXPECT().List(gomock.Any(), policyList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SecurityPolicyList)
-		a.Items = append(a.Items, v1alpha1.SecurityPolicy{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
-		return nil
-	})
-	r.CollectGarbage(ctx)
-
-	// local store has no item
-	patch.Reset()
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "ListSecurityPolicyID", func(_ *securitypolicy.SecurityPolicyService) sets.Set[string] {
-		a := sets.New[string]()
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteSecurityPolicy", func(_ *securitypolicy.SecurityPolicyService, obj types.UID, isGc bool, createdFor string) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-	k8sClient.EXPECT().List(ctx, policyList).Return(nil).Times(0)
-	r.CollectGarbage(ctx)
-	patch.Reset()
 }
 
 func TestReconcileSecurityPolicy(t *testing.T) {
@@ -636,10 +661,11 @@ func TestSecurityPolicyReconciler_listSecurityPolciyCRIDsForVPC(t *testing.T) {
 		},
 	}
 	r := &SecurityPolicyReconciler{
-		Client:   k8sClient,
-		Scheme:   nil,
-		Service:  service,
-		Recorder: fakeRecorder{},
+		Client:    k8sClient,
+		Scheme:    nil,
+		Service:   service,
+		Recorder:  fakeRecorder{},
+		isVPCMode: true,
 	}
 	ctx := context.Background()
 
@@ -744,6 +770,7 @@ func TestSecurityPolicyReconcilerForVPC_Reconcile(t *testing.T) {
 		Scheme:        nil,
 		Service:       service,
 		Recorder:      fakeRecorder{},
+		isVPCMode:     true,
 		StatusUpdater: ctrcommon.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSecurityPolicy, "SecurityPolicy", "SecurityPolicy"),
 	}
 	ctx := context.Background()
@@ -868,6 +895,7 @@ func TestReconcileSecurityPolicyForVPC(t *testing.T) {
 	r := NewFakeSecurityPolicyReconciler()
 	// Enable VPC network
 	r.Service.NSXConfig.EnableVPCNetwork = true
+	r.isVPCMode = true
 	mockQueue := mock_client.NewMockInterface(mockCtl)
 
 	type args struct {
@@ -901,6 +929,8 @@ func TestStartSecurityPolicyController(t *testing.T) {
 		Client: fakeClient,
 	}
 	mgr, _ := ctrl.NewManager(&rest.Config{}, manager.Options{})
+	_ = v1alpha1.AddToScheme(mgr.GetScheme())
+	_ = crdv1alpha1.AddToScheme(mgr.GetScheme())
 
 	testCases := []struct {
 		name         string
@@ -916,7 +946,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 				patches.ApplyFunc(os.Exit, func(code int) {
 					assert.FailNow(t, "os.Exit should not be called")
 				})
-				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
+				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
 				patches.ApplyMethod(reflect.TypeOf(&SecurityPolicyReconciler{}), "Start", func(_ *SecurityPolicyReconciler, r ctrl.Manager) error {
@@ -931,7 +961,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			patches: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc(ctrcommon.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
 				})
-				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider) *securitypolicy.SecurityPolicyService {
+				patches.ApplyFunc(securitypolicy.GetSecurityService, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool) *securitypolicy.SecurityPolicyService {
 					return fakeService()
 				})
 				patches.ApplyPrivateMethod(reflect.TypeOf(&SecurityPolicyReconciler{}), "setupWithManager", func(_ *SecurityPolicyReconciler, mgr ctrl.Manager) error {
@@ -947,7 +977,7 @@ func TestStartSecurityPolicyController(t *testing.T) {
 			patches := testCase.patches()
 			defer patches.Reset()
 
-			r := NewSecurityPolicyReconciler(mgr, commonService, vpcService)
+			r := NewSecurityPolicyReconciler(mgr, commonService, vpcService, true)
 			err := r.StartController(mgr, nil)
 
 			if testCase.expectErrStr != "" {
