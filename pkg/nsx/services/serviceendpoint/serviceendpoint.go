@@ -4,18 +4,17 @@
 package serviceendpoint
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -24,9 +23,6 @@ var (
 	log             = logger.Log
 	String          = common.String
 	MarkedForDelete = true
-
-	// errNotRealized means keep polling.
-	errNotRealized = errors.New("not realized yet")
 )
 
 type ServiceEndpointService struct {
@@ -62,28 +58,20 @@ func InitializeServiceEndpoint(service common.Service, vpcService common.VPCServ
 	return serviceEndpointService, nil
 }
 
-// CreateOrUpdateServiceEndpoint applies the CR to NSX if it changed.
+// CreateOrUpdateServiceEndpoint applies the CR to NSX. ServiceEndpoint spec
+// fields are immutable, so once the NSX object exists there is nothing to update.
 func (service *ServiceEndpointService) CreateOrUpdateServiceEndpoint(obj *v1alpha1.ServiceEndpoint) error {
-	nsxServiceEndpoint, err := service.BuildServiceEndpoint(obj)
-	if err != nil {
-		return err
-	}
-
 	existingServiceEndpoint, err := service.indexedServiceEndpoint(obj.UID)
 	if err != nil {
 		log.Error(err, "Failed to get serviceendpoint", "UID", obj.UID)
 		return err
 	}
 	if existingServiceEndpoint != nil {
-		// Keep the existing NSX id and display_name.
-		nsxServiceEndpoint.Id = String(*existingServiceEndpoint.Id)
-		nsxServiceEndpoint.DisplayName = String(*existingServiceEndpoint.DisplayName)
-		if !common.CompareResource(ServiceEndpointToComparable(existingServiceEndpoint), ServiceEndpointToComparable(nsxServiceEndpoint)) {
-			log.Info("ServiceEndpoint is not changed", "UID", obj.UID)
-			return nil
-		}
+		log.Info("ServiceEndpoint already exists, update is not supported, skip", "UID", obj.UID)
+		return nil
 	}
 
+	nsxServiceEndpoint := service.BuildServiceEndpoint(obj)
 	return service.Apply(nsxServiceEndpoint)
 }
 
@@ -108,41 +96,19 @@ func (service *ServiceEndpointService) Apply(nsxServiceEndpoint *model.VpcServic
 		return err
 	}
 
-	if err := service.checkServiceEndpointRealizeState(orgID, projectID, vpcID, *nsxServiceEndpoint.Id); err != nil {
+	realizeService := realizestate.InitializeRealizeState(service.Service)
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxServiceEndpointNew.Path, []string{}); err != nil {
+		log.Error(err, "Failed to check ServiceEndpoint realization state", "ID", *nsxServiceEndpoint.Id)
 		return err
 	}
 
 	return service.ServiceEndpointStore.Apply(&nsxServiceEndpointNew)
 }
 
-// checkServiceEndpointRealizeState polls until NSX reports SUCCESS or ERROR.
-// TODO: confirm with NSX whether this status API is fully implemented; it hasn't
-// reliably returned SUCCESS in testing.
-func (service *ServiceEndpointService) checkServiceEndpointRealizeState(orgID, projectID, vpcID, id string) error {
-	return retry.OnError(util.NSXTRealizeRetry, func(err error) bool {
-		return errors.Is(err, errNotRealized)
-	}, func() error {
-		status, err := service.NSXClient.VpcServiceEndpointStatusClient.Get(orgID, projectID, vpcID, id)
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			return err
-		}
-		if status.Status == nil {
-			return errNotRealized
-		}
-		switch *status.Status {
-		case model.VpcServiceEndpointStatus_STATUS_SUCCESS:
-			return nil
-		case model.VpcServiceEndpointStatus_STATUS_ERROR:
-			return fmt.Errorf("VpcServiceEndpoint %s realization failed", id)
-		default:
-			// keep polling
-			return errNotRealized
-		}
-	})
-}
-
 func (service *ServiceEndpointService) DeleteServiceEndpointByNSXResource(nsxServiceEndpoint *model.VpcServiceEndpoint) error {
+	if nsxServiceEndpoint.Path == nil {
+		return fmt.Errorf("VpcServiceEndpoint %s has no path", *nsxServiceEndpoint.Id)
+	}
 	vpcResourceInfo, err := common.ParseVPCResourcePath(*nsxServiceEndpoint.Path)
 	if err != nil {
 		return err

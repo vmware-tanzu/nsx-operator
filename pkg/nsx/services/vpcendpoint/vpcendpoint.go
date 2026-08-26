@@ -5,7 +5,6 @@ package vpcendpoint
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -13,12 +12,12 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/util/retry"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -27,9 +26,6 @@ var (
 	log             = logger.Log
 	String          = common.String
 	MarkedForDelete = true
-
-	// errNotRealized means keep polling.
-	errNotRealized = errors.New("not realized yet")
 )
 
 type VPCEndpointService struct {
@@ -94,9 +90,21 @@ func (service *VPCEndpointService) resolveServiceEndpointPath(serviceEndpointNam
 	return common.GetVpcServiceEndpointPathFromCCIName(serviceEndpointName)
 }
 
-// CreateOrUpdateVPCEndpoint resolves both references and applies the CR to NSX if it changed.
-func (service *VPCEndpointService) CreateOrUpdateVPCEndpoint(ctx context.Context, namespace string, obj *v1alpha1.VPCEndpoint) error {
-	ipAllocationPath, err := service.resolveIPAllocationPath(ctx, namespace, obj.Spec.IPAllocationName)
+// CreateOrUpdateVPCEndpoint resolves both references and applies the CR to NSX.
+// VPCEndpoint spec fields are immutable, so once the NSX object exists there is
+// nothing to update.
+func (service *VPCEndpointService) CreateOrUpdateVPCEndpoint(ctx context.Context, obj *v1alpha1.VPCEndpoint) error {
+	existingVPCEndpoint, err := service.indexedVPCEndpoint(obj.UID)
+	if err != nil {
+		log.Error(err, "Failed to get vpcendpoint", "UID", obj.UID)
+		return err
+	}
+	if existingVPCEndpoint != nil {
+		log.Info("VPCEndpoint already exists, update is not supported, skip", "UID", obj.UID)
+		return nil
+	}
+
+	ipAllocationPath, err := service.resolveIPAllocationPath(ctx, obj.Namespace, obj.Spec.IPAllocationName)
 	if err != nil {
 		return err
 	}
@@ -110,22 +118,7 @@ func (service *VPCEndpointService) CreateOrUpdateVPCEndpoint(ctx context.Context
 		return err
 	}
 
-	existingVPCEndpoint, err := service.indexedVPCEndpoint(obj.UID)
-	if err != nil {
-		log.Error(err, "Failed to get vpcendpoint", "UID", obj.UID)
-		return err
-	}
-	if existingVPCEndpoint != nil {
-		// Keep the existing NSX id and display_name.
-		nsxVPCEndpoint.Id = String(*existingVPCEndpoint.Id)
-		nsxVPCEndpoint.DisplayName = String(*existingVPCEndpoint.DisplayName)
-		if !common.CompareResource(VPCEndpointToComparable(existingVPCEndpoint), VPCEndpointToComparable(nsxVPCEndpoint)) {
-			log.Info("VPCEndpoint is not changed", "UID", obj.UID)
-			return nil
-		}
-	}
-
-	return service.Apply(namespace, nsxVPCEndpoint)
+	return service.Apply(obj.Namespace, nsxVPCEndpoint)
 }
 
 // Apply patches NSX and waits for realization.
@@ -148,41 +141,19 @@ func (service *VPCEndpointService) Apply(namespace string, nsxVPCEndpoint *model
 		return err
 	}
 
-	if err := service.checkVPCEndpointRealizeState(orgID, projectID, vpcID, *nsxVPCEndpoint.Id); err != nil {
+	realizeService := realizestate.InitializeRealizeState(service.Service)
+	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxVPCEndpointNew.Path, []string{}); err != nil {
+		log.Error(err, "Failed to check VPCEndpoint realization state", "ID", *nsxVPCEndpoint.Id)
 		return err
 	}
 
 	return service.VPCEndpointStore.Apply(&nsxVPCEndpointNew)
 }
 
-// checkVPCEndpointRealizeState polls until NSX reports SUCCESS or ERROR.
-// TODO: confirm with NSX whether this status API is fully implemented; it hasn't
-// reliably returned SUCCESS in testing.
-func (service *VPCEndpointService) checkVPCEndpointRealizeState(orgID, projectID, vpcID, id string) error {
-	return retry.OnError(util.NSXTRealizeRetry, func(err error) bool {
-		return errors.Is(err, errNotRealized)
-	}, func() error {
-		status, err := service.NSXClient.VpcEndpointStatusClient.Get(orgID, projectID, vpcID, id)
-		err = nsxutil.TransNSXApiError(err)
-		if err != nil {
-			return err
-		}
-		if status.Status == nil {
-			return errNotRealized
-		}
-		switch *status.Status {
-		case model.VpcEndpointStatus_STATUS_SUCCESS:
-			return nil
-		case model.VpcEndpointStatus_STATUS_ERROR:
-			return fmt.Errorf("VpcEndpoint %s realization failed", id)
-		default:
-			// keep polling
-			return errNotRealized
-		}
-	})
-}
-
 func (service *VPCEndpointService) DeleteVPCEndpointByNSXResource(nsxVPCEndpoint *model.VpcEndpoint) error {
+	if nsxVPCEndpoint.Path == nil {
+		return fmt.Errorf("VpcEndpoint %s has no path", *nsxVPCEndpoint.Id)
+	}
 	vpcResourceInfo, err := common.ParseVPCResourcePath(*nsxVPCEndpoint.Path)
 	if err != nil {
 		return err
@@ -219,26 +190,16 @@ func (service *VPCEndpointService) DeleteVPCEndpoint(obj interface{}) error {
 }
 
 func (service *VPCEndpointService) DeleteVPCEndpointByNamespacedName(namespace, name string) error {
-	objs := service.VPCEndpointStore.List()
+	key := types.NamespacedName{Namespace: namespace, Name: name}.String()
+	objs := service.VPCEndpointStore.GetByIndex(indexNamespacedName, key)
 	for _, obj := range objs {
 		vpcEndpoint, ok := obj.(*model.VpcEndpoint)
 		if !ok {
 			continue
 		}
-		namespaceMatch, nameMatch := false, false
-		for _, tag := range vpcEndpoint.Tags {
-			if *tag.Scope == common.TagScopeNamespace && *tag.Tag == namespace {
-				namespaceMatch = true
-			}
-			if *tag.Scope == common.TagScopeVPCEndpointCRName && *tag.Tag == name {
-				nameMatch = true
-			}
-		}
-		if namespaceMatch && nameMatch {
-			if err := service.DeleteVPCEndpoint(vpcEndpoint); err != nil {
-				log.Error(err, "Failed to delete VPCEndpoint", "Namespace", namespace, "Name", name)
-				return err
-			}
+		if err := service.DeleteVPCEndpoint(vpcEndpoint); err != nil {
+			log.Error(err, "Failed to delete VPCEndpoint", "Namespace", namespace, "Name", name)
+			return err
 		}
 	}
 	return nil

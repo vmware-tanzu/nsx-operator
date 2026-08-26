@@ -40,7 +40,6 @@ type VPCEndpointReconciler struct {
 	client.Client
 	Scheme        *apimachineryruntime.Scheme
 	Service       *vpcendpoint.VPCEndpointService
-	VPCService    servicecommon.VPCServiceProvider
 	Recorder      record.EventRecorder
 	StatusUpdater common.StatusUpdater
 }
@@ -53,6 +52,23 @@ func setReadyStatusFalse(k8sClient client.Client, ctx context.Context, obj clien
 		ObservedGeneration: ve.Generation,
 		Reason:             "VPCEndpointNotReady",
 		Message:            fmt.Sprintf("error occurred while processing the VPCEndpoint CR. Error: %v", err),
+		LastTransitionTime: transitionTime,
+	}
+	if apimeta.SetStatusCondition(&ve.Status.Conditions, cond) {
+		if updateErr := k8sClient.Status().Update(ctx, ve); updateErr != nil {
+			log.Error(updateErr, "Failed to update status", "Name", ve.Name, "Namespace", ve.Namespace)
+		}
+	}
+}
+
+func setDeleteFailedStatus(k8sClient client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error) {
+	ve := obj.(*v1alpha1.VPCEndpoint)
+	cond := metav1.Condition{
+		Type:               "DeleteFailure",
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: ve.Generation,
+		Reason:             "VPCEndpointInUse",
+		Message:            fmt.Sprintf("NSX rejected the delete: %v", err),
 		LastTransitionTime: transitionTime,
 	}
 	if apimeta.SetStatusCondition(&ve.Status.Conditions, cond) {
@@ -103,7 +119,7 @@ func (r *VPCEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 func (r *VPCEndpointReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.VPCEndpoint) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseUpdateTotal()
-	if err := r.Service.CreateOrUpdateVPCEndpoint(ctx, obj.Namespace, obj); err != nil {
+	if err := r.Service.CreateOrUpdateVPCEndpoint(ctx, obj); err != nil {
 		r.StatusUpdater.UpdateFail(ctx, obj, err, "", setReadyStatusFalse)
 		return resultRequeue, err
 	}
@@ -114,10 +130,11 @@ func (r *VPCEndpointReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.
 func (r *VPCEndpointReconciler) handleDeletion(ctx context.Context, req ctrl.Request, obj *v1alpha1.VPCEndpoint) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseDeleteTotal()
 	if err := r.Service.DeleteVPCEndpoint(obj); err != nil {
-		r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
+		setDeleteFailedStatus(r.Client, ctx, obj, metav1.Now(), err)
+		r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 		return resultRequeue, err
 	}
-	r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
+	r.StatusUpdater.DeleteSuccess(req.NamespacedName, obj)
 	return resultNormal, nil
 }
 
@@ -164,39 +181,11 @@ func (r *VPCEndpointReconciler) CollectGarbage(ctx context.Context) error {
 	return nil
 }
 
-// RestoreReconcile re-reconciles Ready CRs missing from the NSX cache.
+// RestoreReconcile is a no-op for VPCEndpoint: every field is sourced from
+// the CR spec, nothing needs to be recovered from status, and GC already
+// recreates any NSX object missing for an existing CR.
 func (r *VPCEndpointReconciler) RestoreReconcile() error {
-	restoreList, err := r.getRestoreList()
-	if err != nil {
-		return fmt.Errorf("failed to get VPCEndpoint restore list: %w", err)
-	}
-	var errorList []error
-	for _, key := range restoreList {
-		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if err != nil || common.IsReconcileResultRequeue(result) {
-			errorList = append(errorList, fmt.Errorf("failed to restore VPCEndpoint %s, error: %w", key, err))
-		}
-	}
-	if len(errorList) > 0 {
-		return fmt.Errorf("errors found in VPCEndpoint restore: %v", errorList)
-	}
 	return nil
-}
-
-func (r *VPCEndpointReconciler) getRestoreList() ([]types.NamespacedName, error) {
-	vpcEndpointCRIDs := r.Service.ListVPCEndpointID()
-
-	restoreList := []types.NamespacedName{}
-	vpcEndpointCRList := &v1alpha1.VPCEndpointList{}
-	if err := r.Client.List(context.TODO(), vpcEndpointCRList); err != nil {
-		return restoreList, err
-	}
-	for _, ve := range vpcEndpointCRList.Items {
-		if apimeta.IsStatusConditionTrue(ve.Status.Conditions, readyConditionType) && !vpcEndpointCRIDs.Has(string(ve.GetUID())) {
-			restoreList = append(restoreList, types.NamespacedName{Namespace: ve.Namespace, Name: ve.Name})
-		}
-	}
-	return restoreList, nil
 }
 
 func (r *VPCEndpointReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
@@ -208,13 +197,12 @@ func (r *VPCEndpointReconciler) StartController(mgr ctrl.Manager, _ webhook.Serv
 	return nil
 }
 
-func NewVPCEndpointReconciler(mgr ctrl.Manager, vpcEndpointService *vpcendpoint.VPCEndpointService, vpcService servicecommon.VPCServiceProvider) *VPCEndpointReconciler {
+func NewVPCEndpointReconciler(mgr ctrl.Manager, vpcEndpointService *vpcendpoint.VPCEndpointService) *VPCEndpointReconciler {
 	reconciler := &VPCEndpointReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Service:    vpcEndpointService,
-		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("vpcendpoint-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Service:  vpcEndpointService,
+		Recorder: mgr.GetEventRecorderFor("vpcendpoint-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	reconciler.StatusUpdater = common.NewStatusUpdater(reconciler.Client, reconciler.Service.NSXConfig, reconciler.Recorder, common.MetricResTypeVPCEndpoint, "VPCEndpoint", "VPCEndpoint")
 	return reconciler

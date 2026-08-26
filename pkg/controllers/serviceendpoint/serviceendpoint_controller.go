@@ -40,7 +40,6 @@ type ServiceEndpointReconciler struct {
 	client.Client
 	Scheme        *apimachineryruntime.Scheme
 	Service       *serviceendpoint.ServiceEndpointService
-	VPCService    servicecommon.VPCServiceProvider
 	Recorder      record.EventRecorder
 	StatusUpdater common.StatusUpdater
 }
@@ -182,39 +181,11 @@ func (r *ServiceEndpointReconciler) CollectGarbage(ctx context.Context) error {
 	return nil
 }
 
-// RestoreReconcile re-reconciles Ready CRs missing from the NSX cache.
+// RestoreReconcile is a no-op for ServiceEndpoint: every field is sourced
+// from the CR spec, nothing needs to be recovered from status, and GC
+// already recreates any NSX object missing for an existing CR.
 func (r *ServiceEndpointReconciler) RestoreReconcile() error {
-	restoreList, err := r.getRestoreList()
-	if err != nil {
-		return fmt.Errorf("failed to get ServiceEndpoint restore list: %w", err)
-	}
-	var errorList []error
-	for _, key := range restoreList {
-		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if err != nil || common.IsReconcileResultRequeue(result) {
-			errorList = append(errorList, fmt.Errorf("failed to restore ServiceEndpoint %s, error: %w", key, err))
-		}
-	}
-	if len(errorList) > 0 {
-		return fmt.Errorf("errors found in ServiceEndpoint restore: %v", errorList)
-	}
 	return nil
-}
-
-func (r *ServiceEndpointReconciler) getRestoreList() ([]types.NamespacedName, error) {
-	serviceEndpointCRIDs := r.Service.ListServiceEndpointID()
-
-	restoreList := []types.NamespacedName{}
-	serviceEndpointCRList := &v1alpha1.ServiceEndpointList{}
-	if err := r.Client.List(context.TODO(), serviceEndpointCRList); err != nil {
-		return restoreList, err
-	}
-	for _, se := range serviceEndpointCRList.Items {
-		if apimeta.IsStatusConditionTrue(se.Status.Conditions, readyConditionType) && !serviceEndpointCRIDs.Has(string(se.GetUID())) {
-			restoreList = append(restoreList, types.NamespacedName{Namespace: se.Namespace, Name: se.Name})
-		}
-	}
-	return restoreList, nil
 }
 
 func (r *ServiceEndpointReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
@@ -226,13 +197,12 @@ func (r *ServiceEndpointReconciler) StartController(mgr ctrl.Manager, _ webhook.
 	return nil
 }
 
-func NewServiceEndpointReconciler(mgr ctrl.Manager, serviceEndpointService *serviceendpoint.ServiceEndpointService, vpcService servicecommon.VPCServiceProvider) *ServiceEndpointReconciler {
+func NewServiceEndpointReconciler(mgr ctrl.Manager, serviceEndpointService *serviceendpoint.ServiceEndpointService) *ServiceEndpointReconciler {
 	reconciler := &ServiceEndpointReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Service:    serviceEndpointService,
-		VPCService: vpcService,
-		Recorder:   mgr.GetEventRecorderFor("serviceendpoint-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Service:  serviceEndpointService,
+		Recorder: mgr.GetEventRecorderFor("serviceendpoint-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
 	reconciler.StatusUpdater = common.NewStatusUpdater(reconciler.Client, reconciler.Service.NSXConfig, reconciler.Recorder, common.MetricResTypeServiceEndpoint, "ServiceEndpoint", "ServiceEndpoint")
 	return reconciler

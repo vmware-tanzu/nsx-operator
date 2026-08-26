@@ -12,17 +12,16 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-func (service *ServiceEndpointService) BuildServiceEndpoint(obj *v1alpha1.ServiceEndpoint) (*model.VpcServiceEndpoint, error) {
+func (service *ServiceEndpointService) BuildServiceEndpoint(obj *v1alpha1.ServiceEndpoint) *model.VpcServiceEndpoint {
 	tags := service.buildServiceEndpointTags(obj)
 	serviceEndpointType := model.VpcServiceEndpoint_SERVICE_ENDPOINT_IP_TYPE_WORKLOAD
-	vpcServiceEndpoint := &model.VpcServiceEndpoint{
+	return &model.VpcServiceEndpoint{
 		Id:                    String(service.BuildServiceEndpointID(obj)),
 		DisplayName:           String(service.buildServiceEndpointName(obj)),
 		Tags:                  tags,
 		ServiceEndpointIp:     String(obj.Spec.ServiceEndpointIP),
 		ServiceEndpointIpType: &serviceEndpointType,
 	}
-	return vpcServiceEndpoint, nil
 }
 
 func (service *ServiceEndpointService) BuildServiceEndpointID(obj metav1.Object) string {

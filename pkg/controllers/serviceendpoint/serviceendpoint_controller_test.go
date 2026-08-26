@@ -230,37 +230,12 @@ func TestServiceEndpointReconciler_CollectGarbage(t *testing.T) {
 	patch.Reset()
 }
 
-func TestServiceEndpointReconciler_getRestoreList(t *testing.T) {
+func TestServiceEndpointReconciler_RestoreReconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	defer mockCtl.Finish()
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := fakeServiceEndpointService()
 	r := newFakeServiceEndpointReconciler(k8sClient, service)
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListServiceEndpointID", func(_ *serviceendpoint.ServiceEndpointService) sets.Set[string] {
-		return sets.New[string]("uid-present")
-	})
-	defer patch.Reset()
-
-	k8sClient.EXPECT().List(context.TODO(), gomock.Any()).DoAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		l := list.(*v1alpha1.ServiceEndpointList)
-		l.Items = []v1alpha1.ServiceEndpoint{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "ready-and-cached", Namespace: "ns", UID: "uid-present"},
-				Status:     v1alpha1.ServiceEndpointStatus{Conditions: []metav1.Condition{{Type: readyConditionType, Status: metav1.ConditionTrue}}},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "ready-but-missing", Namespace: "ns", UID: "uid-missing"},
-				Status:     v1alpha1.ServiceEndpointStatus{Conditions: []metav1.Condition{{Type: readyConditionType, Status: metav1.ConditionTrue}}},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "not-ready", Namespace: "ns", UID: "uid-not-ready"},
-			},
-		}
-		return nil
-	})
-
-	restoreList, err := r.getRestoreList()
-	assert.NoError(t, err)
-	assert.Equal(t, []types.NamespacedName{{Namespace: "ns", Name: "ready-but-missing"}}, restoreList)
+	assert.NoError(t, r.RestoreReconcile())
 }

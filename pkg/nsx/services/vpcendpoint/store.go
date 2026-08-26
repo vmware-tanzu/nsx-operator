@@ -13,6 +13,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+const indexNamespacedName = "indexNamespacedName"
+
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.VpcEndpoint:
@@ -32,6 +34,27 @@ func indexByVPCEndpoint(obj interface{}) ([]string, error) {
 		return filterTag(v.Tags, common.TagScopeVPCEndpointCRUID), nil
 	default:
 		return res, errors.New("indexByVPCEndpoint doesn't support unknown type")
+	}
+}
+
+func indexByNamespacedName(obj interface{}) ([]string, error) {
+	switch v := obj.(type) {
+	case *model.VpcEndpoint:
+		var namespace, name string
+		for _, tag := range v.Tags {
+			switch *tag.Scope {
+			case common.TagScopeNamespace:
+				namespace = *tag.Tag
+			case common.TagScopeVPCEndpointCRName:
+				name = *tag.Tag
+			}
+		}
+		if namespace == "" || name == "" {
+			return []string{}, nil
+		}
+		return []string{types.NamespacedName{Namespace: namespace, Name: name}.String()}, nil
+	default:
+		return nil, errors.New("indexByNamespacedName doesn't support unknown type")
 	}
 }
 
@@ -80,6 +103,7 @@ func buildVPCEndpointStore() *VPCEndpointStore {
 	return &VPCEndpointStore{ResourceStore: common.ResourceStore{
 		Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
 			common.TagScopeVPCEndpointCRUID: indexByVPCEndpoint,
+			indexNamespacedName:             indexByNamespacedName,
 		}),
 		BindingType: model.VpcEndpointBindingType(),
 	}}

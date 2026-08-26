@@ -122,7 +122,7 @@ func TestVPCEndpointReconciler_Reconcile(t *testing.T) {
 	// found, no deletion timestamp, create/update succeeds
 	fakewriter := fakeStatusWriter{}
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil)
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateVPCEndpoint", func(_ *vpcendpoint.VPCEndpointService, ctx context.Context, namespace string, obj *v1alpha1.VPCEndpoint) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateVPCEndpoint", func(_ *vpcendpoint.VPCEndpointService, ctx context.Context, obj *v1alpha1.VPCEndpoint) error {
 		return nil
 	})
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
@@ -134,7 +134,7 @@ func TestVPCEndpointReconciler_Reconcile(t *testing.T) {
 	// found, no deletion timestamp, create/update fails
 	errUpdate := errors.New("create or update failed")
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil)
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateVPCEndpoint", func(_ *vpcendpoint.VPCEndpointService, ctx context.Context, namespace string, obj *v1alpha1.VPCEndpoint) error {
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateVPCEndpoint", func(_ *vpcendpoint.VPCEndpointService, ctx context.Context, obj *v1alpha1.VPCEndpoint) error {
 		return errUpdate
 	})
 	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
@@ -169,6 +169,7 @@ func TestVPCEndpointReconciler_Reconcile(t *testing.T) {
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteVPCEndpoint", func(_ *vpcendpoint.VPCEndpointService, obj interface{}) error {
 		return errNSXDelete
 	})
+	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, errNSXDelete, retErr)
 	assert.Equal(t, resultRequeue, result)
@@ -214,37 +215,12 @@ func TestVPCEndpointReconciler_CollectGarbage(t *testing.T) {
 	patch.Reset()
 }
 
-func TestVPCEndpointReconciler_getRestoreList(t *testing.T) {
+func TestVPCEndpointReconciler_RestoreReconcile(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	defer mockCtl.Finish()
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	service := fakeVPCEndpointService()
 	r := newFakeVPCEndpointReconciler(k8sClient, service)
 
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListVPCEndpointID", func(_ *vpcendpoint.VPCEndpointService) sets.Set[string] {
-		return sets.New[string]("uid-present")
-	})
-	defer patch.Reset()
-
-	k8sClient.EXPECT().List(context.TODO(), gomock.Any()).DoAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		l := list.(*v1alpha1.VPCEndpointList)
-		l.Items = []v1alpha1.VPCEndpoint{
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "ready-and-cached", Namespace: "ns", UID: "uid-present"},
-				Status:     v1alpha1.VPCEndpointStatus{Conditions: []metav1.Condition{{Type: readyConditionType, Status: metav1.ConditionTrue}}},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "ready-but-missing", Namespace: "ns", UID: "uid-missing"},
-				Status:     v1alpha1.VPCEndpointStatus{Conditions: []metav1.Condition{{Type: readyConditionType, Status: metav1.ConditionTrue}}},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{Name: "not-ready", Namespace: "ns", UID: "uid-not-ready"},
-			},
-		}
-		return nil
-	})
-
-	restoreList, err := r.getRestoreList()
-	assert.NoError(t, err)
-	assert.Equal(t, []types.NamespacedName{{Namespace: "ns", Name: "ready-but-missing"}}, restoreList)
+	assert.NoError(t, r.RestoreReconcile())
 }

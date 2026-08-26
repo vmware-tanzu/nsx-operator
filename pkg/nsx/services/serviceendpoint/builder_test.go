@@ -42,8 +42,7 @@ func TestBuildServiceEndpoint(t *testing.T) {
 		},
 	}
 
-	nsxServiceEndpoint, err := service.BuildServiceEndpoint(obj)
-	assert.NoError(t, err)
+	nsxServiceEndpoint := service.BuildServiceEndpoint(obj)
 	assert.NotNil(t, nsxServiceEndpoint.Id)
 	assert.NotEmpty(t, *nsxServiceEndpoint.Id)
 	assert.Equal(t, "10.0.0.10", *nsxServiceEndpoint.ServiceEndpointIp)

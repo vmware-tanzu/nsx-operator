@@ -271,8 +271,8 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService),
 			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
 			// Reconcile ServiceEndpoint before VPCEndpoint, which depends on it.
-			serviceendpoint.NewServiceEndpointReconciler(mgr, serviceEndpointService, vpcService),
-			vpcendpoint.NewVPCEndpointReconciler(mgr, vpcEndpointService, vpcService),
+			serviceendpoint.NewServiceEndpointReconciler(mgr, serviceEndpointService),
+			vpcendpoint.NewVPCEndpointReconciler(mgr, vpcEndpointService),
 			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
 			gateway.NewGatewayReconciler(mgr, dnsRecordService),
