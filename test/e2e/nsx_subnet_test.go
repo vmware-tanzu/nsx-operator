@@ -122,6 +122,7 @@ func TestSubnetSet(t *testing.T) {
 		RunSubtest(t, "case=SubnetBindingAutoVLANAllocation", SubnetBindingAutoVLANAllocation)
 		RunSubtest(t, "case=SubnetBindingManualVLANAllocation", SubnetBindingManualVLANAllocation)
 		RunSubtest(t, "case=SubnetBindingBranchAssociation", SubnetBindingBranchAssociation)
+		RunSubtest(t, "case=SubnetBindingIPFamilyCompatibility", SubnetBindingIPFamilyCompatibility)
 	})
 }
 
@@ -1972,6 +1973,71 @@ func SubnetBindingBranchAssociation(t *testing.T) {
 	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName1)
 	require.NoError(t, err, "BindingMap %s should be ready and have an auto-allocated status.vlanTrafficTag with branch association", bindingName1)
 	assert.True(t, vlan >= 1 && vlan <= 4094, "Allocated VLAN should be between 1 and 4094")
+}
+
+// SubnetBindingIPFamilyCompatibility tests that IP family compatibility validation rejects binding an IPv6 child to an IPv4 parent.
+func SubnetBindingIPFamilyCompatibility(t *testing.T) {
+	if clusterInfo.podV6NetworkCIDR == "" {
+		t.Skip("cluster does not support IPv6; skipping SubnetBindingIPFamilyCompatibility test")
+	}
+
+	v4ParentName := "v4-parent-subnet-" + getRandomString()
+	v4ParentSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: v4ParentName, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+			IPv4SubnetSize: 16,
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), v4ParentSubnet, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), v4ParentName, v1.DeleteOptions{})
+	})
+	require.NoError(t, waitForSubnetReady(subnetTestNamespace, v4ParentName))
+
+	v6ChildName := "v6-child-subnet-" + getRandomString()
+	v6ChildSubnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{Name: v6ChildName, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:    v1alpha1.IPAddressTypeIPv6,
+			IPv6PrefixLength: 64,
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Create(context.TODO(), v6ChildSubnet, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().Subnets(subnetTestNamespace).Delete(context.TODO(), v6ChildName, v1.DeleteOptions{})
+	})
+
+	incompatibleBindingName := "binding-incompatible-" + getRandomString()
+	incompatibleBinding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{Name: incompatibleBindingName, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:        v6ChildName,
+			TargetSubnetName:  v4ParentName,
+			SubnetAssociation: v1alpha1.SubnetAssociationTrunk,
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Create(context.TODO(), incompatibleBinding, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), incompatibleBindingName, v1.DeleteOptions{})
+	})
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+		b, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Get(context.TODO(), incompatibleBindingName, v1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		for _, cond := range b.Status.Conditions {
+			if cond.Type == v1alpha1.Ready && cond.Status == corev1.ConditionFalse && strings.Contains(cond.Message, "Incompatible IPAddressType") {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	require.NoError(t, err, "BindingMap with incompatible IPAddressType should report ConditionFalse with 'Incompatible IPAddressType' message")
 }
 
 func createBindingTestSubnets(t *testing.T, numChildren int) (parentSubnetName string, childSubnetNames []string) {
