@@ -29,7 +29,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `type` _[ConditionType](#conditiontype)_ | Type defines condition type. |  |  |
 | `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ | Status of the condition, one of True, False, Unknown. |  |  |
-| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  | Optional: \{\} <br /> |
+| `lastTransitionTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#time-v1-meta)_ | Last time the condition transitioned from one status to another.<br />This should be when the underlying condition changed. If that is not known, then using the time when<br />the API field changed is acceptable. |  |  |
 | `reason` _string_ | Reason shows a brief reason of condition. |  |  |
 | `message` _string_ | Message shows a human-readable message about condition. |  |  |
 

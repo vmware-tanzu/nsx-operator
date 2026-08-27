@@ -189,8 +189,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	t.Run("failed with CheckAndGetSubnetPathForSubnetPort", func(t *testing.T) {
 		err := errors.New("CheckAndGetSubnetPathForSubnetPort failed")
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return false, false, "", nil, nil, "", err
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return false, false, "", nil, nil, "", "", err
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 
@@ -219,8 +219,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	t.Run("failed with getVirtualMachine", func(t *testing.T) {
 		err := errors.New("getVirtualMachine failed")
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesGetByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
@@ -257,8 +257,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer patchesGetVirtualMachine.Reset()
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesGetByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
@@ -311,8 +311,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer patchesGetVirtualMachine.Reset()
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesGetByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
@@ -380,8 +380,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		}
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
@@ -404,6 +404,40 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
 		k8sClient.EXPECT().Status().Return(fakewriter)
 		_, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+
+		// happy path - update addressbindings day 2
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Spec.Subnet = "subnet1"
+				v1sp.Spec.AddressBindings = []v1alpha1.PortAddressBinding{
+					{
+						IPAddress:  "1.2.3.5",
+						MACAddress: "00:11:22:33:44:55",
+					},
+					{
+						IPAddress:  "1.2.3.6",
+						MACAddress: "00:11:22:33:44:55",
+					},
+				}
+				return nil
+			}).Times(2)
+		portState3 := &model.SegmentPortState{
+			RealizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{IpAddress: ptr.To("1.2.3.5"), MacAddress: ptr.To("00:11:22:33:44:55")}},
+				{Binding: &model.PacketAddressClassifier{IpAddress: ptr.To("1.2.3.6"), MacAddress: ptr.To("00:11:22:33:44:55")}},
+			},
+			Attachment: &model.SegmentPortAttachmentState{
+				Id: &attachmentID,
+			},
+		}
+		patchesCreateOrUpdateSubnetPort.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				return portState3, nil
+			})
+		k8sClient.EXPECT().Status().Return(fakewriter)
+		_, ret = r.Reconcile(ctx, req)
 		assert.Equal(t, nil, ret)
 
 		// happy path - dhcp subnetport with mac only
@@ -461,8 +495,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		}
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "path1", nil, nil, "", nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "path1", nil, nil, "", "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
@@ -652,8 +686,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			}).Times(2)
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
@@ -735,8 +769,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			}).Times(2)
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
@@ -843,8 +877,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			}).Times(2)
 
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
@@ -937,8 +971,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			}).Times(2)
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 			})
 		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
@@ -1015,12 +1049,12 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		patches := gomonkey.ApplyMethod(reflect.TypeOf(&subnetport.SubnetPortService{}), "CreateOrUpdateSubnetPort", func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, _ v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort, func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, _ v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
 			return portStateLocal, nil
 		})
 		defer patches.Reset()
 
-		patches2 := gomonkey.ApplyMethod(reflect.TypeOf(&subnetport.SubnetPortService{}), "GetAddressBindingBySubnetPort", func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+		patches2 := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetAddressBindingBySubnetPort, func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
 			return nil
 		})
 		defer patches2.Reset()
@@ -1035,13 +1069,14 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesIPAllocDelete.Reset()
 
-		patches3 := gomonkey.ApplyFunc(pkgutil.NSXSubnetStaticIPAllocationEnabled, func(_ *model.VpcSubnet) bool {
-			return true
-		})
-		defer patches3.Reset()
-
-		patches4 := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBySubnetPort", func(_ *SubnetPortReconciler, _ *v1alpha1.SubnetPort) (*model.VpcSubnet, error) {
-			return &model.VpcSubnet{}, nil
+		patches4 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath", func(_ *mock.MockSubnetServiceProvider, _ string, _ bool) (*model.VpcSubnet, error) {
+			return &model.VpcSubnet{
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{
+						Enabled: ptr.To(true),
+					},
+				},
+			}, nil
 		})
 		defer patches4.Reset()
 
@@ -1050,8 +1085,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patches5.Reset()
 
-		patches6 := gomonkey.ApplyMethod(reflect.TypeOf(r), "CheckAndGetSubnetPathForSubnetPort", func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-			return true, false, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1", nil, nil, "IPv4", nil
+		patches6 := gomonkey.ApplyMethod(reflect.TypeOf(r), "CheckAndGetSubnetPathForSubnetPort", func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+			return true, false, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1", nil, nil, "IPv4", "", nil
 		})
 		defer patches6.Reset()
 
@@ -1059,6 +1094,12 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return false, nil
 		})
 		defer patchesIsSharedSubnetPath.Reset()
+
+		patchesUpdateSubnetStatus := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatus.Reset()
 
 		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
 			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
@@ -1149,8 +1190,8 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 				}).Times(2)
 
 			patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
-				func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-					return true, false, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+				func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+					return true, false, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet-1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 				})
 			defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 
@@ -1852,8 +1893,8 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 							},
 						}, false, nil
 					})
-				patches.ApplyFunc((*subnet.SubnetService).GetSubnetsByIndex,
-					func(s *subnet.SubnetService, key string, value string) []*model.VpcSubnet {
+				patches.ApplyMethod(reflect.TypeOf(&subnet.SubnetStore{}), "GetByIndex",
+					func(s *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
 						return []*model.VpcSubnet{{
 							Path:           servicecommon.String("subnet-path-1"),
 							Ipv4SubnetSize: servicecommon.Int64(16),
@@ -1861,7 +1902,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 						}}
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).AllocatePortFromSubnet,
-					func(s *subnetport.SubnetPortService, nsxSubnet *model.VpcSubnet, sharedSubnet bool, interfaceType v1alpha1.IPAddressType) (bool, error) {
+					func(s *subnetport.SubnetPortService, nsxSubnet *model.VpcSubnet, sharedSubnet bool, interfaceType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (bool, error) {
 						return true, nil
 					})
 				return patches
@@ -1975,8 +2016,8 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 				})
 
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType) (string, *types.UID, *sync.RWMutex, error) {
-						return "subnet-path-1", nil, nil, nil
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+						return "subnet-path-1", v1alpha1.StaticIPAllocationTypeIPv4, nil, nil, nil
 					})
 				return patches
 			},
@@ -2033,8 +2074,8 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 					})
 
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType) (string, *types.UID, *sync.RWMutex, error) {
-						return "subnet-path-1", nil, nil, nil
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+						return "subnet-path-1", v1alpha1.StaticIPAllocationTypeIPv4, nil, nil, nil
 					})
 				return patches
 			},
@@ -2119,8 +2160,8 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
 			r.restoreMode = tt.restoreMode
-			// Expanded to consume 7 returns values properly
-			isExisting, isStale, subnetPath, _, _, interfaceType, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, tt.subnetport)
+			// Expanded to consume 8 return values properly
+			isExisting, isStale, subnetPath, _, _, interfaceType, _, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, tt.subnetport)
 			assert.Equal(t, tt.expectedIsStale, isStale)
 			assert.Equal(t, tt.expectedIsExisting, isExisting)
 			if tt.expectedErr != "" {
@@ -2282,6 +2323,253 @@ func TestSubnetPortReconciler_updateSubnetStatusOnSubnetPort(t *testing.T) {
 			assert.Nil(t, err)
 			assert.Equal(t, "realization-id-1", sp.Status.NetworkInterfaceConfig.LogicalSwitchUUID)
 			assert.Equal(t, tt.expectedIPs, sp.Status.NetworkInterfaceConfig.IPAddresses)
+		})
+	}
+}
+
+func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
+	tests := []struct {
+		name                   string
+		realizedBindings       []model.AddressBindingEntry
+		staticIPAllocationType v1alpha1.StaticIPAllocationType
+		hasExplicitIPv4        bool
+		hasExplicitIPv6        bool
+		expectedIPs            []v1alpha1.NetworkInterfaceIPAddress
+		expectedMAC            string
+	}{
+		{
+			name:                   "No realized bindings",
+			realizedBindings:       nil,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expectedIPs:            []v1alpha1.NetworkInterfaceIPAddress{},
+			expectedMAC:            "",
+		},
+		{
+			name: "Single IPv4 binding",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("10.0.0.2"),
+					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "10.0.0.2"},
+			},
+			expectedMAC: "aa:bb:cc:dd:ee:ff",
+		},
+		{
+			name: "Dual-stack: 1 IPv4 + 1 IPv6, one MAC",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("10.0.0.2"),
+					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("fe80::1"),
+					MacAddress: servicecommon.String("aa:bb:cc:dd:ee:ff"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "10.0.0.2"},
+				{IPAddress: "fe80::1"},
+			},
+			expectedMAC: "aa:bb:cc:dd:ee:ff",
+		},
+		{
+			// Mixed-mode Subnet: StaticIPAllocationType=IPv6 only. DHCP independently
+			// realizes an IPv4 address too, but it must NOT be shown in status: SubnetPort
+			// only reconciles on CR events, while a DHCP lease can change at any time, so
+			// showing it here would risk status going stale until an unrelated reconcile
+			// happens to refresh it. The static IPv6 address doesn't have that problem,
+			// since it only changes via a CR spec change, which itself triggers a reconcile.
+			name: "Mixed-mode: DHCP-realized IPv4 is dropped, only static-realized IPv6 is shown",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("2001:db8::165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "2001:db8::165"},
+			},
+			expectedMAC: "00:50:56:ba:d6:7a",
+		},
+		{
+			// Pure DHCP with no explicit addressBindings: StaticIPAllocationType=None. No
+			// family is statically requested, so the DHCP-realized IPv4 must be dropped
+			// entirely - status should show no IP at all, same as before this filtering
+			// was added.
+			name: "Pure DHCP, no addressBindings: StaticIPAllocationType=None drops the DHCP-realized IPv4",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			expectedIPs:            []v1alpha1.NetworkInterfaceIPAddress{},
+			expectedMAC:            "00:50:56:ba:d6:7a",
+		},
+		{
+			// DHCP Subnet with an explicit addressBindings entry (IP+MAC bound from the
+			// Subnet's MAC pool): StaticIPAllocationType resolves to None because the
+			// Subnet itself has no static allocation enabled, but the address was
+			// explicitly requested by the user, not an incidental DHCP lease - it must be
+			// shown in status. Regression test: this used to be dropped by the same
+			// filter that hides unrequested DHCP addresses on mixed-mode Subnets, which
+			// left status.NetworkInterfaceConfig.IPAddresses without an IP forever even
+			// though NSX had fully realized the port.
+			name: "DHCP Subnet with explicit addressBindings: StaticIPAllocationType=None must not drop the requested IP",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			hasExplicitIPv4:        true,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "172.26.0.165"},
+			},
+			expectedMAC: "00:50:56:ba:d6:7a",
+		},
+		{
+			// Dual-stack mixed-mode Subnet: an explicit static IPv4 binding is requested,
+			// but IPv6 is not - it's realized independently via DHCP/SLAAC. The explicit
+			// IPv4 must be shown (hasExplicitIPv4), while the incidental, unrequested IPv6
+			// must still be dropped exactly as in the plain mixed-mode case above:
+			// per-family exemption must not become "any explicit binding shows everything".
+			name: "Dual-stack, explicit IPv4 only: incidental DHCP IPv6 is still dropped",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.10"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("2001:db8::10"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			hasExplicitIPv4:        true,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "172.26.0.10"},
+			},
+			expectedMAC: "00:50:56:ba:d6:7a",
+		},
+		{
+			name: "Multi-IP addressBindings sharing one MAC (spec 2.4.3): 3 same-family entries",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.2"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.3"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.4"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.0.2"},
+				{IPAddress: "192.168.0.3"},
+				{IPAddress: "192.168.0.4"},
+			},
+			expectedMAC: "00:11:22:33:44:55",
+		},
+		{
+			name: "MAC taken from first binding that has one; only IP-bearing bindings produce entries",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{IpAddress: nil}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.2"),
+					MacAddress: servicecommon.String("00:11:22:33:44:55"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.0.2"},
+			},
+			expectedMAC: "00:11:22:33:44:55",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ipAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(tt.realizedBindings, tt.staticIPAllocationType, tt.hasExplicitIPv4, tt.hasExplicitIPv6)
+			assert.Equal(t, tt.expectedIPs, ipAddresses)
+			assert.Equal(t, tt.expectedMAC, macAddress)
+		})
+	}
+}
+
+func TestRealizedBindingsCoverStaticFamilies(t *testing.T) {
+	ipv4Binding := model.AddressBindingEntry{Binding: &model.PacketAddressClassifier{IpAddress: servicecommon.String("10.0.0.2")}}
+	ipv6Binding := model.AddressBindingEntry{Binding: &model.PacketAddressClassifier{IpAddress: servicecommon.String("fe80::1")}}
+
+	tests := []struct {
+		name                   string
+		realizedBindings       []model.AddressBindingEntry
+		staticIPAllocationType v1alpha1.StaticIPAllocationType
+		expected               bool
+	}{
+		{
+			name:                   "No realized bindings",
+			realizedBindings:       nil,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expected:               false,
+		},
+		{
+			name:                   "IPv4 requested and realized",
+			realizedBindings:       []model.AddressBindingEntry{ipv4Binding},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			expected:               true,
+		},
+		{
+			name: "Mixed-mode Subnet: StaticIPAllocationType IPv6 but only the DHCP IPv4 is realized yet",
+			realizedBindings: []model.AddressBindingEntry{
+				ipv4Binding,
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			expected:               false,
+		},
+		{
+			name: "Mixed-mode Subnet: StaticIPAllocationType IPv6 and the static IPv6 binding is realized alongside DHCP IPv4",
+			realizedBindings: []model.AddressBindingEntry{
+				ipv4Binding,
+				ipv6Binding,
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			expected:               true,
+		},
+		{
+			name:                   "Dual-stack static: only IPv4 realized so far",
+			realizedBindings:       []model.AddressBindingEntry{ipv4Binding},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
+			expected:               false,
+		},
+		{
+			name:                   "Dual-stack static: both families realized",
+			realizedBindings:       []model.AddressBindingEntry{ipv4Binding, ipv6Binding},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
+			expected:               true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, realizedBindingsCoverStaticFamilies(tt.realizedBindings, tt.staticIPAllocationType))
 		})
 	}
 }
@@ -3432,14 +3720,15 @@ func TestSubnetPortReconciler_UpdateSubnetPortIPType(t *testing.T) {
 			},
 		}
 
-		patchesStaticIPEnabled := gomonkey.ApplyFunc(pkgutil.NSXSubnetStaticIPAllocationEnabled, func(_ *model.VpcSubnet) bool {
-			return true
-		})
-		defer patchesStaticIPEnabled.Reset()
-
 		subClient.EXPECT().Update(ctx, subnetPort).Return(nil)
 
-		err := r.updateSubnetPortIPType(ctx, subnetPort, v1alpha1.IPAddressTypeIPv4, &model.VpcSubnet{})
+		err := r.updateSubnetPortIPType(ctx, subnetPort, v1alpha1.IPAddressTypeIPv4, &model.VpcSubnet{
+			AdvancedConfig: &model.SubnetAdvancedConfig{
+				StaticIpAllocation: &model.StaticIpAllocation{
+					Enabled: ptr.To(true),
+				},
+			},
+		})
 		assert.NoError(t, err)
 		assert.Equal(t, v1alpha1.StaticIPAllocationType(v1alpha1.IPAddressTypeIPv4), subnetPort.Spec.StaticIPAllocationType)
 	})
@@ -3457,11 +3746,6 @@ func TestSubnetPortReconciler_UpdateSubnetPortIPType(t *testing.T) {
 				StaticIPAllocationType: "",
 			},
 		}
-
-		patchesStaticIPEnabled := gomonkey.ApplyFunc(pkgutil.NSXSubnetStaticIPAllocationEnabled, func(_ *model.VpcSubnet) bool {
-			return false
-		})
-		defer patchesStaticIPEnabled.Reset()
 
 		subClient.EXPECT().Update(ctx, subnetPort).Return(nil)
 

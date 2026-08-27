@@ -43,8 +43,8 @@ type SubnetServiceProvider interface {
 
 type SubnetPortServiceProvider interface {
 	GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort)
-	AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType) (bool, error)
-	ReleasePortInSubnet(path string, interfaceIPType v1alpha1.IPAddressType)
+	AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (bool, error)
+	ReleasePortInSubnet(path string, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding)
 	IsEmptySubnet(path string) bool
 	DeletePortCount(path string)
 	GetSubnetPathForSubnetPortFromStore(crUid types.UID) string

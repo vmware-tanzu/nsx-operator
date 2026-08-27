@@ -68,7 +68,8 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				hasMacSpecified = true
 			}
 		} else if len(o.Spec.AddressBindings) > 0 {
-			// normal mode: process all address bindings (up to 2 for IPv4 and IPv6)
+			// normal mode: process all address bindings, any count. NSX validates MAC
+			// consistency across entries server-side, so no need to re-check it here.
 			for _, ab := range o.Spec.AddressBindings {
 				addressBinding := model.PortAddressBindingEntry{}
 				if len(ab.IPAddress) > 0 {

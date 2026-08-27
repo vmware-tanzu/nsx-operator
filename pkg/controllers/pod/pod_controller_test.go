@@ -132,8 +132,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 				})
 
 				patchesGetSubnetPathForPod := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-						return false, "", nil, nil, "", errors.New("failed to get subnet path")
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+						return false, "", nil, nil, "", "", errors.New("failed to get subnet path")
 					})
 
 				return patchesGetSubnetPathForPod
@@ -158,8 +158,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -179,8 +179,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -208,8 +208,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -241,8 +241,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+						return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
 					})
 				patches.ApplyFunc((*PodReconciler).GetNodeByName,
 					func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
@@ -291,8 +291,8 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
-					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, error) {
-						return false, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, nil
+					func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+						return false, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
 					})
 				patches.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
 					return false, nil
@@ -640,8 +640,8 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 						}, nil
 					})
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType) (string, *types.UID, *sync.RWMutex, error) {
-						return "", nil, nil, errors.New("failed to create subnet")
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+						return "", "", nil, nil, errors.New("failed to create subnet")
 					})
 				return patches
 			},
@@ -668,8 +668,8 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 						}, nil
 					})
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType) (string, *types.UID, *sync.RWMutex, error) {
-						return subnetPath, nil, nil, nil
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+						return subnetPath, v1alpha1.StaticIPAllocationTypeIPv4, nil, nil, nil
 					})
 				return patches
 			},
@@ -697,8 +697,8 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 						}, nil
 					})
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType) (string, *types.UID, *sync.RWMutex, error) {
-						return subnetPath, nil, nil, nil
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+						return subnetPath, v1alpha1.StaticIPAllocationTypeIPv4, nil, nil, nil
 					})
 				return patches
 			},
@@ -741,7 +741,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
 			r.restoreMode = tt.restoreMode
-			isExisting, path, _, _, interfaceType, err := r.GetSubnetPathForPod(context.TODO(), &v1.Pod{
+			isExisting, path, _, _, interfaceType, _, err := r.GetSubnetPathForPod(context.TODO(), &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
 					Namespace: "ns-1",

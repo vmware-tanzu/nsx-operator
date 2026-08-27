@@ -146,12 +146,12 @@ func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(subnetPath string) (por
 	return args.Get(0).([]*model.VpcSubnetPort)
 }
 
-func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType) (bool, error) {
-	args := m.Called(subnet, sharedSubnet, interfaceIPType)
+func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (bool, error) {
+	args := m.Called(subnet, sharedSubnet, interfaceIPType, staticIPAllocationType, addressBindings)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string, interfaceIPType v1alpha1.IPAddressType) {
+func (m *MockSubnetPortServiceProvider) ReleasePortInSubnet(path string, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) {
 }
 
 func (m *MockSubnetPortServiceProvider) IsEmptySubnet(path string) bool {

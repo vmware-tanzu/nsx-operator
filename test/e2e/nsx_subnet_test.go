@@ -1072,6 +1072,62 @@ func SubnetMixedMode(t *testing.T) {
 	require.Equal(t, "BOTH", *(*nsxStaticPort.Attachment).AllocateAddresses,
 		"static SubnetPort in mixed mode should use BOTH allocation")
 
+	// Case 1a: a SubnetPort on the same mixed-mode Subnet that does NOT request
+	// static allocation must be sourced from the DHCP side, not the static pool.
+	// This exercises the capacity-check fix that resolves, per port, which pool
+	// (static vs DHCP) to check against on a mixed-mode Subnet - previously the
+	// static pool was checked exclusively, regardless of the port's actual source.
+	dhcpPort := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{Name: "mixed-dhcp-port", Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet:                 mixed.Name,
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+		},
+	}
+	dhcpPortCreated := createSubnetPortWithCheck(t, dhcpPort)
+	require.Equal(t, false, dhcpPortCreated.Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet)
+	nsxDhcpPort := fetchSubnetPortBySubnetPortUID(t, string(dhcpPortCreated.GetUID()))
+	require.NotNil(t, nsxDhcpPort.Attachment)
+	require.NotEqual(t, "BOTH", *(*nsxDhcpPort.Attachment).AllocateAddresses,
+		"a non-static SubnetPort in mixed mode must not be allocated via the static (BOTH) pool")
+	require.NotEqual(t, "IP_POOL", *(*nsxDhcpPort.Attachment).AllocateAddresses,
+		"a non-static SubnetPort in mixed mode must not be allocated via the static (IP_POOL) pool")
+
+	// Case 1b: multi-IP addressBindings (2 explicit IPs sharing one MAC) drawn from
+	// the static pool of the mixed-mode Subnet. Exercises capacity accounting for
+	// N>1 addresses in a single AllocatePortFromSubnet call - previously only 1 IP
+	// per family was ever reserved/released regardless of how many bindings a
+	// SubnetPort actually requested.
+	multiIPAddr1 := make(net.IP, len(ip))
+	copy(multiIPAddr1, staticStart)
+	multiIPAddr1[3] += 2
+	multiIPAddr2 := make(net.IP, len(ip))
+	copy(multiIPAddr2, staticStart)
+	multiIPAddr2[3] += 3
+	sharedMultiIPMAC := "04:50:56:00:88:00"
+	multiIPPort := &v1alpha1.SubnetPort{
+		ObjectMeta: v1.ObjectMeta{Name: "mixed-multi-ip-port", Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet:                 mixed.Name,
+			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			AddressBindings: []v1alpha1.PortAddressBinding{
+				{IPAddress: multiIPAddr1.String(), MACAddress: sharedMultiIPMAC},
+				{IPAddress: multiIPAddr2.String(), MACAddress: sharedMultiIPMAC},
+			},
+		},
+	}
+	multiIPPortCreated := createSubnetPortWithCheck(t, multiIPPort, multiIPAddr1.String(), sharedMultiIPMAC)
+	require.Len(t, multiIPPortCreated.Status.NetworkInterfaceConfig.IPAddresses, 2,
+		"SubnetPort status must reflect both bound IPs, not just the first")
+	gotIPs := []string{
+		multiIPPortCreated.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress,
+		multiIPPortCreated.Status.NetworkInterfaceConfig.IPAddresses[1].IPAddress,
+	}
+	require.Contains(t, gotIPs[0]+" "+gotIPs[1], multiIPAddr1.String())
+	require.Contains(t, gotIPs[0]+" "+gotIPs[1], multiIPAddr2.String())
+	nsxMultiIPPort := fetchSubnetPortBySubnetPortUID(t, string(multiIPPortCreated.GetUID()))
+	require.Len(t, nsxMultiIPPort.AddressBindings, 2, "NSX port must realize both address bindings")
+
 	// Case 2: day-2 add a second poolRange; expect drift to reconcile.
 	// Re-fetch to obtain the latest ResourceVersion; using mixedCreated directly
 	// can cause HTTP 409 Conflict if the reconciler touched the object since we
