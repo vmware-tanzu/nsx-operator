@@ -2332,6 +2332,8 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 		name                   string
 		realizedBindings       []model.AddressBindingEntry
 		staticIPAllocationType v1alpha1.StaticIPAllocationType
+		hasExplicitIPv4        bool
+		hasExplicitIPv6        bool
 		expectedIPs            []v1alpha1.NetworkInterfaceIPAddress
 		expectedMAC            string
 	}{
@@ -2400,10 +2402,11 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 			expectedMAC: "00:50:56:ba:d6:7a",
 		},
 		{
-			// Pure DHCP: StaticIPAllocationType=None. No family is statically requested,
-			// so the DHCP-realized IPv4 must be dropped entirely - status should show no
-			// IP at all, same as before this filtering was added.
-			name: "Pure DHCP: StaticIPAllocationType=None drops the DHCP-realized IPv4",
+			// Pure DHCP with no explicit addressBindings: StaticIPAllocationType=None. No
+			// family is statically requested, so the DHCP-realized IPv4 must be dropped
+			// entirely - status should show no IP at all, same as before this filtering
+			// was added.
+			name: "Pure DHCP, no addressBindings: StaticIPAllocationType=None drops the DHCP-realized IPv4",
 			realizedBindings: []model.AddressBindingEntry{
 				{Binding: &model.PacketAddressClassifier{
 					IpAddress:  servicecommon.String("172.26.0.165"),
@@ -2413,6 +2416,53 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
 			expectedIPs:            []v1alpha1.NetworkInterfaceIPAddress{},
 			expectedMAC:            "00:50:56:ba:d6:7a",
+		},
+		{
+			// DHCP Subnet with an explicit addressBindings entry (IP+MAC bound from the
+			// Subnet's MAC pool): StaticIPAllocationType resolves to None because the
+			// Subnet itself has no static allocation enabled, but the address was
+			// explicitly requested by the user, not an incidental DHCP lease - it must be
+			// shown in status. Regression test: this used to be dropped by the same
+			// filter that hides unrequested DHCP addresses on mixed-mode Subnets, which
+			// left status.NetworkInterfaceConfig.IPAddresses without an IP forever even
+			// though NSX had fully realized the port.
+			name: "DHCP Subnet with explicit addressBindings: StaticIPAllocationType=None must not drop the requested IP",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.165"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			hasExplicitIPv4:        true,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "172.26.0.165"},
+			},
+			expectedMAC: "00:50:56:ba:d6:7a",
+		},
+		{
+			// Dual-stack mixed-mode Subnet: an explicit static IPv4 binding is requested,
+			// but IPv6 is not - it's realized independently via DHCP/SLAAC. The explicit
+			// IPv4 must be shown (hasExplicitIPv4), while the incidental, unrequested IPv6
+			// must still be dropped exactly as in the plain mixed-mode case above:
+			// per-family exemption must not become "any explicit binding shows everything".
+			name: "Dual-stack, explicit IPv4 only: incidental DHCP IPv6 is still dropped",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("172.26.0.10"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("2001:db8::10"),
+					MacAddress: servicecommon.String("00:50:56:ba:d6:7a"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+			hasExplicitIPv4:        true,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "172.26.0.10"},
+			},
+			expectedMAC: "00:50:56:ba:d6:7a",
 		},
 		{
 			name: "Multi-IP addressBindings sharing one MAC (spec 2.4.3): 3 same-family entries",
@@ -2457,7 +2507,7 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ipAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(tt.realizedBindings, tt.staticIPAllocationType)
+			ipAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(tt.realizedBindings, tt.staticIPAllocationType, tt.hasExplicitIPv4, tt.hasExplicitIPv6)
 			assert.Equal(t, tt.expectedIPs, ipAddresses)
 			assert.Equal(t, tt.expectedMAC, macAddress)
 		})

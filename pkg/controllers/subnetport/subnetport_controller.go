@@ -238,10 +238,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
-					// networkInterfaceIPAddressesFromRealizedBindings already drops any
-					// address whose family isn't covered by StaticIPAllocationType, so a
-					// DHCP-realized address never lands in status here.
-					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType)
+					// A family is shown in status if it's either statically allocated or
+					// explicitly requested via addressBindings; otherwise it's an incidental
+					// DHCP lease and gets dropped. Checked per family, so a dual-stack port
+					// with an explicit binding for only one family still hides the other.
+					explicitIPv4Count, explicitIPv6Count := util.CountAddressBindingsByFamily(subnetPort.Spec.AddressBindings)
+					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType, explicitIPv4Count > 0, explicitIPv6Count > 0)
 					if len(realizedIPAddresses) > 0 {
 						subnetPort.Status.NetworkInterfaceConfig.IPAddresses = realizedIPAddresses
 					}
@@ -1064,15 +1066,15 @@ func realizedBindingsCoverStaticFamilies(realizedBindings []model.AddressBinding
 	}
 }
 
-// networkInterfaceIPAddressesFromRealizedBindings builds one entry per realized
-// binding whose family is covered by staticIPAllocationType, plus the shared MAC
-// address. DHCP-realized addresses of a family not covered by staticIPAllocationType
-// are dropped on purpose: SubnetPort only reconciles on CR events, but a DHCP lease
-// can change at any time, so showing it in status risks going stale until an
-// unrelated reconcile happens to refresh it. Statically allocated addresses don't
-// have that problem, since they only change via a CR spec change, which itself
-// triggers a reconcile.
-func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.AddressBindingEntry, staticIPAllocationType v1alpha1.StaticIPAllocationType) ([]v1alpha1.NetworkInterfaceIPAddress, string) {
+// networkInterfaceIPAddressesFromRealizedBindings builds one status entry per
+// realized binding, plus the shared MAC address. A realized address is kept only
+// if its family is statically allocated (staticIPAllocationType) or explicitly
+// requested (hasExplicitIPv4/hasExplicitIPv6); otherwise it's an incidental DHCP
+// lease and is dropped, since SubnetPort doesn't reconcile on every DHCP renewal
+// and the address could go stale in status. This is checked per family, so e.g.
+// an explicit static IPv4 binding doesn't also expose an unrelated, DHCP-only
+// IPv6 address realized on the same dual-stack port.
+func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.AddressBindingEntry, staticIPAllocationType v1alpha1.StaticIPAllocationType, hasExplicitIPv4, hasExplicitIPv6 bool) ([]v1alpha1.NetworkInterfaceIPAddress, string) {
 	macAddress := ""
 	ipAddresses := make([]v1alpha1.NetworkInterfaceIPAddress, 0, len(realizedBindings))
 	for _, binding := range realizedBindings {
@@ -1082,10 +1084,10 @@ func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.Ad
 			}
 			ip := net.ParseIP(*binding.Binding.IpAddress)
 			isIPv4 := ip != nil && ip.To4() != nil
-			if isIPv4 && !util.StaticIPAllocationTypeIncludesIPv4(staticIPAllocationType) {
+			if isIPv4 && !util.StaticIPAllocationTypeIncludesIPv4(staticIPAllocationType) && !hasExplicitIPv4 {
 				continue
 			}
-			if !isIPv4 && !util.StaticIPAllocationTypeIncludesIPv6(staticIPAllocationType) {
+			if !isIPv4 && !util.StaticIPAllocationTypeIncludesIPv6(staticIPAllocationType) && !hasExplicitIPv6 {
 				continue
 			}
 			ipAddresses = append(ipAddresses, v1alpha1.NetworkInterfaceIPAddress{
