@@ -24,8 +24,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctrcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
+	mockmanager "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/manager"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpcendpoint"
+	pkgUtil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type fakeStatusWriter struct{}
@@ -223,4 +225,54 @@ func TestVPCEndpointReconciler_RestoreReconcile(t *testing.T) {
 	r := newFakeVPCEndpointReconciler(k8sClient, service)
 
 	assert.NoError(t, r.RestoreReconcile())
+}
+
+func Test_VPCEndpointIPAllocationNameIndexFunc(t *testing.T) {
+	tests := []struct {
+		name string
+		obj  client.Object
+		want []string
+	}{
+		{
+			name: "VPCEndpoint with IPAllocationName",
+			obj: &v1alpha1.VPCEndpoint{
+				ObjectMeta: metav1.ObjectMeta{Name: "vpcep-1", Namespace: "ns1"},
+				Spec:       v1alpha1.VPCEndpointSpec{IPAllocationName: "ipalloc-1"},
+			},
+			want: []string{"ipalloc-1"},
+		},
+		{
+			name: "VPCEndpoint with empty IPAllocationName",
+			obj: &v1alpha1.VPCEndpoint{
+				ObjectMeta: metav1.ObjectMeta{Name: "vpcep-2", Namespace: "ns1"},
+			},
+			want: []string{},
+		},
+		{
+			name: "invalid object type",
+			obj: &v1alpha1.ServiceEndpoint{
+				ObjectMeta: metav1.ObjectMeta{Name: "not-a-vpcendpoint", Namespace: "ns1"},
+			},
+			want: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, VPCEndpointIPAllocationNameIndexFunc(tt.obj))
+		})
+	}
+}
+
+func TestVPCEndpointReconciler_SetupFieldIndexers(t *testing.T) {
+	ctrlMock := gomock.NewController(t)
+	defer ctrlMock.Finish()
+
+	mgr := mockmanager.NewMockManager(ctrlMock)
+	fieldIndexer := mock_client.NewMockFieldIndexer(ctrlMock)
+	mgr.EXPECT().GetFieldIndexer().Return(fieldIndexer)
+	fieldIndexer.EXPECT().IndexField(gomock.Any(), &v1alpha1.VPCEndpoint{}, pkgUtil.VPCEndpointIPAllocationNameIndexKey, gomock.Any()).Return(nil)
+
+	r := &VPCEndpointReconciler{}
+	assert.NoError(t, r.SetupFieldIndexers(mgr))
 }

@@ -6,6 +6,8 @@ package vpcendpoint
 import (
 	"context"
 	"fmt"
+	"os"
+	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -24,6 +26,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpcendpoint"
+	pkgUtil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
@@ -204,6 +207,29 @@ func NewVPCEndpointReconciler(mgr ctrl.Manager, vpcEndpointService *vpcendpoint.
 		Service:  vpcEndpointService,
 		Recorder: mgr.GetEventRecorderFor("vpcendpoint-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
 	}
+	if err := reconciler.SetupFieldIndexers(mgr); err != nil {
+		log.Error(err, "Failed to setup field indexers for the VPCEndpoint controller")
+		os.Exit(1)
+	}
 	reconciler.StatusUpdater = common.NewStatusUpdater(reconciler.Client, reconciler.Service.NSXConfig, reconciler.Recorder, common.MetricResTypeVPCEndpoint, "VPCEndpoint", "VPCEndpoint")
 	return reconciler
+}
+
+// VPCEndpointIPAllocationNameIndexFunc indexes VPCEndpoint by the IPAddressAllocation
+// CR name it references, so the IPAddressAllocation webhook can block deletion while
+// a VPCEndpoint still depends on it.
+func VPCEndpointIPAllocationNameIndexFunc(obj client.Object) []string {
+	if vpcEndpoint, ok := obj.(*v1alpha1.VPCEndpoint); !ok {
+		log.Info("Invalid object", "type", reflect.TypeOf(obj))
+		return []string{}
+	} else {
+		if vpcEndpoint.Spec.IPAllocationName == "" {
+			return []string{}
+		}
+		return []string{vpcEndpoint.Spec.IPAllocationName}
+	}
+}
+
+func (r *VPCEndpointReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
+	return mgr.GetFieldIndexer().IndexField(context.TODO(), &v1alpha1.VPCEndpoint{}, pkgUtil.VPCEndpointIPAllocationNameIndexKey, VPCEndpointIPAllocationNameIndexFunc)
 }

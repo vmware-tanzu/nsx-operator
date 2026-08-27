@@ -84,6 +84,15 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		if len(existingStaticRouteList.Items) > 0 {
 			return admission.Denied(fmt.Sprintf("IPAddressAllocation %s is used by StaticRoute %s", ipAddressAllocation.Name, existingStaticRouteList.Items[0].Name))
 		}
+
+		existingVPCEndpointList := &v1alpha1.VPCEndpointList{}
+		if err := v.Client.List(context.TODO(), existingVPCEndpointList, client.InNamespace(ipAddressAllocation.Namespace), client.MatchingFields{util.VPCEndpointIPAllocationNameIndexKey: ipAddressAllocation.Name}); err != nil {
+			log.Error(err, "failed to list VPCEndpoint", "Namespace", ipAddressAllocation.Namespace)
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if len(existingVPCEndpointList.Items) > 0 {
+			return admission.Denied(fmt.Sprintf("IPAddressAllocation %s is used by VPCEndpoint %s", ipAddressAllocation.Name, existingVPCEndpointList.Items[0].Name))
+		}
 		return v.validateServiceVIP(ctx, req, ipAddressAllocation)
 	}
 	return admission.Allowed("")
