@@ -67,9 +67,9 @@ spec:
             properties:
               subnetAssociation:
                 description: |-
-                  SubnetAssociation indicates the role of targetSubnetName in the binding.
-                  Trunk: targetSubnetName is the trunk Subnet (default behavior).
-                  Branch: targetSubnetName is the branch Subnet; subnetName is the trunk Subnet and hosts the binding map.
+                  SubnetAssociation indicates the role of TargetSubnetName in the binding.
+                  Trunk: TargetSubnetName is the trunk Subnet (default behavior).
+                  Branch: TargetSubnetName is the branch Subnet; SubnetName is the trunk Subnet that hosts the binding map.
                   Supported starting with VCF 9.2.0.
                 enum:
                 - Trunk
