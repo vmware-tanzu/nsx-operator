@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"golang.org/x/crypto/ssh"
 	v1 "k8s.io/api/apps/v1"
@@ -44,6 +45,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
+	execprovider "github.com/vmware-tanzu/nsx-operator/test/e2e/providers/exec"
 )
 
 var log = logger.Log
@@ -86,6 +88,7 @@ type TestOptions struct {
 	operatorConfigPath  string
 	vcUser              string
 	vcPassword          string
+	vcRootPassword      string
 	logsExportOnSuccess bool
 	debugLog            bool
 	logLevel            int
@@ -1318,4 +1321,283 @@ func getRandomString() string {
 	timestamp := time.Now().UnixNano()
 	hash := sha256.Sum256([]byte(fmt.Sprintf("%d", timestamp)))
 	return hex.EncodeToString(hash[:])[:8]
+}
+
+// waitForNcpDeploymentReady waits until deployment/nsx-ncp rollout completes and pods are Running and Ready.
+func waitForNcpDeploymentReady(t *testing.T, timeout time.Duration) {
+	fmt.Printf("Waiting up to %v for nsx-ncp deployment rollout to complete...\n", timeout)
+	ctx := context.TODO()
+	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, false, func(pollCtx context.Context) (bool, error) {
+		deploy, err := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(pollCtx, "nsx-ncp", metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		if deploy.Status.ObservedGeneration < deploy.Generation {
+			return false, nil
+		}
+		if deploy.Spec.Replicas != nil && deploy.Status.UpdatedReplicas < *deploy.Spec.Replicas {
+			return false, nil
+		}
+		if deploy.Spec.Replicas != nil && deploy.Status.ReadyReplicas < *deploy.Spec.Replicas {
+			return false, nil
+		}
+		if deploy.Status.UnavailableReplicas > 0 {
+			return false, nil
+		}
+
+		pods, err := testData.clientset.CoreV1().Pods("vmware-system-nsx").List(pollCtx, metav1.ListOptions{
+			LabelSelector: "component=nsx-ncp",
+		})
+		if err != nil || len(pods.Items) == 0 {
+			return false, nil
+		}
+		readyCount := 0
+		for _, pod := range pods.Items {
+			if pod.DeletionTimestamp != nil {
+				return false, nil
+			}
+			if pod.Status.Phase == corev1.PodRunning {
+				allContainersReady := true
+				for _, c := range pod.Status.ContainerStatuses {
+					if !c.Ready {
+						allContainersReady = false
+						break
+					}
+				}
+				if allContainersReady && len(pod.Status.ContainerStatuses) > 0 {
+					readyCount++
+				}
+			}
+		}
+		expectedReplicas := 1
+		if deploy.Spec.Replicas != nil {
+			expectedReplicas = int(*deploy.Spec.Replicas)
+		}
+		return readyCount >= expectedReplicas, nil
+	})
+	require.NoError(t, err, "nsx-ncp deployment did not become ready in time")
+
+	// Additional 10s stabilization buffer for K8s service endpoints and webhook server to settle
+	time.Sleep(10 * time.Second)
+}
+
+// setupNcpBuildWithCleanup SSHs into each CPVM node, downloads the NCP image tarball for target buildID,
+// imports it into containerd (ctr -n k8s.io images import), updates deployment/nsx-ncp image,
+// and registers t.Cleanup to automatically restore the original NCP deployment image when the test finishes.
+func setupNcpBuildWithCleanup(t *testing.T, buildID string) {
+	if testData == nil || testData.clientset == nil {
+		t.Skip("Skipping NCP build setup: clientset is nil")
+		return
+	}
+	if strings.TrimSpace(buildID) == "" {
+		return
+	}
+
+	ctx := context.TODO()
+	deploy, err := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(ctx, "nsx-ncp", metav1.GetOptions{})
+	require.NoError(t, err, "Failed to get deployment/nsx-ncp")
+
+	if len(deploy.Spec.Template.Spec.Containers) == 0 {
+		t.Skip("Skipping NCP build setup: deployment/nsx-ncp has no containers")
+		return
+	}
+
+	origImage := deploy.Spec.Template.Spec.Containers[0].Image
+	origPullPolicy := deploy.Spec.Template.Spec.Containers[0].ImagePullPolicy
+
+	sysPrefix := "sb"
+	if strings.HasPrefix(buildID, "ob-") {
+		sysPrefix = "bora"
+	}
+	cleanID := strings.TrimPrefix(strings.TrimPrefix(buildID, "sb-"), "ob-")
+	buildTag := fmt.Sprintf("%s-%s", sysPrefix, cleanID)
+
+	// Obtain SSH password for CPVM nodes
+	vcPassword := testOptions.vcRootPassword
+	if vcPassword == "" {
+		vcPassword = testOptions.vcPassword
+	}
+	if vcPassword == "" {
+		t.Skip("Skipping NCP build setup: VC/CPVM SSH password is not set")
+		return
+	}
+
+	sshConfig := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.Password(vcPassword),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+		Timeout:         15 * time.Second,
+	}
+
+	// Discover real CPVM management IPs (1 or 3 CPVMs) and CPVM root password
+	vcHost := testData.vcClient.url.Hostname()
+	var cpvmIPs []string
+	var cpvmPassword string
+
+	vcUser := testOptions.vcUser
+	if vcUser == "" {
+		vcUser = "administrator@vsphere.local"
+	}
+
+	discoverCmd := fmt.Sprintf(`python3 -c '
+import sys
+sys.path.insert(0, "/usr/lib/vmware/site-packages")
+import ssl, json, subprocess, re, os
+try:
+    from pyVmomi import vim, Connect
+    ctx = ssl._create_unverified_context()
+    si = Connect.SmartConnect(host="127.0.0.1", user="%s", pwd="%s", sslContext=ctx)
+    content = si.RetrieveContent()
+    container = content.viewManager.CreateContainerView(content.rootFolder, [vim.VirtualMachine], True)
+    cpvms = [vm.guest.ipAddress for vm in container.view if "SupervisorControlPlaneVM" in vm.name and vm.guest and vm.guest.ipAddress]
+    if cpvms:
+        print("CPVMS=" + ",".join(cpvms))
+except Exception as e:
+    print("PYVMOMI_ERR=" + str(e))
+
+try:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = "/usr/lib/vmware/site-packages:/usr/lib/vmware-wcp"
+    out = subprocess.check_output(["python3", "/usr/lib/vmware-wcp/decryptK8Pwd.py"], env=env, text=True)
+    pwds = re.findall(r"PWD:\s*(\S+)", out)
+    if pwds:
+        print("CPVM_PWD=" + pwds[0])
+    ips = re.findall(r"IP:\s*(\S+)", out)
+    if ips:
+        print("PRIMARY_CPVM_IP=" + ips[0])
+except Exception as e:
+    print("DECRYPT_ERR=" + str(e))
+'`, vcUser, testOptions.vcPassword)
+
+	var primaryCPVMIP string
+	_, stdout, _, err := execprovider.RunSSHCommand(vcHost+":22", sshConfig, discoverCmd)
+	if err == nil {
+		for _, line := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(line, "CPVMS=") {
+				ipsStr := strings.TrimPrefix(line, "CPVMS=")
+				for _, ip := range strings.Split(ipsStr, ",") {
+					ip = strings.TrimSpace(ip)
+					if ip != "" && ip != "N/A" {
+						cpvmIPs = append(cpvmIPs, ip)
+					}
+				}
+			} else if strings.HasPrefix(line, "CPVM_PWD=") {
+				cpvmPassword = strings.TrimSpace(strings.TrimPrefix(line, "CPVM_PWD="))
+			} else if strings.HasPrefix(line, "PRIMARY_CPVM_IP=") {
+				primaryCPVMIP = strings.TrimSpace(strings.TrimPrefix(line, "PRIMARY_CPVM_IP="))
+			}
+		}
+	}
+
+	if len(cpvmIPs) == 0 && primaryCPVMIP != "" {
+		cpvmIPs = []string{primaryCPVMIP}
+	}
+
+	if len(cpvmIPs) == 0 {
+		cpvmIPs = []string{vcHost}
+	}
+
+	cpvmSSHConfig := sshConfig
+	if cpvmPassword != "" {
+		cpvmSSHConfig = &ssh.ClientConfig{
+			User: "root",
+			Auth: []ssh.AuthMethod{
+				ssh.Password(cpvmPassword),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106
+			Timeout:         15 * time.Second,
+		}
+	}
+
+	publishURL := fmt.Sprintf("http://build-squid.vcfd.broadcom.net/build/mts/release/%s/publish/nsx-container/Kubernetes/", buildTag)
+
+	importCmd := fmt.Sprintf(`
+TAR_NAME=$(curl -s -k "%s" | grep -o 'nsx-ncp-photon-[^"]*\.tar' | head -n1)
+if [ -z "$TAR_NAME" ]; then
+    echo "ERROR: Failed to find nsx-ncp-photon tarball at %s"
+    exit 1
+fi
+echo "Downloading $TAR_NAME from %s..."
+curl -s -k "%s${TAR_NAME}" -o /tmp/nsx-ncp-target.tar
+if [ ! -s /tmp/nsx-ncp-target.tar ]; then
+    echo "ERROR: Downloaded tarball is empty"
+    exit 1
+fi
+echo "Importing image into containerd..."
+ctr -n k8s.io images import /tmp/nsx-ncp-target.tar
+IMPORTED_TAG=$(ctr -n k8s.io images list | grep 'nsx-ncp-photon' | grep '%s\|registry.local' | awk '{print $1}' | head -n1)
+if [ -z "$IMPORTED_TAG" ]; then
+    IMPORTED_TAG=$(ctr -n k8s.io images list | grep 'nsx-ncp-photon' | awk '{print $1}' | head -n1)
+fi
+echo "IMPORTED_TAG=$IMPORTED_TAG"
+`, publishURL, publishURL, publishURL, publishURL, cleanID)
+
+	var targetImage string
+	for _, cpvmIP := range cpvmIPs {
+		currentSSHConfig := sshConfig
+		if cpvmPassword != "" {
+			currentSSHConfig = cpvmSSHConfig
+		}
+		fmt.Printf("Downloading and importing NCP build %s tarball on CPVM node (%s)...\n", buildTag, cpvmIP)
+		code, stdout, stderr, sshErr := execprovider.RunSSHCommand(cpvmIP+":22", currentSSHConfig, importCmd)
+		if sshErr != nil || code != 0 {
+			fmt.Printf("Failed SSH command on CPVM node %s (code=%d, err=%v, stdout=%s, stderr=%s)\n", cpvmIP, code, sshErr, stdout, stderr)
+			t.Skipf("Skipping TestMixedNetworkProvider: SSH command failed on CPVM node %s: %v", cpvmIP, sshErr)
+			return
+		}
+
+		for _, line := range strings.Split(stdout, "\n") {
+			if strings.HasPrefix(line, "IMPORTED_TAG=") {
+				targetImage = strings.TrimPrefix(line, "IMPORTED_TAG=")
+				targetImage = strings.TrimSpace(targetImage)
+			}
+		}
+	}
+
+	if targetImage == "" {
+		targetImage = fmt.Sprintf("registry.local/9.2.0.0.%s/nsx-ncp-photon:latest", cleanID)
+	}
+
+	fmt.Printf("Using imported target NCP image %s for deployment/nsx-ncp...\n", targetImage)
+
+	if origImage == targetImage {
+		fmt.Printf("deployment/nsx-ncp container 0 image is already %s\n", targetImage)
+		return
+	}
+
+	curDeploy, getErr := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(ctx, "nsx-ncp", metav1.GetOptions{})
+	if getErr != nil {
+		err = getErr
+	} else {
+		curDeploy.Spec.Template.Spec.Containers[0].Image = targetImage
+		curDeploy.Spec.Template.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+		_, err = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(ctx, curDeploy, metav1.UpdateOptions{})
+	}
+	require.NoError(t, err, "Failed to update deployment/nsx-ncp image")
+
+	t.Cleanup(func() {
+		fmt.Printf("Restoring deployment/nsx-ncp container 0 image to %s in t.Cleanup...\n", origImage)
+		cleanupCtx := context.TODO()
+		curDeploy, getErr := testData.clientset.AppsV1().Deployments("vmware-system-nsx").Get(cleanupCtx, "nsx-ncp", metav1.GetOptions{})
+		if getErr == nil && len(curDeploy.Spec.Template.Spec.Containers) > 0 {
+			curDeploy.Spec.Template.Spec.Containers[0].Image = origImage
+			curDeploy.Spec.Template.Spec.Containers[0].ImagePullPolicy = origPullPolicy
+			_, _ = testData.clientset.AppsV1().Deployments("vmware-system-nsx").Update(cleanupCtx, curDeploy, metav1.UpdateOptions{})
+
+			cleanCmd := "rm -f /tmp/nsx-ncp-target.tar"
+			for _, cpvmIP := range cpvmIPs {
+				currentSSHConfig := sshConfig
+				if cpvmIP != vcHost && cpvmPassword != "" {
+					currentSSHConfig = cpvmSSHConfig
+				}
+				_, _, _, _ = execprovider.RunSSHCommand(cpvmIP+":22", currentSSHConfig, cleanCmd)
+			}
+
+			waitForNcpDeploymentReady(t, 2*time.Minute)
+		}
+	})
+
+	waitForNcpDeploymentReady(t, 2*time.Minute)
 }
