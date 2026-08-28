@@ -19,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -38,7 +39,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 type fakeRecorder struct {
@@ -296,7 +298,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			return false, nil
 		})
 		defer patchesIsSharedSubnetPath.Reset()
-		err := util.NewRealizeStateError("CreateOrUpdateSubnetPort failed", 0)
+		err := nsxutil.NewRealizeStateError("CreateOrUpdateSubnetPort failed", 0)
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 				return nil, false, err
@@ -1075,7 +1077,7 @@ func TestSubnetPortReconciler_vmMapFunc(t *testing.T) {
 		SubnetPortService: service,
 	}
 	subnetPortList := &v1alpha1.SubnetPortList{}
-	k8sClient.EXPECT().List(gomock.Any(), subnetPortList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+	k8sClient.EXPECT().List(gomock.Any(), subnetPortList, client.MatchingFields{util.SubnetPortNamespaceVMIndexKey: "ns/vm1"}).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.SubnetPortList)
 		a.Items = append(a.Items, v1alpha1.SubnetPort{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1099,6 +1101,72 @@ func TestSubnetPortReconciler_vmMapFunc(t *testing.T) {
 		NamespacedName: types.NamespacedName{
 			Name:      "subentport-1",
 			Namespace: "ns",
+		},
+	}, requests[0])
+}
+
+func TestSubnetPortReconciler_vmMapFunc_WithIndexer(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+
+	sp1 := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-vm1-ns1",
+			Namespace: "ns1",
+			Annotations: map[string]string{
+				servicecommon.AnnotationAttachmentRef: "virtualmachine/vm1/port1",
+			},
+		},
+	}
+	sp2 := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-vm2-ns1",
+			Namespace: "ns1",
+			Annotations: map[string]string{
+				servicecommon.AnnotationAttachmentRef: "virtualmachine/vm2/port1",
+			},
+		},
+	}
+	sp3 := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-vm1-ns2",
+			Namespace: "ns2",
+			Annotations: map[string]string{
+				servicecommon.AnnotationAttachmentRef: "virtualmachine/vm1/port1",
+			},
+		},
+	}
+	sp4 := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-no-vm",
+			Namespace: "ns1",
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithIndex(&v1alpha1.SubnetPort{}, util.SubnetPortNamespaceVMIndexKey, subnetPortNamespaceVMIndexFunc).
+		WithObjects(sp1, sp2, sp3, sp4).
+		Build()
+
+	r := &SubnetPortReconciler{
+		Client: fakeClient,
+	}
+
+	vm := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vm1",
+			Namespace: "ns1",
+		},
+	}
+
+	requests := r.vmMapFunc(context.TODO(), vm)
+	assert.Equal(t, 1, len(requests))
+	assert.Equal(t, reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "sp-vm1-ns1",
+			Namespace: "ns1",
 		},
 	}, requests[0])
 }
