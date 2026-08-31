@@ -803,6 +803,7 @@ func TestResourceKindFromCreatedForTag_table(t *testing.T) {
 		{servicecommon.TagValueDNSRecordForTLSRoute, ResourceKindTLSRoute},
 		{servicecommon.TagValueDNSRecordForGateway, ResourceKindGateway},
 		{servicecommon.TagValueDNSRecordForService, ResourceKindService},
+		{servicecommon.TagValueDNSRecordForDNSRecord, ResourceKindDNSRecord},
 		{"unknown_kind", ""},
 		{"", ""},
 	}
