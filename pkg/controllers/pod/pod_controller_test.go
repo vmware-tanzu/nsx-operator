@@ -567,6 +567,42 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			expectedIsExisting: true,
 		},
 		{
+			name: "StatefulSetPodSubnetPortReuse",
+			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
+					func(s *subnetport.SubnetPortService, uid types.UID) string {
+						return ""
+					})
+				patches.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+					func(client *nsx.Client, config *config.NSXOperatorConfig) bool {
+						return true
+					})
+				patches.ApplyFunc(subnetport.GetStatefulSetUID,
+					func(obj interface{}) string {
+						return "sts-uid"
+					})
+				patches.ApplyFunc((*subnetport.SubnetPortService).GetExistingSubnetPortForStatefulSetPod,
+					func(s *subnetport.SubnetPortService, podName string, stsUID string) *model.VpcSubnetPort {
+						path := "existing-sts-subnet-path"
+						return &model.VpcSubnetPort{
+							ParentPath: &path,
+						}
+					})
+				patches.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return &v1alpha1.SubnetSet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "subnetset-1",
+								UID:  "uid-1",
+							},
+						}, nil
+					})
+				return patches
+			},
+			expectedSubnetPath: "existing-sts-subnet-path",
+			expectedIsExisting: true,
+		},
+		{
 			name: "NoGetDefaultSubnetSet",
 			prepareFunc: func(t *testing.T, pr *PodReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetSubnetPathForSubnetPortFromStore,
@@ -702,7 +738,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 				assert.Contains(t, err.Error(), tt.expectedErr)
 			} else {
 				assert.Nil(t, err)
-				assert.Equal(t, subnetPath, path)
+				assert.Equal(t, tt.expectedSubnetPath, path)
 				assert.Equal(t, tt.expectedIsExisting, isExisting)
 			}
 		})

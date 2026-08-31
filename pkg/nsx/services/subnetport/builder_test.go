@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -1367,12 +1368,11 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 	}
 }
 
-func TestGetStatefulSetInfo(t *testing.T) {
+func TestGetStatefulSetUID(t *testing.T) {
 	tests := []struct {
-		name         string
-		obj          interface{}
-		expectedName string
-		expectedUID  string
+		name        string
+		obj         interface{}
+		expectedUID string
 	}{
 		{
 			name: "StatefulSet pod with controller reference",
@@ -1389,8 +1389,7 @@ func TestGetStatefulSetInfo(t *testing.T) {
 					},
 				},
 			},
-			expectedName: "web",
-			expectedUID:  "sts-uid-123",
+			expectedUID: "sts-uid-123",
 		},
 		{
 			name: "StatefulSet owner but not controller (should ignore)",
@@ -1407,8 +1406,7 @@ func TestGetStatefulSetInfo(t *testing.T) {
 					},
 				},
 			},
-			expectedName: "",
-			expectedUID:  "",
+			expectedUID: "",
 		},
 		{
 			name: "Deployment pod with owner reference",
@@ -1423,8 +1421,7 @@ func TestGetStatefulSetInfo(t *testing.T) {
 					},
 				},
 			},
-			expectedName: "",
-			expectedUID:  "",
+			expectedUID: "",
 		},
 		{
 			name: "Standalone pod without owner",
@@ -1433,27 +1430,23 @@ func TestGetStatefulSetInfo(t *testing.T) {
 					OwnerReferences: []metav1.OwnerReference{},
 				},
 			},
-			expectedName: "",
-			expectedUID:  "",
+			expectedUID: "",
 		},
 		{
-			name:         "SubnetPort CR (not a pod)",
-			obj:          &v1alpha1.SubnetPort{},
-			expectedName: "",
-			expectedUID:  "",
+			name:        "SubnetPort CR (not a pod)",
+			obj:         &v1alpha1.SubnetPort{},
+			expectedUID: "",
 		},
 		{
-			name:         "Nil object",
-			obj:          nil,
-			expectedName: "",
-			expectedUID:  "",
+			name:        "Nil object",
+			obj:         nil,
+			expectedUID: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stsName, stsUID := getStatefulSetInfo(tt.obj)
-			assert.Equal(t, tt.expectedName, stsName)
+			stsUID := GetStatefulSetUID(tt.obj)
 			assert.Equal(t, tt.expectedUID, stsUID)
 		})
 	}
@@ -1540,4 +1533,84 @@ func TestBuildSubnetPortIdAndName_reuseSTSPortByUIDAndPodName(t *testing.T) {
 	id, name := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "sts-uid-123")
 	assert.Equal(t, "sts-port-id", id)
 	assert.Equal(t, "test-pod", name)
+}
+func TestGetExistingSubnetPortForStatefulSetPod(t *testing.T) {
+	service := &SubnetPortService{
+		SubnetPortStore: &SubnetPortStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeStatefulSetUID: subnetPortIndexByStatefulSetUID,
+				}),
+			},
+		},
+	}
+
+	stsUID := "sts-uid-123"
+	podName := "test-pod-0"
+
+	// Add a matching port
+	matchingPort := &model.VpcSubnetPort{
+		Id: ptr.To("matching-port-id"),
+		Tags: []model.Tag{
+			{Scope: ptr.To(common.TagScopeStatefulSetUID), Tag: ptr.To(stsUID)},
+			{Scope: ptr.To(common.TagScopePodName), Tag: ptr.To(podName)},
+		},
+	}
+	service.SubnetPortStore.Add(matchingPort)
+
+	// Add a non-matching port (different pod name)
+	nonMatchingPort := &model.VpcSubnetPort{
+		Id: ptr.To("non-matching-port-id"),
+		Tags: []model.Tag{
+			{Scope: ptr.To(common.TagScopeStatefulSetUID), Tag: ptr.To(stsUID)},
+			{Scope: ptr.To(common.TagScopePodName), Tag: ptr.To("test-pod-1")},
+		},
+	}
+	service.SubnetPortStore.Add(nonMatchingPort)
+
+	tests := []struct {
+		name        string
+		podName     string
+		stsUID      string
+		expectedId  string
+		expectFound bool
+	}{
+		{
+			name:        "matching port found",
+			podName:     podName,
+			stsUID:      stsUID,
+			expectedId:  "matching-port-id",
+			expectFound: true,
+		},
+		{
+			name:        "no matching port for pod name",
+			podName:     "test-pod-2",
+			stsUID:      stsUID,
+			expectFound: false,
+		},
+		{
+			name:        "empty stsUID",
+			podName:     podName,
+			stsUID:      "",
+			expectFound: false,
+		},
+		{
+			name:        "no matching port for stsUID",
+			podName:     podName,
+			stsUID:      "other-sts-uid",
+			expectFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			port := service.GetExistingSubnetPortForStatefulSetPod(tt.podName, tt.stsUID)
+			if tt.expectFound {
+				assert.NotNil(t, port)
+				assert.Equal(t, tt.expectedId, *port.Id)
+			} else {
+				assert.Nil(t, port)
+			}
+		})
+	}
 }
