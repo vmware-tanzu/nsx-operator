@@ -147,7 +147,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return common.ResultRequeue, err
 		}
 		if subnetPort != nil {
-			if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && r.isStatefulSetSubnetPort(subnetPort) {
+			if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) && r.isStatefulSetSubnetPort(subnetPort) {
 				log.Info("Ignoring subnet port deletion for StatefulSet pod",
 					"pod", subnetPort.DisplayName, "statefulset-uid", r.getStsUID(subnetPort))
 				return common.ResultNormal, nil
@@ -382,7 +382,7 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 		if store != nil && store.Indexer != nil {
 			if nsxSubnetPort := store.GetByKey(elem); nsxSubnetPort != nil &&
 				r.SubnetPortService.NSXClient != nil &&
-				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
+				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
 				log.Info("Skipping pod GC for StatefulSet pod subnet port", "NSXSubnetPortID", elem, "statefulset-uid", r.getStsUID(nsxSubnetPort))
 				continue
 			}
@@ -436,7 +436,7 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 	}
 
 	// Check if this is a StatefulSet pod and we can reuse an existing SubnetPort
-	if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+	if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) {
 		stsUID := subnetport.GetStatefulSetUID(pod)
 		if port := r.SubnetPortService.GetExistingSubnetPortForStatefulSetPod(pod.Name, stsUID); port != nil {
 			if port.ParentPath != nil {
@@ -479,7 +479,7 @@ func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string
 	for _, nsxSubnetPort := range nsxSubnetPorts {
 		// Check if this subnet port was created for StatefulSet
 		// Only skip if StatefulSet pod SubnetPort feature is enabled
-		if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
+		if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
 			log.Info("Ignoring subnet port deletion for StatefulSet pod",
 				"pod", name, "statefulset-uid", r.getStsUID(nsxSubnetPort))
 			continue // Skip deletion
