@@ -62,7 +62,7 @@ type StatefulSetReconciler struct {
 
 // StatefulSetPodFeatureEnabled reports whether the StatefulSet pod SubnetPort feature is active.
 func (r *StatefulSetReconciler) StatefulSetPodFeatureEnabled() bool {
-	return nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig)
+	return nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient)
 }
 
 func (r *StatefulSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -176,7 +176,15 @@ func (r *StatefulSetReconciler) releaseSubnetPortsForStatefulSet(ctx context.Con
 		podName := util.FindTag(subnetPort.Tags, servicecommon.TagScopePodName)
 		if podName != "" {
 			pod := &corev1.Pod{}
-			if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err == nil {
+			if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Debug("Pod does not exist, proceeding to delete subnet port", "pod", podName, "namespace", namespace)
+				} else {
+					log.Error(err, "Failed to get pod", "pod", podName, "namespace", namespace)
+					errList = append(errList, err)
+					continue
+				}
+			} else {
 				podUid := util.FindTag(subnetPort.Tags, servicecommon.TagScopePodUID)
 				if pod.UID != types.UID(podUid) {
 					log.Info("Pod UID mismatch, deleting subnet port ", "pod", podName, "podUID", pod.UID, "subnetPortUID", podUid)
@@ -382,10 +390,11 @@ func (r *StatefulSetReconciler) GetOrdinalRange(sts *appsv1.StatefulSet) (int, i
 // PredicateFuncsForStatefulSet limits which StatefulSet watch events reach the reconciler.
 //
 // The reconciler mainly needs to release NSX resources when desired pod ordinals drop out
-// of the active range (scale down or ordinals start moved up). Updates are therefore admitted
-// only when the inclusive ordinal window [start, start+replicas-1] shrinks: either the start
-// moves right (newStart > oldStart) or the end moves left (newEnd < oldEnd). Other updates,
-// including scale-up and unchanged replica/ordinal fields, are ignored.
+// of the active range (scale down or ordinals start moved up), or when the StatefulSet is
+// being deleted. Updates are therefore admitted when the StatefulSet is marked for deletion
+// (newSts.DeletionTimestamp != nil) or when the inclusive ordinal window [start, start+replicas-1]
+// shrinks: either the start moves right (newStart > oldStart) or the end moves left (newEnd < oldEnd).
+// Other updates, including scale-up and unchanged replica/ordinal fields, are ignored.
 //
 // Create and generic events are ignored; subnet wiring for new pods is handled via Pod
 // reconciliation. Delete events are always admitted so the controller can tear down
@@ -397,6 +406,10 @@ var PredicateFuncsForStatefulSet = predicate.Funcs{
 		if !ok1 || !ok2 {
 			log.Error(fmt.Errorf("type assertion failed"), "Failed to cast to StatefulSet in update event")
 			return false
+		}
+
+		if newSts.DeletionTimestamp != nil {
+			return true
 		}
 
 		oldStart := int32(0)

@@ -565,6 +565,67 @@ func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
 	}
 }
 
+func TestSubnetPortService_DeleteSubnetPort_NilChecks(t *testing.T) {
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				PortClient: &fakePortClient{},
+			},
+		},
+		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(
+				keyFunc,
+				cache.Indexers{
+					common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
+					common.TagScopePodUID:          subnetPortIndexByPodUID,
+				}),
+			BindingType: model.VpcSubnetPortBindingType(),
+		}},
+	}
+
+	validId := "test-port"
+	validPath := "/orgs/default/projects/default/vpcs/default/subnets/default/ports/test-port"
+	invalidPath := "invalid-path"
+
+	t.Run("nil port returns error", func(t *testing.T) {
+		err := service.DeleteSubnetPort(nil)
+		assert.Error(t, err)
+		assert.Equal(t, "subnet port is nil", err.Error())
+	})
+
+	t.Run("nil path returns error", func(t *testing.T) {
+		err := service.DeleteSubnetPort(&model.VpcSubnetPort{Id: &validId, Path: nil})
+		assert.Error(t, err)
+		assert.Equal(t, "subnet port path is nil", err.Error())
+	})
+
+	t.Run("nil id returns error", func(t *testing.T) {
+		err := service.DeleteSubnetPort(&model.VpcSubnetPort{Id: nil, Path: &validPath})
+		assert.Error(t, err)
+		assert.Equal(t, "subnet port id is nil", err.Error())
+	})
+
+	t.Run("invalid path returns error", func(t *testing.T) {
+		err := service.DeleteSubnetPort(&model.VpcSubnetPort{Id: &validId, Path: &invalidPath})
+		assert.Error(t, err)
+	})
+
+	t.Run("valid port successfully deleted", func(t *testing.T) {
+		service.SubnetPortStore.Add(&model.VpcSubnetPort{
+			Id:   &validId,
+			Path: &validPath,
+		})
+		patches := gomonkey.ApplyMethodSeq(service.NSXClient.PortClient, "Delete", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+
+		err := service.DeleteSubnetPort(&model.VpcSubnetPort{Id: &validId, Path: &validPath})
+		assert.NoError(t, err)
+	})
+}
+
 func TestSubnetPortService_GetSubnetPathForSubnetPortFromStore(t *testing.T) {
 	crUID := types.UID("aaaaaaaa")
 	type args struct {

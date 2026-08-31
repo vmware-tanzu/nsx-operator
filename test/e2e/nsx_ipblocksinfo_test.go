@@ -109,7 +109,14 @@ func CustomIPBlocksInfo(t *testing.T) {
 	}
 
 	defer func() {
-		testData.nsxClient.IPBlockClient.Delete(defaultOrg, defaultProject, ipBlockName)
+		log.Info("Deleting IPBlock", "ipBlockName", ipBlockName)
+		ctx := context.Background()
+		_ = wait.PollUntilContextTimeout(ctx, 2*time.Second, 1*time.Minute, true, func(ctx context.Context) (done bool, err error) {
+			if err := testData.nsxClient.IPBlockClient.Delete(defaultOrg, defaultProject, ipBlockName); err != nil {
+				return false, nil
+			}
+			return true, nil
+		})
 	}()
 
 	// Create VPC Connectivity Profile
@@ -124,7 +131,13 @@ func CustomIPBlocksInfo(t *testing.T) {
 	require.NoError(t, err)
 	defer func() {
 		log.Info("Deleting VPC Connectivity Profile", "vpcProfileName", vpcProfileName)
-		err := testData.nsxClient.VPCConnectivityProfilesClient.Delete(defaultOrg, defaultProject, vpcProfileName)
+		ctx := context.Background()
+		err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 1*time.Minute, true, func(ctx context.Context) (done bool, err error) {
+			if err := testData.nsxClient.VPCConnectivityProfilesClient.Delete(defaultOrg, defaultProject, vpcProfileName); err != nil {
+				return false, nil
+			}
+			return true, nil
+		})
 		require.NoError(t, err)
 	}()
 
@@ -138,11 +151,9 @@ func CustomIPBlocksInfo(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer func() {
-		log.Info("Deleting VPC", "vpcId", vpcId, "attachmentId", vpcAttachmentId)
+		log.Info("Deleting VPC", "vpcId", vpcId)
 		deleteChild := true
 		err := testData.nsxClient.VPCClient.Delete(defaultOrg, defaultProject, vpcId, &deleteChild)
-		require.NoError(t, err)
-		err = testData.nsxClient.VpcAttachmentClient.Delete(defaultOrg, defaultProject, vpcId, vpcAttachmentId)
 		require.NoError(t, err)
 	}()
 

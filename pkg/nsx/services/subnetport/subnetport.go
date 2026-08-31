@@ -283,11 +283,21 @@ func (service *SubnetPortService) GetSubnetPortState(nsxSubnetPortID string, nsx
 }
 
 func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubnetPort) error {
+	if nsxSubnetPort == nil {
+		return errors.New("subnet port is nil")
+	}
 	if nsxSubnetPort.Path == nil {
 		return errors.New("subnet port path is nil")
 	}
-	subnetPortInfo, _ := servicecommon.ParseVPCResourcePath(*nsxSubnetPort.Path)
-	err := service.NSXClient.PortClient.Delete(subnetPortInfo.OrgID, subnetPortInfo.ProjectID, subnetPortInfo.VPCID, subnetPortInfo.ParentID, *nsxSubnetPort.Id)
+	if nsxSubnetPort.Id == nil {
+		return errors.New("subnet port id is nil")
+	}
+	subnetPortInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnetPort.Path)
+	if err != nil {
+		log.Error(err, "failed to parse subnet port path", "path", *nsxSubnetPort.Path)
+		return err
+	}
+	err = service.NSXClient.PortClient.Delete(subnetPortInfo.OrgID, subnetPortInfo.ProjectID, subnetPortInfo.VPCID, subnetPortInfo.ParentID, *nsxSubnetPort.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "failed to delete nsxSubnetPort", "nsxSubnetPort.Path", *nsxSubnetPort.Path)

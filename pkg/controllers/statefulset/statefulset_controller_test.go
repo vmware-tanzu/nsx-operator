@@ -86,11 +86,9 @@ func patchNSXClientStatefulSetPodVersion(t *testing.T, enabled bool) func() {
 }
 
 func testNSXConfigWithStatefulSetPodEnhance() *config.NSXOperatorConfig {
-	on := true
 	return &config.NSXOperatorConfig{
 		NsxConfig: &config.NsxConfig{
 			EnforcementPoint: "vmc-enforcementpoint",
-			VpcWcpEnhance:    &on,
 		},
 	}
 }
@@ -281,6 +279,20 @@ func TestPredicateFuncsForStatefulSet(t *testing.T) {
 
 	genericEvent := event.GenericEvent{}
 	assert.False(t, PredicateFuncsForStatefulSet.GenericFunc(genericEvent))
+}
+
+func TestPredicateUpdateFunc_DeletionTimestamp(t *testing.T) {
+	now := metav1.Now()
+	oldSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec:       appsv1.StatefulSetSpec{Replicas: func() *int32 { r := int32(3); return &r }()},
+	}
+	newSts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default", DeletionTimestamp: &now},
+		Spec:       appsv1.StatefulSetSpec{Replicas: func() *int32 { r := int32(3); return &r }()},
+	}
+	ev := event.UpdateEvent{ObjectOld: oldSts, ObjectNew: newSts}
+	assert.True(t, PredicateFuncsForStatefulSet.UpdateFunc(ev), "UpdateFunc should admit events when DeletionTimestamp is set")
 }
 
 func TestRestoreReconcile(t *testing.T) {
@@ -1287,6 +1299,54 @@ func TestReleaseSubnetPortsForStatefulSet_PodUIDMismatchDeletesPort(t *testing.T
 	assert.Equal(t, 1, deleteCalls, "stale subnet port for same pod name but different pod UID should be deleted")
 }
 
+func TestReleaseSubnetPortsForStatefulSet_GetPodTransientErrorSkipsDelete(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("apiserver timeout"))
+
+	subnetPortService := &subnetportservice.SubnetPortService{
+		SubnetPortStore: &subnetportservice.SubnetPortStore{},
+	}
+	r := &StatefulSetReconciler{
+		Client:            k8sClient,
+		SubnetPortService: subnetPortService,
+	}
+
+	podNameScope := "nsx-op/pod_name"
+	podUIDScope := servicecommon.TagScopePodUID
+	livePodUID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+	var deleteCalls int
+	patches := gomonkey.ApplyFunc(
+		(*subnetportservice.SubnetPortService).ListSubnetPortByStsName,
+		func(s *subnetportservice.SubnetPortService, ns string, stsName string) []*model.VpcSubnetPort {
+			return []*model.VpcSubnetPort{
+				{
+					Id:          servicecommon.String("port1"),
+					DisplayName: servicecommon.String("test-sts-0"),
+					Tags: []model.Tag{
+						{Scope: &podNameScope, Tag: servicecommon.String("test-sts-0")},
+						{Scope: &podUIDScope, Tag: servicecommon.String(livePodUID)},
+					},
+				},
+			}
+		})
+	patches.ApplyFunc(
+		(*subnetportservice.SubnetPortService).DeleteSubnetPort,
+		func(s *subnetportservice.SubnetPortService, port *model.VpcSubnetPort) error {
+			deleteCalls++
+			return nil
+		})
+	defer patches.Reset()
+
+	pending, err := r.releaseSubnetPortsForStatefulSet(context.Background(), "default", "test-sts")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "apiserver timeout")
+	assert.False(t, pending)
+	assert.Equal(t, 0, deleteCalls, "port should not be deleted when pod Get returns transient error")
+}
+
 func TestReleaseSubnetPortForPod_DeleteError(t *testing.T) {
 	// Use fake client (empty cluster) so Get returns NotFound without gomock + gomonkey cross-test interference.
 	fakeClient := fake.NewClientBuilder().Build()
@@ -2071,40 +2131,27 @@ func TestReconcile_NoOpWhenFeatureDisabled(t *testing.T) {
 }
 
 func TestStatefulSetPodFeatureEnabled_NSXCheckVersion(t *testing.T) {
-	defer patchNSXClientStatefulSetPodVersion(t, true)()
-	s := &subnetportservice.SubnetPortService{
-		Service: servicecommon.Service{
-			NSXClient: &nsx.Client{},
-			NSXConfig: testNSXConfigWithStatefulSetPodEnhance(),
-		},
-	}
-	r := &StatefulSetReconciler{SubnetPortService: s}
-	assert.True(t, r.StatefulSetPodFeatureEnabled())
-}
+	t.Run("enabled when NSX check version returns true", func(t *testing.T) {
+		defer patchNSXClientStatefulSetPodVersion(t, true)()
+		s := &subnetportservice.SubnetPortService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{},
+			},
+		}
+		r := &StatefulSetReconciler{SubnetPortService: s}
+		assert.True(t, r.StatefulSetPodFeatureEnabled())
+	})
 
-func TestStatefulSetPodFeatureEnabled_DisabledWhenVpcWcpEnhanceUnset(t *testing.T) {
-	defer patchNSXClientStatefulSetPodVersion(t, true)()
-	s := &subnetportservice.SubnetPortService{
-		Service: servicecommon.Service{
-			NSXClient: &nsx.Client{},
-			NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"}},
-		},
-	}
-	r := &StatefulSetReconciler{SubnetPortService: s}
-	assert.False(t, r.StatefulSetPodFeatureEnabled())
-}
-
-func TestStatefulSetPodFeatureEnabled_DisabledWhenVpcWcpEnhanceFalse(t *testing.T) {
-	defer patchNSXClientStatefulSetPodVersion(t, true)()
-	off := false
-	s := &subnetportservice.SubnetPortService{
-		Service: servicecommon.Service{
-			NSXClient: &nsx.Client{},
-			NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &off}},
-		},
-	}
-	r := &StatefulSetReconciler{SubnetPortService: s}
-	assert.False(t, r.StatefulSetPodFeatureEnabled())
+	t.Run("disabled when NSX check version returns false", func(t *testing.T) {
+		defer patchNSXClientStatefulSetPodVersion(t, false)()
+		s := &subnetportservice.SubnetPortService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{},
+			},
+		}
+		r := &StatefulSetReconciler{SubnetPortService: s}
+		assert.False(t, r.StatefulSetPodFeatureEnabled())
+	})
 }
 
 func TestCollectGarbage_GetPodErrorDoesNotSkipDelete(t *testing.T) {

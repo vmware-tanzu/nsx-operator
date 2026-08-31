@@ -1476,7 +1476,7 @@ func TestBuildSubnetPortIdAndName_existingPortByUID(t *testing.T) {
 		})
 	defer patches.Reset()
 	patchesStsFeat := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
-		func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+		func(_ *nsx.Client) bool {
 			return false
 		})
 	defer patchesStsFeat.Reset()
@@ -1524,7 +1524,7 @@ func TestBuildSubnetPortIdAndName_reuseSTSPortByUIDAndPodName(t *testing.T) {
 			return nil
 		})
 	patchesStsFeat := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
-		func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+		func(_ *nsx.Client) bool {
 			return true
 		})
 	defer patchesStsFeat.Reset()
