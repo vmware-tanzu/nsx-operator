@@ -434,6 +434,19 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "pod.UID", pod.UID, "subnetPath", subnetPath)
 		return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, "", nil
 	}
+
+	// Check if this is a StatefulSet pod and we can reuse an existing SubnetPort
+	if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+		stsUID := subnetport.GetStatefulSetUID(pod)
+		if port := r.SubnetPortService.GetExistingSubnetPortForStatefulSetPod(pod.Name, stsUID); port != nil {
+			if port.ParentPath != nil {
+				subnetPath = *port.ParentPath
+			}
+			log.Info("Found existing SubnetPort for StatefulSet pod, forcing old subnet", "podName", pod.Name, "stsUID", stsUID, "subnetPath", subnetPath)
+			return true, subnetPath, subnetSetUID, subnetSetLock, interfacetype, "", nil
+		}
+	}
+
 	log.Info("Got default SubnetSet for Pod, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "pod.Name", pod.Name, "pod.UID", pod.UID)
 	if r.restoreMode {
 		// For restore case, Pod will be created on the Subnet with matching CIDR
@@ -465,7 +478,7 @@ func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string
 
 	for _, nsxSubnetPort := range nsxSubnetPorts {
 		// Check if this subnet port was created for StatefulSet
-		// Only skip if STS feature is enabled (NSX 9.2.0+)
+		// Only skip if StatefulSet pod SubnetPort feature is enabled
 		if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
 			log.Info("Ignoring subnet port deletion for StatefulSet pod",
 				"pod", name, "statefulset-uid", r.getStsUID(nsxSubnetPort))

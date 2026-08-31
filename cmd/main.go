@@ -265,7 +265,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		if lbReconciler := service.NewServiceLbReconciler(mgr, commonService, dnsRecordService); lbReconciler != nil {
 			reconcilerList = append(reconcilerList, lbReconciler)
 		}
-		// StatefulSet controller is always registered so that after NSX upgrades (e.g. to 9.2.0+)
+		// StatefulSet controller is always registered so that after NSX upgrades
 		// replica/GC logic can run without restarting the operator. Reconcile and CollectGarbage
 		// no-op until NSX version supports STS pods and vpc_wcp_enhance=true in config; delete cleanup still runs.
 		reconcilerList = append(reconcilerList, statefulsetcontroller.NewStatefulSetReconciler(mgr, subnetPortService))
