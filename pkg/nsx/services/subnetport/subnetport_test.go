@@ -105,6 +105,27 @@ func (c *fakeIPPoolClient) List(orgIdParam string, projectIdParam string, vpcIdP
 	return model.IpAddressPoolListResult{}, nil
 }
 
+type mockErrorIPPoolClient struct {
+	fakeIPPoolClient
+	err error
+}
+
+func (c *mockErrorIPPoolClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+	return model.IpAddressPool{}, c.err
+}
+
+type mockFuncIPPoolClient struct {
+	fakeIPPoolClient
+	getFunc func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error)
+}
+
+func (c *mockFuncIPPoolClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+	if c.getFunc != nil {
+		return c.getFunc(orgIdParam, projectIdParam, vpcIdParam, subnetIdParam, poolIdParam)
+	}
+	return c.fakeIPPoolClient.Get(orgIdParam, projectIdParam, vpcIdParam, subnetIdParam, poolIdParam)
+}
+
 type fakeStatsClient struct{}
 
 func (c *fakeStatsClient) Get(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, enforcementPointPathParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DhcpServerStatistics, error) {
@@ -1401,9 +1422,8 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
-					return model.IpAddressPool{}, fmt.Errorf("mock static error")
-				})
+				service.NSXClient.IPPoolClient = &mockErrorIPPoolClient{err: fmt.Errorf("mock static error")}
+				return nil
 			},
 			expectedValue: false,
 			expectedErr:   "mock static error",
@@ -1426,11 +1446,14 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
-					return model.IpAddressPool{
-						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
-					}, nil
-				})
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+						return model.IpAddressPool{
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
+						}, nil
+					},
+				}
+				return nil
 			},
 			expectedValue: false,
 		},
@@ -1472,11 +1495,14 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
-					return model.IpAddressPool{
-						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10)},
-					}, nil
-				})
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+						return model.IpAddressPool{
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10)},
+						}, nil
+					},
+				}
+				return nil
 			},
 			expectedValue: true,
 		},
@@ -1486,11 +1512,14 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, _ string) (model.IpAddressPool, error) {
-					return model.IpAddressPool{
-						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10), RequestedIpAllocations: common.Int64(10)},
-					}, nil
-				})
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+						return model.IpAddressPool{
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10), RequestedIpAllocations: common.Int64(10)},
+						}, nil
+					},
+				}
+				return nil
 			},
 			expectedValue: false,
 			sharedSubnet:  true,
@@ -1523,12 +1552,8 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv6,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
-					if poolId == "static-ipv6-default" {
-						return model.IpAddressPool{}, fmt.Errorf("mock ipv6 static pool error")
-					}
-					return model.IpAddressPool{}, nil
-				})
+				service.NSXClient.IPPoolClient = &mockErrorIPPoolClient{err: fmt.Errorf("mock ipv6 static pool error")}
+				return nil
 			},
 			expectedValue: false,
 			expectedErr:   "mock ipv6 static pool error",
@@ -1539,14 +1564,17 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv6,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
-					if poolId == "static-ipv6-default" {
-						return model.IpAddressPool{
-							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(20)},
-						}, nil
-					}
-					return model.IpAddressPool{}, nil
-				})
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+						if poolIdParam == "static-ipv6-default" {
+							return model.IpAddressPool{
+								PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(20)},
+							}, nil
+						}
+						return model.IpAddressPool{}, nil
+					},
+				}
+				return nil
 			},
 			expectedValue: true,
 		},
@@ -1556,16 +1584,19 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4IPv6,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
-					if poolId == "static-ipv4-default" {
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+						if poolIdParam == "static-ipv4-default" {
+							return model.IpAddressPool{
+								PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
+							}, nil
+						}
 						return model.IpAddressPool{
-							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
+							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(100)},
 						}, nil
-					}
-					return model.IpAddressPool{
-						PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(100)},
-					}, nil
-				})
+					},
+				}
+				return nil
 			},
 			expectedValue: false,
 		},
@@ -1575,19 +1606,22 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4IPv6,
 			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4IPv6,
 			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.IPPoolClient), "Get", func(_ *fakeIPPoolClient, _, _, _, _, poolId string) (model.IpAddressPool, error) {
-					if poolId == "static-ipv4-default" {
-						return model.IpAddressPool{
-							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10)},
-						}, nil
-					}
-					if poolId == "static-ipv6-default" {
-						return model.IpAddressPool{
-							PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
-						}, nil
-					}
-					return model.IpAddressPool{}, nil
-				})
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, poolIdParam string) (model.IpAddressPool, error) {
+						if poolIdParam == "static-ipv4-default" {
+							return model.IpAddressPool{
+								PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(10)},
+							}, nil
+						}
+						if poolIdParam == "static-ipv6-default" {
+							return model.IpAddressPool{
+								PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(0)},
+							}, nil
+						}
+						return model.IpAddressPool{}, nil
+					},
+				}
+				return nil
 			},
 			expectedValue: false,
 		},

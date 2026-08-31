@@ -60,7 +60,7 @@ type StatefulSetReconciler struct {
 	StatusUpdater     common.StatusUpdater
 }
 
-// StatefulSetPodFeatureEnabled reports whether the StatefulSet pod SubnetPort feature is active (NSX 9.2.0+ and vpc_wcp_enhance=true in config).
+// StatefulSetPodFeatureEnabled reports whether the StatefulSet pod SubnetPort feature is active.
 func (r *StatefulSetReconciler) StatefulSetPodFeatureEnabled() bool {
 	return nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig)
 }

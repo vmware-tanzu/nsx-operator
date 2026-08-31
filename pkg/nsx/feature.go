@@ -5,7 +5,7 @@ package nsx
 
 import "github.com/vmware-tanzu/nsx-operator/pkg/config"
 
-// StatefulSetPodSubnetPortFeatureEnabled is true when NSX supports StatefulSet pod SubnetPorts
+// StatefulSetPodSubnetPortFeatureEnabled is true when NSX version is 9.1.2+ and vpc_wcp_enhance=true
 // and operator nsx_v3 sets vpc_wcp_enhance to true (omitted or false keeps the feature off).
 //
 //go:noinline

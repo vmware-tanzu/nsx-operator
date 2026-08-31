@@ -233,9 +233,6 @@ func (m *mockIPBlocksInfoService) SyncIPBlocksInfo(_ context.Context) error {
 	m.mu.Lock()
 	m.syncCount++
 	m.mu.Unlock()
-	if m.processed != nil {
-		m.processed <- struct{}{}
-	}
 	return nil
 }
 
@@ -243,6 +240,9 @@ func (m *mockIPBlocksInfoService) ResetPeriodicSync() {
 	m.mu.Lock()
 	m.resetCount++
 	m.mu.Unlock()
+	if m.processed != nil {
+		m.processed <- struct{}{}
+	}
 }
 
 func TestVPCNetworkConfigurationHandler_QueueFIFOAndCompletion(t *testing.T) {
