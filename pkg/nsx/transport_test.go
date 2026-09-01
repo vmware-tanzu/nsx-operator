@@ -6,6 +6,7 @@ package nsx
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -59,7 +60,7 @@ func TestRoundTripRetry(t *testing.T) {
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, err := NewCluster(config)
 	assert.Nil(err, fmt.Sprintf("Create cluster error %v", err))
-	cluster.endpoints[0], _ = NewEndpoint(ts.URL, cluster.client, cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil)
+	cluster.endpoints[0], _ = NewEndpoint(ts.URL, cluster.client, cluster.noBalancerClient, cluster.endpoints[0].ratelimiter, nil, config.Logger)
 	cluster.endpoints[0].keepAlive()
 	tr := cluster.transport
 	req, _ := http.NewRequest("GET", ts.URL, nil)
@@ -107,6 +108,14 @@ func TestSelectEndpoint(t *testing.T) {
 	ep, err = tr.selectEndpoint()
 	assert.Nil(err, fmt.Sprintf("Select endpoint failed due to %v", err))
 	assert.Equal(ep.Host(), eps[0].Host(), "Select endpoint error, ep is %s, error is %s", ep.Host(), err)
+
+	// Test when connection counts are over 100
+	eps[0].connnumber = 150
+	eps[1].connnumber = 120
+	eps[2].connnumber = 180
+	ep, err = tr.selectEndpoint()
+	assert.Nil(err, fmt.Sprintf("Select endpoint failed due to %v", err))
+	assert.Equal(ep.Host(), eps[1].Host(), "Should select ep with lowest connections even if > 100")
 }
 
 func TestTransport_RoundTrip(t *testing.T) {
@@ -222,4 +231,46 @@ func TestTransport_selectEndpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRoundTripRequestBodyPreservedOnRetry(t *testing.T) {
+	assert := assert.New(t)
+	attempt := 0
+	reqBodyRecv := ""
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt++
+		body, _ := io.ReadAll(r.Body)
+		reqBodyRecv = string(body)
+		if attempt == 1 {
+			// First attempt fails with retriable ServerBusy / InternalServerError
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"module_name":"common-services","error_code":607,"error_message":"APITransactionAborted"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	defer ts.Close()
+
+	config := NewConfig("127.0.0.1", "admin", "password", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	ep, err := NewEndpoint(ts.URL[len("http://"):], http.DefaultClient, http.DefaultClient, ratelimiter.NewFixRateLimiter(10), nil, config.Logger)
+	assert.NoError(err)
+	ep.setStatus(UP)
+
+	tr := &Transport{
+		endpoints: []*Endpoint{ep},
+		config:    config,
+		Base:      http.DefaultTransport,
+	}
+
+	reqPayload := `{"key":"value_test_payload"}`
+	req, err := http.NewRequest("POST", ts.URL, strings.NewReader(reqPayload))
+	assert.NoError(err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := tr.RoundTrip(req)
+	assert.NoError(err)
+	assert.Equal(http.StatusOK, resp.StatusCode)
+	assert.Equal(reqPayload, reqBodyRecv, "Request body should be preserved on retried RoundTrip attempt")
 }

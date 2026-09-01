@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 func TestTESClient_NewTESClient(t *testing.T) {
-	_, err := NewTESClient("10.0.0.1", 433, "vsphere.local", "admin", "admin", []byte{}, true, "https")
+	_, err := NewTESClient("10.0.0.1", 433, "vsphere.local", "admin", "admin", []byte{}, true, "https", logger.Log)
 	assert.Equal(t, err, nil)
 }
 

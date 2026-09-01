@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -51,6 +52,8 @@ type Endpoint struct {
 	caFile        string
 	Thumbprint    string
 	envoyUrl      string
+	logger        logger.CustomLogger
+	wg            sync.WaitGroup
 	sync.RWMutex
 	provider
 }
@@ -78,7 +81,7 @@ const (
 )
 
 // NewEndpoint creates an endpoint.
-func NewEndpoint(url string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter, tokenProvider auth.TokenProvider) (*Endpoint, error) {
+func NewEndpoint(url string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter, tokenProvider auth.TokenProvider, log logger.CustomLogger) (*Endpoint, error) {
 	host, scheme, err := parseURL(url)
 	if err != nil {
 		return &Endpoint{}, err
@@ -86,7 +89,7 @@ func NewEndpoint(url string, client *http.Client, noBClient *http.Client, r rate
 	addr := new(address)
 	addr.host = host
 	addr.scheme = scheme
-	ep := Endpoint{client: client, noBalancerClient: noBClient, keepaliveperiod: ratelimiter.KeepAlivePeriod, ratelimiter: r, status: DOWN, tokenProvider: tokenProvider}
+	ep := Endpoint{client: client, noBalancerClient: noBClient, keepaliveperiod: ratelimiter.KeepAlivePeriod, ratelimiter: r, status: DOWN, tokenProvider: tokenProvider, logger: log}
 	ep.provider = addr
 	ep.stop = make(chan bool)
 	ep.lockWait = 120 * time.Second
@@ -100,7 +103,6 @@ func parseURL(u string) (string, string, error) {
 	}
 	ur, err := url.Parse(u)
 	if err != nil {
-		log.Error(err, "Failed to parse invalid endpoint url", "url", u)
 		return "", "", err
 	}
 	return ur.Host, ur.Scheme, nil
@@ -125,6 +127,7 @@ func (ep *Endpoint) SetEnvoyUrl(url string) {
 func (ep *Endpoint) keepAlive() error {
 	var req *http.Request
 	var err error
+	log := ep.logger.Fallback()
 	ep.Lock()
 	envoyUrl := ep.envoyUrl
 	ep.Unlock()
@@ -133,7 +136,6 @@ func (ep *Endpoint) keepAlive() error {
 	} else {
 		req, err = http.NewRequest("GET", fmt.Sprintf(healthURL, ep.Scheme(), ep.Host()), nil)
 	}
-	log.Trace("Keep alive request", "url", req.URL.String())
 	if err != nil {
 		log.Error(err, "Failed to create keep alive request")
 		return err
@@ -152,13 +154,13 @@ func (ep *Endpoint) keepAlive() error {
 		return err
 	}
 	var a epHealthy
-	err, body := util.HandleHTTPResponse(resp, &a, true)
+	err, body := util.HandleHTTPResponse(resp, &a, true, log)
 	if err == nil && a.Healthy {
 		ep.setStatus(UP)
 		return nil
 	}
 	log.Trace("keepAlive", "body", body)
-	err = util.InitErrorFromResponse(ep.Host(), resp.StatusCode, body)
+	err = util.InitErrorFromResponse(ep.Host(), resp.StatusCode, body, log)
 	if util.ShouldRegenerate(err) {
 		log.Error(err, "Failed to validate API cluster due to an exception that calls for regeneration", "endpoint", ep.Host())
 		// TODO, should we regenerate the token here ?
@@ -178,22 +180,23 @@ func (ep *Endpoint) keepAlive() error {
 func (ep *Endpoint) nextInterval() int {
 	t := time.Now()
 	ep.Lock()
-	i := t.Sub(ep.lastAliveTime)
+	elapsed := int(t.Sub(ep.lastAliveTime) / time.Second)
 	ep.Unlock()
-	if int(i) > ep.keepaliveperiod {
+	if elapsed >= ep.keepaliveperiod {
 		return ep.keepaliveperiod
 	}
-	return ep.keepaliveperiod - int(i)
+	return ep.keepaliveperiod - elapsed
 }
 
 // KeepAlive maintains a heart beat for each endpoint.
 func (ep *Endpoint) KeepAlive() {
+	defer ep.wg.Done()
 	for {
 		ep.keepAlive()
 		inter := ep.nextInterval()
 		select {
 		case <-ep.stop:
-			log.Info("KeepAlive stopped by cluster")
+			ep.logger.Fallback().Info("KeepAlive stopped by cluster")
 			return
 		case <-time.After(time.Second * time.Duration(inter)):
 		}
@@ -201,6 +204,7 @@ func (ep *Endpoint) KeepAlive() {
 }
 
 func (ep *Endpoint) setup() {
+	log := ep.logger.Fallback()
 	log.Trace("Begin to setup endpoint")
 	err := ep.keepAlive()
 	if err != nil {
@@ -213,7 +217,7 @@ func (ep *Endpoint) setup() {
 func (ep *Endpoint) setStatus(s EndpointStatus) {
 	ep.Lock()
 	if ep.status != s {
-		log.Info("Endpoint status is changing", "endpoint", ep.Host(), "oldStatus", ep.status, "newStatus", s)
+		ep.logger.Fallback().Info("Endpoint status is changing", "endpoint", ep.Host(), "oldStatus", ep.status, "newStatus", s)
 		ep.status = s
 	}
 	ep.Unlock()
@@ -274,6 +278,7 @@ func (ep *Endpoint) ConnNumber() int {
 }
 
 func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, tokenProvider auth.TokenProvider, username string, password string, jar *Jar) error {
+	log := ep.logger.Fallback()
 	if certProvider != nil {
 		log.Trace("Skipping session creation with client certificate auth")
 		return nil
@@ -339,6 +344,7 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 }
 
 func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
+	log := ep.logger.Fallback()
 	// retry if GetToken failed, wait for 120s to avoid user lock
 	// try 10 times
 	if ep.tokenProvider != nil {
@@ -350,7 +356,7 @@ func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 				return err
 			}, retry.RetryIf(func(err error) bool {
 				return err != nil
-			}), retry.LastErrorOnly(true), retry.Delay(ep.lockWait), retry.MaxDelay(ep.lockWait),
+			}), retry.LastErrorOnly(true), retry.Attempts(3), retry.Delay(ep.lockWait), retry.MaxDelay(ep.lockWait),
 		)
 		if err != nil {
 			log.Error(err, "Failed to retrieve JSON Web Token")

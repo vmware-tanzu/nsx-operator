@@ -8,16 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
@@ -119,7 +116,7 @@ func TestCreateAuthSession(t *testing.T) {
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)
-	ep, err := NewEndpoint("10.0.0.1", client, noBClient, rl, nil)
+	ep, err := NewEndpoint("10.0.0.1", client, noBClient, rl, nil, cluster.getLogger())
 	assert.Nil(err, fmt.Sprintf("Endpoint create failed due to %v", err))
 
 	certProvider := createNcpPovider()
@@ -158,6 +155,16 @@ func TestCreateAuthSession(t *testing.T) {
 
 }
 
+type mockFailingTokenProvider struct{}
+
+func (m *mockFailingTokenProvider) GetToken(refreshToken bool) (string, error) {
+	return "", errors.New("The account of the user trying to authenticate is locked. :: User account locked")
+}
+
+func (m *mockFailingTokenProvider) HeaderValue(token string) string {
+	return ""
+}
+
 func TestKeepAlive(t *testing.T) {
 	assert := assert.New(t)
 	//mock http server
@@ -176,7 +183,7 @@ func TestKeepAlive(t *testing.T) {
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)
-	ep, err := NewEndpoint(ts.URL[len("http://"):], client, noBClient, rl, nil)
+	ep, err := NewEndpoint(ts.URL[len("http://"):], client, noBClient, rl, nil, cluster.getLogger())
 
 	assert.Nil(err, fmt.Sprintf("Endpoint create failed due to %v", err))
 	ep.setStatus(UP)
@@ -204,17 +211,26 @@ func TestKeepAlive(t *testing.T) {
 		time.Sleep(2 * time.Second)
 		close(ep.stop)
 	}()
+	ep.wg.Add(1)
 	ep.KeepAlive()
 	waitTime := time.Since(start)
 	assert.True(waitTime/time.Second <= 2, "keepalive should stop within 2 seconds")
 
 	// ep.KeepAlive will break after 10 times retry
-	ep.tokenProvider = &jwt.JWTTokenProvider{}
+	ep.tokenProvider = &mockFailingTokenProvider{}
 	ep.lockWait = time.Millisecond * 300
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(ep.tokenProvider), "GetToken", func(_ *jwt.JWTTokenProvider, refreshToken bool) (string, error) {
-		return "", errors.New("The account of the user trying to authenticate is locked. :: User account locked")
-	})
-	defer patch.Reset()
+	ep.wg.Add(1)
 	ep.KeepAlive()
 	assert.Equal(ep.Status(), DOWN)
+}
+
+func TestNextInterval(t *testing.T) {
+	ep := &Endpoint{keepaliveperiod: 33}
+	assert.Equal(t, 33, ep.nextInterval())
+
+	ep.setAliveTime(time.Now().Add(-10 * time.Second))
+	assert.Equal(t, 23, ep.nextInterval())
+
+	ep.setAliveTime(time.Now().Add(-40 * time.Second))
+	assert.Equal(t, 33, ep.nextInterval())
 }
