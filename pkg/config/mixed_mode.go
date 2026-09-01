@@ -53,11 +53,15 @@ func hasT1ActivationAnnotation(annotations map[string]string) bool {
 // resolveNamespaceProvider determines whether a namespace belongs to T1 and/or VPC
 // provider based on its annotations. If both VPC and T1 annotations are present on
 // the same namespace, this is an illegal state; it logs an error and returns (false, false).
-func resolveNamespaceProvider(annotations map[string]string) (isT1 bool, isVPC bool) {
+func resolveNamespaceProvider(nsName string, annotations map[string]string) (isT1 bool, isVPC bool) {
 	hasVPC := strings.TrimSpace(annotations[VPCNetworkConfigAnnotation]) != ""
 	hasT1 := hasT1ActivationAnnotation(annotations)
 	if hasVPC && hasT1 {
-		log.Error(nil, "Conflicting network provider annotations (both T1 and VPC are present); namespace will be ignored")
+		if nsName != "" {
+			log.Error(nil, "Conflicting network provider annotations (both T1 and VPC are present); namespace will be ignored", "namespace", nsName)
+		} else {
+			log.Error(nil, "Conflicting network provider annotations (both T1 and VPC are present); namespace will be ignored")
+		}
 		return false, false
 	}
 	return hasT1, hasVPC
@@ -162,7 +166,7 @@ func scanNamespaceProvidersFromAPI(ctx context.Context, clientset kubernetes.Int
 		list, err := clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 		if err == nil {
 			for _, item := range list.Items {
-				isT1, isVPC := resolveNamespaceProvider(item.GetAnnotations())
+				isT1, isVPC := resolveNamespaceProvider(item.Name, item.GetAnnotations())
 				if isT1 {
 					hasT1 = true
 				}
@@ -204,7 +208,7 @@ func scanNamespaceProvidersFromCache(ctx context.Context, reader client.Reader) 
 		return false, false, err
 	}
 	for _, item := range nsList.Items {
-		isT1, isVPC := resolveNamespaceProvider(item.GetAnnotations())
+		isT1, isVPC := resolveNamespaceProvider(item.Name, item.GetAnnotations())
 		if isT1 {
 			hasT1 = true
 		}
@@ -455,7 +459,7 @@ func IsVPCNamespace(ns *v1.Namespace) bool {
 		return false
 	}
 	if IsPerNamespaceProvidersSupported() {
-		_, isVPC := resolveNamespaceProvider(ns.Annotations)
+		_, isVPC := resolveNamespaceProvider(ns.Name, ns.Annotations)
 		return isVPC
 	}
 	return HasVPCNamespaces()
@@ -471,7 +475,7 @@ func IsT1Namespace(ns *v1.Namespace) bool {
 		return false
 	}
 	if IsPerNamespaceProvidersSupported() {
-		isT1, _ := resolveNamespaceProvider(ns.Annotations)
+		isT1, _ := resolveNamespaceProvider(ns.Name, ns.Annotations)
 		return isT1
 	}
 	return HasT1Namespaces()
