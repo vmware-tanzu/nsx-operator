@@ -391,16 +391,12 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
 		}
 		dhcpMode := getEffectiveDHCPMode(crdSubnet)
-		if util.IPAddressTypeIncludesIPv4(expectedIPAddressType) {
-			if dhcpMode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
-				return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
-			}
+		if dhcpMode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
+			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		dhcpv6Mode := getEffectiveDHCPv6Mode(crdSubnet)
-		if util.IPAddressTypeIncludesIPv6(expectedIPAddressType) {
-			if dhcpv6Mode == v1alpha1.DHCPv6ConfigModeRelay || crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless) {
-				return true, fmt.Errorf("DHCPRelay or DHCPServerStateless Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
-			}
+		if dhcpv6Mode == v1alpha1.DHCPv6ConfigModeRelay || crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless) {
+			return true, fmt.Errorf("DHCPRelay or DHCPServerStateless Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		if subnetSetIPAddressType != "" {
 			if !controllercommon.IsSupersetIPAddressTypes(crdSubnet.Spec.IPAddressType, subnetSetIPAddressType) {

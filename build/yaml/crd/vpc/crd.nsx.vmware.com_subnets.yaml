@@ -275,7 +275,7 @@ spec:
                 && size(self.advancedConfig.dhcpServerAddresses)>0) || (has(self.subnetDHCPConfig)
                 && has(self.subnetDHCPConfig.mode) && self.subnetDHCPConfig.mode==''DHCPServer'')
                 || (has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.mode)
-                && self.subnetDHCPv6Config.mode==''DHCPServer'')'
+                && (self.subnetDHCPv6Config.mode==''DHCPServer'' || self.subnetDHCPv6Config.mode==''DHCPServerStateless''))'
             - message: ipAddresses is required to configure subnet reserved ip ranges.
               rule: '!has(self.ipAddresses) && !(has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig)
                 && has(self.subnetDHCPConfig.dhcpServerAdditionalConfig.reservedIPRanges))
