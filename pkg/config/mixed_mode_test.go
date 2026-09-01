@@ -704,6 +704,41 @@ func TestGettersAndSetMixedModeStateForTest(t *testing.T) {
 	})
 }
 
+func TestResolveNamespaceProvider_Dedup(t *testing.T) {
+	resetMixedModeState()
+	dualAnno := map[string]string{
+		VPCNetworkConfigAnnotation: "system",
+		T1DefaultConfigAnnotation:  "true",
+	}
+
+	isT1, isVPC := resolveNamespaceProvider("test-ns", dualAnno)
+	assert.False(t, isT1)
+	assert.False(t, isVPC)
+
+	conflictLogMu.Lock()
+	_, logged := loggedConflictNamespaces["test-ns"]
+	conflictLogMu.Unlock()
+	assert.True(t, logged)
+
+	// Second call with conflict should remain in logged set and return false, false
+	isT1, isVPC = resolveNamespaceProvider("test-ns", dualAnno)
+	assert.False(t, isT1)
+	assert.False(t, isVPC)
+
+	// Valid annotation should clear the namespace from logged set
+	validVpcAnno := map[string]string{
+		VPCNetworkConfigAnnotation: "system",
+	}
+	isT1, isVPC = resolveNamespaceProvider("test-ns", validVpcAnno)
+	assert.False(t, isT1)
+	assert.True(t, isVPC)
+
+	conflictLogMu.Lock()
+	_, loggedAfter := loggedConflictNamespaces["test-ns"]
+	conflictLogMu.Unlock()
+	assert.False(t, loggedAfter)
+}
+
 func resetMixedModeState() {
 	stateMu.Lock()
 	defer stateMu.Unlock()
@@ -711,6 +746,9 @@ func resetMixedModeState() {
 	hasVPCNamespaces = false
 	stateInitialized = false
 	perNamespaceProvidersSupported = nil
+	conflictLogMu.Lock()
+	loggedConflictNamespaces = make(map[string]struct{})
+	conflictLogMu.Unlock()
 }
 
 func makeNamespace(name, vpcAnnotation string) *v1.Namespace {

@@ -50,6 +50,11 @@ func hasT1ActivationAnnotation(annotations map[string]string) bool {
 	return false
 }
 
+var (
+	conflictLogMu            sync.Mutex
+	loggedConflictNamespaces = make(map[string]struct{})
+)
+
 // resolveNamespaceProvider determines whether a namespace belongs to T1 and/or VPC
 // provider based on its annotations. If both VPC and T1 annotations are present on
 // the same namespace, this is an illegal state; it logs an error and returns (false, false).
@@ -58,11 +63,26 @@ func resolveNamespaceProvider(nsName string, annotations map[string]string) (isT
 	hasT1 := hasT1ActivationAnnotation(annotations)
 	if hasVPC && hasT1 {
 		if nsName != "" {
-			log.Error(nil, "Conflicting network provider annotations (both T1 and VPC are present); namespace will be ignored", "namespace", nsName)
+			var shouldLog bool
+			conflictLogMu.Lock()
+			if _, alreadyLogged := loggedConflictNamespaces[nsName]; !alreadyLogged {
+				loggedConflictNamespaces[nsName] = struct{}{}
+				shouldLog = true
+			}
+			conflictLogMu.Unlock()
+
+			if shouldLog {
+				log.Error(nil, "Conflicting network provider annotations (both T1 and VPC are present); namespace will be ignored", "namespace", nsName)
+			}
 		} else {
 			log.Error(nil, "Conflicting network provider annotations (both T1 and VPC are present); namespace will be ignored")
 		}
 		return false, false
+	}
+	if nsName != "" {
+		conflictLogMu.Lock()
+		delete(loggedConflictNamespaces, nsName)
+		conflictLogMu.Unlock()
 	}
 	return hasT1, hasVPC
 }
