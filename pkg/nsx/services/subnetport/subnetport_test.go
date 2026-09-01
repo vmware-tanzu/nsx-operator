@@ -52,7 +52,9 @@ func (c *fakeQueryClient) List(queryParam string, cursorParam *string, includedF
 	return model.SearchResponse{}, nil
 }
 
-type fakePortClient struct{}
+type fakePortClient struct {
+	deleteFn func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string) error
+}
 
 func (c *fakePortClient) Patch(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, vpcSubnetPortParam model.VpcSubnetPort) error {
 	return nil
@@ -70,6 +72,9 @@ func (c *fakePortClient) Get(orgIdParam string, projectIdParam string, vpcIdPara
 	}, nil
 }
 func (c *fakePortClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string) error {
+	if c.deleteFn != nil {
+		return c.deleteFn(orgIdParam, projectIdParam, vpcIdParam, subnetIdParam, portIdParam)
+	}
 	return nil
 }
 
@@ -1038,6 +1043,48 @@ func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 	// Should return empty list
 	subnetPorts = subnetPortService.ListSubnetPortByName("ns-1", "non-existent")
 	assert.Equal(t, 0, len(subnetPorts))
+
+	// Test 4: ListVMSubnetPortByName should only return VM SubnetPort
+	vmPorts := subnetPortService.ListVMSubnetPortByName("ns-1", "subnetport-1")
+	assert.Equal(t, 1, len(vmPorts))
+	assert.Equal(t, vmSubnetPort1, vmPorts[0])
+
+	// Test 5: A regular Pod sharing the same name in the namespace should NOT match ListSubnetPortByName or ListVMSubnetPortByName
+	regularPodPortId := "regular-pod-subnetport-1"
+	regularPodPortPath := "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1/ports/regular-pod-subnetport-1"
+	regularPodPort := &model.VpcSubnetPort{
+		Id:         &regularPodPortId,
+		Path:       &regularPodPortPath,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeNamespace),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopePodName),
+				Tag:   common.String("subnetport-1"),
+			},
+		},
+	}
+	subnetPortService.SubnetPortStore.Add(regularPodPort)
+
+	// ListVMSubnetPortByName must still only return the VM port
+	vmPortsAfterPodAdd := subnetPortService.ListVMSubnetPortByName("ns-1", "subnetport-1")
+	assert.Equal(t, 1, len(vmPortsAfterPodAdd))
+	assert.Equal(t, vmSubnetPort1, vmPortsAfterPodAdd[0])
+
+	// ListSubnetPortByName must only return the VM port and CR-based Pod port, NOT the regular Pod
+	allPorts := subnetPortService.ListSubnetPortByName("ns-1", "subnetport-1")
+	assert.Equal(t, 2, len(allPorts))
+	for _, port := range allPorts {
+		assert.NotEqual(t, regularPodPortId, *port.Id)
+	}
+
+	// Regular pod is retrieved by ListSubnetPortByPodName
+	podPorts := subnetPortService.ListSubnetPortByPodName("ns-1", "subnetport-1")
+	assert.Equal(t, 1, len(podPorts))
+	assert.Equal(t, regularPodPortId, *podPorts[0].Id)
 }
 
 func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
@@ -2679,6 +2726,406 @@ func TestSubnetPortService_CheckSubnetPortState_IPPoolExhausted(t *testing.T) {
 	assert.False(t, info.exhaustedCheckTime.IsZero())
 }
 
+func TestSubnetPortService_CheckSubnetPortState_ReusePortDoesNotCleanup(t *testing.T) {
+	fakeEntitiesClient := &fakeRealizedEntitiesClient{}
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 500000)
+	}
+
+	deleteCalled := false
+	fakePort := &fakePortClient{
+		deleteFn: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string) error {
+			deleteCalled = true
+			return nil
+		},
+	}
+
+	nsxClient := &nsx.Client{
+		RealizedEntitiesClient: fakeEntitiesClient,
+		PortClient:             fakePort,
+		NsxConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+			K8sConfig: &config.K8sConfig{
+				SupportReusePort: true,
+			},
+		},
+	}
+
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+				K8sConfig: &config.K8sConfig{
+					SupportReusePort: true,
+				},
+			},
+		},
+	}
+
+	service.SubnetPortStore = &SubnetPortStore{
+		ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+				common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
+				common.TagScopeOriginCRUID:     subnetPortIndexByOriginCRUID,
+				common.TagScopePodUID:          subnetPortIndexByPodUID,
+			}),
+			BindingType: model.VpcSubnetPortBindingType(),
+		},
+	}
+
+	uid := "reused-uid"
+	portID := "test-port-id"
+	nsxSubnetPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	portPath := nsxSubnetPath + "/ports/test-port-id"
+	nsxSubnetPort := &model.VpcSubnetPort{
+		Id:   &portID,
+		Path: &portPath,
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: &uid},
+			{Scope: common.String(common.TagScopeOriginCRUID), Tag: common.String("pre-migration-uid")},
+		},
+	}
+	service.SubnetPortStore.Add(nsxSubnetPort)
+
+	originalRetry := util.NSXTRealizeRetry
+	util.NSXTRealizeRetry = wait.Backoff{
+		Steps:    1,
+		Duration: 10 * time.Millisecond,
+	}
+	defer func() { util.NSXTRealizeRetry = originalRetry }()
+
+	// SubnetPort CR with reuse-port annotation and LabelCPVM: true
+	subnetPortCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(uid),
+			Labels: map[string]string{
+				common.LabelCPVM: "true",
+			},
+			Annotations: map[string]string{
+				common.AnnotationReusePort: "kube-system/old-vm",
+			},
+		},
+	}
+
+	service.SubnetPortStore.PortCountInfo.Store(nsxSubnetPath, &CountInfo{})
+
+	// When cleanupOnError is omitted, cpVM SubnetPort with reuse-port must NOT trigger deletion
+	_, err := service.CheckSubnetPortState(subnetPortCR, nsxSubnetPath)
+	assert.Error(t, err)
+	assert.False(t, deleteCalled, "Port should not be deleted for reused cpVM port on realization error")
+
+	// Rollback-reclaimed cpVM port: NO reuse-port annotation, but port in store has origin_cr_uid
+	deleteCalled = false
+	originUID := "origin-cr-uid"
+	reclaimedPortID := "reclaimed-port-id"
+	reclaimedPortPath := nsxSubnetPath + "/ports/reclaimed-port-id"
+	reclaimedPort := &model.VpcSubnetPort{
+		Id:   &reclaimedPortID,
+		Path: &reclaimedPortPath,
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: &originUID},
+			{Scope: common.String(common.TagScopeOriginCRUID), Tag: common.String("pre-upgrade-uid")},
+		},
+	}
+	service.SubnetPortStore.Add(reclaimedPort)
+	reclaimedCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(originUID),
+			Labels: map[string]string{
+				common.LabelCPVM: "true",
+			},
+		},
+	}
+	_, err = service.CheckSubnetPortState(reclaimedCR, nsxSubnetPath)
+	assert.Error(t, err)
+	assert.False(t, deleteCalled, "Port should not be deleted for reclaimed cpVM port with origin_cr_uid on realization error")
+
+	// Standard SubnetPort without reuse annotation SHOULD trigger cleanup
+	deleteCalled = false
+	normalCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(uid),
+		},
+	}
+	_, err = service.CheckSubnetPortState(normalCR, nsxSubnetPath)
+	assert.Error(t, err)
+	assert.True(t, deleteCalled, "Port should be deleted for normal port on realization error")
+
+	// When reuse is disabled, a fresh port with AnnotationReusePort SHOULD trigger cleanup on realization error
+	deleteCalled = false
+	service.NSXConfig.K8sConfig.SupportReusePort = false
+	freshUID := "fresh-disabled-uid"
+	freshPortID := "fresh-port-id"
+	freshPortPath := nsxSubnetPath + "/ports/fresh-port-id"
+	freshSubnetPort := &model.VpcSubnetPort{
+		Id:   &freshPortID,
+		Path: &freshPortPath,
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: &freshUID},
+		},
+	}
+	service.SubnetPortStore.Add(freshSubnetPort)
+	freshCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(freshUID),
+			Labels: map[string]string{
+				common.LabelCPVM: "true",
+			},
+			Annotations: map[string]string{
+				common.AnnotationReusePort: "kube-system/old-vm",
+			},
+		},
+	}
+	_, err = service.CheckSubnetPortState(freshCR, nsxSubnetPath)
+	assert.Error(t, err)
+	assert.True(t, deleteCalled, "Port should be deleted on realization error when reuse is disabled even if AnnotationReusePort exists")
+}
+
+func TestSubnetPortService_CreateOrUpdateSubnetPort_PreservesOriginCRUID(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	fakeEntitiesClient := &fakeRealizedEntitiesClient{}
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 500000)
+	}
+
+	deleteCalled := false
+	fakePort := &fakePortClient{
+		deleteFn: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string) error {
+			deleteCalled = true
+			return nil
+		},
+	}
+
+	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				RealizedEntitiesClient: fakeEntitiesClient,
+				PortClient:             fakePort,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+					K8sConfig: &config.K8sConfig{
+						SupportReusePort: true,
+					},
+				},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+				K8sConfig: &config.K8sConfig{
+					SupportReusePort: true,
+				},
+			},
+		},
+		SubnetPortStore: setupStore(),
+		builder:         builder,
+	}
+
+	nsxSubnetPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	nsxSubnet := &model.VpcSubnet{
+		Path: &nsxSubnetPath,
+	}
+
+	uid := "11111111-2222-3333-4444-555555555555"
+	portID := "reclaimed-port-id"
+	portDisplayName := "reclaimed-port"
+	portPath := nsxSubnetPath + "/ports/" + portID
+	preUpgradeUID := "00000000-1111-2222-3333-444444444444"
+	existingPort := &model.VpcSubnetPort{
+		Id:          &portID,
+		DisplayName: &portDisplayName,
+		Path:        &portPath,
+		ParentPath:  &nsxSubnetPath,
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: &uid},
+			{Scope: common.String(common.TagScopeOriginCRUID), Tag: &preUpgradeUID},
+		},
+	}
+	err := service.SubnetPortStore.Add(existingPort)
+	assert.NoError(t, err)
+
+	cr := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vm-44",
+			Namespace: "kube-system",
+			UID:       types.UID(uid),
+			Labels: map[string]string{
+				common.LabelCPVM: "true",
+			},
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			InterfaceIPType: v1alpha1.IPAddressTypeIPv4,
+		},
+	}
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-system",
+			UID:  "ns-uid",
+		},
+	}
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&corev1.Namespace{})).DoAndReturn(
+		func(_ context.Context, _ types.NamespacedName, obj *corev1.Namespace, _ ...client.GetOption) error {
+			ns.DeepCopyInto(obj)
+			return nil
+		}).AnyTimes()
+
+	originalRetry := util.NSXTRealizeRetry
+	util.NSXTRealizeRetry = wait.Backoff{
+		Steps:    1,
+		Duration: 10 * time.Millisecond,
+	}
+	defer func() { util.NSXTRealizeRetry = originalRetry }()
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return false
+	})
+	defer patches.Reset()
+
+	_, err = service.CreateOrUpdateSubnetPort(cr, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Error(t, err)
+	assert.True(t, nsxutil.IsRealizeStateError(err), "Error should be a realization error: %v", err)
+	assert.False(t, deleteCalled, "Port should not be deleted on realization failure when updated with origin_cr_uid")
+
+	updatedPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(types.UID(uid))
+	assert.NoError(t, err)
+	assert.NotNil(t, updatedPort)
+	originTag := nsxutil.FindTag(updatedPort.Tags, common.TagScopeOriginCRUID)
+	assert.Equal(t, preUpgradeUID, originTag, "TagScopeOriginCRUID should be preserved on CreateOrUpdateSubnetPort")
+}
+
+func TestSubnetPortService_CreateOrUpdateSubnetPort_PreservesOriginCRUID_WhenFlagDisabled(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	fakeEntitiesClient := &fakeRealizedEntitiesClient{}
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 500000)
+	}
+
+	deleteCalled := false
+	fakePort := &fakePortClient{
+		deleteFn: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string) error {
+			deleteCalled = true
+			return nil
+		},
+	}
+
+	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				RealizedEntitiesClient: fakeEntitiesClient,
+				PortClient:             fakePort,
+				NsxConfig: &config.NSXOperatorConfig{
+					CoeConfig: &config.CoeConfig{
+						Cluster: "k8scl-one:test",
+					},
+					K8sConfig: &config.K8sConfig{
+						SupportReusePort: false,
+					},
+				},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+				K8sConfig: &config.K8sConfig{
+					SupportReusePort: false,
+				},
+			},
+		},
+		SubnetPortStore: setupStore(),
+		builder:         builder,
+	}
+
+	nsxSubnetPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	nsxSubnet := &model.VpcSubnet{
+		Path: &nsxSubnetPath,
+	}
+
+	uid := "11111111-2222-3333-4444-555555555555"
+	portID := "reclaimed-port-id"
+	portDisplayName := "reclaimed-port"
+	portPath := nsxSubnetPath + "/ports/" + portID
+	preUpgradeUID := "00000000-1111-2222-3333-444444444444"
+	existingPort := &model.VpcSubnetPort{
+		Id:          &portID,
+		DisplayName: &portDisplayName,
+		Path:        &portPath,
+		ParentPath:  &nsxSubnetPath,
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: &uid},
+			{Scope: common.String(common.TagScopeOriginCRUID), Tag: &preUpgradeUID},
+		},
+	}
+	err := service.SubnetPortStore.Add(existingPort)
+	assert.NoError(t, err)
+
+	cr := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vm-44",
+			Namespace: "kube-system",
+			UID:       types.UID(uid),
+			Labels: map[string]string{
+				common.LabelCPVM: "true",
+			},
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			InterfaceIPType: v1alpha1.IPAddressTypeIPv4,
+		},
+	}
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-system",
+			UID:  "ns-uid",
+		},
+	}
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&corev1.Namespace{})).DoAndReturn(
+		func(_ context.Context, _ types.NamespacedName, obj *corev1.Namespace, _ ...client.GetOption) error {
+			ns.DeepCopyInto(obj)
+			return nil
+		}).AnyTimes()
+
+	originalRetry := util.NSXTRealizeRetry
+	util.NSXTRealizeRetry = wait.Backoff{
+		Steps:    1,
+		Duration: 10 * time.Millisecond,
+	}
+	defer func() { util.NSXTRealizeRetry = originalRetry }()
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return false
+	})
+	defer patches.Reset()
+
+	_, err = service.CreateOrUpdateSubnetPort(cr, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+	assert.Error(t, err)
+	assert.True(t, nsxutil.IsRealizeStateError(err), "Error should be a realization error: %v", err)
+	assert.False(t, deleteCalled, "Port must NOT be deleted on realization failure even when support_reuse_port is false")
+
+	updatedPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(types.UID(uid))
+	assert.NoError(t, err)
+	assert.NotNil(t, updatedPort)
+	originTag := nsxutil.FindTag(updatedPort.Tags, common.TagScopeOriginCRUID)
+	assert.Equal(t, preUpgradeUID, originTag, "TagScopeOriginCRUID must be preserved even when support_reuse_port is false")
+}
+
 func TestGetDefaultInterfaceIPType(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -2845,4 +3292,492 @@ func TestSubnetPortService_CheckSubnetPortState_IPAllocationInRelatedCodes(t *te
 	assert.True(t, ok)
 	info := infoObj.(*CountInfo)
 	assert.False(t, info.exhaustedCheckTime.IsZero())
+}
+
+func TestSubnetPortService_GetSubnetPortByAttachmentID(t *testing.T) {
+	portID := "port-1"
+	attachmentID := "attachment-1"
+	parentPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	port := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Attachment: &model.PortAttachment{
+			Id: &attachmentID,
+		},
+	}
+
+	service := &SubnetPortService{}
+	// Nil store
+	assert.Nil(t, service.GetSubnetPortByAttachmentID("attachment-1"))
+	// Empty attachment ID
+	assert.Nil(t, service.GetSubnetPortByAttachmentID(""))
+
+	// Store with indexer
+	service.SubnetPortStore = setupStore()
+	err := service.SubnetPortStore.Add(port)
+	assert.NoError(t, err)
+
+	// Found via indexer
+	found := service.GetSubnetPortByAttachmentID(attachmentID)
+	assert.NotNil(t, found)
+	assert.Equal(t, portID, *found.Id)
+
+	// Found via store method
+	foundStore := service.SubnetPortStore.GetVpcSubnetPortByAttachmentID(attachmentID)
+	assert.NotNil(t, foundStore)
+	assert.Equal(t, portID, *foundStore.Id)
+
+	// Not found
+	assert.Nil(t, service.GetSubnetPortByAttachmentID("non-existent"))
+	assert.Nil(t, service.SubnetPortStore.GetVpcSubnetPortByAttachmentID("non-existent"))
+
+	// When Indexer is nil
+	noIndexStore := &SubnetPortStore{}
+	service.SubnetPortStore = noIndexStore
+	assert.Nil(t, service.GetSubnetPortByAttachmentID(attachmentID))
+	assert.Nil(t, service.SubnetPortStore.GetVpcSubnetPortByAttachmentID(attachmentID))
+
+	// Test subnetPortIndexByAttachmentID
+	keys, err := subnetPortIndexByAttachmentID(port)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{attachmentID}, keys)
+
+	emptyPort := &model.VpcSubnetPort{}
+	keys, err = subnetPortIndexByAttachmentID(emptyPort)
+	assert.NoError(t, err)
+	assert.Empty(t, keys)
+
+	emptyIDPort := &model.VpcSubnetPort{Attachment: &model.PortAttachment{Id: common.String("")}}
+	keys, err = subnetPortIndexByAttachmentID(emptyIDPort)
+	assert.NoError(t, err)
+	assert.Empty(t, keys)
+
+	_, err = subnetPortIndexByAttachmentID("invalid-type")
+	assert.Error(t, err)
+}
+
+func TestSubnetPortService_buildReusedSubnetPort(t *testing.T) {
+	k8sClient := fake.NewClientBuilder().WithObjects(&corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "new-namespace",
+			UID:  "new-namespace",
+		},
+	}).Build()
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+	}
+
+	subnetPort := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "new-port-name",
+			Namespace: "new-namespace",
+			UID:       "new-uid-1234",
+		},
+	}
+
+	portID := "existing-port-id"
+	parentPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	portPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1/ports/existing-port-id"
+	oldDisplayName := "old-port-name"
+	attachmentID := "attach-1"
+	existingPort := &model.VpcSubnetPort{
+		Id:          &portID,
+		Path:        &portPath,
+		ParentPath:  &parentPath,
+		DisplayName: &oldDisplayName,
+		Attachment: &model.PortAttachment{
+			Id: &attachmentID,
+		},
+		AddressBindings: []model.PortAddressBindingEntry{
+			{
+				IpAddress: common.String("10.0.0.5"),
+			},
+		},
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRUID),
+				Tag:   common.String("old-uid"),
+			},
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRName),
+				Tag:   common.String("old-name"),
+			},
+			{
+				Scope: common.String(common.TagScopeNamespace),
+				Tag:   common.String("old-pod-ns"),
+			},
+			{
+				Scope: common.String(common.TagScopeNamespaceUID),
+				Tag:   common.String("old-pod-ns-uid"),
+			},
+			{
+				Scope: common.String(common.TagScopeVMNamespace),
+				Tag:   common.String("old-vm-ns"),
+			},
+			{
+				Scope: common.String(common.TagScopeVMNamespaceUID),
+				Tag:   common.String("old-vm-ns-uid"),
+			},
+		},
+	}
+
+	nsxSubnet := &model.VpcSubnet{
+		Path: &parentPath,
+	}
+
+	// Test nil port
+	_, err := service.buildReusedSubnetPort(subnetPort, nil, nsxSubnet)
+	assert.Error(t, err)
+
+	// Test nil port Id
+	_, err = service.buildReusedSubnetPort(subnetPort, &model.VpcSubnetPort{}, nsxSubnet)
+	assert.Error(t, err)
+
+	// Test valid port
+	reused, err := service.buildReusedSubnetPort(subnetPort, existingPort, nsxSubnet)
+	assert.NoError(t, err)
+	assert.Equal(t, "new-port-name", *reused.DisplayName)
+	assert.Equal(t, attachmentID, *reused.Attachment.Id)
+	assert.Equal(t, 1, len(reused.AddressBindings))
+	assert.Equal(t, "10.0.0.5", *reused.AddressBindings[0].IpAddress)
+
+	// Verify tags
+	tagMap := make(map[string]string)
+	for _, tag := range reused.Tags {
+		if tag.Scope != nil && tag.Tag != nil {
+			tagMap[*tag.Scope] = *tag.Tag
+		}
+	}
+	assert.Equal(t, "new-uid-1234", tagMap[common.TagScopeSubnetPortCRUID])
+	assert.Equal(t, "new-port-name", tagMap[common.TagScopeSubnetPortCRName])
+	assert.Equal(t, "new-namespace", tagMap[common.TagScopeVMNamespace])
+	assert.Equal(t, "new-namespace", tagMap[common.TagScopeVMNamespaceUID])
+	_, hasPodNs := tagMap[common.TagScopeNamespace]
+	assert.False(t, hasPodNs)
+
+	// Test cpVM port sets origin_cr_uid tag
+	cpvmSubnetPort := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "new-port-name",
+			Namespace: "new-namespace",
+			UID:       "new-uid-1234",
+			Labels: map[string]string{
+				common.LabelCPVM: "true",
+			},
+		},
+	}
+	reusedCPVM, err := service.buildReusedSubnetPort(cpvmSubnetPort, existingPort, nsxSubnet)
+	assert.NoError(t, err)
+	cpvmTagMap := make(map[string]string)
+	for _, tag := range reusedCPVM.Tags {
+		if tag.Scope != nil && tag.Tag != nil {
+			cpvmTagMap[*tag.Scope] = *tag.Tag
+		}
+	}
+	assert.Equal(t, "old-uid", cpvmTagMap[common.TagScopeOriginCRUID])
+}
+
+func TestSubnetPortService_ReuseSubnetPort(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	orgRootClient := mock_org_root.NewMockOrgRootClient(mockCtl)
+	k8sClient := fake.NewClientBuilder().WithObjects(&corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "new-namespace",
+			UID:  "new-namespace",
+		},
+	}).Build()
+	nsxClient := &nsx.Client{
+		PortClient:             &fakePortClient{},
+		RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+		PortStateClient:        &fakePortStateClient{},
+		OrgRootClient:          orgRootClient,
+		Cluster:                &nsx.Cluster{},
+		NsxConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	commonService := common.Service{
+		Client:    k8sClient,
+		NSXClient: nsxClient,
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	store := setupStore()
+	service := &SubnetPortService{
+		Service:         commonService,
+		SubnetPortStore: store,
+	}
+
+	portID := "port-1"
+	portPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1/ports/port-1"
+	parentPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	existingPort := &model.VpcSubnetPort{
+		Id:         &portID,
+		Path:       &portPath,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRUID),
+				Tag:   common.String("old-uid"),
+			},
+		},
+	}
+	err := store.Add(existingPort)
+	assert.NoError(t, err)
+
+	subnetPort := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "new-port-name",
+			Namespace: "new-namespace",
+			UID:       "new-uid-1234",
+		},
+	}
+	nsxSubnet := &model.VpcSubnet{
+		Path: &parentPath,
+	}
+
+	state, err := service.ReuseSubnetPort(subnetPort, existingPort, nsxSubnet)
+	assert.NoError(t, err)
+	assert.NotNil(t, state)
+
+	// Verify store was updated with new CR UID
+	found, err := store.GetVpcSubnetPortByUID("new-uid-1234")
+	assert.NoError(t, err)
+	assert.NotNil(t, found)
+	assert.Equal(t, portID, *found.Id)
+}
+
+func TestSubnetPortService_ReuseSubnetPort_RealizationErrorDoesNotDeletePort(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	orgRootClient := mock_org_root.NewMockOrgRootClient(mockCtl)
+	k8sClient := fake.NewClientBuilder().WithObjects(&corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "new-namespace",
+			UID:  "new-namespace",
+		},
+	}).Build()
+
+	fakeEntitiesClient := &fakeRealizedEntitiesClient{}
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", nsxutil.IPPoolExhaustedErrorCode)
+	}
+
+	deleteCalled := false
+	fakePort := &fakePortClient{
+		deleteFn: func(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string) error {
+			deleteCalled = true
+			return nil
+		},
+	}
+
+	nsxClient := &nsx.Client{
+		PortClient:             fakePort,
+		RealizedEntitiesClient: fakeEntitiesClient,
+		PortStateClient:        &fakePortStateClient{},
+		OrgRootClient:          orgRootClient,
+		Cluster:                &nsx.Cluster{},
+		NsxConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	commonService := common.Service{
+		Client:    k8sClient,
+		NSXClient: nsxClient,
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	store := setupStore()
+	service := &SubnetPortService{
+		Service:         commonService,
+		SubnetPortStore: store,
+	}
+
+	portID := "port-1"
+	portPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1/ports/port-1"
+	parentPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	existingPort := &model.VpcSubnetPort{
+		Id:         &portID,
+		Path:       &portPath,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRUID),
+				Tag:   common.String("old-uid"),
+			},
+		},
+	}
+	err := store.Add(existingPort)
+	assert.NoError(t, err)
+
+	subnetPort := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "new-port-name",
+			Namespace: "new-namespace",
+			UID:       "new-uid-1234",
+		},
+	}
+	nsxSubnet := &model.VpcSubnet{
+		Path: &parentPath,
+	}
+
+	originalRetry := util.NSXTRealizeRetry
+	util.NSXTRealizeRetry = wait.Backoff{
+		Steps:    1,
+		Duration: 10 * time.Millisecond,
+	}
+	defer func() { util.NSXTRealizeRetry = originalRetry }()
+
+	state, err := service.ReuseSubnetPort(subnetPort, existingPort, nsxSubnet)
+	assert.Error(t, err)
+	assert.Nil(t, state)
+	assert.False(t, deleteCalled, "DeleteSubnetPort should NOT be called when realization fails on reused port")
+
+	// Verify the port was NOT removed from store
+	found, err := store.GetVpcSubnetPortByUID("new-uid-1234")
+	assert.NoError(t, err)
+	assert.NotNil(t, found, "reused port should still exist in store after realization failure")
+	assert.Equal(t, portID, *found.Id)
+}
+
+func TestSubnetPortService_ListSubnetPortIDsFromSubnetPorts(t *testing.T) {
+	store := setupStore()
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				K8sConfig: &config.K8sConfig{
+					SupportReusePort: true,
+				},
+			},
+		},
+		SubnetPortStore: store,
+	}
+
+	portID1 := "port-1"
+	parentPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	port1 := &model.VpcSubnetPort{
+		Id:         &portID1,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRUID),
+				Tag:   common.String("uid-1"),
+			},
+		},
+	}
+	_ = store.Add(port1)
+
+	portID2 := "port-2"
+	port2 := &model.VpcSubnetPort{
+		Id:         &portID2,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeVMNamespace),
+				Tag:   common.String("old-ns"),
+			},
+			{
+				Scope: common.String(common.TagScopeSubnetPortCRName),
+				Tag:   common.String("old-port"),
+			},
+		},
+	}
+	_ = store.Add(port2)
+
+	portID3 := "port-origin"
+	originScope := common.TagScopeOriginCRUID
+	originUID := "uid-origin"
+	port3 := &model.VpcSubnetPort{
+		Id:         &portID3,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{
+				Scope: &originScope,
+				Tag:   &originUID,
+			},
+		},
+	}
+	_ = store.Add(port3)
+
+	subnetPorts := []v1alpha1.SubnetPort{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "sp-1",
+				UID:  "uid-1",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "sp-2",
+				UID:  "uid-2",
+				Labels: map[string]string{
+					common.LabelCPVM: "true",
+				},
+				Annotations: map[string]string{
+					common.AnnotationReusePort: "old-ns/old-port",
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "sp-3",
+				UID:  "uid-3",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "sp-origin",
+				UID:  "uid-origin",
+				Labels: map[string]string{
+					common.LabelCPVM: "true",
+				},
+			},
+		},
+	}
+
+	idSet := service.ListSubnetPortIDsFromSubnetPorts(subnetPorts)
+	assert.True(t, idSet.Has("port-1"))
+	assert.True(t, idSet.Has("port-2"))
+	assert.False(t, idSet.Has("port-3"))
+	assert.True(t, idSet.Has("port-origin"))
+
+	foundPort := service.GetSubnetPortByOriginUID("uid-origin")
+	assert.NotNil(t, foundPort)
+	assert.Equal(t, "port-origin", *foundPort.Id)
+
+	// When SupportReusePort is disabled, ports referenced by existing metadata or active cpVM CRs
+	// must still be preserved to avoid deleting live migrated/reclaimed ports during GC.
+	serviceDisabled := &SubnetPortService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{
+				K8sConfig: &config.K8sConfig{
+					SupportReusePort: false,
+				},
+			},
+		},
+		SubnetPortStore: store,
+	}
+	idSetDisabled := serviceDisabled.ListSubnetPortIDsFromSubnetPorts(subnetPorts)
+	assert.True(t, idSetDisabled.Has("port-1"))
+	assert.True(t, idSetDisabled.Has("port-2"))
+	assert.False(t, idSetDisabled.Has("port-3"))
+	assert.True(t, idSetDisabled.Has("port-origin"))
 }

@@ -238,3 +238,15 @@ func TestNsxConfig_GetServiceSize(t *testing.T) {
 		})
 	}
 }
+
+func TestK8sConfig_SupportReusePortEnabled(t *testing.T) {
+	assert.False(t, (*K8sConfig)(nil).SupportReusePortEnabled())
+	assert.False(t, (&K8sConfig{}).SupportReusePortEnabled())
+	assert.False(t, (&K8sConfig{SupportReusePort: false}).SupportReusePortEnabled())
+	assert.True(t, (&K8sConfig{SupportReusePort: true}).SupportReusePortEnabled())
+
+	assert.False(t, (*NSXOperatorConfig)(nil).SupportReusePortEnabled())
+	assert.False(t, (&NSXOperatorConfig{}).SupportReusePortEnabled())
+	assert.False(t, (&NSXOperatorConfig{K8sConfig: &K8sConfig{SupportReusePort: false}}).SupportReusePortEnabled())
+	assert.True(t, (&NSXOperatorConfig{K8sConfig: &K8sConfig{SupportReusePort: true}}).SupportReusePortEnabled())
+}

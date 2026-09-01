@@ -148,10 +148,27 @@ type K8sConfig struct {
 	KubeConfigFile     string `ini:"kubeconfig"`
 	// Controlled by FSS
 	EnableAntreaNSXInterworking bool `ini:"enable_antrea_nsx_interworking"`
+	SupportReusePort            bool `ini:"support_reuse_port"`
 	// IPFamily is the raw ip_family value from the [k8s] ini section.
 	// Expected values: "IPv4" (default), "IPv6", or "DualStack".
 	// Use GetIPAddressType() to obtain the canonical v1alpha1.IPAddressType.
 	IPFamily string `ini:"ip_family"`
+}
+
+// SupportReusePortEnabled reports whether cpVM SubnetPort reuse is enabled by config.
+func (k *K8sConfig) SupportReusePortEnabled() bool {
+	if k == nil {
+		return false
+	}
+	return k.SupportReusePort
+}
+
+// SupportReusePortEnabled reports whether cpVM SubnetPort reuse is enabled by config.
+func (operatorConfig *NSXOperatorConfig) SupportReusePortEnabled() bool {
+	if operatorConfig == nil || operatorConfig.K8sConfig == nil {
+		return false
+	}
+	return operatorConfig.K8sConfig.SupportReusePortEnabled()
 }
 
 // GetIPAddressType parses the raw IPFamily string and returns the canonical
