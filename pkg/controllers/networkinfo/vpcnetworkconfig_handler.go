@@ -3,7 +3,9 @@ package networkinfo
 import (
 	"context"
 	"reflect"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,24 +27,70 @@ type VPCNetworkConfigurationHandler struct {
 	Client              client.Client
 	vpcService          commontypes.VPCServiceProvider
 	ipBlocksInfoService commontypes.IPBlocksInfoServiceProvider
+
+	queue workqueue.TypedRateLimitingInterface[types.NamespacedName]
 }
 
-func (h *VPCNetworkConfigurationHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
-	vname := vpcConfigCR.GetName()
-	// Update IPBlocks info
-	if err := h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, vpcConfigCR); err != nil {
-		log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", vname)
+// NewVPCNetworkConfigurationHandler creates a new VPCNetworkConfigurationHandler and starts its worker.
+func NewVPCNetworkConfigurationHandler(client client.Client, vpcService commontypes.VPCServiceProvider, ipBlocksInfoService commontypes.IPBlocksInfoServiceProvider) *VPCNetworkConfigurationHandler {
+	limiter := workqueue.NewTypedItemExponentialFailureRateLimiter[types.NamespacedName](1*time.Second, 30*time.Second)
+	h := &VPCNetworkConfigurationHandler{
+		Client:              client,
+		vpcService:          vpcService,
+		ipBlocksInfoService: ipBlocksInfoService,
+		queue:               workqueue.NewTypedRateLimitingQueue[types.NamespacedName](limiter),
+	}
+	go h.workerLoop()
+	return h
+}
+
+func (h *VPCNetworkConfigurationHandler) enqueueTask(req types.NamespacedName) {
+	h.queue.Add(req)
+}
+
+func (h *VPCNetworkConfigurationHandler) workerLoop() {
+	for {
+		req, shutdown := h.queue.Get()
+		if shutdown {
+			return
+		}
+
+		err := h.processTask(req)
+		if err != nil {
+			log.Error(err, "Failed to process VPCNetworkConfiguration task, requeuing", "VPCNetworkConfiguration", req.Name)
+			h.queue.AddRateLimited(req)
+		} else {
+			h.queue.Forget(req)
+		}
+		h.queue.Done(req)
 	}
 }
 
-func (h *VPCNetworkConfigurationHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	vpcConfigCR := e.Object.(*v1alpha1.VPCNetworkConfiguration)
-	if err := h.ipBlocksInfoService.SyncIPBlocksInfo(ctx); err != nil {
-		log.Error(err, "failed to synchronize IPBlocksInfo when deleting %s", vpcConfigCR.Name)
-	} else {
-		h.ipBlocksInfoService.ResetPeriodicSync()
+func (h *VPCNetworkConfigurationHandler) processTask(req types.NamespacedName) error {
+	vpcConfig := &v1alpha1.VPCNetworkConfiguration{}
+	err := h.Client.Get(context.Background(), req, vpcConfig)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// VPCNetworkConfiguration has been deleted
+			if syncErr := h.ipBlocksInfoService.SyncIPBlocksInfo(context.Background()); syncErr != nil {
+				return syncErr
+			}
+			h.ipBlocksInfoService.ResetPeriodicSync()
+			return nil
+		}
+		return err
 	}
+
+	// VPCNetworkConfiguration exists (Create/Update)
+	return h.ipBlocksInfoService.UpdateIPBlocksInfo(context.Background(), vpcConfig)
+}
+
+func (h *VPCNetworkConfigurationHandler) Create(_ context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.enqueueTask(types.NamespacedName{Name: e.Object.GetName(), Namespace: e.Object.GetNamespace()})
+}
+
+func (h *VPCNetworkConfigurationHandler) Delete(_ context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.enqueueTask(types.NamespacedName{Name: e.Object.GetName(), Namespace: e.Object.GetNamespace()})
 }
 
 func (h *VPCNetworkConfigurationHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -87,9 +135,7 @@ func (h *VPCNetworkConfigurationHandler) Update(ctx context.Context, e event.Upd
 		return
 	}
 
-	if err := h.ipBlocksInfoService.UpdateIPBlocksInfo(ctx, newNc); err != nil {
-		log.Error(err, "Failed to update the IPBlocksInfo", "VPCNetworkConfiguration", newNc.Name)
-	}
+	h.enqueueTask(types.NamespacedName{Name: newNc.GetName(), Namespace: newNc.GetNamespace()})
 }
 
 var VPCNetworkConfigurationPredicate = predicate.Funcs{

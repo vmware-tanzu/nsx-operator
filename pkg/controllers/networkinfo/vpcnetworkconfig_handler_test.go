@@ -2,11 +2,14 @@ package networkinfo
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/util/workqueue"
@@ -64,11 +67,7 @@ func createVPCNetworkConfigurationHandler(objs []client.Object) *VPCNetworkConfi
 		SyncTask: nil,
 	}
 
-	return &VPCNetworkConfigurationHandler{
-		Client:              fakeClient,
-		vpcService:          vpcService,
-		ipBlocksInfoService: ipBlocksInfoService,
-	}
+	return NewVPCNetworkConfigurationHandler(fakeClient, vpcService, ipBlocksInfoService)
 }
 
 func TestVPCNetworkConfigurationHandler_Create(t *testing.T) {
@@ -209,5 +208,162 @@ func TestVPCNetworkConfigurationHandler_Generic(t *testing.T) {
 			handler := createVPCNetworkConfigurationHandler(nil)
 			handler.Generic(context.TODO(), event.GenericEvent{Object: tc.vpcNetworkConfig}, queue)
 		})
+	}
+}
+
+type mockIPBlocksInfoService struct {
+	mu          sync.Mutex
+	updatedVPCs []string
+	syncCount   int
+	resetCount  int
+	processed   chan struct{}
+}
+
+func (m *mockIPBlocksInfoService) UpdateIPBlocksInfo(_ context.Context, vpcConfigCR *v1alpha1.VPCNetworkConfiguration) error {
+	m.mu.Lock()
+	m.updatedVPCs = append(m.updatedVPCs, vpcConfigCR.Name)
+	m.mu.Unlock()
+	if m.processed != nil {
+		m.processed <- struct{}{}
+	}
+	return nil
+}
+
+func (m *mockIPBlocksInfoService) SyncIPBlocksInfo(_ context.Context) error {
+	m.mu.Lock()
+	m.syncCount++
+	m.mu.Unlock()
+	if m.processed != nil {
+		m.processed <- struct{}{}
+	}
+	return nil
+}
+
+func (m *mockIPBlocksInfoService) ResetPeriodicSync() {
+	m.mu.Lock()
+	m.resetCount++
+	m.mu.Unlock()
+}
+
+func TestVPCNetworkConfigurationHandler_QueueFIFOAndCompletion(t *testing.T) {
+	const taskCount = 2000
+	mock := &mockIPBlocksInfoService{
+		processed: make(chan struct{}, taskCount),
+	}
+
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	objs := []client.Object{}
+	for i := 0; i < taskCount; i++ {
+		objs = append(objs, &v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("vpc-%d", i)},
+		})
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	handler := NewVPCNetworkConfigurationHandler(fakeClient, nil, mock)
+
+	for i := 0; i < taskCount; i++ {
+		handler.enqueueTask(k8stypes.NamespacedName{Name: fmt.Sprintf("vpc-%d", i)})
+	}
+
+	for i := 0; i < taskCount; i++ {
+		<-mock.processed
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.updatedVPCs) != taskCount {
+		t.Fatalf("expected %d processed tasks, got %d", taskCount, len(mock.updatedVPCs))
+	}
+	for i := 0; i < taskCount; i++ {
+		expectedName := fmt.Sprintf("vpc-%d", i)
+		if mock.updatedVPCs[i] != expectedName {
+			t.Errorf("FIFO violation at index %d: expected %s, got %s", i, expectedName, mock.updatedVPCs[i])
+		}
+	}
+
+	if handler.queue.Len() != 0 {
+		t.Errorf("expected empty tasks slice, got length %d", handler.queue.Len())
+	}
+}
+
+func TestVPCNetworkConfigurationHandler_QueueConcurrentEnqueue(t *testing.T) {
+	const goroutines = 20
+	const tasksPerGoroutine = 100
+	const totalTasks = goroutines * tasksPerGoroutine
+
+	mock := &mockIPBlocksInfoService{
+		processed: make(chan struct{}, totalTasks),
+	}
+
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	objs := []client.Object{}
+	for g := 0; g < goroutines; g++ {
+		for i := 0; i < tasksPerGoroutine; i++ {
+			objs = append(objs, &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("g%d-vpc-%d", g, i)},
+			})
+		}
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	handler := NewVPCNetworkConfigurationHandler(fakeClient, nil, mock)
+
+	var wg sync.WaitGroup
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(gID int) {
+			defer wg.Done()
+			for i := 0; i < tasksPerGoroutine; i++ {
+				handler.enqueueTask(k8stypes.NamespacedName{Name: fmt.Sprintf("g%d-vpc-%d", gID, i)})
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	for i := 0; i < totalTasks; i++ {
+		<-mock.processed
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.updatedVPCs) != totalTasks {
+		t.Fatalf("expected %d tasks processed, got %d", totalTasks, len(mock.updatedVPCs))
+	}
+}
+
+func TestVPCNetworkConfigurationHandler_QueueTaskTypes(t *testing.T) {
+	mock := &mockIPBlocksInfoService{
+		processed: make(chan struct{}, 2),
+	}
+
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	objs := []client.Object{
+		&v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-update-vpc"},
+		},
+		// "test-delete-vpc" is NOT added to fakeClient, so Get() will return NotFound
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	handler := NewVPCNetworkConfigurationHandler(fakeClient, nil, mock)
+
+	handler.enqueueTask(k8stypes.NamespacedName{Name: "test-update-vpc"})
+	<-mock.processed
+
+	handler.enqueueTask(k8stypes.NamespacedName{Name: "test-delete-vpc"})
+	<-mock.processed
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if len(mock.updatedVPCs) != 1 || mock.updatedVPCs[0] != "test-update-vpc" {
+		t.Errorf("unexpected updated VPCs: %v", mock.updatedVPCs)
+	}
+	if mock.syncCount != 1 {
+		t.Errorf("expected syncCount == 1, got %d", mock.syncCount)
+	}
+	if mock.resetCount != 1 {
+		t.Errorf("expected resetCount == 1, got %d", mock.resetCount)
 	}
 }
