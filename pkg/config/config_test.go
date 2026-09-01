@@ -280,3 +280,15 @@ thumbprint = 81:49:DD:B7:E8:79:55:5D:9E:75:A9:FA:A6:7D:CB:EA:A4:CA:12:C6
 	assert.NotNil(t, cfg.K8sConfig.PodV2)
 	assert.True(t, cfg.K8sConfig.PodV2Enabled())
 }
+
+func TestK8sConfig_SupportReusePortEnabled(t *testing.T) {
+	assert.False(t, (*K8sConfig)(nil).SupportReusePortEnabled())
+	assert.False(t, (&K8sConfig{}).SupportReusePortEnabled())
+	assert.False(t, (&K8sConfig{SupportReusePort: false}).SupportReusePortEnabled())
+	assert.True(t, (&K8sConfig{SupportReusePort: true}).SupportReusePortEnabled())
+
+	assert.False(t, (*NSXOperatorConfig)(nil).SupportReusePortEnabled())
+	assert.False(t, (&NSXOperatorConfig{}).SupportReusePortEnabled())
+	assert.False(t, (&NSXOperatorConfig{K8sConfig: &K8sConfig{SupportReusePort: false}}).SupportReusePortEnabled())
+	assert.True(t, (&NSXOperatorConfig{K8sConfig: &K8sConfig{SupportReusePort: true}}).SupportReusePortEnabled())
+}
