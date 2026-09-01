@@ -26,6 +26,7 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
@@ -40,6 +41,7 @@ type VCClient struct {
 	// if reload == true, reload user/password from file
 	// if reload == false, user/password pass from parameter
 	reload bool
+	log    logger.CustomLogger
 }
 
 var (
@@ -47,13 +49,13 @@ var (
 	stsClient      *sts.Client
 )
 
-func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
+func createHttpClient(insecureSkipVerify bool, caCertPem []byte, l logger.CustomLogger) *http.Client {
 	tlsConfig := &tls.Config{InsecureSkipVerify: insecureSkipVerify} // #nosec G402: ignore insecure options
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 	}
 	if len(caCertPem) > 0 {
-		log.Trace("Append CA cert")
+		l.Trace("Append CA cert")
 		clientCertPool := x509.NewCertPool()
 		clientCertPool.AppendCertsFromPEM(caCertPem)
 		tlsConfig.RootCAs = clientCertPool
@@ -62,8 +64,8 @@ func createHttpClient(insecureSkipVerify bool, caCertPem []byte) *http.Client {
 }
 
 // NewVCClient creates a new logged in VC client with vapi session.
-func NewVCClient(hostname string, port int, ssoDomain string, userName, password string, caCertPem []byte, insecureSkipVerify bool, scheme string) (*VCClient, error) {
-	httpClient := createHttpClient(insecureSkipVerify, caCertPem)
+func NewVCClient(hostname string, port int, ssoDomain string, userName, password string, caCertPem []byte, insecureSkipVerify bool, scheme string, log logger.CustomLogger) (*VCClient, error) {
+	httpClient := createHttpClient(insecureSkipVerify, caCertPem, log)
 	baseurl := fmt.Sprintf("%s://%s:%d/rest", scheme, hostname, port)
 	vcurl, _ := url.Parse(baseurl)
 
@@ -72,6 +74,7 @@ func NewVCClient(hostname string, port int, ssoDomain string, userName, password
 		url:        vcurl,
 		httpClient: httpClient,
 		ssoDomain:  ssoDomain,
+		log:        log,
 	}
 	if len(userName) == 0 {
 		vcClient.reload = true
@@ -82,6 +85,7 @@ func NewVCClient(hostname string, port int, ssoDomain string, userName, password
 
 // createVAPISession creates a VAPI session using the specified STS signer and sets it on the vcClient.
 func (vcClient *VCClient) createVAPISession() (string, error) {
+	log := vcClient.log.Fallback()
 	log.Info("Creating new vapi session for vcClient")
 	request, err := vcClient.prepareRequest(http.MethodPost, "com/vmware/cis/session", nil)
 	if err != nil {
@@ -92,7 +96,7 @@ func (vcClient *VCClient) createVAPISession() (string, error) {
 		return "", err
 	}
 	var sessionData map[string]string
-	err, _ = util.HandleHTTPResponse(response, &sessionData, false)
+	err, _ = util.HandleHTTPResponse(response, &sessionData, false, log)
 	if err != nil {
 		return "", err
 	}
@@ -129,6 +133,7 @@ func (vcClient *VCClient) reloadUsernamePass() error {
 	if !vcClient.reload {
 		return nil
 	}
+	log := vcClient.log.Fallback()
 	f, err := os.ReadFile(VC_SVCACCOUNT_USER_PATH)
 	if err != nil {
 		log.Error(err, "Failed to read user name")
@@ -155,6 +160,7 @@ func (vcClient *VCClient) reloadUsernamePass() error {
 
 // createHOKSigner creates a Hok token for the service account user.
 func (vcClient *VCClient) createHOKSigner() (*sts.Signer, error) {
+	log := vcClient.log.Fallback()
 	log.Debug("Creating Holder of Key signer")
 	userName := vcClient.url.User.Username()
 	password, _ := vcClient.url.User.Password()
@@ -163,7 +169,7 @@ func (vcClient *VCClient) createHOKSigner() (*sts.Signer, error) {
 		return nil, err
 	}
 
-	cert, err := createCertificate(userName)
+	cert, err := createCertificate(userName, log)
 	if err != nil {
 		log.Error(err, "Failed to process service account keypair")
 		return nil, err
@@ -209,6 +215,7 @@ func (vcClient *VCClient) createSCClient(vimClient *vim25.Client) *soap.Client {
 }
 
 func (vcClient *VCClient) createVimClient(ctx context.Context, vimSdkURL string) (*vim25.Client, error) {
+	log := vcClient.log.Fallback()
 	log.Debug("Creating vmomi client")
 	vcURL, err := url.Parse(vimSdkURL)
 	if err != nil {
@@ -224,6 +231,7 @@ func (vcClient *VCClient) createVimClient(ctx context.Context, vimSdkURL string)
 
 // HandleRequest sends a POST request
 func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData interface{}) error {
+	log := client.log.Fallback()
 	request, err := client.prepareRequest(http.MethodPost, urlPath, data)
 	if err != nil {
 		return err
@@ -234,7 +242,7 @@ func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData 
 		return err
 	}
 	log.Debug("HTTP req", "request", request.URL, "response status", response.StatusCode)
-	err, _ = util.HandleHTTPResponse(response, responseData, false)
+	err, _ = util.HandleHTTPResponse(response, responseData, false, log)
 	return err
 }
 
@@ -255,7 +263,7 @@ func (client *VCClient) prepareRequest(method string, urlPath string, data []byt
 	return req, nil
 }
 
-func createCertificate(userName string) (*tls.Certificate, error) {
+func createCertificate(userName string, log logger.CustomLogger) (*tls.Certificate, error) {
 	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		log.Error(err, "Failed to generate RSA private key")

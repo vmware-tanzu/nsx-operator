@@ -23,6 +23,8 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	infra_ip_blocks "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_blocks"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
 	infra_realized "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/realized_state"
@@ -166,7 +168,7 @@ func (ck *NSXHealthChecker) CheckNSXHealth(req *http.Request) error {
 	if GREEN == health || ORANGE == health {
 		return nil
 	} else {
-		log.Debug("NSX cluster status is down: ", " Current status: ", health)
+		ck.cluster.getLogger().Debug("NSX cluster status is down: ", " Current status: ", health)
 		return errors.New("NSX Current Status is down")
 	}
 }
@@ -181,8 +183,8 @@ func restConnectorAllowOverwrite(c *Cluster) client.Connector {
 
 func GetClient(cf *config.NSXOperatorConfig) *Client {
 	// Set log level for vsphere-automation-sdk-go
-	logger := logrus.New()
-	vspherelog.SetLogger(logger)
+	log := logrus.New()
+	vspherelog.SetLogger(log)
 	// This is the overall timeout for NSX client
 	// NSX server does not have timeout, some of the request may take over one minute.
 	defaultHttpTimeout := 180
@@ -193,6 +195,11 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	c.EnvoyHost = cf.EnvoyHost
 	c.EnvoyPort = cf.EnvoyPort
+	if cf.Logger.GetSink() != nil {
+		c.Logger = cf.Logger
+	} else {
+		c.Logger = logger.Log
+	}
 	cluster, _ := NewCluster(c)
 
 	connector := restConnector(cluster)
@@ -342,25 +349,25 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	}
 	nsxClient.Cluster.SetOnProductVersionChanged(func(oldVer, newVer string) {
 		nsxClient.resetNSXVersionFeatureCache()
-		log.Info("NSX product version changed; cleared cached feature support gates", "oldVersion", oldVer, "newVersion", newVer)
+		c.Logger.Info("NSX product version changed; cleared cached feature support gates", "oldVersion", oldVer, "newVersion", newVer)
 	})
 	// NSX version check will be restarted during SecurityPolicy reconcile
 	// So, it's unnecessary to exit even if failed in the first time
 	if !nsxClient.NSXCheckVersion(SecurityPolicy) {
 		err := errors.New("SecurityPolicy feature support check failed")
-		log.Error(err, "Initial NSX version check for SecurityPolicy got error")
+		c.Logger.Error(err, "Initial NSX version check for SecurityPolicy got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccount) {
 		err := errors.New("NSXServiceAccount feature support check failed")
-		log.Error(err, "Initial NSX version check for NSXServiceAccount got error")
+		c.Logger.Error(err, "Initial NSX version check for NSXServiceAccount got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountRestore) {
 		err := errors.New("NSXServiceAccountRestore feature support check failed")
-		log.Error(err, "Initial NSX version check for NSXServiceAccountRestore got error")
+		c.Logger.Error(err, "Initial NSX version check for NSXServiceAccountRestore got error")
 	}
 	if !nsxClient.NSXCheckVersion(ServiceAccountCertRotation) {
 		err := errors.New("ServiceAccountCertRotation feature support check failed")
-		log.Error(err, "Initial NSX version check for ServiceAccountCertRotation got error")
+		c.Logger.Error(err, "Initial NSX version check for ServiceAccountCertRotation got error")
 	}
 
 	return nsxClient
@@ -415,18 +422,19 @@ func (client *Client) NSXCheckVersion(feature int) bool {
 		return true
 	}
 
+	log := client.NSXVerChecker.cluster.getLogger()
 	nsxVersion, err := client.NSXVerChecker.cluster.GetVersion()
 	if err != nil {
 		log.Error(err, "Get version error")
 		return false
 	}
-	err = nsxVersion.Validate()
+	err = nsxVersion.Validate(log)
 	if err != nil {
 		log.Error(err, "Validate version error")
 		return false
 	}
 
-	if !nsxVersion.featureSupported(feature) {
+	if !nsxVersion.featureSupported(feature, log) {
 		log.Warn(FeaturesName[feature]+" feature is not supported", "current NSX version", nsxVersion.ProductVersion)
 		return false
 	}
@@ -443,6 +451,7 @@ func (client *Client) FeatureEnabled(feature int) bool {
 // once license updated, operator will restart
 // if FeatureContainer license is false, operatore will restart
 func (client *Client) ValidateLicense(init bool) error {
+	log := client.NSXChecker.cluster.getLogger()
 	log.Info("Checking NSX license")
 	oldContainerLicense := util.IsLicensed(util.FeatureContainer)
 	oldDfwLicense := util.GetDFWLicense()

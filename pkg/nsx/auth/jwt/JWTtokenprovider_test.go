@@ -8,10 +8,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 func TestJWTTokenprovider_NewTokenProvider(t *testing.T) {
-	_, err := NewTokenProvider("127.0.0.1", 443, "vsphere.local", "", "", []byte{}, false, "https")
+	_, err := NewTokenProvider("127.0.0.1", 443, "vsphere.local", "", "", []byte{}, false, "https", logger.Log)
 	_, ok := err.(*url.Error)
 	assert.Equal(t, ok, false)
 
