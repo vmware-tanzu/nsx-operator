@@ -107,19 +107,69 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.StatusUpdater.IncreaseUpdateTotal()
 
+		if r.isPortReused(subnetPort) {
+			log.Info("SubnetPort's port has been reused by another SubnetPort CR, skipping reconciliation",
+				"SubnetPort", req.NamespacedName, "UID", subnetPort.UID)
+			return common.ResultNormal, nil
+		}
+
 		old_status := subnetPort.Status.DeepCopy()
-		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, staticIPAllocationType, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
-		if subnetSetLock != nil {
-			defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
+
+		var isExisting bool
+		var isParentResourceTerminating bool
+		var nsxSubnetPath string
+		var subnetSetUID *types.UID
+		var subnetSetLock *sync.RWMutex
+		var interfaceIPType v1alpha1.IPAddressType
+		var staticIPAllocationType v1alpha1.StaticIPAllocationType
+		var err error
+		var isReusedPort bool
+		var reusedPort *model.VpcSubnetPort
+
+		existingSubnetPort, _ := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
+		if existingSubnetPort == nil && !r.restoreMode {
+			if reusePort, ok := subnetPort.Annotations[servicecommon.AnnotationReusePort]; ok {
+				if !util.IsCPVM(subnetPort.Labels) {
+					log.Info("SubnetPort has reuse-port annotation but is not a cpVM SubnetPort, ignoring reuse-port",
+						"SubnetPort", req.NamespacedName)
+				} else {
+					oldNs, oldName, parseErr := util.ParseReusePortAnnotation(reusePort)
+					if parseErr != nil {
+						r.StatusUpdater.UpdateFail(ctx, subnetPort, parseErr, "Invalid reuse-port annotation", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+						return common.ResultNormal, parseErr
+					}
+					existingPorts := r.SubnetPortService.ListVMSubnetPortByName(oldNs, oldName)
+					if len(existingPorts) == 0 || existingPorts[0].Id == nil || *existingPorts[0].Id == "" ||
+						existingPorts[0].ParentPath == nil || *existingPorts[0].ParentPath == "" {
+						err = fmt.Errorf("reused port %s not found in runtime store", reusePort)
+						r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Reused port not found", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+						return common.ResultRequeue, err
+					}
+					reusedPort = existingPorts[0]
+					nsxSubnetPath = *reusedPort.ParentPath
+					isExisting = true
+					isReusedPort = true
+					log.Info("NSX SubnetPort will be reused on the existing NSX Subnet, its tags and display name will be updated with the new SubnetPort CR metadata",
+						"SubnetPort", req.NamespacedName, "UID", subnetPort.UID,
+						"reusePort", reusePort, "subnetPath", nsxSubnetPath, "reusedPortID", *reusedPort.Id)
+				}
+			}
 		}
-		if isParentResourceTerminating {
-			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
-			return common.ResultNormal, err
-		}
-		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
-			return common.ResultRequeue, err
+
+		if !isReusedPort {
+			isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, staticIPAllocationType, err = r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+			if subnetSetLock != nil {
+				defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
+			}
+			if isParentResourceTerminating {
+				err = errors.New("parent resource is terminating, SubnetPort cannot be created")
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+				return common.ResultNormal, err
+			}
+			if err != nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+				return common.ResultRequeue, err
+			}
 		}
 		if !isExisting {
 			// staticIPAllocationType is the value actually resolved and used by Allocate above,
@@ -200,7 +250,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return common.ResultRequeue, err
 			}
 		}
-		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
+		var nsxSubnetPortState *model.SegmentPortState
+		if isReusedPort {
+			nsxSubnetPortState, err = r.SubnetPortService.ReuseSubnetPort(subnetPort, reusedPort, nsxSubnet)
+		} else {
+			nsxSubnetPortState, err = r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
+		}
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			if nsxutil.IsRealizeStateError(err) {
@@ -492,9 +547,23 @@ func subnetAssociatedResourceIndexFunc(obj client.Object) []string {
 func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns string, name string) error {
 	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
+	if len(nsxSubnetPorts) == 0 {
+		return nil
+	}
+
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	if err := r.Client.List(ctx, subnetPortList); err != nil {
+		log.Error(err, "Failed to list SubnetPort CRs during deleteSubnetPortByName", "Namespace", ns, "Name", name)
+		return err
+	}
 
 	var externalIpAddress *string
 	for _, nsxSubnetPort := range nsxSubnetPorts {
+		if r.isPortReferencedByReusePort(nsxSubnetPort, subnetPortList.Items) {
+			log.Info("Preserving cpVM SubnetPort because it is referenced by reuse-port annotation",
+				"PortID", *nsxSubnetPort.Id, "Namespace", ns, "Name", name)
+			continue
+		}
 		if nsxSubnetPort.ExternalAddressBinding != nil && nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != nil && *nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != "" {
 			externalIpAddress = nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress
 		}
@@ -510,6 +579,65 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 	}
 	log.Info("Successfully deleted nsxSubnetPort", "Namespace", ns, "Name", name)
 	return nil
+}
+
+// isPortReused checks if the NSX SubnetPort associated with the CR's attachment ID
+// has been reused by another SubnetPort CR (e.g. during cpVM migration).
+func (r *SubnetPortReconciler) isPortReused(subnetPort *v1alpha1.SubnetPort) bool {
+	if r.restoreMode {
+		return false
+	}
+	if subnetPort == nil || subnetPort.Status.Attachment.ID == "" {
+		return false
+	}
+	if !util.IsCPVM(subnetPort.Labels) {
+		return false
+	}
+	if r.SubnetPortService == nil || r.SubnetPortService.SubnetPortStore == nil {
+		return false
+	}
+	port := r.SubnetPortService.GetSubnetPortByAttachmentID(subnetPort.Status.Attachment.ID)
+	if port == nil {
+		return false
+	}
+	portCRUID := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRUID)
+	if portCRUID != "" {
+		return portCRUID != string(subnetPort.UID)
+	}
+	// Fallback to CR name and VM namespace if CR UID tag is not present
+	portCRName := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName)
+	portNS := nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace)
+	if portCRName != "" && portNS != "" {
+		return portCRName != subnetPort.Name || portNS != subnetPort.Namespace
+	}
+	return false
+}
+
+// isPortReferencedByReusePort checks if a SubnetPort is referenced by an active cpVM SubnetPort CR with reuse-port annotation
+func (r *SubnetPortReconciler) isPortReferencedByReusePort(port *model.VpcSubnetPort, subnetPorts []v1alpha1.SubnetPort) bool {
+	if port == nil {
+		return false
+	}
+	portName := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName)
+	portNS := nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace)
+
+	for _, sp := range subnetPorts {
+		if !util.IsCPVM(sp.Labels) {
+			continue
+		}
+		if reusePort, ok := sp.Annotations[servicecommon.AnnotationReusePort]; ok {
+			if oldNs, oldName, err := util.ParseReusePortAnnotation(reusePort); err == nil {
+				if portNS != "" && portName != "" && oldNs == portNS && oldName == portName {
+					return true
+				}
+			}
+		}
+		if sp.Status.Attachment.ID != "" && port.Attachment != nil && port.Attachment.Id != nil &&
+			*port.Attachment.Id == sp.Status.Attachment.ID {
+			return true
+		}
+	}
+	return false
 }
 
 // setupWithManager sets up the controller with the Manager.
@@ -735,17 +863,26 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 		log.Trace("There is no SubnetPort in store")
 	}
 
-	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
-	if err != nil {
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	if err := r.Client.List(ctx, subnetPortList); err != nil {
+		log.Error(err, "failed to list SubnetPort CR for GC")
 		return err
 	}
+
+	crSubnetPortIDsSet := r.SubnetPortService.ListSubnetPortIDsFromSubnetPorts(subnetPortList.Items)
 
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(crSubnetPortIDsSet)
 	for elem := range diffSet {
+		port := r.SubnetPortService.GetSubnetPortByID(elem)
+		if port != nil && r.isPortReferencedByReusePort(port, subnetPortList.Items) {
+			log.Info("Preserving cpVM SubnetPort during GC because it is referenced by reuse-port annotation",
+				"PortID", elem)
+			continue
+		}
 		log.Debug("GC collected SubnetPort CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		err = r.SubnetPortService.DeleteSubnetPortById(elem)
+		err := r.SubnetPortService.DeleteSubnetPortById(elem)
 		if err != nil {
 			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
@@ -757,9 +894,9 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	subnetPortUIDSet, err := r.getSubnetPortCRUIDSet(ctx)
-	if err != nil {
-		return err
+	subnetPortUIDSet := sets.New[string]()
+	for _, sp := range subnetPortList.Items {
+		subnetPortUIDSet.Insert(string(sp.UID))
 	}
 
 	nsxIPAddressAllocationList := r.IpAddressAllocationService.ListIPAddressAllocationWithAddressBinding()
@@ -1324,18 +1461,6 @@ func (r *SubnetPortReconciler) getAddressBindingCRUIDSet(ctx context.Context) (s
 		addressBindingCRUIDSet.Insert(string(ab.UID))
 	}
 	return addressBindingCRUIDSet, nil
-}
-
-func (r *SubnetPortReconciler) getSubnetPortCRUIDSet(ctx context.Context) (sets.Set[string], error) {
-	subnetPortCRUIDSet := sets.New[string]()
-	subnetPortList := &v1alpha1.SubnetPortList{}
-	if err := r.Client.List(ctx, subnetPortList); err != nil {
-		return nil, err
-	}
-	for _, sp := range subnetPortList.Items {
-		subnetPortCRUIDSet.Insert(string(sp.UID))
-	}
-	return subnetPortCRUIDSet, nil
 }
 
 func (r *SubnetPortReconciler) collectAddressBindingGarbage(ctx context.Context, namespace, ipAddress *string) {
