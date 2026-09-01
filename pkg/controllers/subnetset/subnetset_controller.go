@@ -235,7 +235,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		subnetsetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4
 		specChanged = true
 	}
-	isSystemNs, err := util.IsVPCSystemNamespace(r.Client, subnetsetCR.Namespace, nil)
+	isSystemNs, err := util.IsVPCSystemNamespace(ctx, r.Client, subnetsetCR.Namespace, nil)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
 		return ResultNormal, err
