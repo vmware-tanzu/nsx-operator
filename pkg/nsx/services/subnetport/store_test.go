@@ -363,3 +363,52 @@ func Test_subnetPortIndexBySts(t *testing.T) {
 		})
 	}
 }
+
+func Test_subnetPortIndexByOriginCRUID(t *testing.T) {
+	originScope := "nsx-op/origin_cr_uid"
+	uid := "origin-uid-123"
+	port := &model.VpcSubnetPort{
+		Tags: []model.Tag{
+			{
+				Scope: &originScope,
+				Tag:   &uid,
+			},
+		},
+	}
+
+	res, err := subnetPortIndexByOriginCRUID(port)
+	assert.Nil(t, err)
+	assert.Equal(t, []string{uid}, res)
+
+	_, err = subnetPortIndexByOriginCRUID("invalid")
+	assert.Error(t, err)
+}
+
+func TestSubnetPortStore_GetVpcSubnetPortByOriginUID(t *testing.T) {
+	store := setupStore()
+	originScope := "nsx-op/origin_cr_uid"
+	uid := "origin-uid-456"
+	portID := "port-456"
+	parentPath := "/subnets/subnet-1"
+	port := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{
+				Scope: &originScope,
+				Tag:   &uid,
+			},
+		},
+	}
+	err := store.Add(port)
+	assert.Nil(t, err)
+
+	found, err := store.GetVpcSubnetPortByOriginUID("origin-uid-456")
+	assert.Nil(t, err)
+	assert.NotNil(t, found)
+	assert.Equal(t, portID, *found.Id)
+
+	notFound, err := store.GetVpcSubnetPortByOriginUID("non-existent")
+	assert.Nil(t, err)
+	assert.Nil(t, notFound)
+}
