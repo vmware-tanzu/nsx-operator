@@ -1,0 +1,129 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: nsxnetworkconfigurations.nsx.vmware.com
+spec:
+  group: nsx.vmware.com
+  names:
+    kind: NSXNetworkConfiguration
+    listKind: NSXNetworkConfigurationList
+    plural: nsxnetworkconfigurations
+    shortNames:
+    - nsxnetworkconfig
+    singular: nsxnetworkconfiguration
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: NSXNetworkConfiguration is the Schema for the nsxnetworkconfigurations
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NSXNetworkConfigurationSpec defines the desired state of
+              NSXNetworkConfiguration.
+            properties:
+              appliedToNamespaces:
+                description: AppliedToNamespaces lists the namespaces where this network
+                  configuration applies.
+                items:
+                  type: string
+                type: array
+              egressCIDRs:
+                description: EgressCIDRs defines CIDRs used for egress SNAT.
+                items:
+                  type: string
+                type: array
+              ingressCIDRs:
+                description: IngressCIDRs defines CIDRs used for ingress traffic.
+                items:
+                  type: string
+                type: array
+              l7ruleQuota:
+                description: L7RuleQuota specifies quota for L7 rules.
+                format: int32
+                type: integer
+              lbVIPQuota:
+                description: LBVIPQuota specifies quota for LoadBalancer VIPs.
+                format: int32
+                type: integer
+              loadbalancerSize:
+                description: LoadBalancerSize specifies the default load balancer
+                  size.
+                type: string
+              mode:
+                description: 'Mode specifies the network mode: NAT or ROUTED.'
+                type: string
+              snatIPQuota:
+                description: SNATIPQuota specifies quota for SNAT IPs.
+                format: int32
+                type: integer
+              subnetCIDRs:
+                description: SubnetCIDRs defines the CIDRs allocated for subnets.
+                items:
+                  type: string
+                type: array
+              subnetPrefixLength:
+                description: SubnetPrefixLength specifies the prefix length for namespace
+                  subnets.
+                format: int32
+                type: integer
+              subnetQuota:
+                description: SubnetQuota specifies quota for subnets.
+                format: int32
+                type: integer
+              tier0Gateway:
+                description: Tier0Gateway specifies the path or name of the Tier0
+                  gateway.
+                type: string
+            type: object
+          status:
+            description: NSXNetworkConfigurationStatus defines the observed state
+              of NSXNetworkConfiguration.
+            properties:
+              conditions:
+                items:
+                  description: NSXNetworkConfigurationCondition defines the condition
+                    for the NSXNetworkConfiguration.
+                  properties:
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      description: NSXNetworkConfigurationConditionType describes
+                        the condition type.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
