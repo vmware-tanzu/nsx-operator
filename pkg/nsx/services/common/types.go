@@ -98,6 +98,7 @@ const (
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationAssociatedResource       string = "nsx.vmware.com/associated-resource"
+	AnnotationReusePort                string = "nsx.vmware.com/reuse-port"
 	AnnotationReconfigureNic           string = "nsx/reconfigure-nic"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	AnnotationAttachment               string = "nsx.vmware.com/attachment"

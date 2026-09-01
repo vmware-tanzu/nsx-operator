@@ -105,6 +105,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.StatusUpdater.IncreaseUpdateTotal()
 
+		if r.isPortReused(subnetPort) {
+			log.Info("SubnetPort's port has been reused by another SubnetPort CR, skipping reconciliation",
+				"SubnetPort", req.NamespacedName, "UID", subnetPort.UID)
+			return common.ResultNormal, nil
+		}
+
 		old_status := subnetPort.Status.DeepCopy()
 		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, staticIPAllocationType, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
 		if subnetSetLock != nil {
@@ -502,6 +508,75 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 	return nil
 }
 
+// isPortReused checks if the NSX SubnetPort associated with the CR's attachment ID
+// has been reused by another SubnetPort CR (e.g. during cpVM migration).
+func (r *SubnetPortReconciler) isPortReused(subnetPort *v1alpha1.SubnetPort) bool {
+	if subnetPort == nil || subnetPort.Status.Attachment.ID == "" {
+		return false
+	}
+	if !util.IsCPVM(subnetPort.Labels) {
+		return false
+	}
+	if r.SubnetPortService == nil || r.SubnetPortService.SubnetPortStore == nil {
+		return false
+	}
+	port := r.SubnetPortService.GetSubnetPortByAttachmentID(subnetPort.Status.Attachment.ID)
+	if port == nil {
+		return false
+	}
+	portCRUID := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRUID)
+	if portCRUID != "" {
+		return portCRUID != string(subnetPort.UID)
+	}
+	// Fallback to CR name and namespace if CR UID tag is not present
+	portCRName := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName)
+	portNS := nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace)
+	if portNS == "" {
+		portNS = nsxutil.FindTag(port.Tags, servicecommon.TagScopeNamespace)
+	}
+	if portCRName != "" && portNS != "" {
+		return portCRName != subnetPort.Name || portNS != subnetPort.Namespace
+	}
+	return false
+}
+
+// isPortReferencedByReusePort checks if a SubnetPort is referenced by an active cpVM SubnetPort CR with reuse-port annotation
+func (r *SubnetPortReconciler) isPortReferencedByReusePort(ctx context.Context, port *model.VpcSubnetPort) bool {
+	if port == nil || r.Client == nil {
+		return false
+	}
+	portName := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName)
+	portNS := nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace)
+	if portNS == "" {
+		portNS = nsxutil.FindTag(port.Tags, servicecommon.TagScopeNamespace)
+	}
+
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	if err := r.Client.List(ctx, subnetPortList); err != nil {
+		log.Error(err, "Failed to list SubnetPort CRs during GC check", "PortID", *port.Id)
+		// On error listing CRs, be safe and do not delete cpVM port
+		return true
+	}
+
+	for _, sp := range subnetPortList.Items {
+		if !util.IsCPVM(sp.Labels) {
+			continue
+		}
+		if reusePort, ok := sp.Annotations[servicecommon.AnnotationReusePort]; ok {
+			if oldNs, oldName, err := util.ParseReusePortAnnotation(reusePort); err == nil {
+				if portNS != "" && portName != "" && oldNs == portNS && oldName == portName {
+					return true
+				}
+			}
+		}
+		if sp.Status.Attachment.ID != "" && port.Attachment != nil && port.Attachment.Id != nil &&
+			*port.Attachment.Id == sp.Status.Attachment.ID {
+			return true
+		}
+	}
+	return false
+}
+
 // setupWithManager sets up the controller with the Manager.
 func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -733,6 +808,12 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(crSubnetPortIDsSet)
 	for elem := range diffSet {
+		port := r.SubnetPortService.GetSubnetPortByID(elem)
+		if port != nil && r.isPortReferencedByReusePort(ctx, port) {
+			log.Info("Preserving cpVM SubnetPort during GC because it is referenced by reuse-port annotation",
+				"PortID", elem)
+			continue
+		}
 		log.Debug("GC collected SubnetPort CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.SubnetPortService.DeleteSubnetPortById(elem)
@@ -948,6 +1029,27 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		log.Debug("NSX SubnetPort had been created, returning the existing NSX Subnet path", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
 		existing = true
 		return
+	}
+	if reusePort, ok := subnetPort.Annotations[servicecommon.AnnotationReusePort]; ok {
+		if !util.IsCPVM(subnetPort.Labels) {
+			log.Info("SubnetPort has reuse-port annotation but is not a cpVM SubnetPort, ignoring reuse-port",
+				"subnetPort.Namespace", subnetPort.Namespace, "subnetPort.Name", subnetPort.Name)
+		} else {
+			oldNs, oldName, parseErr := util.ParseReusePortAnnotation(reusePort)
+			if parseErr != nil {
+				return false, false, "", nil, nil, "", "", parseErr
+			}
+			existingPorts := r.SubnetPortService.ListVMSubnetPortByName(oldNs, oldName)
+			if len(existingPorts) > 0 && existingPorts[0].Id != nil && *existingPorts[0].Id != "" && existingPorts[0].ParentPath != nil && len(*existingPorts[0].ParentPath) > 0 {
+				subnetPath = *existingPorts[0].ParentPath
+				existing = true
+				log.Info("NSX SubnetPort will be reused on the existing NSX Subnet, its tags and display name will be updated with the new SubnetPort CR metadata",
+					"subnetPort.Namespace", subnetPort.Namespace, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID,
+					"reusePort", reusePort, "subnetPath", subnetPath, "reusedPortID", *existingPorts[0].Id)
+				return
+			}
+			return false, false, "", nil, nil, "", "", fmt.Errorf("reused port %s not found", reusePort)
+		}
 	}
 	if r.restoreMode {
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR

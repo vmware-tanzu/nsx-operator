@@ -93,6 +93,7 @@ func setupStore() *SubnetPortStore {
 					servicecommon.TagScopeStatefulSetUID:  subnetPortIndexByStatefulSetUID,
 					servicecommon.TagScopeStatefulSetName: subnetPortIndexByStatefulSetName,
 					servicecommon.IndexKeyAllStsPorts:     subnetPortIndexBySts,
+					servicecommon.IndexKeyAttachmentID:    subnetPortIndexByAttachmentID,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
@@ -477,24 +478,78 @@ func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) 
 		}
 		if vpcSubnetPort != nil {
 			crSubnetPortIDsSet.Insert(*vpcSubnetPort.Id)
+		} else if util.IsCPVM(subnetPort.Labels) {
+			if reusePort, ok := subnetPort.Annotations[servicecommon.AnnotationReusePort]; ok && reusePort != "" {
+				if oldNs, oldName, err := util.ParseReusePortAnnotation(reusePort); err == nil {
+					existingPorts := service.ListVMSubnetPortByName(oldNs, oldName)
+					if len(existingPorts) > 0 && existingPorts[0].Id != nil && *existingPorts[0].Id != "" {
+						crSubnetPortIDsSet.Insert(*existingPorts[0].Id)
+					}
+				}
+			}
 		}
 	}
 	return crSubnetPortIDsSet, nil
 }
 
-func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) []*model.VpcSubnetPort {
+// ListVMSubnetPortByName gets all VM SubnetPorts in the given VM namespace with the specified SubnetPort CR name
+func (service *SubnetPortService) ListVMSubnetPortByName(ns string, name string) []*model.VpcSubnetPort {
 	var result []*model.VpcSubnetPort
-	// Get all the SubnetPorts in the namespace, including VM and Pod(image fetcher) SubnetPorts
+	if service.SubnetPortStore == nil || service.SubnetPortStore.Indexer == nil {
+		return result
+	}
 	vmSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeVMNamespace, ns)
-	podSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeNamespace, ns)
-	subnetPorts := append(vmSubnetPorts, podSubnetPorts...)
-	for _, subnetport := range subnetPorts {
+	for _, subnetport := range vmSubnetPorts {
 		tagName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
 		if tagName == name {
 			result = append(result, subnetport)
 		}
 	}
 	return result
+}
+
+// ListSubnetPortByName gets all SubnetPorts in the namespace with the given SubnetPort CR name,
+// prioritizing VM SubnetPorts and then Pod (image fetcher) SubnetPorts
+func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) []*model.VpcSubnetPort {
+	var result []*model.VpcSubnetPort
+	if service.SubnetPortStore == nil || service.SubnetPortStore.Indexer == nil {
+		return result
+	}
+	result = append(result, service.ListVMSubnetPortByName(ns, name)...)
+
+	podSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeNamespace, ns)
+	for _, subnetport := range podSubnetPorts {
+		tagName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
+		if tagName == name {
+			found := false
+			for _, p := range result {
+				if p.Id != nil && subnetport.Id != nil && *p.Id == *subnetport.Id {
+					found = true
+					break
+				}
+			}
+			if !found {
+				result = append(result, subnetport)
+			}
+		}
+	}
+	return result
+}
+
+// GetSubnetPortByAttachmentID gets a VpcSubnetPort from the store with the specified attachment ID
+func (service *SubnetPortService) GetSubnetPortByAttachmentID(attachmentID string) *model.VpcSubnetPort {
+	if attachmentID == "" || service == nil || service.SubnetPortStore == nil {
+		return nil
+	}
+	return service.SubnetPortStore.GetVpcSubnetPortByAttachmentID(attachmentID)
+}
+
+// GetSubnetPortByID gets a VpcSubnetPort from the store with the specified port ID
+func (service *SubnetPortService) GetSubnetPortByID(portID string) *model.VpcSubnetPort {
+	if portID == "" || service == nil || service.SubnetPortStore == nil {
+		return nil
+	}
+	return service.SubnetPortStore.GetByKey(portID)
 }
 
 func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string) []*model.VpcSubnetPort {

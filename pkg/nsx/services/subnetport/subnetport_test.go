@@ -1038,6 +1038,48 @@ func TestSubnetPortService_ListSubnetPortByName(t *testing.T) {
 	// Should return empty list
 	subnetPorts = subnetPortService.ListSubnetPortByName("ns-1", "non-existent")
 	assert.Equal(t, 0, len(subnetPorts))
+
+	// Test 4: ListVMSubnetPortByName should only return VM SubnetPort
+	vmPorts := subnetPortService.ListVMSubnetPortByName("ns-1", "subnetport-1")
+	assert.Equal(t, 1, len(vmPorts))
+	assert.Equal(t, vmSubnetPort1, vmPorts[0])
+
+	// Test 5: A regular Pod sharing the same name in the namespace should NOT match ListSubnetPortByName or ListVMSubnetPortByName
+	regularPodPortId := "regular-pod-subnetport-1"
+	regularPodPortPath := "/orgs/org1/projects/project1/vpcs/vpc1/subnets/subnet1/ports/regular-pod-subnetport-1"
+	regularPodPort := &model.VpcSubnetPort{
+		Id:         &regularPodPortId,
+		Path:       &regularPodPortPath,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String(common.TagScopeNamespace),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopePodName),
+				Tag:   common.String("subnetport-1"),
+			},
+		},
+	}
+	subnetPortService.SubnetPortStore.Add(regularPodPort)
+
+	// ListVMSubnetPortByName must still only return the VM port
+	vmPortsAfterPodAdd := subnetPortService.ListVMSubnetPortByName("ns-1", "subnetport-1")
+	assert.Equal(t, 1, len(vmPortsAfterPodAdd))
+	assert.Equal(t, vmSubnetPort1, vmPortsAfterPodAdd[0])
+
+	// ListSubnetPortByName must only return the VM port and CR-based Pod port, NOT the regular Pod
+	allPorts := subnetPortService.ListSubnetPortByName("ns-1", "subnetport-1")
+	assert.Equal(t, 2, len(allPorts))
+	for _, port := range allPorts {
+		assert.NotEqual(t, regularPodPortId, *port.Id)
+	}
+
+	// Regular pod is retrieved by ListSubnetPortByPodName
+	podPorts := subnetPortService.ListSubnetPortByPodName("ns-1", "subnetport-1")
+	assert.Equal(t, 1, len(podPorts))
+	assert.Equal(t, regularPodPortId, *podPorts[0].Id)
 }
 
 func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
@@ -2619,4 +2661,66 @@ func TestSubnetPortService_CheckSubnetPortState_IPPoolExhausted(t *testing.T) {
 	assert.True(t, ok)
 	info := infoObj.(*CountInfo)
 	assert.False(t, info.exhaustedCheckTime.IsZero())
+}
+
+func TestSubnetPortService_GetSubnetPortByAttachmentID(t *testing.T) {
+	portID := "port-1"
+	attachmentID := "attachment-1"
+	parentPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	port := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Attachment: &model.PortAttachment{
+			Id: &attachmentID,
+		},
+	}
+
+	service := &SubnetPortService{}
+	// Nil store
+	assert.Nil(t, service.GetSubnetPortByAttachmentID("attachment-1"))
+	// Empty attachment ID
+	assert.Nil(t, service.GetSubnetPortByAttachmentID(""))
+
+	// Store with indexer
+	service.SubnetPortStore = setupStore()
+	err := service.SubnetPortStore.Add(port)
+	assert.NoError(t, err)
+
+	// Found via indexer
+	found := service.GetSubnetPortByAttachmentID(attachmentID)
+	assert.NotNil(t, found)
+	assert.Equal(t, portID, *found.Id)
+
+	// Found via store method
+	foundStore := service.SubnetPortStore.GetVpcSubnetPortByAttachmentID(attachmentID)
+	assert.NotNil(t, foundStore)
+	assert.Equal(t, portID, *foundStore.Id)
+
+	// Not found
+	assert.Nil(t, service.GetSubnetPortByAttachmentID("non-existent"))
+	assert.Nil(t, service.SubnetPortStore.GetVpcSubnetPortByAttachmentID("non-existent"))
+
+	// When Indexer is nil
+	noIndexStore := &SubnetPortStore{}
+	service.SubnetPortStore = noIndexStore
+	assert.Nil(t, service.GetSubnetPortByAttachmentID(attachmentID))
+	assert.Nil(t, service.SubnetPortStore.GetVpcSubnetPortByAttachmentID(attachmentID))
+
+	// Test subnetPortIndexByAttachmentID
+	keys, err := subnetPortIndexByAttachmentID(port)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{attachmentID}, keys)
+
+	emptyPort := &model.VpcSubnetPort{}
+	keys, err = subnetPortIndexByAttachmentID(emptyPort)
+	assert.NoError(t, err)
+	assert.Empty(t, keys)
+
+	emptyIDPort := &model.VpcSubnetPort{Attachment: &model.PortAttachment{Id: common.String("")}}
+	keys, err = subnetPortIndexByAttachmentID(emptyIDPort)
+	assert.NoError(t, err)
+	assert.Empty(t, keys)
+
+	_, err = subnetPortIndexByAttachmentID("invalid-type")
+	assert.Error(t, err)
 }
