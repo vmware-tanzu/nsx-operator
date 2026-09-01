@@ -11,15 +11,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -56,9 +55,6 @@ func TestCluster_getThumbprint(t *testing.T) {
 	// two api server share one thumbprint
 	ep1 := &Endpoint{}
 	ep2 := &Endpoint{}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(ep1), "KeepAlive", func(_ *Endpoint) {
-	})
-	defer patch.Reset()
 	cluster.endpoints = []*Endpoint{ep1, ep2}
 	cluster.endpoints[0].provider = &address{host: "127.0.0.1:443"}
 	cluster.endpoints[1].provider = &address{host: "127.0.0.2:443"}
@@ -73,13 +69,18 @@ func TestCluster_getThumbprint(t *testing.T) {
 	tb = cluster.getThumbprint("127.0.0.2:443")
 	assert.Equal(t, tb, "234")
 
-	// two api server no port, two thumbprint
+	// two api server no port in addr, two thumbprint
 	cluster.endpoints[0].provider = &address{host: "127.0.0.1"}
 	cluster.endpoints[1].provider = &address{host: "127.0.0.2"}
-	tb = cluster.getThumbprint("127.0.0.1:443")
+	tb = cluster.getThumbprint("127.0.0.1")
 	assert.Equal(t, tb, "123")
-	tb = cluster.getThumbprint("127.0.0.2:443")
+	tb = cluster.getThumbprint("127.0.0.2")
 	assert.Equal(t, tb, "234")
+
+	// test getCaFile without port in addr
+	cluster.config.CAFile = []string{"/path/ca1.pem", "/path/ca2.pem"}
+	assert.Equal(t, "/path/ca1.pem", cluster.getCaFile("127.0.0.1"))
+	assert.Equal(t, "/path/ca2.pem", cluster.getCaFile("127.0.0.2"))
 }
 
 func TestCluster_NewRestConnector(t *testing.T) {
@@ -150,87 +151,89 @@ func TestCluster_enableFeature(t *testing.T) {
 	// Test case for enabling feature SecurityPolicy
 	nsxVersion := &NsxVersion{}
 	nsxVersion.ProductVersion = "3.1.3.3.0.18844962"
-	assert.False(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	log := logger.ZapCustomLogger(false, 0)
+	assert.False(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "3.2.0.3.0.18844962"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "3.11.0.3.0.18844962"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "4.0.0"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "4.0.1"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "4.1.0"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "4.1.2"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "4.1.3"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "3.2.0"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
 	nsxVersion.ProductVersion = "4.2.0"
-	assert.True(t, nsxVersion.featureSupported(SecurityPolicy))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccount))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore))
-	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation))
-	assert.False(t, nsxVersion.featureSupported(IPv6))
-	assert.False(t, nsxVersion.featureSupported(SubnetAssociation))
+	assert.True(t, nsxVersion.featureSupported(SecurityPolicy, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccount, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountRestore, log))
+	assert.True(t, nsxVersion.featureSupported(ServiceAccountCertRotation, log))
+	assert.False(t, nsxVersion.featureSupported(IPv6, log))
+	assert.False(t, nsxVersion.featureSupported(SubnetAssociation, log))
 
 	nsxVersion.ProductVersion = "9.2.0"
-	assert.True(t, nsxVersion.featureSupported(IPv6))
-	assert.True(t, nsxVersion.featureSupported(SubnetAssociation))
+	assert.True(t, nsxVersion.featureSupported(IPv6, log))
+	assert.True(t, nsxVersion.featureSupported(SubnetAssociation, log))
 
 	// Test case for invalid feature
 	feature := 3
 	nsxVersion.ProductVersion = "3.1.3.3.0.18844962"
-	assert.False(t, nsxVersion.featureSupported(feature))
+	assert.False(t, nsxVersion.featureSupported(feature, log))
 	nsxVersion.ProductVersion = "3.2.0"
-	assert.False(t, nsxVersion.featureSupported(feature))
+	assert.False(t, nsxVersion.featureSupported(feature, log))
 }
 
 func TestCluster_validate(t *testing.T) {
+	log := logger.ZapCustomLogger(false, 0)
 	nsxVersion := &NsxVersion{}
 	nsxVersion.ProductVersion = "12"
 	expect := errors.New("error version format")
-	err := nsxVersion.Validate()
+	err := nsxVersion.Validate(log)
 	assert.Equal(t, err, expect)
 
 	nsxVersion.ProductVersion = "12.3"
-	err = nsxVersion.Validate()
+	err = nsxVersion.Validate(log)
 	assert.Equal(t, err, expect)
 
 	nsxVersion.ProductVersion = "3.2.3.3.0.18844962"
-	err = nsxVersion.Validate()
+	err = nsxVersion.Validate(log)
 	assert.Equal(t, err, nil)
 
 	nsxVersion.ProductVersion = "3.2.3"
-	err = nsxVersion.Validate()
+	err = nsxVersion.Validate(log)
 	assert.Equal(t, err, nil)
 }
 
@@ -493,47 +496,47 @@ func TestCluster_CreateServerUrl(t *testing.T) {
 	}
 }
 
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func TestFetchLicense(t *testing.T) {
 	address := address{
 		host:   "1.2.3.4",
 		scheme: "https",
 	}
-	// Success case
-	cluster := &Cluster{endpoints: []*Endpoint{{
+	ep := &Endpoint{
 		provider: &address,
-	}}}
-	cluster.config = &Config{EnvoyPort: 0}
-
-	// Request creation failure
-	patch := gomonkey.ApplyFunc(http.NewRequest,
-		func(method, url string, body io.Reader) (*http.Request, error) {
-			return nil, errors.New("request error")
-		})
-	err := cluster.FetchLicense()
-	assert.Error(t, err)
-	patch.Reset()
+	}
+	cluster := &Cluster{
+		endpoints: []*Endpoint{ep},
+		config:    &Config{EnvoyPort: 0},
+	}
 
 	// HTTP error
-	patch = gomonkey.ApplyFunc((*http.Client).Do,
-		func(client *http.Client, req *http.Request) (*http.Response, error) {
+	ep.client = &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("http error")
-		})
+		}),
+	}
 
-	err = cluster.FetchLicense()
+	err := cluster.FetchLicense()
 	assert.Error(t, err)
-	patch.Reset()
 
 	// normal case
-	patch = gomonkey.ApplyFunc((*http.Client).Do,
-		func(client *http.Client, req *http.Request) (*http.Response, error) {
+	ep.client = &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			res := &nsxutil.NsxLicense{
 				Results: []struct {
 					FeatureName string `json:"feature_name"`
 					IsLicensed  bool   `json:"is_licensed"`
-				}{{
-					FeatureName: "CONTAINER",
-					IsLicensed:  true,
-				},
+				}{
+					{
+						FeatureName: "CONTAINER",
+						IsLicensed:  true,
+					},
 					{
 						FeatureName: "DFW",
 						IsLicensed:  true,
@@ -552,9 +555,90 @@ func TestFetchLicense(t *testing.T) {
 				},
 				Request: req,
 			}, nil
-		})
-	defer patch.Reset()
+		}),
+	}
 	err = cluster.FetchLicense()
 	assert.Nil(t, err)
+}
 
+func TestHttpDelete(t *testing.T) {
+	address := address{
+		host:   "1.2.3.4",
+		scheme: "https",
+	}
+	ep := &Endpoint{
+		provider: &address,
+	}
+	cluster := &Cluster{
+		endpoints: []*Endpoint{ep},
+		config:    &Config{EnvoyPort: 0},
+	}
+
+	// Success case (200 OK)
+	ep.client = &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader([]byte("{}"))),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+	err := cluster.HttpDelete("api/v1/resource")
+	assert.Nil(t, err)
+
+	// Error case (400 Bad Request)
+	ep.client = &http.Client{
+		Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Body:       io.NopCloser(bytes.NewReader([]byte(`{"error_code": 500030, "error_message": "Resource in use"}`))),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+	err = cluster.HttpDelete("api/v1/resource")
+	assert.Error(t, err)
+}
+
+func TestCluster_StopKeepAlive(t *testing.T) {
+	cluster := &Cluster{
+		endpoints: []*Endpoint{
+			{
+				stop: make(chan bool),
+			},
+			{
+				stop: make(chan bool),
+			},
+		},
+	}
+
+	// Simulate KeepAlive goroutines running
+	for _, ep := range cluster.endpoints {
+		ep.wg.Add(1)
+		go func(e *Endpoint) {
+			defer e.wg.Done()
+			<-e.stop
+		}(ep)
+	}
+
+	// Call StopKeepAlive, it should close channels and wait for goroutines to finish
+	cluster.StopKeepAlive()
+
+	// Verify channels are closed by trying to read from them
+	for _, ep := range cluster.endpoints {
+		select {
+		case _, ok := <-ep.stop:
+			assert.False(t, ok, "channel should be closed")
+		default:
+			t.Errorf("channel was not closed")
+		}
+	}
+
+	// Calling it again should not panic (testing the select default branch)
+	assert.NotPanics(t, func() {
+		cluster.StopKeepAlive()
+	})
 }
