@@ -5,18 +5,14 @@ package nsx
 
 import "github.com/vmware-tanzu/nsx-operator/pkg/config"
 
-// StatefulSetPodSubnetPortFeatureEnabled is true when NSX version is 9.1.2+ and vpc_wcp_enhance=true
-// and operator nsx_v3 sets vpc_wcp_enhance to true (omitted or false keeps the feature off).
+// StatefulSetPodSubnetPortFeatureEnabled is true when NSX supports StatefulSet pod SubnetPorts.
 //
 //go:noinline
-func StatefulSetPodSubnetPortFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
-	if client == nil || !client.NSXCheckVersion(StatefulSetPod) {
+func StatefulSetPodSubnetPortFeatureEnabled(client *Client) bool {
+	if client == nil {
 		return false
 	}
-	if operatorConfig == nil || operatorConfig.NsxConfig == nil {
-		return false
-	}
-	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
+	return client.NSXCheckVersion(StatefulSetPod)
 }
 
 // MacPoolDHCPFeatureEnabled is true when NSX supports MAC_POOL allocateAddresses for DHCP

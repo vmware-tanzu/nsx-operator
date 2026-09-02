@@ -62,7 +62,7 @@ type StatefulSetReconciler struct {
 
 // StatefulSetPodFeatureEnabled reports whether the StatefulSet pod SubnetPort feature is active.
 func (r *StatefulSetReconciler) StatefulSetPodFeatureEnabled() bool {
-	return nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig)
+	return nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient)
 }
 
 func (r *StatefulSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

@@ -590,7 +590,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 						return ""
 					})
 				patches.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
-					func(client *nsx.Client, config *config.NSXOperatorConfig) bool {
+					func(client *nsx.Client) bool {
 						return true
 					})
 				patches.ApplyFunc(subnetport.GetStatefulSetUID,

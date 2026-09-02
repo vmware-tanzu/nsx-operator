@@ -279,7 +279,7 @@ func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMet
 	// For StatefulSet pods: check if a SubnetPort with the same StatefulSet UID and pod name exists
 	// Note: STS UID is globally unique, so we only need to check pod name
 	// Only reuse if StatefulSet pod SubnetPort feature is enabled
-	enableStsFeature := nsx.StatefulSetPodSubnetPortFeatureEnabled(service.NSXClient, service.NSXConfig)
+	enableStsFeature := nsx.StatefulSetPodSubnetPortFeatureEnabled(service.NSXClient)
 	if enableStsFeature {
 		if port := service.GetExistingSubnetPortForStatefulSetPod(obj.Name, stsUID); port != nil {
 			log.Info("Reusing existing SubnetPort for StatefulSet pod",
