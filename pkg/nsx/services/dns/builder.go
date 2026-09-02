@@ -17,7 +17,7 @@ const (
 )
 
 // BuildDnsRecord builds one *model.DnsRecord for row using batchOwner or row.effectiveOwner.
-func (s *DNSRecordService) BuildDnsRecord(batchOwner *ResourceRef, row EndpointRow) *model.DnsRecord {
+func (s *DNSRecordService) BuildDnsRecord(batchOwner *ResourceRef, row EndpointRow) (*model.DnsRecord, error) {
 	owner := batchOwner
 	if row.effectiveOwner != nil {
 		owner = row.effectiveOwner
@@ -54,9 +54,12 @@ func getRecordIDAndPathAndType(recordName, endpointRecordType, zonePath string) 
 	return recID, recordPath, nsxRecordType
 }
 
-func (r *EndpointRow) buildDNSRecord(basicTags []model.Tag) *model.DnsRecord {
+func (r *EndpointRow) buildDNSRecord(basicTags []model.Tag) (*model.DnsRecord, error) {
 	// Append the tags according to the Endpoint labels, e.g., the parent gateway settings for a Route.
-	tags := r.appendRowOwnershipTags(basicTags)
+	tags, err := r.appendRowOwnershipTags(basicTags)
+	if err != nil {
+		return nil, err
+	}
 	recID, path, rt := getRecordIDAndPathAndType(r.nsxRecordName, r.RecordType, r.zonePath)
 	ttl := int64(DefaultRecordTtL)
 	if r.Endpoint.RecordTTL.IsConfigured() {
@@ -76,7 +79,7 @@ func (r *EndpointRow) buildDNSRecord(basicTags []model.Tag) *model.DnsRecord {
 		// Mirror logical FQDN for store indexing / conflict detection; stripped before Policy PATCH (see WrapDnsRecord).
 		Fqdn: common.String(strings.ToLower(r.Endpoint.DNSName)),
 	}
-	return rec
+	return rec, nil
 }
 
 func getNSXDnsRecordType(recType string) string {
@@ -97,13 +100,18 @@ func getNSXDnsRecordType(recType string) string {
 	}
 }
 
-func (r *EndpointRow) appendRowOwnershipTags(ownerTags []model.Tag) []model.Tag {
+func (r *EndpointRow) appendRowOwnershipTags(ownerTags []model.Tag) ([]model.Tag, error) {
 	tags := append([]model.Tag{}, ownerTags...)
 	gwKey := ""
 	if r.Endpoint != nil && r.Endpoint.Labels != nil {
 		gwKeys := strings.TrimSpace(r.Endpoint.Labels[EndpointLabelParentGateway])
 		if len(gwKeys) > 0 {
-			gwKey = compressString(gwKeys)
+			var overflow string
+			var truncated bool
+			gwKey, overflow, truncated = joinAndPackStrings(strings.Split(gwKeys, ","))
+			if truncated || overflow != "" {
+				return nil, fmt.Errorf("gateway index list exceeds maximum tag capacity")
+			}
 		}
 	}
 	return appendGatewayAndContributionTags(tags, gwKey, r.contributingOwnerKeys)

@@ -125,7 +125,7 @@ func gatewayIndexKeysFromDNSRecord(v *model.DnsRecord) []string {
 }
 
 func parseGateways(raw string) []string {
-	plainGws := decompressString(raw)
+	plainGws := raw
 	seen := sets.New[string]()
 	for _, part := range strings.Split(plainGws, ",") {
 		k := strings.TrimSpace(part)

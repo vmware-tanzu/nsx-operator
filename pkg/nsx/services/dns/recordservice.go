@@ -16,20 +16,60 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var (
-	log                   = logger.Log
-	_   DNSRecordProvider = (*DNSRecordService)(nil)
+	log                               = logger.Log
+	_               DNSRecordProvider = (*DNSRecordService)(nil)
+	k8sRouteKindSet                   = sets.New(ResourceKindHTTPRoute, ResourceKindGRPCRoute, ResourceKindTLSRoute)
 )
 
 // NSX Policy path: /orgs/{org}/projects/{project}/dns-records/{record-id}
 var dnsRecordPathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-records/([^/]+)$`)
+
+// recordAccessArbitrator ensures that concurrent goroutines cannot perform operations
+// on the same record ID within a zone simultaneously. It avoids the memory leaks associated with
+// storing a sync.Mutex per record ID indefinitely.
+type recordAccessArbitrator struct {
+	mutex       sync.Mutex
+	cond        *sync.Cond
+	busyRecords map[string]bool
+}
+
+var recordArbitrator = func() *recordAccessArbitrator {
+	a := &recordAccessArbitrator{
+		busyRecords: make(map[string]bool),
+	}
+	a.cond = sync.NewCond(&a.mutex)
+	return a
+}()
+
+func getLockKey(zonePath, recordID, recType string) string {
+	return zonePath + "/" + recordID + "/" + recType
+}
+
+func (a *recordAccessArbitrator) lock(lockKey string) {
+	a.cond.L.Lock()
+	defer a.cond.L.Unlock()
+	for a.busyRecords[lockKey] {
+		a.cond.Wait()
+	}
+	a.busyRecords[lockKey] = true
+}
+
+func (a *recordAccessArbitrator) unlock(lockKey string) {
+	a.cond.L.Lock()
+	defer a.cond.L.Unlock()
+	delete(a.busyRecords, lockKey)
+	a.cond.Broadcast()
+}
 
 // dnsZoneCache is a thread-safe zone path → DNS domain name cache.
 type dnsZoneCache struct {
@@ -72,16 +112,65 @@ type DNSRecordService struct {
 	DnsRecordBuilder *common.PolicyTreeBuilder[*model.DnsRecord]
 }
 
+// getInvolvedRecordLockKeys returns the unique policy paths and lock keys for all records involved in this batch.
+// This includes the records the batch *wants* to manage, as well as the records the owner *currently* owns.
+func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoints) (lockKeys []string) {
+	involvedLockKeys := make(map[string]struct{})
+
+	if batch.Owner != nil {
+		for _, row := range batch.Rows {
+			recID, _, recType := getRecordIDAndPathAndType(row.nsxRecordName, row.RecordType, row.zonePath)
+			involvedLockKeys[getLockKey(row.zonePath, recID, recType)] = struct{}{}
+		}
+
+		_, ownedRecs := s.collectRecordsByOwner(batch.Owner.Kind, batch.Owner.GetNamespace(), batch.Owner.GetName())
+		for _, rec := range ownedRecs {
+			if rec.Id != nil && rec.ZonePath != nil && rec.RecordType != nil {
+				involvedLockKeys[getLockKey(*rec.ZonePath, *rec.Id, *rec.RecordType)] = struct{}{}
+			}
+		}
+	}
+
+	for k := range involvedLockKeys {
+		lockKeys = append(lockKeys, k)
+	}
+	slices.Sort(lockKeys)
+
+	return lockKeys
+}
+
 // CreateOrUpdateRecords upserts batch rows into the store and NSX placeholder. Returns (storeMutated, err).
 func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *AggregatedDNSEndpoints) (bool, error) {
+	if batch.Owner != nil {
+		ownerKey := "owner/" + batch.Owner.Kind + "/" + batch.Owner.GetNamespace() + "/" + batch.Owner.GetName()
+		recordArbitrator.lock(ownerKey)
+		defer recordArbitrator.unlock(ownerKey)
+	}
+
+	sortedRecordIDs := s.getInvolvedRecordLockKeys(batch)
+
+	// Acquire locks in a deterministic order to prevent deadlocks
+	for _, id := range sortedRecordIDs {
+		recordArbitrator.lock(id)
+	}
+	defer func() {
+		// unlock in reverse order
+		for i := len(sortedRecordIDs) - 1; i >= 0; i-- {
+			recordArbitrator.unlock(sortedRecordIDs[i])
+		}
+	}()
+
 	toUpsert, toRemove, err := s.applyDNSUpsertRows(batch)
 	if err != nil {
 		return false, err
 	}
+
 	if len(toUpsert) == 0 && len(toRemove) == 0 {
 		return false, nil
 	}
+
 	toApply, syncErr := s.syncDnsRecordsInNSX(ctx, toUpsert, toRemove)
+
 	// Apply whichever records were successfully processed to keep the local store in sync even on
 	// partial realization failures; this prevents re-sending already-realized records next reconcile.
 	if len(toApply) > 0 {
@@ -103,7 +192,9 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 		removeOps = append(removeOps, &cp)
 	}
 
+	// Merge ops, ensuring deletes process first or aren't duplicated if upserting same path
 	batch := append(append([]*model.DnsRecord(nil), toUpsert...), removeOps...)
+	batch = dedupeRecordsByPath(batch) // In case of overlap, the last one in batch wins
 
 	if len(batch) == 0 {
 		return nil, nil
@@ -124,11 +215,31 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 			realizeErrs = append(realizeErrs, perr)
 			continue
 		}
-		live, gerr := s.NSXClient.DnsRecordsClient.Get(orgID, projectID, recordID)
-		gerr = nsxutil.TransNSXApiError(gerr)
-		if gerr != nil {
-			log.Error(gerr, "Failed to get realized DnsRecord from NSX", "Id", recordID)
-			realizeErrs = append(realizeErrs, fmt.Errorf("failed to get record %s from NSX after realization: %w", recordID, gerr))
+
+		var live model.DnsRecord
+		var gerr error
+		err := retry.OnError(util.NSXTRealizeRetry, func(err error) bool {
+			if err == nil {
+				return false
+			}
+			// 500087 is checked and handled at the top level retry loop
+			if nsxApiErr, ok := err.(*nsxutil.NSXApiError); ok {
+				if nsxApiErr.ErrorCode != nil && *nsxApiErr.ErrorCode == 500090 {
+					// 500090 is returned when the object is requested before it is fully indexed/available
+					return true
+				}
+			}
+			return false
+		}, func() error {
+			live, gerr = s.NSXClient.DnsRecordsClient.Get(orgID, projectID, recordID)
+			gerr = nsxutil.TransNSXApiError(gerr)
+			// Return immediately if it's 500090 so the retry catches it
+			return gerr
+		})
+
+		if err != nil {
+			log.Error(err, "Failed to get realized DnsRecord from NSX", "Id", recordID)
+			realizeErrs = append(realizeErrs, fmt.Errorf("failed to get record %s from NSX after realization: %w", recordID, err))
 			continue
 		}
 		log.Debug("DnsRecord realized and refreshed", "Id", recordID)
@@ -144,7 +255,48 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 	return toApply, nil
 }
 
-// validateEndpointRowConflict returns a row for ep in zone, or an error on FQDN conflict.
+func isRouteKind(kind string) bool {
+	return k8sRouteKindSet.Has(kind)
+}
+
+// isRouteKindCompatible checks if both kind1 and kind2 belong to the route kind group (HTTPRoute, GRPCRoute, TLSRoute).
+func isRouteKindCompatible(kind1, kind2 string) bool {
+	return kind1 == kind2 || (k8sRouteKindSet.Has(kind1) && k8sRouteKindSet.Has(kind2))
+}
+
+// isRecordSharableWithContributors checks if existing rec is owned by a route kind that supports the contributor mechanism.
+func isRecordSharableWithContributors(rec *model.DnsRecord) bool {
+	owner, ok := resourceRefFromDNSRecord(rec)
+	if !ok {
+		return false
+	}
+	return isRouteKind(owner.Kind)
+}
+
+// isRouteTargetConsistent checks if incoming ep and owner match the parent gateway values of existing rec for adoption.
+func isRouteTargetConsistent(rec *model.DnsRecord, ep *extdns.Endpoint, owner *ResourceRef, zonePath string) error {
+	fqdn := strings.ToLower(ep.DNSName)
+	recGw := gatewayIndexTagFromRecord(rec)
+	epGw := strings.TrimSpace(ep.Labels[EndpointLabelParentGateway])
+	if recGw != epGw {
+		err := fmt.Errorf("FQDN %s parent gateway %s conflicts with existing record parent gateway %s in DNS zone %s", fqdn, epGw, recGw, zonePath)
+		return err
+	}
+	return nil
+}
+
+// validateEndpointRowConflict checks whether an incoming endpoint can create or adopt a DNS record,
+// or if it conflicts with an existing record in the store.
+//
+// Validation rules for shared DNS records:
+//  1. Primary owner reconciliation (current owner == record primary owner):
+//     - If the record has active contributors, changing the parent gateway is forbidden to prevent
+//     gateway mismatch for contributors. Target IP changes (e.g. gateway IP updates) are allowed.
+//  2. Contributor adoption flow (current owner != record primary owner):
+//     - Contributor sharing is only supported for route resources (HTTPRoute, GRPCRoute, TLSRoute).
+//     - The incoming resource and existing primary owner must be compatible route kinds.
+//     - Both resources must be associated with the exact same parent Gateway.
+//     - When valid, the incoming resource adopts the existing record as a contributor.
 func (s *DNSRecordService) validateEndpointRowConflict(zonePath string, ep *extdns.Endpoint, recordName string, owner *ResourceRef) (*EndpointRow, error) {
 	createdFor := resourceKindToCreatedFor(owner.Kind)
 	if createdFor == "" {
@@ -156,36 +308,81 @@ func (s *DNSRecordService) validateEndpointRowConflict(zonePath string, ep *extd
 	recs := s.DNSRecordStore.GetByIndex(indexKeyDNSRecordZonePathRecordName, idxKey)
 	log.Debug("Checking DNS record conflict", "fqdn", fqdn, "zone", zonePath, "type", recTypeForIdx, "existingCount", len(recs))
 	currentNNKey := ownerNNIndexKeyForResourceRef(owner)
-	for _, rec := range recs {
-		if getDNSRecordOwnerNamespacedName(rec) == currentNNKey {
-			return NewEndpointRow(ep, zonePath, recordName), nil
+	if len(recs) == 0 {
+		return NewEndpointRow(ep, zonePath, recordName), nil
+	}
+
+	// Always prefer the newest record for the index key if multiple exist somehow (which shouldn't happen)
+	rec := recs[0]
+	for _, r := range recs {
+		if r.MarkedForDelete == nil || !*r.MarkedForDelete {
+			rec = r
+			break
 		}
-		if *rec.RecordType != ep.RecordType {
-			continue
-		}
-		extRecValues := sortedCopyStrings(rec.RecordValues)
-		newRecValues := sortedCopyStrings(ep.Targets)
-		if !slices.Equal(extRecValues, newRecValues) {
-			err := fmt.Errorf("FQDN %s is configured with different values in DNS zone %s", fqdn, zonePath)
-			log.Error(err, "FQDN targets conflict with existing record", "resource", getDNSRecordOwnerNamespacedName(rec))
-			return nil, err
-		}
-		effectiveOwner, ok := resourceRefFromDNSRecord(rec)
-		if !ok {
-			err := fmt.Errorf("FQDN %s has an existing DNS record with incomplete owner metadata in DNS zone %s", fqdn, zonePath)
-			log.Error(err, "cannot adopt shared DNS record")
-			return nil, err
-		}
-		log.Info("Adopting shared DNS record", "fqdn", fqdn, "zone", zonePath,
-			"effectiveOwner", getDNSRecordOwnerNamespacedName(rec), "currentOwner", currentNNKey)
+	}
+
+	extRecValues := sortedCopyStrings(rec.RecordValues)
+	newRecValues := sortedCopyStrings(ep.Targets)
+
+	// Case 1: Reconciling resource is the primary owner of the existing record.
+	if getDNSRecordOwnerNamespacedName(rec) == currentNNKey {
 		row := NewEndpointRow(ep, zonePath, recordName)
-		primaryNN := primaryOwnerNNIndexKeyFromRecord(rec)
-		row.effectiveOwner = effectiveOwner
-		existingContributions := decompressContributingTags(rec)
-		row.contributingOwnerKeys = mergeContributingOwnerKeys(existingContributions, currentNNKey, primaryNN)
+		if isRecordSharableWithContributors(rec) {
+			existingContribs := parseContributingOwnersFromRecord(rec)
+			if len(existingContribs) > 0 {
+				recGw := gatewayIndexTagFromRecord(rec)
+				epGw := strings.TrimSpace(ep.Labels[EndpointLabelParentGateway])
+				// Prevent gateway changes while other contributors are attached to this record.
+				if recGw != epGw {
+					err := fmt.Errorf("FQDN %s in DNS zone %s is taken by other resources: parent gateway changed from %s to %s", fqdn, zonePath, recGw, epGw)
+					log.Error(err, "parent gateway changed during primary owner reconcile", "resource", currentNNKey)
+					return nil, err
+				}
+				row.contributingOwnerKeys = existingContribs
+			}
+		}
+		if !slices.Equal(extRecValues, newRecValues) {
+			log.Info("DNS record targets changed", "fqdn", fqdn, "zone", zonePath, "resource", currentNNKey, "oldTargets", extRecValues, "newTargets", newRecValues)
+		}
 		return row, nil
 	}
-	return NewEndpointRow(ep, zonePath, recordName), nil
+
+	// Case 2: Incoming resource is trying to adopt an existing record owned by another resource.
+	effectiveOwner, ok := resourceRefFromDNSRecord(rec)
+	if !ok {
+		err := fmt.Errorf("FQDN %s has an existing DNS record with incomplete owner metadata in DNS zone %s", fqdn, zonePath)
+		log.Error(err, "cannot adopt shared DNS record")
+		return nil, err
+	}
+
+	primaryNN := getDNSRecordOwnerNamespacedName(rec)
+	// Contributor sharing is restricted to route resources (non-route kinds like Service cannot be shared).
+	if !isRecordSharableWithContributors(rec) {
+		err := fmt.Errorf("contributor mechanism is only supported for route resources; FQDN %s is already owned by %s (%s) in DNS zone %s", fqdn, effectiveOwner.Kind, primaryNN, zonePath)
+		log.Error(err, "cannot adopt DNS record for non-route kind")
+		return nil, err
+	}
+
+	// Incoming resource and primary owner must be compatible route kinds.
+	if !isRouteKindCompatible(owner.Kind, effectiveOwner.Kind) {
+		err := fmt.Errorf("FQDN %s is not sharable between resources %s and %s in DNS zone %s", fqdn, effectiveOwner.Kind, owner.Kind, zonePath)
+		log.Error(err, "cannot adopt DNS record between incompatible kinds")
+		return nil, err
+	}
+
+	// Incoming resource and primary owner must belong to the exact same parent Gateway.
+	if err := isRouteTargetConsistent(rec, ep, owner, zonePath); err != nil {
+		log.Error(err, "parent gateway conflict for shared DNS record", "currentOwner", currentNNKey, "existingOwner", getDNSRecordOwnerNamespacedName(rec))
+		return nil, err
+	}
+
+	log.Info("Adopting shared DNS record", "fqdn", fqdn, "zone", zonePath,
+		"effectiveOwner", primaryNN, "currentOwner", currentNNKey)
+	row := NewEndpointRow(ep, zonePath, recordName)
+	row.effectiveOwner = effectiveOwner
+	existingContributions := parseContributingOwnersFromRecord(rec)
+	row.contributingOwnerKeys = mergeContributingOwnerKeys(existingContributions, currentNNKey, primaryNN)
+	return row, nil
 }
 
 // classifyOwnerRemoval handles the three-way decision for a record that references deletedOwnerKey
@@ -209,7 +406,11 @@ func (s *DNSRecordService) classifyOwnerRemoval(rec *model.DnsRecord, deletedOwn
 		*toUpdate = append(*toUpdate, upd)
 		return nil
 	}
-	if upd, ok := recordAfterContributingRemoval(rec, deletedOwnerKey); ok {
+	upd, ok, err := recordAfterContributingRemoval(rec, deletedOwnerKey)
+	if err != nil {
+		return err
+	}
+	if ok {
 		*toUpdate = append(*toUpdate, upd)
 	}
 	return nil
@@ -231,7 +432,19 @@ func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]
 
 	desiredRecs := make([]*model.DnsRecord, 0, len(batch.Rows))
 	for _, row := range batch.Rows {
-		if rec := s.BuildDnsRecord(batch.Owner, row); rec != nil {
+		// Re-evaluate the row against the current store state while under the local lock
+		// to prevent overwriting existing shared records if the initial validation used a stale cache.
+		freshRow, err := s.validateEndpointRowConflict(row.zonePath, row.Endpoint, row.nsxRecordName, batch.Owner)
+		if err != nil {
+			log.Error(err, "conflict detected during upsert, aborting batch", "fqdn", row.Endpoint.DNSName)
+			return nil, nil, &DNSZoneValidationError{Msg: "DNS endpoint validation failed for FQDN is taken by other resource", Cause: err}
+		}
+		rec, err := s.BuildDnsRecord(batch.Owner, *freshRow)
+		if err != nil {
+			log.Error(err, "failed to build DNS record, aborting batch", "fqdn", row.Endpoint.DNSName)
+			return nil, nil, &DNSZoneValidationError{Msg: "DNS endpoint validation failed during record build", Cause: err}
+		}
+		if rec != nil {
 			desiredRecs = append(desiredRecs, rec)
 		}
 	}
@@ -249,6 +462,7 @@ func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]
 			return nil, nil, err
 		}
 	}
+
 	log.Debug("DNS record diff ready", "owner", ownerNNKey, "toUpsert", len(toUpsert), "toRemove", len(toRemove))
 	return toUpsert, toRemove, nil
 }
@@ -264,8 +478,44 @@ func (s *DNSRecordService) collectRecordsByOwner(ownerKind, ownerNamespace, owne
 	return ownerNNKey, dedupeRecordsByPath(slices.Concat(primRecs, contribRecs))
 }
 
+func (s *DNSRecordService) getInvolvedRecordLockKeysForOwner(kind, namespace, name string) []string {
+	recordIDsToLock := make(map[string]struct{})
+	_, ownedRecs := s.collectRecordsByOwner(kind, namespace, name)
+	for _, rec := range ownedRecs {
+		if rec.Id != nil && rec.ZonePath != nil && rec.RecordType != nil {
+			recordIDsToLock[getLockKey(*rec.ZonePath, *rec.Id, *rec.RecordType)] = struct{}{}
+		}
+	}
+
+	var sortedRecordIDs []string
+	for id := range recordIDsToLock {
+		sortedRecordIDs = append(sortedRecordIDs, id)
+	}
+	slices.Sort(sortedRecordIDs)
+
+	return sortedRecordIDs
+}
+
 // DeleteRecordByOwnerNN deletes or retags rows for kind/ns/name. Returns (storeMutated, err).
 func (s *DNSRecordService) DeleteRecordByOwnerNN(ctx context.Context, kind, namespace, name string) (bool, error) {
+	ownerKey := "owner/" + kind + "/" + namespace + "/" + name
+	recordArbitrator.lock(ownerKey)
+	defer recordArbitrator.unlock(ownerKey)
+
+	// calculate distinct record IDs to lock to prevent overlapping calculations and patches
+	sortedRecordIDs := s.getInvolvedRecordLockKeysForOwner(kind, namespace, name)
+
+	// Acquire locks in a deterministic order to prevent deadlocks
+	for _, id := range sortedRecordIDs {
+		recordArbitrator.lock(id)
+	}
+	defer func() {
+		// unlock in reverse order
+		for i := len(sortedRecordIDs) - 1; i >= 0; i-- {
+			recordArbitrator.unlock(sortedRecordIDs[i])
+		}
+	}()
+
 	toUpdate, toDelete, err := s.calculateRecordsForDeletion(kind, namespace, name)
 	if err != nil {
 		return false, err
@@ -277,7 +527,9 @@ func (s *DNSRecordService) DeleteRecordByOwnerNN(ctx context.Context, kind, name
 	if !cacheChanged {
 		return false, nil
 	}
+
 	toApply, syncErr := s.syncDnsRecordsInNSX(ctx, toUpdate, toDelete)
+
 	if len(toApply) > 0 {
 		if applyErr := s.DNSRecordStore.Apply(toApply); applyErr != nil {
 			return false, applyErr
@@ -299,6 +551,7 @@ func (s *DNSRecordService) calculateRecordsForDeletion(kind, namespace, name str
 			return nil, nil, err
 		}
 	}
+
 	return toUpdate, toDelete, nil
 }
 
@@ -309,7 +562,6 @@ func gatewayIndexTagFromRecord(rec *model.DnsRecord) string {
 // recordAfterPrimaryDeletePromotion returns the updated record when the primary owner is removed but contributors remain.
 func (s *DNSRecordService) recordAfterPrimaryDeletePromotion(rec *model.DnsRecord, sortedContribNNKeys []string) (*model.DnsRecord, error) {
 	promotedNN := sortedContribNNKeys[0]
-	remaining := append([]string(nil), sortedContribNNKeys[1:]...)
 	createdFor, ns, name, ok := parseOwnerNNIndexKey(promotedNN)
 	if !ok {
 		return nil, fmt.Errorf("invalid contributing owner key %q", promotedNN)
@@ -318,24 +570,37 @@ func (s *DNSRecordService) recordAfterPrimaryDeletePromotion(rec *model.DnsRecor
 	if kind == "" {
 		return nil, fmt.Errorf("unknown created-for tag in contributing owner key %q", promotedNN)
 	}
+
 	newOwner := &ResourceRef{Kind: kind, Object: &metav1.ObjectMeta{Namespace: ns, Name: name}}
 	out := *rec
-	out.Tags = appendGatewayAndContributionTags(s.tagsForOwner(newOwner), gatewayIndexTagFromRecord(rec), formatContributingOwnersTag(remaining))
+	var remaining []string
+	if len(sortedContribNNKeys) > 1 {
+		remaining = append(remaining, sortedContribNNKeys[1:]...)
+	}
+	tags, err := appendGatewayAndContributionTags(s.tagsForOwner(newOwner), gatewayIndexTagFromRecord(rec), remaining)
+	if err != nil {
+		return nil, err
+	}
+	out.Tags = tags
 	out.MarkedForDelete = nil
 	return &out, nil
 }
 
-// recordAfterContributingRemoval removes deletedNNKey from the contributing tag; returns (updatedRecord, changed).
-func recordAfterContributingRemoval(rec *model.DnsRecord, deletedNNKey string) (*model.DnsRecord, bool) {
+// recordAfterContributingRemoval removes deletedNNKey from the contributing tag; returns (updatedRecord, changed, error).
+func recordAfterContributingRemoval(rec *model.DnsRecord, deletedNNKey string) (*model.DnsRecord, bool, error) {
 	keys := parseContributingOwnersFromRecord(rec)
 	if !slices.Contains(keys, deletedNNKey) {
-		return nil, false
+		return nil, false, nil
 	}
 	newContribKeys := slices.DeleteFunc(keys, func(k string) bool { return k == deletedNNKey })
 	out := *rec
-	out.Tags = replaceContributingOwnersInTags(rec.Tags, newContribKeys)
+	tags, err := replaceContributingOwnersInTags(rec.Tags, newContribKeys)
+	if err != nil {
+		return nil, false, err
+	}
+	out.Tags = tags
 	out.MarkedForDelete = nil
-	return &out, true
+	return &out, true, nil
 }
 
 func dedupeRecordsByPath(recs []*model.DnsRecord) []*model.DnsRecord {

@@ -14,6 +14,10 @@ import (
 )
 
 // InitializeDNSRecordService constructs a DNSRecordService and hydrates DNSRecordStore from NSX Policy search.
+// Note: NSX Search API currently does not support searching DNSRecord and DNSZone types.
+// Thus, this initial population will result in an empty store, and resources will be read on-demand
+// (via direct GETs) or created afresh.
+// TODO: Remove this Note once NSX Search API supports DNSRecord.
 func InitializeDNSRecordService(commonService common.Service, vpcService common.VPCServiceProvider) (*DNSRecordService, error) {
 	builder, err := common.PolicyPathDnsRecord.NewPolicyTreeBuilder()
 	if err != nil {
