@@ -77,8 +77,22 @@ func TestCluster_getThumbprint(t *testing.T) {
 	tb = cluster.getThumbprint("127.0.0.2")
 	assert.Equal(t, tb, "234")
 
+	// IPv6 endpoints with and without port
+	cluster.endpoints[0].provider = &address{host: "[2001:db8::1]:443"}
+	cluster.endpoints[1].provider = &address{host: "[2001:db8::2]:443"}
+	tb = cluster.getThumbprint("[2001:db8::1]:443")
+	assert.Equal(t, tb, "123")
+	tb = cluster.getThumbprint("2001:db8::2")
+	assert.Equal(t, tb, "234")
+
 	// test getCaFile without port in addr
 	cluster.config.CAFile = []string{"/path/ca1.pem", "/path/ca2.pem"}
+	assert.Equal(t, "/path/ca1.pem", cluster.getCaFile("[2001:db8::1]:443"))
+	assert.Equal(t, "/path/ca2.pem", cluster.getCaFile("2001:db8::2"))
+
+	// test getCaFile with IPv4
+	cluster.endpoints[0].provider = &address{host: "127.0.0.1:443"}
+	cluster.endpoints[1].provider = &address{host: "127.0.0.2"}
 	assert.Equal(t, "/path/ca1.pem", cluster.getCaFile("127.0.0.1"))
 	assert.Equal(t, "/path/ca2.pem", cluster.getCaFile("127.0.0.2"))
 }

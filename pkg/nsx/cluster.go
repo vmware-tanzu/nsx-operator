@@ -204,11 +204,15 @@ func (cluster *Cluster) UsingEnvoy() bool {
 	return cluster.config.EnvoyPort != 0
 }
 
-func (cluster *Cluster) getThumbprint(addr string) string {
-	host := addr
-	if pos := strings.Index(addr, ":"); pos > 0 {
-		host = addr[:pos]
+func extractHost(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return strings.Trim(h, "[]")
 	}
+	return strings.Trim(addr, "[]")
+}
+
+func (cluster *Cluster) getThumbprint(addr string) string {
+	host := extractHost(addr)
 	var thumbprint string
 	tpCount := len(cluster.config.Thumbprint)
 	if tpCount == 1 {
@@ -216,10 +220,7 @@ func (cluster *Cluster) getThumbprint(addr string) string {
 	}
 	if tpCount > 1 {
 		for index, ep := range cluster.endpoints {
-			epHost := ep.Host()
-			if pos := strings.Index(ep.Host(), ":"); pos > 0 {
-				epHost = epHost[:pos]
-			}
+			epHost := extractHost(ep.Host())
 			if epHost == host {
 				thumbprint = cluster.config.Thumbprint[index]
 				break
@@ -230,10 +231,7 @@ func (cluster *Cluster) getThumbprint(addr string) string {
 }
 
 func (cluster *Cluster) getCaFile(addr string) string {
-	host := addr
-	if pos := strings.Index(addr, ":"); pos > 0 {
-		host = addr[:pos]
-	}
+	host := extractHost(addr)
 	var cafile string
 	tpCount := len(cluster.config.CAFile)
 	if tpCount == 1 {
@@ -241,10 +239,7 @@ func (cluster *Cluster) getCaFile(addr string) string {
 	}
 	if tpCount > 1 {
 		for index, ep := range cluster.endpoints {
-			epHost := ep.Host()
-			if pos := strings.Index(ep.Host(), ":"); pos > 0 {
-				epHost = epHost[:pos]
-			}
+			epHost := extractHost(ep.Host())
 			if epHost == host {
 				cafile = cluster.config.CAFile[index]
 				break
@@ -261,6 +256,9 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 	log := cluster.getLogger()
 	log.Info("Cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
 	if !cluster.config.Insecure {
+		// tlsConfigCache caches parsed tls.Config per endpoint address.
+		// Since the number of endpoint addresses is fixed and bounded by cluster configuration (typically 1 to 3),
+		// memory footprint is strictly O(1) without requiring cache eviction or expiration.
 		tlsConfigCache := make(map[string]*tls.Config)
 		var cacheMutex sync.RWMutex
 
