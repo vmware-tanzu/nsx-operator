@@ -372,6 +372,18 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 	if subnetNames == nil {
 		return true, nil
 	}
+
+	var expectedIPAddressType v1alpha1.IPAddressType
+	supervisorIPFamily := v1alpha1.IPAddressTypeIPv4
+	if v.nsxClient != nil && v.nsxClient.NsxConfig != nil && v.nsxClient.NsxConfig.K8sConfig != nil {
+		supervisorIPFamily = v.nsxClient.NsxConfig.K8sConfig.GetIPAddressType()
+	}
+	var err error
+	expectedIPAddressType, err = controllercommon.GetPrecreatedSubnetSetIPAddressType(ctx, v.Client, ns, subnetNames, subnetSetIPAddressType, supervisorIPFamily)
+	if err != nil {
+		return true, fmt.Errorf("failed to calculate expected IPAddressType for SubnetSet: %v", err)
+	}
+
 	for _, subnetName := range *subnetNames {
 		crdSubnet := &v1alpha1.Subnet{}
 		err := v.Client.Get(ctx, types.NamespacedName{Name: subnetName, Namespace: ns}, crdSubnet)
@@ -383,19 +395,13 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		dhcpv6Mode := getEffectiveDHCPv6Mode(crdSubnet)
-		if dhcpv6Mode == v1alpha1.DHCPv6ConfigModeRelay {
-			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
+		if dhcpv6Mode == v1alpha1.DHCPv6ConfigModeRelay || crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless) {
+			return true, fmt.Errorf("DHCPRelay or DHCPServerStateless Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		if subnetSetIPAddressType != "" {
 			if !controllercommon.IsSupersetIPAddressTypes(crdSubnet.Spec.IPAddressType, subnetSetIPAddressType) {
 				return true, fmt.Errorf("Subnet %s with IPAddressType %s cannot be added to SubnetSet of IPAddressType %s", crdSubnet.Name, crdSubnet.Spec.IPAddressType, subnetSetIPAddressType)
 			}
-		}
-		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
-			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
-		}
-		if crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay) || crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless) {
-			return true, fmt.Errorf("DHCPRelay or DHCPServerStateless Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		if isFirstSubnet {
 			firstAccessMode = string(crdSubnet.Spec.AccessMode)
@@ -404,14 +410,20 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 			firstEffectiveStaticIPAllocation = getEffectiveStaticIPAllocation(crdSubnet)
 			isFirstSubnet = false
 		} else {
-			if firstAccessMode != string(crdSubnet.Spec.AccessMode) {
-				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same AccessMode, found different AccessModes: [%s, %s]", ns, subnetSet, firstAccessMode, crdSubnet.Spec.AccessMode)
+			if util.IPAddressTypeIncludesIPv4(expectedIPAddressType) {
+				if firstAccessMode != string(crdSubnet.Spec.AccessMode) {
+					return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same AccessMode, found different AccessModes: [%s, %s]", ns, subnetSet, firstAccessMode, crdSubnet.Spec.AccessMode)
+				}
 			}
-			if firstDHCPMode != string(dhcpMode) {
-				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPConfigMode, found different DHCPConfigModes: [%s, %s]", ns, subnetSet, firstDHCPMode, dhcpMode)
+			if util.IPAddressTypeIncludesIPv4(expectedIPAddressType) {
+				if firstDHCPMode != string(dhcpMode) {
+					return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPConfigMode, found different DHCPConfigModes: [%s, %s]", ns, subnetSet, firstDHCPMode, dhcpMode)
+				}
 			}
-			if firstDHCPv6Mode != string(dhcpv6Mode) {
-				return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPv6ConfigMode, found different DHCPv6ConfigModes: [%s, %s]", ns, subnetSet, firstDHCPv6Mode, dhcpv6Mode)
+			if util.IPAddressTypeIncludesIPv6(expectedIPAddressType) {
+				if firstDHCPv6Mode != string(dhcpv6Mode) {
+					return true, fmt.Errorf("Subnets in SubnetSet %s/%s must have the same DHCPv6ConfigMode, found different DHCPv6ConfigModes: [%s, %s]", ns, subnetSet, firstDHCPv6Mode, dhcpv6Mode)
+				}
 			}
 			currentEffectiveStaticIPAllocation := getEffectiveStaticIPAllocation(crdSubnet)
 			if firstEffectiveStaticIPAllocation != currentEffectiveStaticIPAllocation {

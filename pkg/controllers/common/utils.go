@@ -743,6 +743,41 @@ func IntersectIPAddressTypes(types []v1alpha1.IPAddressType) (v1alpha1.IPAddress
 	return result, nil
 }
 
+// GetPrecreatedSubnetSetIPAddressType determines the expected IP address type of a pre-created SubnetSet.
+func GetPrecreatedSubnetSetIPAddressType(ctx context.Context, c k8sclient.Client, ns string, subnetNames *[]string, ipAddressType v1alpha1.IPAddressType, supervisorIPFamily v1alpha1.IPAddressType) (v1alpha1.IPAddressType, error) {
+	if ipAddressType != "" {
+		return ipAddressType, nil
+	}
+
+	// If subnetNames is not set, default IP address type is IPv4
+	if subnetNames == nil || len(*subnetNames) == 0 {
+		return v1alpha1.IPAddressTypeIPv4, nil
+	}
+
+	var subnetIPTypes []v1alpha1.IPAddressType
+	subnetIPTypes = append(subnetIPTypes, supervisorIPFamily)
+
+	for _, subnetName := range *subnetNames {
+		subnet := &v1alpha1.Subnet{}
+		if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: subnetName}, subnet); err != nil {
+			return "", err
+		}
+		// Subnet IPAddressType is default to IPv4, we can use the default value before it is explicitly set by k8s
+		subnetIPType := subnet.Spec.IPAddressType
+		if subnetIPType == "" {
+			subnetIPType = v1alpha1.IPAddressTypeIPv4
+		}
+		subnetIPTypes = append(subnetIPTypes, subnetIPType)
+	}
+
+	intersectedType, err := IntersectIPAddressTypes(subnetIPTypes)
+	if err != nil {
+		return "", fmt.Errorf("IP address types of Subnets in SubnetSet do not have intersection: %v, ipTypes: %v", err, subnetIPTypes)
+	}
+
+	return intersectedType, nil
+}
+
 // IsSupersetIPAddressTypes checks if the base IPAddressType encompasses the target.
 // IPv4IPv6 is a superset of IPv4, IPv6, and IPv4IPv6.
 func IsSupersetIPAddressTypes(base, target v1alpha1.IPAddressType) bool {
@@ -775,6 +810,39 @@ func ValidateAccessModeTransition(oldAccessMode, newAccessMode v1alpha1.AccessMo
 		// or set from empty to a default value
 		if oldAccessMode != "" && (newType != v1alpha1.IPAddressTypeIPv4IPv6 || oldType != v1alpha1.IPAddressTypeIPv6) {
 			return fmt.Errorf("accessMode is immutable")
+		}
+	}
+	return nil
+}
+
+// ValidateIPAddressesTransition validates if transitioning IP addresses is allowed given IP address type changes.
+func ValidateIPAddressesTransition(oldIPs, newIPs []string, oldType, newType v1alpha1.IPAddressType) error {
+	oldSet := sets.New[string](oldIPs...)
+	newSet := sets.New[string](newIPs...)
+	if oldSet.Equal(newSet) {
+		return nil
+	}
+
+	if (oldType != v1alpha1.IPAddressTypeIPv4 && oldType != v1alpha1.IPAddressTypeIPv6) || newType != v1alpha1.IPAddressTypeIPv4IPv6 {
+		return fmt.Errorf("ipAddresses can only be updated when ipAddressType transitions from IPv4 or IPv6 to IPv4IPv6")
+	}
+
+	if !newSet.IsSuperset(oldSet) {
+		return fmt.Errorf("existing ipAddresses cannot be removed or modified")
+	}
+
+	addedIPs := newSet.Difference(oldSet).UnsortedList()
+	for _, ip := range addedIPs {
+		isIPv6 := util.IsIPv6CIDR(ip)
+		switch oldType {
+		case v1alpha1.IPAddressTypeIPv4:
+			if !isIPv6 {
+				return fmt.Errorf("only IPv6 addresses can be added when transitioning from IPv4 to IPv4IPv6")
+			}
+		case v1alpha1.IPAddressTypeIPv6:
+			if isIPv6 {
+				return fmt.Errorf("only IPv4 addresses can be added when transitioning from IPv6 to IPv4IPv6")
+			}
 		}
 	}
 	return nil
