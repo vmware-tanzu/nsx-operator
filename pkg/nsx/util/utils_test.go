@@ -304,6 +304,18 @@ func TestVCClient_handleHTTPResponse(t *testing.T) {
 	err, _ = HandleHTTPResponse(response, &sessionData, false, log)
 	_, ok := err.(*json.UnmarshalTypeError)
 	assert.Equal(t, ok, true)
+
+	// response.StatusCode = 204 No Content
+	response.StatusCode = 204
+	response.Body = io.NopCloser(bytes.NewReader(nil))
+	err, _ = HandleHTTPResponse(response, &sessionData, false, log)
+	assert.Equal(t, err, nil)
+
+	// optional logger parameter omitted
+	response.StatusCode = 200
+	response.Body = io.NopCloser(bytes.NewReader([]byte(`{"value": "world"}`)))
+	err, _ = HandleHTTPResponse(response, &sessionData, false)
+	assert.Equal(t, err, nil)
 }
 
 func TestVerifyNsxCertWithThumbprint(t *testing.T) {

@@ -18,7 +18,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 )
 
 // EndpointStatus is endpoint status.
@@ -74,6 +73,20 @@ func (addr *address) Scheme() string {
 
 func (addr *address) Host() string {
 	return addr.host
+}
+
+func (ep *Endpoint) Host() string {
+	if ep == nil || ep.provider == nil {
+		return ""
+	}
+	return ep.provider.Host()
+}
+
+func (ep *Endpoint) Scheme() string {
+	if ep == nil || ep.provider == nil {
+		return ""
+	}
+	return ep.provider.Scheme()
 }
 
 const (
@@ -343,28 +356,45 @@ func (ep *Endpoint) createAuthSession(certProvider auth.ClientCertProvider, toke
 	return nil
 }
 
+func (ep *Endpoint) sleepWithStop(d time.Duration) bool {
+	if ep.stop == nil {
+		time.Sleep(d)
+		return true
+	}
+	select {
+	case <-ep.stop:
+		return false
+	case <-time.After(d):
+		return true
+	}
+}
+
 func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 	log := ep.logger.Fallback()
-	// retry if GetToken failed, wait for 120s to avoid user lock
-	// try 10 times
+	// Retry if GetToken failed. ep.lockWait (120s) is intentionally used to respect NSX Manager / SSO account
+	// lockout windows and prevent account lockout during consecutive auth failures. Limited to 3 attempts.
 	if ep.tokenProvider != nil {
 		var token string
-		err := retry.Do(
-			func() error {
-				var err error
-				token, err = ep.tokenProvider.GetToken(false)
-				return err
-			}, retry.RetryIf(func(err error) bool {
-				return err != nil
-			}), retry.LastErrorOnly(true), retry.Attempts(3), retry.Delay(ep.lockWait), retry.MaxDelay(ep.lockWait),
-		)
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			token, err = ep.tokenProvider.GetToken(false)
+			if err == nil {
+				break
+			}
+			if attempt < 2 {
+				if !ep.sleepWithStop(ep.lockWait) {
+					log.Info("Endpoint stopped during token retry wait", "endpoint", ep.Host())
+					return errors.New("endpoint stopped during token retrieval")
+				}
+			}
+		}
 		if err != nil {
 			log.Error(err, "Failed to retrieve JSON Web Token")
 			return err
 		}
 		bearerToken := ep.tokenProvider.HeaderValue(token)
-		request.Header.Add("Authorization", bearerToken)
-		request.Header.Add("Accept", "application/json")
+		request.Header.Set("Authorization", bearerToken)
+		request.Header.Set("Accept", "application/json")
 	} else {
 		xsrfToken := ep.XSRFToken()
 		if len(xsrfToken) > 0 {

@@ -95,8 +95,15 @@ func createService(t *testing.T) (*StaticRouteService, *gomock.Controller, *mock
 
 	staticRouteStore := buildStaticRouteStore()
 
+	scheme := apimachineryruntime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
 	service := &StaticRouteService{
-		VPCService: &vpc.VPCService{},
+		VPCService: &vpc.VPCService{
+			Service: common.Service{
+				Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			},
+		},
 		Service: common.Service{
 			NSXClient: &nsx.Client{
 				QueryClient:            &fakeQueryClient{},

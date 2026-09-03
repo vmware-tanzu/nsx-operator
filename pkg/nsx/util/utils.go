@@ -265,10 +265,14 @@ func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 	return CreateGeneralManagerError("", "", detail.Error())
 }
 
-func HandleHTTPResponse(response *http.Response, result interface{}, debug bool, log logger.CustomLogger) (error, []byte) { //nolint:staticcheck // ST1008: exported before convention; changing signature would break callers
+func HandleHTTPResponse(response *http.Response, result interface{}, debug bool, log ...logger.CustomLogger) (error, []byte) { //nolint:staticcheck // ST1008: return value ordering (error, []byte) is kept for compatibility with callers
+	l := logger.Log
+	if len(log) > 0 {
+		l = log[0]
+	}
 	body, err := io.ReadAll(response.Body)
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusCreated {
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusNoContent {
 		err := HttpCommonError
 		if response.StatusCode == http.StatusNotFound {
 			err = HttpNotFoundError
@@ -276,10 +280,10 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool,
 		if response.StatusCode == http.StatusBadRequest {
 			err = HttpBadRequest
 		}
-		log.Error(err, "HTTP resp", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
+		l.Error(err, "HTTP resp", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
 	}
-	if err != nil || body == nil {
+	if err != nil || body == nil || response.StatusCode == http.StatusNoContent {
 		return err, body
 	}
 	if result == nil {
@@ -287,11 +291,11 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool,
 	}
 
 	if err := json.Unmarshal(body, result); err != nil {
-		log.Error(err, "Failed to convert HTTP response to result", "result type", result)
+		l.Error(err, "Failed to convert HTTP response to result", "result type", result)
 		return err, body
 	}
 	if debug {
-		dumpResponseBody(body, response.StatusCode, log)
+		dumpResponseBody(body, response.StatusCode, l)
 	}
 	return nil, body
 }
