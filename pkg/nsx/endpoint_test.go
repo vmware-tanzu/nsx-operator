@@ -234,3 +234,61 @@ func TestNextInterval(t *testing.T) {
 	ep.setAliveTime(time.Now().Add(-40 * time.Second))
 	assert.Equal(t, 33, ep.nextInterval())
 }
+
+type mockRetryTokenProvider struct {
+	attempts     int
+	failAttempts int
+}
+
+func (m *mockRetryTokenProvider) GetToken(refreshToken bool) (string, error) {
+	m.attempts++
+	if m.attempts <= m.failAttempts {
+		return "", errors.New("temporary token error")
+	}
+	return "valid-token", nil
+}
+
+func (m *mockRetryTokenProvider) HeaderValue(token string) string {
+	return "Bearer " + token
+}
+
+func TestUpdateHttpRequestAuth(t *testing.T) {
+	assert := assert.New(t)
+
+	// Case 1: Succeeds on 2nd attempt
+	provider := &mockRetryTokenProvider{failAttempts: 1}
+	ep := &Endpoint{
+		tokenProvider: provider,
+		lockWait:      time.Millisecond * 10,
+	}
+	req, err := http.NewRequest("GET", "http://localhost", nil)
+	assert.NoError(err)
+	err = ep.UpdateHttpRequestAuth(req)
+	assert.NoError(err)
+	assert.Equal(2, provider.attempts, "Should retry and succeed on 2nd attempt")
+	assert.Equal("Bearer valid-token", req.Header.Get("Authorization"))
+
+	// Case 2: Fails all 3 attempts
+	failingProvider := &mockRetryTokenProvider{failAttempts: 5}
+	ep2 := &Endpoint{
+		tokenProvider: failingProvider,
+		lockWait:      time.Millisecond * 10,
+	}
+	req2, err := http.NewRequest("GET", "http://localhost", nil)
+	assert.NoError(err)
+	err = ep2.UpdateHttpRequestAuth(req2)
+	assert.Error(err)
+	assert.Equal(3, failingProvider.attempts, "Should stop after 3 attempts")
+
+	// Case 3: XSRF token fallback
+	ep3 := &Endpoint{
+		client:   &http.Client{Jar: NewJar()},
+		provider: &address{host: "localhost"},
+	}
+	ep3.setXSRFToken("sample-xsrf-token")
+	req3, err := http.NewRequest("GET", "http://localhost", nil)
+	assert.NoError(err)
+	err = ep3.UpdateHttpRequestAuth(req3)
+	assert.NoError(err)
+	assert.Equal("sample-xsrf-token", req3.Header.Get("X-Xsrf-Token"))
+}
