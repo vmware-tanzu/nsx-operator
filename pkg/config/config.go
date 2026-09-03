@@ -128,6 +128,9 @@ type NsxConfig struct {
 	EnableInventory           bool     `ini:"enable_inventory"`
 	// TnIdCheckInterval is the interval in seconds to check TN ID for node.
 	TnIdCheckInterval int `ini:"tn_id_check_interval"`
+	// VpcWcpEnhance controls StatefulSet pod SubnetPort behavior together with NSX version.
+	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
+	VpcWcpEnhance *bool `ini:"vpc_wcp_enhance"`
 }
 
 type K8sConfig struct {
@@ -401,6 +404,15 @@ func (nsxConfig *NsxConfig) validateCert() error {
 		}
 	}
 	return nil
+}
+
+// VpcWcpEnhanceEnabled reports whether WCP VPC enhancement for StatefulSet pod subnet ports is allowed by config.
+// Missing or nil key defaults to false; only an explicit true enables.
+func (nsxConfig *NsxConfig) VpcWcpEnhanceEnabled() bool {
+	if nsxConfig == nil || nsxConfig.VpcWcpEnhance == nil {
+		return false
+	}
+	return *nsxConfig.VpcWcpEnhance
 }
 
 func (nsxConfig *NsxConfig) validate(enableVPC bool) error {

@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -27,10 +28,11 @@ import (
 func TestBuildSubnetPort(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
+	nsxClient := &nsx.Client{}
 	service := &SubnetPortService{
 		Service: common.Service{
 			Client:    k8sClient,
-			NSXClient: &nsx.Client{},
+			NSXClient: nsxClient,
 			NSXConfig: &config.NSXOperatorConfig{
 				NsxConfig: &config.NsxConfig{
 					EnforcementPoint: "vmc-enforcementpoint",
@@ -42,6 +44,13 @@ func TestBuildSubnetPort(t *testing.T) {
 		},
 		SubnetPortStore: setupStore(),
 	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool {
+			return false
+		})
+	defer patches.Reset()
+
 	ctx := context.Background()
 	namespace := &corev1.Namespace{}
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), namespace).Return(nil).Do(
@@ -1356,4 +1365,179 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 			assert.Equal(t, tt.expectedAb, actualAb)
 		})
 	}
+}
+
+func TestGetStatefulSetInfo(t *testing.T) {
+	tests := []struct {
+		name         string
+		obj          interface{}
+		expectedName string
+		expectedUID  string
+	}{
+		{
+			name: "StatefulSet pod with controller reference",
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "StatefulSet",
+							Name:       "web",
+							UID:        "sts-uid-123",
+							Controller: ptr.To(true),
+						},
+					},
+				},
+			},
+			expectedName: "web",
+			expectedUID:  "sts-uid-123",
+		},
+		{
+			name: "StatefulSet owner but not controller (should ignore)",
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "StatefulSet",
+							Name:       "web",
+							UID:        "sts-uid-123",
+							Controller: ptr.To(false),
+						},
+					},
+				},
+			},
+			expectedName: "",
+			expectedUID:  "",
+		},
+		{
+			name: "Deployment pod with owner reference",
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "ReplicaSet",
+							Name:       "nginx-7d4c7b8b5",
+						},
+					},
+				},
+			},
+			expectedName: "",
+			expectedUID:  "",
+		},
+		{
+			name: "Standalone pod without owner",
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					OwnerReferences: []metav1.OwnerReference{},
+				},
+			},
+			expectedName: "",
+			expectedUID:  "",
+		},
+		{
+			name:         "SubnetPort CR (not a pod)",
+			obj:          &v1alpha1.SubnetPort{},
+			expectedName: "",
+			expectedUID:  "",
+		},
+		{
+			name:         "Nil object",
+			obj:          nil,
+			expectedName: "",
+			expectedUID:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stsName, stsUID := getStatefulSetInfo(tt.obj)
+			assert.Equal(t, tt.expectedName, stsName)
+			assert.Equal(t, tt.expectedUID, stsUID)
+		})
+	}
+}
+
+func TestBuildSubnetPortIdAndName_existingPortByUID(t *testing.T) {
+	nsxClient := &nsx.Client{}
+	store := &SubnetPortStore{}
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: nsxClient,
+		},
+		SubnetPortStore: store,
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(store), "GetVpcSubnetPortByUID",
+		func(s *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			portID := "existing-port-id"
+			portName := "existing-port-name"
+			return &model.VpcSubnetPort{
+				Id:          &portID,
+				DisplayName: &portName,
+			}, nil
+		})
+	patches.ApplyMethod(reflect.TypeOf(store), "GetByKey",
+		func(s *SubnetPortStore, key string) *model.VpcSubnetPort {
+			return nil
+		})
+	defer patches.Reset()
+	patchesStsFeat := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+		func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+			return false
+		})
+	defer patchesStsFeat.Reset()
+
+	objMeta := &metav1.ObjectMeta{Name: "test-pod", UID: "pod-uid-123"}
+	id, name := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "")
+	assert.Equal(t, "existing-port-id", id)
+	assert.Equal(t, "existing-port-name", name)
+}
+
+func TestBuildSubnetPortIdAndName_reuseSTSPortByUIDAndPodName(t *testing.T) {
+	nsxClient := &nsx.Client{}
+	store := &SubnetPortStore{}
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: nsxClient,
+		},
+		SubnetPortStore: store,
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(store), "GetVpcSubnetPortByUID",
+		func(s *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+	patches.ApplyMethod(reflect.TypeOf(store), "GetByIndex",
+		func(s *SubnetPortStore, indexKey string, indexValue string) []*model.VpcSubnetPort {
+			if indexKey == common.TagScopeStatefulSetUID && indexValue == "sts-uid-123" {
+				podNameScope := "nsx-op/pod_name"
+				stsPortID := "sts-port-id"
+				stsPortName := "test-pod"
+				return []*model.VpcSubnetPort{
+					{
+						Id:          &stsPortID,
+						DisplayName: &stsPortName,
+						Tags: []model.Tag{
+							{Scope: &podNameScope, Tag: common.String("test-pod")},
+						},
+					},
+				}
+			}
+			return []*model.VpcSubnetPort{}
+		})
+	patches.ApplyMethod(reflect.TypeOf(store), "GetByKey",
+		func(s *SubnetPortStore, key string) *model.VpcSubnetPort {
+			return nil
+		})
+	patchesStsFeat := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+		func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+			return true
+		})
+	defer patchesStsFeat.Reset()
+
+	objMeta := &metav1.ObjectMeta{Name: "test-pod", UID: "pod-uid-123"}
+	id, name := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "sts-uid-123")
+	assert.Equal(t, "sts-port-id", id)
+	assert.Equal(t, "test-pod", name)
 }

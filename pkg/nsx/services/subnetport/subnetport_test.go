@@ -178,20 +178,22 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 	k8sClient := mock_client.NewMockClient(mockCtl)
 	defer mockCtl.Finish()
 	orgRootClient := mock_org_root.NewMockOrgRootClient(mockCtl)
-	commonService := common.Service{
-		Client: k8sClient,
-		NSXClient: &nsx.Client{
-			QueryClient:            &fakeQueryClient{},
-			PortClient:             &fakePortClient{},
-			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
-			PortStateClient:        &fakePortStateClient{},
-			OrgRootClient:          orgRootClient,
-			NsxConfig: &config.NSXOperatorConfig{
-				CoeConfig: &config.CoeConfig{
-					Cluster: "k8scl-one:test",
-				},
+	nsxClient := &nsx.Client{
+		QueryClient:            &fakeQueryClient{},
+		PortClient:             &fakePortClient{},
+		RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+		PortStateClient:        &fakePortStateClient{},
+		OrgRootClient:          orgRootClient,
+		Cluster:                &nsx.Cluster{},
+		NsxConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
 			},
 		},
+	}
+	commonService := common.Service{
+		Client:    k8sClient,
+		NSXClient: nsxClient,
 		NSXConfig: &config.NSXOperatorConfig{
 			CoeConfig: &config.CoeConfig{
 				Cluster: "k8scl-one:test",
@@ -254,6 +256,8 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 		wantErr      bool
 		expectedDHCP bool
 		nsxSubnet    *model.VpcSubnet
+		obj          interface{}
+		restore      bool
 	}{
 		{
 			name: "CreateDHCPServer",
@@ -264,7 +268,10 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					return nil
 				})
 				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-				return nil
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
+				return patches
 			},
 			wantErr:      false,
 			nsxSubnet:    nsxSubnet1,
@@ -283,6 +290,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					return model.SegmentPortState{
 						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
 					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
 				})
 				return patches
 			},
@@ -305,11 +315,51 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
 					}, nil
 				})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
 				return patches
 			},
 			wantErr:      false,
 			nsxSubnet:    nsxSubnet2,
 			expectedDHCP: false,
+
+			obj: subnetPortCR,
+		},
+		{
+			name: "RestorePod",
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					namespaceCR := &corev1.Namespace{}
+					namespaceCR.UID = "ns1"
+					return nil
+				})
+				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.PortStateClient), "Get", func(c *fakePortStateClient, orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, portIdParam string, enforcementPointPathParam *string, sourceParam *string) (model.SegmentPortState, error) {
+					return model.SegmentPortState{
+						RealizedBindings: []model.AddressBindingEntry{{Binding: &model.PacketAddressClassifier{IpAddress: common.String("10.0.0.1")}}},
+					}, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+				return patches
+			},
+			wantErr:      false,
+			nsxSubnet:    nsxSubnet2,
+			expectedDHCP: false,
+			obj: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "pod-1",
+					Namespace: "ns-1",
+					Annotations: map[string]string{
+						common.AnnotationPodMAC:     "aa:bb:cc:dd:ee:ff",
+						"nsx.vmware.com/attachment": "attachment-id",
+					},
+					UID: "00000000-0000-0000-0000-000000000002",
+				},
+			},
+			restore: true,
 		},
 		{
 			name: "RealizeFailure",
@@ -324,6 +374,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 0)},
 					Times:  1,
 				}})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
 				return patches
 			},
 			wantErr:   true,
@@ -349,6 +402,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					Factor:   1.0,
 					Jitter:   0.0,
 				})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
 				return patches
 			},
 			wantErr:   true,
@@ -367,6 +423,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", nsxutil.IPAllocationErrorCode)},
 					Times:  1,
 				}})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
 				return patches
 			},
 			wantErr:   true,
@@ -384,6 +443,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
 					Times:  1,
 				}})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
 				return patches
 			},
 			wantErr:   true,
@@ -401,6 +463,9 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					Values: gomonkey.Params{model.VpcSubnetPort{}, fmt.Errorf("mock error")},
 					Times:  1,
 				}})
+				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return false
+				})
 				return patches
 			},
 			wantErr:   true,
@@ -916,6 +981,176 @@ func TestSubnetPortService_ListSubnetPortByPodName(t *testing.T) {
 	assert.Equal(t, subnetPort2, subnetPorts[0])
 }
 
+func TestSubnetPortService_ListSubnetPortByStsName(t *testing.T) {
+	subnetPortService := createSubnetPortService(t)
+	subnetPort1 := &model.VpcSubnetPort{
+		Id:         &subnetPortId1,
+		Path:       &subnetPortPath1,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetName),
+				Tag:   common.String("sts-1"),
+			},
+		},
+	}
+	subnetPort2 := &model.VpcSubnetPort{
+		Id:         &subnetPortId2,
+		Path:       &subnetPortPath2,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetName),
+				Tag:   common.String("sts-1"),
+			},
+		},
+	}
+	subnetPortDifferentNS := &model.VpcSubnetPort{
+		Id:         common.String("port-3"),
+		Path:       common.String("/subnet-path-3"),
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-2"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetName),
+				Tag:   common.String("sts-1"),
+			},
+		},
+	}
+	subnetPortService.SubnetPortStore.Add(subnetPort1)
+	subnetPortService.SubnetPortStore.Add(subnetPort2)
+	subnetPortService.SubnetPortStore.Add(subnetPortDifferentNS)
+
+	tests := []struct {
+		name          string
+		ns            string
+		stsName       string
+		expectedCount int
+	}{
+		{
+			name:          "found in ns-1",
+			ns:            "ns-1",
+			stsName:       "sts-1",
+			expectedCount: 2,
+		},
+		{
+			name:          "not found different namespace",
+			ns:            "ns-2",
+			stsName:       "sts-1",
+			expectedCount: 1,
+		},
+		{
+			name:          "not found",
+			ns:            "ns-1",
+			stsName:       "non-existent",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subnetPorts := subnetPortService.ListSubnetPortByStsName(tt.ns, tt.stsName)
+			assert.Equal(t, tt.expectedCount, len(subnetPorts))
+		})
+	}
+}
+
+func TestSubnetPortService_ListSubnetPortByStsUid(t *testing.T) {
+	subnetPortService := createSubnetPortService(t)
+	subnetPort1 := &model.VpcSubnetPort{
+		Id:         &subnetPortId1,
+		Path:       &subnetPortPath1,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetUID),
+				Tag:   common.String("sts-uid-123"),
+			},
+		},
+	}
+	subnetPort2 := &model.VpcSubnetPort{
+		Id:         &subnetPortId2,
+		Path:       &subnetPortPath2,
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-1"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetUID),
+				Tag:   common.String("sts-uid-123"),
+			},
+		},
+	}
+	subnetPortDifferentNS := &model.VpcSubnetPort{
+		Id:         common.String("port-3"),
+		Path:       common.String("/subnet-path-3"),
+		ParentPath: &subnetPath,
+		Tags: []model.Tag{
+			{
+				Scope: common.String("nsx-op/namespace"),
+				Tag:   common.String("ns-2"),
+			},
+			{
+				Scope: common.String(common.TagScopeStatefulSetUID),
+				Tag:   common.String("sts-uid-123"),
+			},
+		},
+	}
+	subnetPortService.SubnetPortStore.Add(subnetPort1)
+	subnetPortService.SubnetPortStore.Add(subnetPort2)
+	subnetPortService.SubnetPortStore.Add(subnetPortDifferentNS)
+
+	tests := []struct {
+		name          string
+		ns            string
+		stsUid        string
+		expectedCount int
+	}{
+		{
+			name:          "found in ns-1",
+			ns:            "ns-1",
+			stsUid:        "sts-uid-123",
+			expectedCount: 2,
+		},
+		{
+			name:          "not found different namespace",
+			ns:            "ns-2",
+			stsUid:        "sts-uid-123",
+			expectedCount: 1,
+		},
+		{
+			name:          "not found",
+			ns:            "ns-1",
+			stsUid:        "non-existent",
+			expectedCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subnetPorts := subnetPortService.ListSubnetPortByStsUid(tt.ns, tt.stsUid)
+			assert.Equal(t, tt.expectedCount, len(subnetPorts))
+		})
+	}
+}
+
 func TestSubnetPortService_AllocateAndReleasePortFromSubnet(t *testing.T) {
 	subnetPath := "subnet-path-1"
 	subnetId := "subnet-id-1"
@@ -1195,6 +1430,8 @@ func createSubnetPortService(t *testing.T) *SubnetPortService {
 					common.TagScopeVMNamespace:     subnetPortIndexNamespace,
 					common.TagScopeNamespace:       subnetPortIndexPodNamespace,
 					common.IndexKeySubnetPath:      subnetPortIndexBySubnetPath,
+					common.TagScopeStatefulSetUID:  subnetPortIndexByStatefulSetUID,
+					common.TagScopeStatefulSetName: subnetPortIndexByStatefulSetName,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}},
@@ -1319,7 +1556,8 @@ func TestSubnetPortService_GetAllVIFs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tt.prepareFunc(t, subnetPortService, context.Background())
+			patches := tt.prepareFunc(t, subnetPortService, context.Background())
+			defer patches.Reset()
 			_, err := subnetPortService.GetAllVIFs()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetAllVIFs() error = %v, wantErr %v", err, tt.wantErr)

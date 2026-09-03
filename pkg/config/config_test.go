@@ -187,6 +187,16 @@ func TestNSXOperatorConfig_GetCACert(t *testing.T) {
 	}
 }
 
+func TestNsxConfig_VpcWcpEnhanceEnabled(t *testing.T) {
+	f := false
+	tr := true
+	assert.False(t, (*NsxConfig)(nil).VpcWcpEnhanceEnabled())
+	assert.False(t, (&NsxConfig{}).VpcWcpEnhanceEnabled())
+	assert.False(t, (&NsxConfig{VpcWcpEnhance: nil}).VpcWcpEnhanceEnabled())
+	assert.True(t, (&NsxConfig{VpcWcpEnhance: &tr}).VpcWcpEnhanceEnabled())
+	assert.False(t, (&NsxConfig{VpcWcpEnhance: &f}).VpcWcpEnhanceEnabled())
+}
+
 func TestNsxConfig_GetServiceSize(t *testing.T) {
 	type fields struct {
 		ServiceSize string
