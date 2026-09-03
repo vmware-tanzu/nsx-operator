@@ -18,7 +18,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 )
 
 // EndpointStatus is endpoint status.
@@ -349,15 +348,16 @@ func (ep *Endpoint) UpdateHttpRequestAuth(request *http.Request) error {
 	// try 10 times
 	if ep.tokenProvider != nil {
 		var token string
-		err := retry.Do(
-			func() error {
-				var err error
-				token, err = ep.tokenProvider.GetToken(false)
-				return err
-			}, retry.RetryIf(func(err error) bool {
-				return err != nil
-			}), retry.LastErrorOnly(true), retry.Attempts(3), retry.Delay(ep.lockWait), retry.MaxDelay(ep.lockWait),
-		)
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			token, err = ep.tokenProvider.GetToken(false)
+			if err == nil {
+				break
+			}
+			if attempt < 2 {
+				time.Sleep(ep.lockWait)
+			}
+		}
 		if err != nil {
 			log.Error(err, "Failed to retrieve JSON Web Token")
 			return err

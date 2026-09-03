@@ -8,13 +8,13 @@ import (
 	"errors"
 	"io"
 	"math"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 )
 
 // Transport is used in http.Client to replace default implement.
@@ -35,29 +35,22 @@ func (t *Transport) getLogger() logger.CustomLogger {
 // RoundTrip is the core of the transport. It accepts a request,
 // replaces host with the URl provided by the endpoint.
 // It will block the request if the speed is too fast.
-// It will retry the request if nsx-t returns error and error type is retriable or ground
+// It will retry the request if nsx-t returns error and error type is ground or regenerate
 // It returns the response to the caller.
 func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	var resp *http.Response
 	var resul error
 	log := t.getLogger()
 
-	var reqBodyBytes []byte
-	if r.Body != nil {
-		var err error
-		reqBodyBytes, err = io.ReadAll(r.Body)
-		if err == nil {
-			r.Body.Close()
-			r.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
-		}
-	}
+	reqBodyBytes, hasBody := backupRequestBody(r)
 
-	retry.Do(
-		func() error {
-			if len(reqBodyBytes) > 0 {
+	var retryErr error
+	maxAttempts := 10
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		retryErr = func() error {
+			if hasBody {
 				r.Body = io.NopCloser(bytes.NewReader(reqBodyBytes))
-			} else if r.Body != nil && reqBodyBytes == nil {
-				r.Body = io.NopCloser(bytes.NewReader(nil))
 			}
 			ep, err := t.selectEndpoint()
 			if err != nil {
@@ -104,19 +97,34 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 				}
 			}
 			return err
-		}, retry.RetryIf(func(err error) bool {
-			if util.ShouldGroundPoint(err) {
-				return true
-			} else if util.ShouldRetry(err) {
-				return true
-			} else {
-				log.Debug("Error is configured as not retriable", "error", err.Error())
-				return false
-			}
-		}), retry.LastErrorOnly(true),
-	)
+		}()
+
+		if retryErr == nil {
+			break
+		}
+
+		if util.ShouldGroundPoint(retryErr) {
+			backoffWithJitter(attempt)
+			continue
+		}
+		if util.ShouldRegenerate(retryErr) {
+			continue
+		}
+		log.Debug("Error is configured as not retriable in transport layer", "error", retryErr.Error())
+		break
+	}
 
 	return resp, resul
+}
+
+func backupRequestBody(r *http.Request) ([]byte, bool) {
+	if r == nil || r.Body == nil {
+		return nil, false
+	}
+	bodyBytes, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	return bodyBytes, true
 }
 
 func handleRoundTripError(err error, ep *Endpoint) error {
@@ -162,4 +170,16 @@ func (t *Transport) selectEndpoint() (*Endpoint, error) {
 		return nil, util.CreateServiceClusterUnavailable(id)
 	}
 	return t.endpoints[index], nil
+}
+
+func backoffWithJitter(attempt int) {
+	// Exponential backoff with jitter
+	// Base delay: 100ms, 200ms, 400ms, 800ms...
+	baseDelay := 100 * time.Millisecond * time.Duration(1<<attempt)
+	if baseDelay > 10*time.Second {
+		baseDelay = 10 * time.Second
+	}
+	// Jitter: 0-50ms
+	jitter := time.Duration(rand.Int63n(int64(50 * time.Millisecond))) //nolint:gosec // weak random is acceptable for jitter
+	time.Sleep(baseDelay + jitter)
 }
