@@ -87,6 +87,14 @@ spec:
               type: object
             type: array
             x-kubernetes-list-type: atomic
+          ipAddressType:
+            description: |-
+              IPAddressType of IPBlock.
+              Must be IPv4 or IPv6.
+            enum:
+            - IPv4
+            - IPv6
+            type: string
           kind:
             description: |-
               Kind is a string value representing the REST resource this object represents.
