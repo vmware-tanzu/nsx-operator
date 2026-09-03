@@ -20,6 +20,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
 
+const (
+	nsxIPAddressTypeIPv4 = "IPV4"
+	nsxIPAddressTypeIPv6 = "IPV6"
+	crIPAddressTypeIPv4  = easv1alpha1.IPv4
+	crIPAddressTypeIPv6  = easv1alpha1.IPv6
+)
+
 // IPBlockUsageStorage implements REST operations for IPBlockUsage.
 type IPBlockUsageStorage struct {
 	nsxClient  *nsx.Client
@@ -204,6 +211,9 @@ func ConvertIpAddressBlockUsage(nsxUsage *model.IpAddressBlockUsage, name, names
 	item.AvailableIPsCount = derefCount(nsxUsage.AvailableIpsCount)
 	item.OverallIPsCount = derefCount(nsxUsage.OverallIpsCount)
 	item.Visibility = toIPAddressVisibility(DerefString(nsxUsage.Visibility))
+	if nsxUsage.AddressType != nil {
+		item.AddressType = toIPAddressType(*nsxUsage.AddressType)
+	}
 	for _, c := range nsxUsage.CidrUsage {
 		item.CIDRUsages = append(item.CIDRUsages, easv1alpha1.CIDRUsage{
 			CIDR: DerefString(c.Cidr),
@@ -260,14 +270,18 @@ func derefCount(s *string) string {
 }
 
 // ipBlockUsageName derives a metadata.name from the NSX intent path.
-// It returns the last path segment (the block ID) regardless of whether the block
-// is project-scoped or infra-scoped. The project context is implicit from the
-// namespace / VPC and does not need to be encoded in the name.
+// It returns the last path segment (the block ID) for project-scoped blocks.
+// For infra-scoped blocks, it prepends a ":" to the block ID.
+// The project context is implicit from the namespace / VPC and does not need to be encoded in the name.
 func ipBlockUsageName(intentPath, projectID string, index int) string {
 	if intentPath != "" {
 		parts := splitPolicyPath(intentPath)
 		if len(parts) > 0 {
-			return parts[len(parts)-1]
+			name := parts[len(parts)-1]
+			if strings.HasPrefix(intentPath, "/infra/") {
+				return ":" + name
+			}
+			return name
 		}
 	}
 	return fmt.Sprintf("ipblock-%d", index)
@@ -279,4 +293,16 @@ func splitPolicyPath(p string) []string {
 		return nil
 	}
 	return strings.Split(p, "/")
+}
+
+// toIPAddressType converts NSX address type string to K8s IPAddressType.
+func toIPAddressType(t string) easv1alpha1.IPAddressType {
+	if strings.EqualFold(t, nsxIPAddressTypeIPv4) {
+		return crIPAddressTypeIPv4
+	}
+	if strings.EqualFold(t, nsxIPAddressTypeIPv6) {
+		return crIPAddressTypeIPv6
+	}
+	logger.Log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", t)
+	return crIPAddressTypeIPv4
 }

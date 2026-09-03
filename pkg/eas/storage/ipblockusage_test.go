@@ -47,7 +47,7 @@ func TestConvertIpAddressBlockUsageList_InfraScoped(t *testing.T) {
 	}
 	items := ConvertIpAddressBlockUsageList(nsx, "", "ns1")
 	require.Len(t, items, 1)
-	assert.Equal(t, "global-block", items[0].Name)
+	assert.Equal(t, ":global-block", items[0].Name)
 	assert.Equal(t, easv1alpha1.External, items[0].Visibility)
 }
 
@@ -78,12 +78,32 @@ func TestConvertIpAddressBlockUsage_Nil(t *testing.T) {
 	assert.Empty(t, item.RangeUsages)
 }
 
+func TestConvertIpAddressBlockUsage_UnknownType(t *testing.T) {
+	ipType := "UNKNOWN"
+	nsxUsage := &model.IpAddressBlockUsage{
+		AddressType: &ipType,
+	}
+	item := ConvertIpAddressBlockUsage(nsxUsage, "block-a", "ns1")
+	assert.Equal(t, crIPAddressTypeIPv4, item.AddressType)
+}
+
+func TestConvertIpAddressBlockUsage_IPv6(t *testing.T) {
+	ipType := nsxIPAddressTypeIPv6
+	nsxUsage := &model.IpAddressBlockUsage{
+		AddressType: &ipType,
+	}
+	item := ConvertIpAddressBlockUsage(nsxUsage, "block-b", "ns1")
+	assert.Equal(t, crIPAddressTypeIPv6, item.AddressType)
+}
+
 func TestConvertIpAddressBlockUsage_WithFullData(t *testing.T) {
 	cidr, blockID := "10.0.0.0/8", "block-a"
 	overallUsed := "10.0.0.1-10.0.0.5"
 	rangeVal := "10.1.0.0-10.1.0.255"
+	ipType := nsxIPAddressTypeIPv4
 	nsxUsage := &model.IpAddressBlockUsage{
 		Visibility:        strPtr("PRIVATE"),
+		AddressType:       &ipType,
 		UsedIpsCount:      strPtr("5"),
 		AvailableIpsCount: strPtr("100"),
 		OverallIpsCount:   strPtr("256"),
@@ -116,6 +136,7 @@ func TestConvertIpAddressBlockUsage_WithFullData(t *testing.T) {
 	item := ConvertIpAddressBlockUsage(nsxUsage, "block-a", "ns1")
 	assert.Equal(t, "block-a", item.Name)
 	assert.Equal(t, easv1alpha1.Private, item.Visibility)
+	assert.Equal(t, crIPAddressTypeIPv4, item.AddressType)
 	assert.Equal(t, "5", item.UsedIPsCount)
 	assert.Equal(t, "100", item.AvailableIPsCount)
 	assert.Equal(t, "256", item.OverallIPsCount)
@@ -162,7 +183,7 @@ func TestIpBlockUsageName(t *testing.T) {
 		index      int
 		want       string
 	}{
-		{"infra block", "/infra/ip-blocks/blk1", "", 0, "blk1"},
+		{"infra block", "/infra/ip-blocks/blk1", "", 0, ":blk1"},
 		{"project block with param", "/orgs/default/projects/proj1/infra/ip-blocks/blk1", "proj1", 0, "blk1"},
 		{"project block param override path project", "/orgs/default/projects/path-proj/infra/ip-blocks/blk1", "override-proj", 0, "blk1"},
 		{"fallback with project", "", "proj1", 2, "ipblock-2"},
