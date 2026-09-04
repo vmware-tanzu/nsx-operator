@@ -204,6 +204,9 @@ func ConvertIpAddressBlockUsage(nsxUsage *model.IpAddressBlockUsage, name, names
 	item.AvailableIPsCount = derefCount(nsxUsage.AvailableIpsCount)
 	item.OverallIPsCount = derefCount(nsxUsage.OverallIpsCount)
 	item.Visibility = toIPAddressVisibility(DerefString(nsxUsage.Visibility))
+	if nsxUsage.AddressType != nil {
+		item.IPAddressType = *nsxUsage.AddressType
+	}
 	for _, c := range nsxUsage.CidrUsage {
 		item.CIDRUsages = append(item.CIDRUsages, easv1alpha1.CIDRUsage{
 			CIDR: DerefString(c.Cidr),

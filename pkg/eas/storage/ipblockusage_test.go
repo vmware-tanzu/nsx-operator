@@ -82,8 +82,10 @@ func TestConvertIpAddressBlockUsage_WithFullData(t *testing.T) {
 	cidr, blockID := "10.0.0.0/8", "block-a"
 	overallUsed := "10.0.0.1-10.0.0.5"
 	rangeVal := "10.1.0.0-10.1.0.255"
+	ipType := "IPv4"
 	nsxUsage := &model.IpAddressBlockUsage{
 		Visibility:        strPtr("PRIVATE"),
+		AddressType:       &ipType,
 		UsedIpsCount:      strPtr("5"),
 		AvailableIpsCount: strPtr("100"),
 		OverallIpsCount:   strPtr("256"),
@@ -116,6 +118,7 @@ func TestConvertIpAddressBlockUsage_WithFullData(t *testing.T) {
 	item := ConvertIpAddressBlockUsage(nsxUsage, "block-a", "ns1")
 	assert.Equal(t, "block-a", item.Name)
 	assert.Equal(t, easv1alpha1.Private, item.Visibility)
+	assert.Equal(t, "IPv4", item.IPAddressType)
 	assert.Equal(t, "5", item.UsedIPsCount)
 	assert.Equal(t, "100", item.AvailableIPsCount)
 	assert.Equal(t, "256", item.OverallIPsCount)
