@@ -83,6 +83,14 @@ func (l CustomLogger) Error(err error, msg string, keysAndValues ...interface{})
 	l.Logger.Error(err, msg, keysAndValues...)
 }
 
+// Fallback returns the logger if it is initialized (has a sink), otherwise returns the default Log.
+func (l CustomLogger) Fallback() CustomLogger {
+	if l.GetSink() != nil {
+		return l
+	}
+	return Log
+}
+
 // NewCustomLoggerWithZerolog creates a CustomLogger with both logr.Logger and zerolog.Logger
 func NewCustomLoggerWithZerolog(logger logr.Logger, zeroLogger *zerolog.Logger) CustomLogger {
 	return CustomLogger{Logger: logger, zeroLogger: zeroLogger}

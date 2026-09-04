@@ -72,13 +72,20 @@ type NsxVersion struct {
 
 var (
 	jarCache = NewJar()
-	log      = logger.Log
 	once     sync.Once
 )
 
+func (cluster *Cluster) getLogger() logger.CustomLogger {
+	if cluster != nil && cluster.config != nil {
+		return cluster.config.Logger.Fallback()
+	}
+	return logger.Log
+}
+
 // NewCluster creates a cluster based on nsx Config.
 func NewCluster(config *Config) (*Cluster, error) {
-	log.Info("Creating cluster")
+	config.Logger = config.Logger.Fallback()
+	config.Logger.Info("Creating cluster")
 	cluster := &Cluster{}
 	cluster.config = config
 	cluster.nsxVersion = &NsxVersion{}
@@ -89,7 +96,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 	r := ratelimiter.NewRateLimiter(config.APIRateMode)
 	eps, err := cluster.createEndpoints(config.APIManagers, cluster.client, cluster.noBalancerClient, r, config.TokenProvider)
 	if err != nil {
-		log.Error(err, "Failed to create cluster")
+		cluster.config.Logger.Error(err, "Failed to create cluster")
 		return nil, err
 	}
 
@@ -110,6 +117,7 @@ func NewCluster(config *Config) (*Cluster, error) {
 		}
 	}
 	for _, ep := range cluster.endpoints {
+		ep.wg.Add(1)
 		go ep.KeepAlive()
 	}
 
@@ -126,6 +134,7 @@ func (cluster *Cluster) loadCAforEnvoy() {
 	if !cluster.UsingEnvoy() {
 		return
 	}
+	log := cluster.getLogger()
 	for i, caFile := range cluster.config.CAFile {
 		cert := util.CertPemBytesToHeader(caFile)
 		if cert != "" {
@@ -168,7 +177,7 @@ func (cluster *Cluster) CreateServerUrl(host string, scheme string) string {
 	}
 
 	once.Do(func() {
-		log.Debug("Create serverUrl", "serverUrl", serverUrl)
+		cluster.getLogger().Debug("Create serverUrl", "serverUrl", serverUrl)
 	})
 	return serverUrl
 }
@@ -198,7 +207,10 @@ func (cluster *Cluster) UsingEnvoy() bool {
 }
 
 func (cluster *Cluster) getThumbprint(addr string) string {
-	host := addr[:strings.Index(addr, ":")]
+	host := addr
+	if pos := strings.Index(addr, ":"); pos > 0 {
+		host = addr[:pos]
+	}
 	var thumbprint string
 	tpCount := len(cluster.config.Thumbprint)
 	if tpCount == 1 {
@@ -220,7 +232,10 @@ func (cluster *Cluster) getThumbprint(addr string) string {
 }
 
 func (cluster *Cluster) getCaFile(addr string) string {
-	host := addr[:strings.Index(addr, ":")]
+	host := addr
+	if pos := strings.Index(addr, ":"); pos > 0 {
+		host = addr[:pos]
+	}
 	var cafile string
 	tpCount := len(cluster.config.CAFile)
 	if tpCount == 1 {
@@ -245,43 +260,56 @@ func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
 	tr := &http.Transport{
 		IdleConnTimeout: idle * time.Second,
 	}
+	log := cluster.getLogger()
 	log.Info("Cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
 	if !cluster.config.Insecure {
-		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
-			var config *tls.Config
-			cafile := cluster.getCaFile(addr)
-			caCount := len(cluster.config.CAFile)
-			log.Info("Create Transport", "ca file", cafile, "caCount", caCount)
-			if caCount > 0 {
-				caCert, err := os.ReadFile(cafile)
-				if err != nil {
-					log.Error(err, "Create transport", "read ca file", cafile)
-					return nil, err
-				}
+		tlsConfigCache := make(map[string]*tls.Config)
+		var cacheMutex sync.RWMutex
 
-				config, err = util.GetTLSConfigForCert(caCert)
-				if err != nil {
-					log.Error(err, "Create transport", "get TLS config from cert", cafile)
-					return nil, err
-				}
-			} else {
-				thumbprint := cluster.getThumbprint(addr)
-				tpCount := len(cluster.config.Thumbprint)
-				log.Info("Create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
-				// #nosec G402: ignore insecure options
-				config = &tls.Config{
-					InsecureSkipVerify: true,
-					VerifyConnection: func(cs tls.ConnectionState) error {
-						// not check thumbprint if no thumbprint config
-						if tpCount > 0 {
-							if err := util.VerifyNsxCertWithThumbprint(cs.PeerCertificates[0].Raw, thumbprint); err != nil {
-								return err
+		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
+			cacheMutex.RLock()
+			config, ok := tlsConfigCache[addr]
+			cacheMutex.RUnlock()
+
+			if !ok {
+				cafile := cluster.getCaFile(addr)
+				caCount := len(cluster.config.CAFile)
+				log.Info("Create Transport", "ca file", cafile, "caCount", caCount)
+				if caCount > 0 {
+					caCert, err := os.ReadFile(cafile)
+					if err != nil {
+						log.Error(err, "Create transport", "read ca file", cafile)
+						return nil, err
+					}
+
+					config, err = util.GetTLSConfigForCert(caCert)
+					if err != nil {
+						log.Error(err, "Create transport", "get TLS config from cert", cafile)
+						return nil, err
+					}
+				} else {
+					thumbprint := cluster.getThumbprint(addr)
+					tpCount := len(cluster.config.Thumbprint)
+					log.Info("Create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
+					// #nosec G402: ignore insecure options
+					config = &tls.Config{
+						InsecureSkipVerify: true,
+						VerifyConnection: func(cs tls.ConnectionState) error {
+							// not check thumbprint if no thumbprint config
+							if tpCount > 0 {
+								if err := util.VerifyNsxCertWithThumbprint(cs.PeerCertificates[0].Raw, thumbprint); err != nil {
+									return err
+								}
 							}
-						}
-						return nil
-					},
+							return nil
+						},
+					}
 				}
+				cacheMutex.Lock()
+				tlsConfigCache[addr] = config
+				cacheMutex.Unlock()
 			}
+
 			conn, err := tls.Dial(network, addr, config)
 			if err != nil {
 				log.Error(err, "Failed to do transport connect to", "addr", addr)
@@ -323,8 +351,9 @@ func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) *htt
 
 func (cluster *Cluster) createEndpoints(apiManagers []string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter, tokenProvider auth.TokenProvider) ([]*Endpoint, error) {
 	eps := make([]*Endpoint, len(apiManagers))
+	log := cluster.getLogger()
 	for i := range eps {
-		ep, err := NewEndpoint(apiManagers[i], client, noBClient, r, tokenProvider)
+		ep, err := NewEndpoint(apiManagers[i], client, noBClient, r, tokenProvider, log)
 		if err != nil {
 			return nil, err
 		}
@@ -370,6 +399,7 @@ func (cluster *Cluster) SetOnProductVersionChanged(fn func(oldVersion, newVersio
 }
 
 func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
+	log := cluster.getLogger()
 	if cluster.nsxVersion != nil && len(cluster.nsxVersion.ProductVersion) > 0 && time.Since(cluster.lastTimeGetVersion) < GetNsxVersionInterval {
 		log.Debug("Get version from cache", "version", cluster.nsxVersion.ProductVersion)
 		return cluster.nsxVersion, nil
@@ -399,7 +429,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 		log.Error(err, "Failed to get NSX version")
 		return nil, err
 	}
-	err, _ = util.HandleHTTPResponse(resp, cluster.nsxVersion, true)
+	err, _ = util.HandleHTTPResponse(resp, cluster.nsxVersion, true, log)
 	if err == nil {
 		cluster.lastTimeGetVersion = time.Now()
 		newVersion := ""
@@ -422,28 +452,31 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 
 // HttpGet sends an http GET request to the cluster, exported for use
 func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
+	log := cluster.getLogger()
 	resp, err := cluster.httpAction(url, "GET")
 	if err != nil {
 		log.Error(err, "Failed to do HTTP GET operation")
 		return nil, err
 	}
 	respJson := make(map[string]interface{})
-	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true, log)
 	return respJson, err
 }
 
 // HttpGetAndDecode sends an http GET request to the cluster and decode the response to result
 func (cluster *Cluster) HttpGetAndDecode(url string, result interface{}) error {
+	log := cluster.getLogger()
 	resp, err := cluster.httpAction(url, "GET")
 	if err != nil {
 		log.Error(err, "Failed to do HTTP GET operation")
 		return err
 	}
-	err, _ = util.HandleHTTPResponse(resp, result, true)
+	err, _ = util.HandleHTTPResponse(resp, result, true, log)
 	return err
 }
 
 func (cluster *Cluster) httpAction(url, method string, requestBody ...interface{}) (*http.Response, error) {
+	log := cluster.getLogger()
 	ep := cluster.endpoints[0]
 	serverUrl := cluster.CreateServerUrl(cluster.endpoints[0].Host(), cluster.endpoints[0].Scheme())
 	url = fmt.Sprintf("%s/%s", serverUrl, url)
@@ -481,7 +514,13 @@ func (cluster *Cluster) httpAction(url, method string, requestBody ...interface{
 
 // HttpDelete sends an http DELETE request to the cluster, exported for use
 func (cluster *Cluster) HttpDelete(url string) error {
-	_, err := cluster.httpAction(url, "DELETE")
+	log := cluster.getLogger()
+	resp, err := cluster.httpAction(url, "DELETE")
+	if err != nil {
+		log.Error(err, "Failed to do HTTP DELETE operation")
+		return err
+	}
+	err, _ = util.HandleHTTPResponse(resp, nil, true, log)
 	if err != nil {
 		log.Error(err, "Failed to do HTTP DELETE operation")
 		return err
@@ -491,6 +530,7 @@ func (cluster *Cluster) HttpDelete(url string) error {
 
 // HttpPost sends an http POST request to the cluster with a JSON body, exported for use
 func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[string]interface{}, error) {
+	log := cluster.getLogger()
 	resp, err := cluster.httpAction(url, "POST", requestBody)
 	if err != nil {
 		log.Error(err, "Failed to do HTTP POST operation")
@@ -498,12 +538,13 @@ func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[strin
 	}
 
 	respJson := make(map[string]interface{})
-	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true, log)
 	return respJson, err
 }
 
 // HttpPatch sends an http PATCH request to the cluster with a JSON body, exported for use
 func (cluster *Cluster) HttpPatch(url string, requestBody interface{}) (map[string]interface{}, error) {
+	log := cluster.getLogger()
 	resp, err := cluster.httpAction(url, "PATCH", requestBody)
 	if err != nil {
 		log.Error(err, "Failed to do HTTP PATCH operation")
@@ -511,11 +552,11 @@ func (cluster *Cluster) HttpPatch(url string, requestBody interface{}) (map[stri
 	}
 
 	respJson := make(map[string]interface{})
-	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
+	err, _ = util.HandleHTTPResponse(resp, &respJson, true, log)
 	return respJson, err
 }
 
-func (nsxVersion *NsxVersion) Validate() error {
+func (nsxVersion *NsxVersion) Validate(log logger.CustomLogger) error {
 	re, _ := regexp.Compile(`^([\d]+).([\d]+).([\d]+)`)
 	result := re.Find([]byte(nsxVersion.ProductVersion))
 	if len(result) < 1 {
@@ -527,7 +568,7 @@ func (nsxVersion *NsxVersion) Validate() error {
 	return nil
 }
 
-func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
+func (nsxVersion *NsxVersion) featureSupported(feature int, log logger.CustomLogger) bool {
 	var minVersion [3]int64
 	validFeature := false
 	switch feature {
@@ -607,16 +648,32 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 }
 
 func (cluster *Cluster) FetchLicense() error {
+	log := cluster.getLogger()
 	resp, err := cluster.httpAction(LicenseAPI, "GET")
 	if err != nil {
 		log.Error(err, "Failed to get NSX license")
 		return err
 	}
 	nsxLicense := &util.NsxLicense{}
-	err, _ = util.HandleHTTPResponse(resp, nsxLicense, true)
+	err, _ = util.HandleHTTPResponse(resp, nsxLicense, true, log)
 	if err != nil {
 		return err
 	}
 	util.UpdateFeatureLicense(nsxLicense)
 	return nil
+}
+
+// StopKeepAlive stops the cluster's background keep-alive goroutines.
+func (cluster *Cluster) StopKeepAlive() {
+	for _, ep := range cluster.endpoints {
+		if ep.stop != nil {
+			select {
+			case <-ep.stop:
+				// already stopped
+			default:
+				close(ep.stop)
+			}
+			ep.wg.Wait()
+		}
+	}
 }
