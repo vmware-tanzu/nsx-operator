@@ -37,7 +37,7 @@ func TestNewCluster(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	_, err := NewCluster(config)
 	assert.True(t, err == nil, fmt.Sprintf("Created cluster failed %v", err))
 }
@@ -95,7 +95,7 @@ func TestCluster_NewRestConnector(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	c, _ := NewCluster(config)
 	con := c.NewRestConnector()
 	assert.NotNil(t, con)
@@ -114,7 +114,7 @@ func TestCluster_createTransport(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 	thumbprint := []string{"123"}
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	c, _ := NewCluster(config)
 	assert.NotNil(t, c.createTransport(10))
 }
@@ -255,7 +255,7 @@ func TestCluster_getVersion(t *testing.T) {
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, _ := NewCluster(config)
 	nsxVersion, err := cluster.GetVersion()
 	assert.Equal(t, err, nil)
@@ -296,7 +296,7 @@ func TestCluster_GetVersion_invokesOnProductVersionChangedWhenProductVersionChan
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
@@ -344,7 +344,7 @@ func TestCluster_GetVersion_noOnProductVersionChangedWhenVersionUnchanged(t *tes
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
@@ -387,7 +387,7 @@ func TestCluster_GetVersion_noPanicWhenOnProductVersionChangedNil(t *testing.T) 
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, err := NewCluster(config)
 	assert.NoError(t, err)
 
@@ -557,4 +557,26 @@ func TestFetchLicense(t *testing.T) {
 	err = cluster.FetchLicense()
 	assert.Nil(t, err)
 
+}
+func TestCluster_getDialTLSContext(t *testing.T) {
+	cluster := &Cluster{
+		config: &Config{},
+	}
+
+	// Test 1: CA file provided
+	cluster.config.CAFile = []string{"/tmp/dummy.crt"}
+	dialFunc := cluster.getDialTLSContext()
+	assert.NotNil(t, dialFunc)
+
+	// Test 2: Thumbprint provided
+	cluster.config.CAFile = nil
+	cluster.config.Thumbprint = []string{"12:34:56"}
+	dialFunc = cluster.getDialTLSContext()
+	assert.NotNil(t, dialFunc)
+
+	// Test 3: Neither CA nor Thumbprint provided (Insecure=false)
+	cluster.config.CAFile = nil
+	cluster.config.Thumbprint = nil
+	dialFunc = cluster.getDialTLSContext()
+	assert.NotNil(t, dialFunc)
 }

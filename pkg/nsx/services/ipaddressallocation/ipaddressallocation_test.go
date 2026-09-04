@@ -32,7 +32,7 @@ import (
 )
 
 func createIPAddressAllocationService(t *testing.T) (*IPAddressAllocationService, *gomock.Controller, *mocks.MockIPAddressAllocationClient) {
-	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
 	cluster, _ := nsx.NewCluster(config2)
 	rc := cluster.NewRestConnector()
