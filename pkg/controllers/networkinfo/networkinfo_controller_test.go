@@ -44,6 +44,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/test/unittests"
 )
 
 type fakeVPCConnectivityProfilesClient struct{}
@@ -2780,10 +2781,18 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 				}
 			}
 
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "tepless",
+				Component:   "networkinfo-controller",
+				Scenario:    "default_subnetset_update",
+				Description: fmt.Sprintf("Verify default SubnetSet update behavior under scenario: %s", tc.name),
+			})
+
 			updated := &v1alpha1.SubnetSet{}
 			err := r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-1", Name: "pod-default"}, updated)
 			if tc.expectNotExists {
 				assert.True(t, apierrors.IsNotFound(err))
+				guard.AssertOutput(map[string]interface{}{"exists": false})
 			} else {
 				require.NoError(t, err)
 				if tc.expectIPAddressType != "" {
@@ -2795,6 +2804,7 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 					assert.Nil(t, updated.Spec.SubnetNames)
 				}
 				assert.Equal(t, tc.expectIPv6PrefixLength, updated.Spec.IPv6PrefixLength)
+				guard.AssertOutput(updated)
 			}
 		})
 	}

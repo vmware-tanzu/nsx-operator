@@ -1,0 +1,259 @@
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Create_default_SubnetSet - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Create default SubnetSet",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "metadata": {
+   "labels": {
+    "nsx.vmware.com/default-network": "pod",
+    "nsxoperator.vmware.com/default-subnetset-for": "Pod"
+   },
+   "name": "pod-default",
+   "namespace": "ns-1",
+   "resourceVersion": "MASKED_RESOURCE_VERSION"
+  },
+  "spec": {
+   "accessMode": "PrivateTGW",
+   "ipAddressType": "IPv4",
+   "ipv4SubnetSize": 32,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {}
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   }
+  },
+  "status": {}
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Delete_default_SubnetSet_1 - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Delete default SubnetSet 1",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "exists": false
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Delete_default_SubnetSet_2 - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Delete default SubnetSet 2",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "exists": false
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Existing_default_SubnetSet - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Existing default SubnetSet",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "metadata": {
+   "labels": {
+    "nsx.vmware.com/default-network": "pod"
+   },
+   "name": "pod-default",
+   "namespace": "ns-1",
+   "resourceVersion": "MASKED_RESOURCE_VERSION"
+  },
+  "spec": {
+   "accessMode": "Public",
+   "ipAddressType": "IPv4",
+   "ipv4SubnetSize": 32,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {}
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   }
+  },
+  "status": {}
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Existing_default_SubnetSet_with_IPAddressType_change - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Existing default SubnetSet with IPAddressType change",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "metadata": {
+   "labels": {
+    "nsx.vmware.com/default-network": "pod",
+    "nsxoperator.vmware.com/default-subnetset-for": "Pod"
+   },
+   "name": "pod-default",
+   "namespace": "ns-1",
+   "resourceVersion": "MASKED_RESOURCE_VERSION"
+  },
+  "spec": {
+   "accessMode": "PrivateTGW",
+   "ipAddressType": "IPv6",
+   "ipv6PrefixLength": 80,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {}
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   }
+  },
+  "status": {}
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Create_default_SubnetSet_with_IPv6 - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Create default SubnetSet with IPv6",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "metadata": {
+   "labels": {
+    "nsx.vmware.com/default-network": "pod",
+    "nsxoperator.vmware.com/default-subnetset-for": "Pod"
+   },
+   "name": "pod-default",
+   "namespace": "ns-1",
+   "resourceVersion": "MASKED_RESOURCE_VERSION"
+  },
+  "spec": {
+   "accessMode": "PrivateTGW",
+   "ipAddressType": "IPv6",
+   "ipv6PrefixLength": 80,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {}
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   }
+  },
+  "status": {}
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Create_default_SubnetSet_with_dual_stack - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Create default SubnetSet with dual stack",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "metadata": {
+   "labels": {
+    "nsx.vmware.com/default-network": "pod",
+    "nsxoperator.vmware.com/default-subnetset-for": "Pod"
+   },
+   "name": "pod-default",
+   "namespace": "ns-1",
+   "resourceVersion": "MASKED_RESOURCE_VERSION"
+  },
+  "spec": {
+   "accessMode": "PrivateTGW",
+   "ipAddressType": "IPv4IPv6",
+   "ipv4SubnetSize": 32,
+   "ipv6PrefixLength": 80,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {}
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   }
+  },
+  "status": {}
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Existing_default_SubnetSet_with_subnetNames_and_IPAddressType_change_(no_delete) - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Existing default SubnetSet with subnetNames and IPAddressType change (no delete)",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "metadata": {
+   "labels": {
+    "nsx.vmware.com/default-network": "pod"
+   },
+   "name": "pod-default",
+   "namespace": "ns-1",
+   "resourceVersion": "MASKED_RESOURCE_VERSION"
+  },
+  "spec": {
+   "accessMode": "Public",
+   "ipAddressType": "IPv4IPv6",
+   "ipv4SubnetSize": 32,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {}
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   },
+   "subnetNames": [
+    "subnet-1"
+   ]
+  },
+  "status": {}
+ }
+}
+---
+
+[TestNetworkInfoReconciler_UpdateDefaultSubnetSet/Existing_default_SubnetSet_without_subnetNames_and_IPAddressType_change_(delete) - 1]
+{
+ "metadata": {
+  "component": "networkinfo-controller",
+  "description": "Verify default SubnetSet update behavior under scenario: Existing default SubnetSet without subnetNames and IPAddressType change (delete)",
+  "scenario": "default_subnetset_update"
+ },
+ "payload": {
+  "metadata": {
+   "labels": {
+    "nsx.vmware.com/default-network": "pod",
+    "nsxoperator.vmware.com/default-subnetset-for": "Pod"
+   },
+   "name": "pod-default",
+   "namespace": "ns-1",
+   "resourceVersion": "MASKED_RESOURCE_VERSION"
+  },
+  "spec": {
+   "accessMode": "PrivateTGW",
+   "ipAddressType": "IPv4",
+   "ipv4SubnetSize": 32,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {}
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   }
+  },
+  "status": {}
+ }
+}
+---
