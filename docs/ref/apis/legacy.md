@@ -9,6 +9,7 @@
 
 
 ### Resource Types
+- [NSXNetworkConfiguration](#nsxnetworkconfiguration)
 - [NSXServiceAccount](#nsxserviceaccount)
 - [SecurityPolicy](#securitypolicy)
 
@@ -65,6 +66,121 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `cidr` _string_ | CIDR is a string representing the IP Block.<br />Valid examples are "192.168.1.0/24" and "2001:db8::/32". |  |  |
+
+
+#### ModeType
+
+_Underlying type:_ _string_
+
+ModeType defines the routing mode supported.
+
+
+
+_Appears in:_
+- [NSXNetworkConfigurationSpec](#nsxnetworkconfigurationspec)
+
+| Field | Description |
+| --- | --- |
+| `NAT` | TypeNat defines the Mode as NAT.<br /> |
+| `ROUTED` | TypeRouted defines the Mode as ROUTED.<br /> |
+
+
+#### NSXNetworkConfiguration
+
+
+
+NSXNetworkConfiguration is the Schema for the nsxnetworkconfigurations API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `NSXNetworkConfiguration` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[NSXNetworkConfigurationSpec](#nsxnetworkconfigurationspec)_ |  |  |  |
+| `status` _[NSXNetworkConfigurationStatus](#nsxnetworkconfigurationstatus)_ |  |  |  |
+
+
+#### NSXNetworkConfigurationCondition
+
+
+
+NSXNetworkConfigurationCondition defines the condition for the NSXNetworkConfiguration.
+
+
+
+_Appears in:_
+- [NSXNetworkConfigurationStatus](#nsxnetworkconfigurationstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `type` _[NSXNetworkConfigurationConditionType](#nsxnetworkconfigurationconditiontype)_ |  |  |  |
+| `status` _[ConditionStatus](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#conditionstatus-v1-core)_ |  |  |  |
+| `reason` _string_ |  |  |  |
+| `message` _string_ |  |  |  |
+
+
+#### NSXNetworkConfigurationConditionType
+
+_Underlying type:_ _string_
+
+NSXNetworkConfigurationConditionType describes the condition type.
+
+
+
+_Appears in:_
+- [NSXNetworkConfigurationCondition](#nsxnetworkconfigurationcondition)
+
+| Field | Description |
+| --- | --- |
+| `ready` | NSXNetworkConfigurationConditionTypeReady means NSXNetworkConfiguration is healthy.<br /> |
+| `failure` | NSXNetworkConfigurationConditionTypeFailure means NSXNetworkConfiguration is unhealthy.<br /> |
+
+
+#### NSXNetworkConfigurationSpec
+
+
+
+NSXNetworkConfigurationSpec defines the desired state of NSXNetworkConfiguration.
+
+
+
+_Appears in:_
+- [NSXNetworkConfiguration](#nsxnetworkconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ingressCIDRs` _string array_ | IngressCIDRs defines CIDRs used for ingress traffic. |  |  |
+| `egressCIDRs` _string array_ | EgressCIDRs defines CIDRs used for egress SNAT. |  |  |
+| `appliedToNamespaces` _string array_ | AppliedToNamespaces lists the namespaces where this network configuration applies. |  |  |
+| `mode` _[ModeType](#modetype)_ | Mode specifies the network mode: NAT or ROUTED. |  |  |
+| `subnetCIDRs` _string array_ | SubnetCIDRs defines the CIDRs allocated for subnets. |  |  |
+| `tier0Gateway` _string_ | Tier0Gateway specifies the path or name of the Tier0 gateway. |  |  |
+| `loadbalancerSize` _[SizeType](#sizetype)_ | LoadBalancerSize specifies the default load balancer size. |  |  |
+| `subnetPrefixLength` _integer_ | SubnetPrefixLength specifies the prefix length for namespace subnets. |  |  |
+| `subnetQuota` _integer_ | SubnetQuota specifies quota for subnets. |  |  |
+| `snatIPQuota` _integer_ | SNATIPQuota specifies quota for SNAT IPs. |  |  |
+| `lbVIPQuota` _integer_ | LBVIPQuota specifies quota for LoadBalancer VIPs. |  |  |
+| `l7ruleQuota` _integer_ | L7RuleQuota specifies quota for L7 rules. |  |  |
+
+
+#### NSXNetworkConfigurationStatus
+
+
+
+NSXNetworkConfigurationStatus defines the observed state of NSXNetworkConfiguration.
+
+
+
+_Appears in:_
+- [NSXNetworkConfiguration](#nsxnetworkconfiguration)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[NSXNetworkConfigurationCondition](#nsxnetworkconfigurationcondition) array_ |  |  |  |
 
 
 #### NSXProxyEndpoint
@@ -416,5 +532,23 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `vmSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#labelselector-v1-meta)_ | VMSelector uses label selector to select VMs. |  |  |
 | `podSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#labelselector-v1-meta)_ | PodSelector uses label selector to select Pods. |  |  |
+
+
+#### SizeType
+
+_Underlying type:_ _string_
+
+SizeType defines load balancer size supported.
+
+
+
+_Appears in:_
+- [NSXNetworkConfigurationSpec](#nsxnetworkconfigurationspec)
+
+| Field | Description |
+| --- | --- |
+| `SMALL` | LbSizeSmall defines the size as SMALL.<br /> |
+| `MEDIUM` | LbSizeMedium defines the size as MEDIUM.<br /> |
+| `LARGE` | LbSizeLarge defines the size as LARGE.<br /> |
 
 
