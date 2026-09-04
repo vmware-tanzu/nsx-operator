@@ -154,6 +154,10 @@ func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns str
 	defaultSubnetSets := getDefaultSubnetsets(namespaceType)
 	ipFamily := r.NSXConfig.K8sConfig.GetIPAddressType()
 	for name, subnetSetType := range defaultSubnetSets {
+		if ns == "kube-system" && name == types.DefaultVMSubnetSet && r.NSXConfig.NsxConfig.VpcWcpEnhanceEnabled() {
+			log.Info("Skipping default SubnetSet creation for kube-system in Supervisor 2.0")
+			continue
+		}
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
 			return err != nil
 		}, func() error {

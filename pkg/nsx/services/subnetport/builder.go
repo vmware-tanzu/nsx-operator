@@ -177,7 +177,10 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	namespaceUid := namespace.UID
 
-	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID)
+	nsxSubnetPortID, nsxSubnetPortName, err := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID)
+	if err != nil {
+		return nil, err
+	}
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 
 	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
@@ -270,21 +273,45 @@ func (service *SubnetPortService) GetExistingSubnetPortForStatefulSetPod(podName
 	return nil
 }
 
-func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string) (string, string) {
+func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string) (string, string, error) {
 	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(obj.GetUID())
 	if err == nil && existingSubnetPort != nil {
-		return *existingSubnetPort.Id, *existingSubnetPort.DisplayName
+		return *existingSubnetPort.Id, *existingSubnetPort.DisplayName, nil
+	}
+
+	if reusePort, ok := obj.Annotations[common.AnnotationReusePort]; ok {
+		if reusePort == "" {
+			return "", "", fmt.Errorf("reused port cannot be empty")
+		}
+		parts := strings.Split(reusePort, "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			oldNamespace := parts[0]
+			oldName := parts[1]
+			log.Info("Checking reuse-port annotation", "oldNamespace", oldNamespace, "oldName", oldName)
+			existingPorts := service.ListSubnetPortByName(oldNamespace, oldName)
+			if len(existingPorts) > 0 {
+				log.Info("Reusing existing SubnetPort based on annotation",
+					"oldNamespace", oldNamespace, "oldName", oldName, "newNamespace", obj.Namespace, "newName", obj.Name)
+				return *existingPorts[0].Id, *existingPorts[0].DisplayName, nil
+			}
+			return "", "", fmt.Errorf("reused port %s not found in runtime store", reusePort)
+		}
+		return "", "", fmt.Errorf("invalid reuse-port annotation value %s, expected format <namespace>/<name>", reusePort)
 	}
 
 	// For StatefulSet pods: check if a SubnetPort with the same StatefulSet UID and pod name exists
 	// Note: STS UID is globally unique, so we only need to check pod name
 	// Only reuse if StatefulSet pod SubnetPort feature is enabled
-	enableStsFeature := nsx.StatefulSetPodSubnetPortFeatureEnabled(service.NSXClient, service.NSXConfig)
-	if enableStsFeature {
-		if port := service.GetExistingSubnetPortForStatefulSetPod(obj.Name, stsUID); port != nil {
-			log.Info("Reusing existing SubnetPort for StatefulSet pod",
-				"podName", obj.Name, "stsUID", stsUID, "portID", *port.Id)
-			return *port.Id, *port.DisplayName
+	if stsUID != "" && nsx.StatefulSetPodSubnetPortFeatureEnabled(service.NSXClient, service.NSXConfig) {
+		existingPorts := service.SubnetPortStore.GetByIndex(common.TagScopeStatefulSetUID, stsUID)
+		for _, port := range existingPorts {
+			log.Debug("BuildSubnetPortIdAndName", "port", port.Id, "path", port.Path)
+			portName := nsxutil.FindTag(port.Tags, common.TagScopePodName)
+			if portName == obj.Name {
+				log.Info("Reusing existing SubnetPort for StatefulSet pod",
+					"podName", obj.Name, "stsUID", stsUID)
+				return *port.Id, *port.DisplayName, nil
+			}
 		}
 	}
 
@@ -295,7 +322,7 @@ func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMet
 	}
 	return common.BuildUniqueIDWithRandomUUID(objWithNamespaceUID, util.GenerateIDByObject, func(id string) bool {
 		return service.SubnetPortStore.GetByKey(id) != nil
-	}), service.BuildSubnetPortName(obj)
+	}), service.BuildSubnetPortName(obj), nil
 }
 
 func (service *SubnetPortService) BuildSubnetPortName(obj *metav1.ObjectMeta) string {

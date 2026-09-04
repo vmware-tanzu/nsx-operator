@@ -949,6 +949,26 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		existing = true
 		return
 	}
+	if reusePort, ok := subnetPort.Annotations[servicecommon.AnnotationReusePort]; ok {
+		if reusePort == "" {
+			err = fmt.Errorf("reused port cannot be empty")
+			return
+		}
+		parts := strings.Split(reusePort, "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			existingPorts := r.SubnetPortService.ListSubnetPortByName(parts[0], parts[1])
+			if len(existingPorts) > 0 && existingPorts[0].ParentPath != nil && len(*existingPorts[0].ParentPath) > 0 {
+				subnetPath = *existingPorts[0].ParentPath
+				existing = true
+				log.Debug("NSX SubnetPort will be reused on the existing NSX Subnet", "subnetPort.UID", subnetPort.UID, "reusePort", reusePort, "subnetPath", subnetPath)
+				return
+			}
+			err = fmt.Errorf("reused port %s not found in runtime store", reusePort)
+			return
+		}
+		err = fmt.Errorf("invalid reuse-port annotation value %s, expected format <namespace>/<name>", reusePort)
+		return
+	}
 	if r.restoreMode {
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR
 		if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
