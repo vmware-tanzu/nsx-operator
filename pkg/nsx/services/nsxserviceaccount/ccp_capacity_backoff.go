@@ -4,6 +4,8 @@
 package nsxserviceaccount
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -14,6 +16,22 @@ var (
 	ccpConnCapMu   sync.Mutex
 	ccpConnCapFull time.Time // zero value means no active backoff
 )
+
+type CCPBackoffError struct {
+	RequeueAfter time.Duration
+}
+
+func (e CCPBackoffError) Error() string {
+	return fmt.Sprintf("cluster control plane connection capacity backoff is active, requeueAfter=%v", e.RequeueAfter)
+}
+
+func IsCCPBackoffError(err error) (time.Duration, bool) {
+	var bErr CCPBackoffError
+	if errors.As(err, &bErr) {
+		return bErr.RequeueAfter, true
+	}
+	return 0, false
+}
 
 // MarkCCPConnectionCapacityFull records the current time globally so NSXServiceAccount
 // reconciles can avoid calling NSX until the backoff window expires.

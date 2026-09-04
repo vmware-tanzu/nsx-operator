@@ -210,11 +210,22 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 		"cert", string(cert))
 	if hasPI && hasCCP && piObj != nil && ccpObj != nil {
 		if string(cert) != "" && (certificate.PemEncoded == nil || *(certificate.PemEncoded) != string(cert)) {
+			if requeueAfter, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now()); skip {
+				log.Info("skipping NSX API calls for updatePICert while cluster control plane connection capacity backoff is active",
+					"nsxserviceaccount", types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, "requeueAfter", requeueAfter)
+				return CCPBackoffError{RequeueAfter: requeueAfter}
+			}
 			return s.updatePICert(pi, normalizedClusterName, string(cert))
 		}
 		return nil
 	} else if hasPI || hasCCP || (piObj != nil) || (ccpObj != nil) {
 		return fmt.Errorf("PI/CCP doesn't match")
+	}
+
+	if requeueAfter, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now()); skip {
+		log.Info("skipping NSX API calls for restore while cluster control plane connection capacity backoff is active",
+			"nsxserviceaccount", types.NamespacedName{Name: obj.Name, Namespace: obj.Namespace}, "requeueAfter", requeueAfter)
+		return CCPBackoffError{RequeueAfter: requeueAfter}
 	}
 	_, err := s.NSXClient.ClusterControlPlanesClient.Get(siteId, enforcementpointId, normalizedClusterName)
 	log.Debug("RestoreRealizedNSXServiceAccount s.NSXClient.ClusterControlPlanesClient.Get", "err", err)

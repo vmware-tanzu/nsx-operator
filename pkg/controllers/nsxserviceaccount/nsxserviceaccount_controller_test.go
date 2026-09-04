@@ -643,6 +643,149 @@ func TestNSXServiceAccountReconciler_Reconcile_CCPConnectionCapacityBackoffDoesN
 	assert.Equal(t, ResultNormal, got)
 }
 
+func TestNSXServiceAccountReconciler_Reconcile_CCPConnectionCapacityBackoffSkipsRealizedRestore(t *testing.T) {
+	t.Cleanup(nsxsasvc.ClearCCPConnectionCapacityFull)
+	nsxsasvc.ClearCCPConnectionCapacityFull()
+	nsxsasvc.MarkCCPConnectionCapacityFull()
+
+	r := newFakeNSXServiceAccountReconciler()
+	nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
+	r.Service = &nsxsasvc.NSXServiceAccountService{
+		Service: servicecommon.Service{
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(r.Client, r.Service.NSXConfig, r.Recorder, MetricResType, "ServiceAccount", "NSXServiceAccount")
+
+	ctx := context.TODO()
+	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "realized-restore-ccpboff"}}
+
+	obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: req.Namespace,
+			Name:      req.Name,
+		},
+		Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+			Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+		},
+	}
+	require.NoError(t, r.Client.Create(ctx, obj))
+
+	var restoreCalled bool
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&nsx.Client{}), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return true
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "RestoreRealizedNSXServiceAccount", func(_ *nsxsasvc.NSXServiceAccountService, _ context.Context, _ *nsxvmwarecomv1alpha1.NSXServiceAccount) error {
+		restoreCalled = true
+		return nsxsasvc.CCPBackoffError{RequeueAfter: 5 * time.Minute}
+	})
+	defer patches.Reset()
+
+	got, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.True(t, restoreCalled, "RestoreRealizedNSXServiceAccount should be called")
+	assert.Equal(t, 5*time.Minute, got.RequeueAfter)
+}
+
+func TestNSXServiceAccountReconciler_RestoreReconcile(t *testing.T) {
+	t.Run("Success_OnlyRealizedReconciled", func(t *testing.T) {
+		r := newFakeNSXServiceAccountReconciler()
+		nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
+		ctx := context.TODO()
+
+		realizedCR1 := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name:      "realized-1",
+			},
+			Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+				Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+			},
+		}
+		realizedCR2 := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns2",
+				Name:      "realized-2",
+			},
+			Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:   nsxvmwarecomv1alpha1.ConditionTypeRealized,
+						Status: metav1.ConditionTrue,
+					},
+				},
+			},
+		}
+		unrealizedCR := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name:      "unrealized-1",
+			},
+			Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+				Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseInProgress,
+			},
+		}
+		require.NoError(t, r.Client.Create(ctx, realizedCR1))
+		require.NoError(t, r.Client.Create(ctx, realizedCR2))
+		require.NoError(t, r.Client.Create(ctx, unrealizedCR))
+
+		var reconciledNames []string
+		patches := gomonkey.ApplyFunc((*NSXServiceAccountReconciler).Reconcile, func(_ *NSXServiceAccountReconciler, _ context.Context, req reconcile.Request) (reconcile.Result, error) {
+			reconciledNames = append(reconciledNames, req.Name)
+			return ResultNormal, nil
+		})
+		defer patches.Reset()
+
+		err := r.RestoreReconcile()
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"realized-1", "realized-2"}, reconciledNames)
+	})
+
+	t.Run("ListError", func(t *testing.T) {
+		r := newFakeNSXServiceAccountReconciler()
+		mockCtl := gomock.NewController(t)
+		defer mockCtl.Finish()
+		k8sClient := mock_client.NewMockClient(mockCtl)
+		k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(fmt.Errorf("mock list error"))
+		r.Client = k8sClient
+
+		err := r.RestoreReconcile()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get NSXServiceAccount restore list")
+	})
+
+	t.Run("ReconcileError", func(t *testing.T) {
+		r := newFakeNSXServiceAccountReconciler()
+		nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
+		ctx := context.TODO()
+
+		realizedCR := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns1",
+				Name:      "realized-fail",
+			},
+			Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+				Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+			},
+		}
+		require.NoError(t, r.Client.Create(ctx, realizedCR))
+
+		patches := gomonkey.ApplyFunc((*NSXServiceAccountReconciler).Reconcile, func(_ *NSXServiceAccountReconciler, _ context.Context, _ reconcile.Request) (reconcile.Result, error) {
+			return ResultRequeue, fmt.Errorf("mock reconcile error")
+		})
+		defer patches.Reset()
+
+		err := r.RestoreReconcile()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "errors found in NSXServiceAccount restore")
+	})
+}
+
 func TestNSXServiceAccountReconciler_GarbageCollector(t *testing.T) {
 	tagScopeNamespace := servicecommon.TagScopeNamespace
 	tagScopeNSXServiceAccountCRName := servicecommon.TagScopeNSXServiceAccountCRName

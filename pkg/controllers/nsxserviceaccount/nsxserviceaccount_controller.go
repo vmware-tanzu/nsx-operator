@@ -174,6 +174,11 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		if nsxsasvc.IsNSXServiceAccountRealized(&obj.Status) {
 			if r.Service.NSXClient.NSXCheckVersion(nsx.ServiceAccountRestore) {
 				if err := r.Service.RestoreRealizedNSXServiceAccount(ctx, obj); err != nil {
+					if requeueAfter, skip := nsxsasvc.IsCCPBackoffError(err); skip {
+						log.Info("skipping NSX API calls while cluster control plane connection capacity backoff is active",
+							"nsxserviceaccount", req.NamespacedName, "requeueAfter", requeueAfter)
+						return ctrl.Result{Requeue: true, RequeueAfter: requeueAfter}, nil
+					}
 					log.Error(err, "update realized failed, would retry exponentially", "nsxserviceaccount", req.NamespacedName)
 					r.StatusUpdater.IncreaseDeleteFailTotal()
 					return ResultRequeue, err
@@ -308,7 +313,40 @@ func (r *NSXServiceAccountReconciler) CollectGarbage(ctx context.Context) error 
 }
 
 func (r *NSXServiceAccountReconciler) RestoreReconcile() error {
+	log.Info("Starting NSXServiceAccount RestoreReconcile")
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get NSXServiceAccount restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if err != nil || common.IsReconcileResultRequeue(result) {
+			errorList = append(errorList, fmt.Errorf("failed to restore NSXServiceAccount %s, error: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return fmt.Errorf("errors found in NSXServiceAccount restore: %v", errorList)
+	}
 	return nil
+}
+
+func (r *NSXServiceAccountReconciler) getRestoreList() ([]types.NamespacedName, error) {
+	restoreList := []types.NamespacedName{}
+	nsxServiceAccountList := &nsxvmwarecomv1alpha1.NSXServiceAccountList{}
+	if err := r.Client.List(context.TODO(), nsxServiceAccountList); err != nil {
+		return restoreList, err
+	}
+	for _, nsxServiceAccount := range nsxServiceAccountList.Items {
+		if nsxsasvc.IsNSXServiceAccountRealized(&nsxServiceAccount.Status) {
+			restoreList = append(restoreList, types.NamespacedName{
+				Namespace: nsxServiceAccount.Namespace,
+				Name:      nsxServiceAccount.Name,
+			})
+		}
+	}
+	return restoreList, nil
 }
 
 func (r *NSXServiceAccountReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
