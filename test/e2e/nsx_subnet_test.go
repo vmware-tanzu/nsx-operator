@@ -158,6 +158,12 @@ func TestSubnetPrecreated(t *testing.T) {
 		RunSubtest(t, "case=NormalSubnetManagedByNSXOp", func(t *testing.T) {
 			NormalSubnetManagedByNSXOp(t)
 		})
+		RunSubtest(t, "case=SubnetWithDescriptionAndLabels", func(t *testing.T) {
+			SubnetWithDescriptionAndLabels(t)
+		})
+		RunSubtest(t, "case=SubnetWithPrivateIPBlock", func(t *testing.T) {
+			SubnetWithPrivateIPBlock(t)
+		})
 		RunSubtest(t, "case=SubnetWithAssociatedResourceAnnotation", func(t *testing.T) {
 			SubnetWithAssociatedResourceAnnotation(t)
 		})
@@ -812,15 +818,15 @@ func SubnetPortWithIPAM(t *testing.T) {
 		err = nil
 	}
 	require.NoError(t, err)
-	conditionMsg := fmt.Sprintf("IP Address %s does not belong to any of the existing ranges in the pool", outOfSubnetIP)
-	assureSubnetPort(t, subnetTestNamespace, subnetportOutOfSubnet.Name, func(subnetport *v1alpha1.SubnetPort, args ...string) (bool, error) {
+	res := assureSubnetPort(t, subnetTestNamespace, subnetportOutOfSubnet.Name, func(subnetport *v1alpha1.SubnetPort, args ...string) (bool, error) {
 		for _, con := range subnetport.Status.Conditions {
-			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse && strings.Contains(con.Message, conditionMsg) {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionFalse && con.Reason == "SubnetPortNotReady" {
 				return true, nil
 			}
 		}
 		return false, nil
 	})
+	require.Empty(t, res.Status.NetworkInterfaceConfig.IPAddresses, "SubnetPort with invalid IP should not have allocated IP addresses")
 }
 
 func SubnetPortWithDHCP(t *testing.T) {
@@ -1878,6 +1884,155 @@ func SubnetWithAssociatedResourceAnnotation(t *testing.T) {
 	require.Contains(t, err.Error(), "denied", "Error message should mention the denied")
 
 	log.Info("Verified that creating a subnet with associated-resource annotation is refused", "error", err.Error())
+}
+
+func SubnetWithDescriptionAndLabels(t *testing.T) {
+	// Do NOT run in parallel - conflicts with NormalSubnetManagedByNSXOp (same namespace)
+	subnetName := "subnet-desc-labels"
+	subnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      subnetName,
+			Namespace: precreatedSubnetNs1,
+			Labels: map[string]string{
+				"e2e-app": "test-subnet-label",
+			},
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode:  v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			Description: "E2E Subnet Description",
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+		},
+	}
+
+	createdSubnet := createSubnetWithCheck(t, subnet)
+	require.NotNil(t, createdSubnet, "Failed to create subnet in namespace %s", precreatedSubnetNs1)
+
+	subnetCRUID := string(createdSubnet.UID)
+	nsxSubnets := testData.fetchSubnetBySubnetUID(t, subnetCRUID)
+	require.Equal(t, 1, len(nsxSubnets), "Expected to find exactly one NSX subnet for the created subnet")
+
+	nsxSubnetPath := *nsxSubnets[0].Path
+	parts := strings.Split(nsxSubnetPath, "/")
+	require.GreaterOrEqual(t, len(parts), 8, "Invalid subnet path format")
+	orgID, projectID, vpcID, subnetID := parts[2], parts[4], parts[6], *nsxSubnets[0].Id
+
+	nsxSubnet, err := testData.nsxClient.SubnetsClient.Get(orgID, projectID, vpcID, subnetID)
+	require.NoError(t, err, "Failed to get NSX subnet via REST API")
+	require.NotNil(t, nsxSubnet.Description, "NSX subnet description should not be nil")
+	require.Equal(t, "E2E Subnet Description", *nsxSubnet.Description)
+
+	foundTag := false
+	for _, tag := range nsxSubnet.Tags {
+		if tag.Scope != nil && *tag.Scope == "e2e-app" && tag.Tag != nil && *tag.Tag == "test-subnet-label" {
+			foundTag = true
+			break
+		}
+	}
+	require.True(t, foundTag, "NSX subnet should have the tag e2e-app:test-subnet-label")
+
+	// Update Description and verify NSX update
+	createdSubnet.Spec.Description = "Updated E2E Subnet Description"
+	_, err = testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs1).Update(context.TODO(), createdSubnet, v1.UpdateOptions{})
+	require.NoError(t, err, "Failed to update Subnet CR description")
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+		s, getErr := testData.nsxClient.SubnetsClient.Get(orgID, projectID, vpcID, subnetID)
+		if getErr == nil && s.Description != nil && *s.Description == "Updated E2E Subnet Description" {
+			return true, nil
+		}
+		return false, nil
+	})
+	require.NoError(t, err, "Timed out waiting for NSX subnet description to be updated")
+
+	// Clean up - delete the subnet
+	err = testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs1).Delete(context.TODO(), subnetName, v1.DeleteOptions{})
+	require.NoError(t, err, "Failed to delete subnet %s", subnetName)
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+		subnets := testData.fetchSubnetBySubnetUID(t, subnetCRUID)
+		return len(subnets) == 0, nil
+	})
+	require.NoError(t, err, "Timed out waiting for subnet to be deleted")
+	log.Info("Successfully tested and deleted subnet with description and labels", "subnet", subnetName)
+}
+
+func SubnetWithPrivateIPBlock(t *testing.T) {
+	// Do NOT run in parallel - conflicts with other subtests in precreatedSubnetNs1
+	subnetName := "subnet-ipblock-test"
+
+	// Query IPBlocks from NSX to find the valid private IPBlock for precreatedSubnetNs1's VPC
+	var ipBlockName string
+	results, err := testData.queryResource(common.ResourceTypeIPBlock, []string{})
+	if err == nil {
+		ipBlocks := transSearchResponsetoIPBlock(results)
+		for _, block := range ipBlocks {
+			if block.Id == nil {
+				continue
+			}
+			for _, tag := range block.Tags {
+				if tag.Scope != nil && *tag.Scope == "__VPC_PATH__" && tag.Tag != nil && strings.Contains(*tag.Tag, precreatedSubnetNs1) {
+					ipBlockName = *block.Id
+					break
+				}
+			}
+			if ipBlockName == "" && strings.Contains(*block.Id, precreatedSubnetNs1) {
+				ipBlockName = *block.Id
+			}
+			if ipBlockName != "" {
+				break
+			}
+		}
+	}
+	if ipBlockName == "" {
+		ipBlockName = "ipblock-test"
+	}
+
+	subnet := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      subnetName,
+			Namespace: precreatedSubnetNs1,
+		},
+		Spec: v1alpha1.SubnetSpec{
+			AccessMode:   v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+			IPBlockNames: []string{ipBlockName},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled: common.Bool(true),
+				},
+			},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+			},
+		},
+	}
+
+	createdSubnet := createSubnetWithCheck(t, subnet)
+	require.NotNil(t, createdSubnet, "Failed to create subnet with IPBlockNames in namespace %s", precreatedSubnetNs1)
+
+	subnetCRUID := string(createdSubnet.UID)
+	nsxSubnets := testData.fetchSubnetBySubnetUID(t, subnetCRUID)
+	require.Equal(t, 1, len(nsxSubnets), "Expected to find exactly one NSX subnet for the created subnet")
+
+	nsxSubnet := nsxSubnets[0]
+	require.NotEmpty(t, nsxSubnet.IpBlocks, "NSX subnet ip_blocks should not be empty")
+
+	// Clean up - delete the subnet
+	err = testData.crdClientset.CrdV1alpha1().Subnets(precreatedSubnetNs1).Delete(context.TODO(), subnetName, v1.DeleteOptions{})
+	require.NoError(t, err, "Failed to delete subnet %s", subnetName)
+
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+		subnets := testData.fetchSubnetBySubnetUID(t, subnetCRUID)
+		return len(subnets) == 0, nil
+	})
+	require.NoError(t, err, "Timed out waiting for subnet to be deleted")
+	log.Info("Successfully tested and deleted subnet with IPBlockNames", "subnet", subnetName)
 }
 
 // SubnetBindingAutoVLANWithExistingBinding verifies that when a BindingMap has already

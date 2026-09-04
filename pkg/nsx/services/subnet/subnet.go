@@ -103,7 +103,7 @@ func (service *SubnetService) RestoreSubnetSet(obj *v1alpha1.SubnetSet, vpcInfo 
 	nsxSubnets := service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, string(obj.UID))
 	var errList []error
 	for _, subnetInfo := range obj.Status.Subnets {
-		nsxSubnet, err := service.buildSubnet(obj, tags, subnetInfo.NetworkAddresses)
+		nsxSubnet, err := service.buildSubnet(obj, tags, subnetInfo.NetworkAddresses, &vpcInfo)
 		if err != nil {
 			log.Error(err, "Failed to build Subnet", "subnetInfo", subnetInfo)
 			return err
@@ -150,7 +150,7 @@ func isSubnetReady(subnet *v1alpha1.Subnet) bool {
 
 func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (subnet *model.VpcSubnet, err error) {
 	uid := string(obj.GetUID())
-	nsxSubnet, err := service.buildSubnet(obj, tags, []string{})
+	nsxSubnet, err := service.buildSubnet(obj, tags, []string{}, &vpcInfo)
 
 	if err != nil {
 		log.Error(err, "Failed to build Subnet")
@@ -192,6 +192,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 				updatedSubnet.IpAddressType = nsxSubnet.IpAddressType
 				// AccessMode can be updated when IPAddressType is updated from IPv6 to IPv4IPv6
 				updatedSubnet.AccessMode = nsxSubnet.AccessMode
+				updatedSubnet.Description = nsxSubnet.Description
 				// Only update gateway_addresses, dhcp_server_address, connectivity_state
 				// and static_ip_allocation (enabled + pool_ranges) from AdvancedConfig.
 				if nsxSubnet.AdvancedConfig != nil {
@@ -298,10 +299,12 @@ func (service *SubnetService) DeleteSubnet(nsxSubnet model.VpcSubnet) error {
 	return nil
 }
 
+//go:noinline
 func (service *SubnetService) ListSubnetCreatedBySubnet(id string) []*model.VpcSubnet {
 	return service.SubnetStore.GetByIndex(common.TagScopeSubnetCRUID, id)
 }
 
+//go:noinline
 func (service *SubnetService) ListSubnetCreatedBySubnetSet(id string) []*model.VpcSubnet {
 	return service.SubnetStore.GetByIndex(common.TagScopeSubnetSetCRUID, id)
 }
@@ -463,6 +466,7 @@ func (service *SubnetService) ListAllSubnet() []*model.VpcSubnet {
 	return allNSXSubnets
 }
 
+//go:noinline
 func (service *SubnetService) GetSubnetsByIndex(key, value string) []*model.VpcSubnet {
 	return service.SubnetStore.GetByIndex(key, value)
 }
@@ -755,6 +759,12 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		if len(nsxSubnet.AdvancedConfig.DhcpServerAddresses) != 0 {
 			subnetCR.Spec.AdvancedConfig.DHCPServerAddresses = nsxSubnet.AdvancedConfig.DhcpServerAddresses
 		}
+	}
+
+	// Map Description
+	subnetCR.Spec.Description = ""
+	if nsxSubnet.Description != nil {
+		subnetCR.Spec.Description = *nsxSubnet.Description
 	}
 }
 

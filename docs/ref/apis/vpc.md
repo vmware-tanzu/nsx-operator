@@ -1356,6 +1356,8 @@ _Appears in:_
 | `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for Subnet.<br />Supported starting with VCF 9.2.0. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 | `vlanConnectionName` _string_ | Distributed VLAN Connection name. |  |  |
+| `description` _string_ | Description of the Subnet. |  | MaxLength: 1024 <br />Optional: \{\} <br /> |
+| `ipBlockNames` _string array_ | IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).<br />The IPBlock should belong to one of the following sources:<br />1) The VPC's private IPBlock<br />2) The VPCConnectivityProfile's external IPBlock<br />3) The VPCConnectivityProfile's private-TGW IPBlock<br />4) The VPCConnectivityProfile's IPv6 IPBlock |  | MaxItems: 2 <br />MinItems: 0 <br />Optional: \{\} <br /> |
 
 
 #### SubnetStatus

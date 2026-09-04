@@ -2,6 +2,7 @@ package subnet
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -83,6 +84,20 @@ func (service *SubnetService) buildSubnetTags(obj client.Object, tags []model.Ta
 			Tag:   common.String(common.TagValueL3InVlanBackedVPCMode),
 		})
 	}
+	if obj != nil && len(obj.GetLabels()) > 0 {
+		labels := obj.GetLabels()
+		labelKeys := make([]string, 0, len(labels))
+		for k := range labels {
+			labelKeys = append(labelKeys, k)
+		}
+		sort.Strings(labelKeys)
+		for _, k := range labelKeys {
+			tags = append(tags, model.Tag{
+				Scope: common.String(k),
+				Tag:   common.String(labels[k]),
+			})
+		}
+	}
 	// tags cannot exceed maximum size 26
 	if len(tags) > common.MaxTagsCount {
 		errorMsg := fmt.Sprintf("tags cannot exceed maximum size 26, tags length: %d", len(tags))
@@ -91,7 +106,7 @@ func (service *SubnetService) buildSubnetTags(obj client.Object, tags []model.Ta
 	return tags, nil
 }
 
-func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, ipAddresses []string) (*model.VpcSubnet, error) {
+func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, ipAddresses []string, vpcInfo ...*common.VPCResourceInfo) (*model.VpcSubnet, error) {
 	tags, err := service.buildSubnetTags(obj, tags)
 	if err != nil {
 		return nil, err
@@ -192,6 +207,18 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if (string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer || string(o.Spec.SubnetDHCPv6Config.Mode) == string(v1alpha1.DHCPv6ConfigModeServer)) && len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.DhcpServerAddresses = o.Spec.AdvancedConfig.DHCPServerAddresses
 		}
+		nsxSubnet.Description = String(o.Spec.Description)
+		if len(o.Spec.IPBlockNames) > 0 {
+			var vInfo *common.VPCResourceInfo
+			if len(vpcInfo) > 0 {
+				vInfo = vpcInfo[0]
+			}
+			ipBlocks, err := service.buildIPBlockPaths(o.Spec.IPBlockNames, vInfo)
+			if err != nil {
+				return nil, err
+			}
+			nsxSubnet.IpBlocks = ipBlocks
+		}
 	case *v1alpha1.SubnetSet:
 		// The index is a random string with the length of 8 chars. It is the first 8 chars of the hash
 		// value on a random UUID string.
@@ -278,4 +305,37 @@ func getNamespaceUUID(tags []model.Tag) string {
 		return tagValues[0]
 	}
 	return ""
+}
+
+// buildIPBlockPaths converts ipBlockNames into full NSX Policy IPBlock Paths.
+// The ipBlockNames format follows VCFA CCI EAS API conventions:
+//  1. Infra/External IPBlock names start with ':' (e.g., ":ipblock-192.168.0.0-netmask-16"),
+//     which maps directly to "/infra/ip-blocks/<blockID>".
+//  2. Project IPBlock names use the IPBlock ID directly without a leading ':'
+//     (e.g., "project-quality-ipblock-10.246.0.0-netmask-16"), which maps to
+//     "/orgs/<orgID>/projects/<projectID>/infra/ip-blocks/<name>".
+func (service *SubnetService) buildIPBlockPaths(ipBlockNames []string, vpcInfo *common.VPCResourceInfo) ([]string, error) {
+	if len(ipBlockNames) == 0 {
+		return nil, nil
+	}
+	paths := make([]string, 0, len(ipBlockNames))
+	for _, rawName := range ipBlockNames {
+		name := strings.TrimSpace(rawName)
+		if name == "" || strings.ContainsAny(name, " \t\n\r") {
+			return nil, fmt.Errorf("invalid IPBlock name %q: must not be empty or contain spaces, tabs, or newlines", rawName)
+		}
+		if strings.HasPrefix(name, ":") {
+			blockID := strings.TrimSpace(strings.TrimPrefix(name, ":"))
+			if blockID == "" {
+				return nil, fmt.Errorf("invalid infra IPBlock name %q: block ID after ':' cannot be empty", rawName)
+			}
+			paths = append(paths, fmt.Sprintf("/infra/ip-blocks/%s", blockID))
+		} else {
+			if vpcInfo == nil || vpcInfo.OrgID == "" || vpcInfo.ProjectID == "" {
+				return nil, fmt.Errorf("org or project info is missing to build path for IPBlock %s", name)
+			}
+			paths = append(paths, fmt.Sprintf("/orgs/%s/projects/%s/infra/ip-blocks/%s", vpcInfo.OrgID, vpcInfo.ProjectID, name))
+		}
+	}
+	return paths, nil
 }

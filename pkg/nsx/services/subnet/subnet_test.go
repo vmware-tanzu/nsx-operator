@@ -451,15 +451,17 @@ func TestSubnetService_GetSubnetByCR(t *testing.T) {
 		},
 	}
 	for _, tc := range testCases {
-		patches := tc.prepareFunc()
-		subnets, err := service.GetSubnetByCR(tc.subnetCR)
-		if tc.expectedErr != "" {
-			assert.Contains(t, err.Error(), tc.expectedErr)
-		} else {
-			assert.Nil(t, err)
-			assert.Equal(t, tc.expectedSubnet, subnets)
-		}
-		patches.Reset()
+		t.Run(tc.name, func(t *testing.T) {
+			patches := tc.prepareFunc()
+			defer patches.Reset()
+			subnets, err := service.GetSubnetByCR(tc.subnetCR)
+			if tc.expectedErr != "" {
+				assert.Contains(t, err.Error(), tc.expectedErr)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, tc.expectedSubnet, subnets)
+			}
+		})
 	}
 }
 
@@ -1071,6 +1073,42 @@ func TestBuildSubnetCR(t *testing.T) {
 						StaticIPAllocation: v1alpha1.StaticIPAllocation{
 							Enabled:    common.Bool(true),
 							PoolRanges: []string{"172.26.0.10-172.26.0.12"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:           "Build Subnet CR with Description",
+			ns:             "test-ns",
+			subnetName:     "test-subnet-desc",
+			vpcFullID:      "proj-1:vpc-1",
+			associatedName: "proj-1:vpc-1:test-subnet-desc",
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Private"),
+				Ipv4SubnetSize: common.Int64(24),
+				Description:    common.String("Subnet description text"),
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-subnet-desc",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						common.AnnotationAssociatedResource: "proj-1:vpc-1:test-subnet-desc",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					VPCName:        "proj-1:vpc-1",
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+					IPv4SubnetSize: 24,
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					Description:    "Subnet description text",
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(false),
 						},
 					},
 				},
@@ -2606,6 +2644,75 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestSubnetService_CreateOrUpdateSubnet_Errors(t *testing.T) {
+	patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patches.Reset()
+
+	service := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+			Client:    nil,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID: subnetIndexFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	fakeVPCPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9"
+	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
+	basicTags := []model.Tag{
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String("ns1")},
+	}
+
+	t.Run("invalid IPBlockNames fails before calling NSX", func(t *testing.T) {
+		subnetCR := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       types.UID("test-uid-1"),
+				Name:      "subnet-invalid-ipblock",
+				Namespace: "ns1",
+			},
+			Spec: v1alpha1.SubnetSpec{
+				IPBlockNames: []string{"invalid block with space"},
+			},
+		}
+		_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid IPBlock name")
+	})
+
+	t.Run("excessive labels exceed max tags limit", func(t *testing.T) {
+		labels := make(map[string]string)
+		for i := 0; i < 25; i++ {
+			labels[fmt.Sprintf("custom-label-%d", i)] = fmt.Sprintf("value-%d", i)
+		}
+		subnetCR := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       types.UID("test-uid-2"),
+				Name:      "subnet-too-many-labels",
+				Namespace: "ns1",
+				Labels:    labels,
+			},
+			Spec: v1alpha1.SubnetSpec{},
+		}
+		_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "tags cannot exceed maximum size 26")
+	})
 }
 
 func Test_isSubnetReady(t *testing.T) {
