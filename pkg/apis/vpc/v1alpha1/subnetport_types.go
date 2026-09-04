@@ -17,6 +17,8 @@ const (
 )
 
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetSet) || !has(self.subnet)",message="Only one of subnet or subnetSet can be specified or both set to empty in which case default SubnetSet for VM will be used"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.interfaceIPType) || has(self.interfaceIPType)", message="interfaceIPType is required once set"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.staticIPAllocationType) || has(self.staticIPAllocationType)", message="staticIPAllocationType is required once set"
 // SubnetPortSpec defines the desired state of SubnetPort.
 type SubnetPortSpec struct {
 	// Subnet defines the parent Subnet name of the SubnetPort.
@@ -32,6 +34,7 @@ type SubnetPortSpec struct {
 	// StaticIPAllocationType.
 	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	InterfaceIPType IPAddressType `json:"interfaceIPType,omitempty"`
 	// StaticIPAllocationType explicitly requests static IP allocation of the
 	// specified the address families. In a mixed-mode Subnet (where both DHCP
@@ -40,6 +43,7 @@ type SubnetPortSpec struct {
 	// will be back-filled based on InterfaceIPType and Subnet configuration.
 	// Supported starting with VCF 9.2.0.
 	// +kubebuilder:validation:Enum=IPv4;IPv6;IPv4IPv6;None
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	StaticIPAllocationType StaticIPAllocationType `json:"staticIPAllocationType,omitempty"`
 	// Name of PortSetting associated with this SubnetPort.
 	PortSettingName string `json:"portSettingName,omitempty"`
@@ -104,6 +108,7 @@ type NetworkInterfaceIPAddress struct {
 // +kubebuilder:printcolumn:name="IPAddress",type=string,JSONPath=`.status.networkInterfaceConfig.ipAddresses[0].ipAddress`,description="IP address string with the prefix."
 // +kubebuilder:printcolumn:name="MACAddress",type=string,JSONPath=`.status.networkInterfaceConfig.macAddress`,description="MAC Address of the SubnetPort."
 // +kubebuilder:printcolumn:name="PortSettingName",type=string,JSONPath=`.spec.portSettingName`,description="PortSetting Name of the SubnetPort."
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.spec) || has(self.spec)", message="spec is required once set"
 type SubnetPort struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
