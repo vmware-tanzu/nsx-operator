@@ -13,6 +13,7 @@ const (
 	InvalidLicenseErrorCode                   = 505
 	ProviderNotReadyErrorCode                 = 500042
 	IPAllocationErrorCode                     = 8212
+	IPPoolExhaustedErrorCode                  = 520054
 	ReservedIPRangesOverlappedErrorCode       = 508134
 	ReservedIPRangesOutOfSubnetRangeErrorCode = 508135
 	VpcOverlapVlanErrorCode                   = 640873
@@ -674,9 +675,10 @@ func IsRetryRealizeError(alarm model.PolicyAlarmResource) bool {
 }
 
 func IsIPAllocationError(alarm model.PolicyAlarmResource) bool {
-	// The IPAllocationErrorCode error indicates there is no valid IP in Subnet.
-	if alarm.ErrorDetails != nil && alarm.ErrorDetails.ErrorCode != nil && *alarm.ErrorDetails.ErrorCode == IPAllocationErrorCode {
-		return true
+	// The IPAllocationErrorCode or IPPoolExhaustedErrorCode error indicates there is no valid IP in Subnet.
+	if alarm.ErrorDetails != nil && alarm.ErrorDetails.ErrorCode != nil {
+		code := *alarm.ErrorDetails.ErrorCode
+		return code == IPAllocationErrorCode || code == IPPoolExhaustedErrorCode
 	}
 	return false
 }
