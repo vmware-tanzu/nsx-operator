@@ -73,10 +73,14 @@ func (c *fakePortClient) Delete(orgIdParam string, projectIdParam string, vpcIdP
 	return nil
 }
 
-type fakeRealizedEntitiesClient struct{}
+type fakeRealizedEntitiesClient struct {
+	listFn func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error)
+}
 
 func (c *fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
-
+	if c.listFn != nil {
+		return c.listFn(intentPathParam, sitePathParam)
+	}
 	return model.GenericPolicyRealizedResourceListResult{
 		Results: []model.GenericPolicyRealizedResource{
 			{
@@ -457,11 +461,12 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					return nil
 				})
 
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.RealizedEntitiesClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 0)},
-					Times:  1,
-				}})
-				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+				fakeEntitiesClient := service.NSXClient.RealizedEntitiesClient.(*fakeRealizedEntitiesClient)
+				fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+					return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 0)
+				}
+
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
 					return false
 				})
 				return patches
@@ -480,11 +485,12 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 				})
 				orgRootClient.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.RealizedEntitiesClient), "List", func(_ *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+				fakeEntitiesClient := service.NSXClient.RealizedEntitiesClient.(*fakeRealizedEntitiesClient)
+				fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 					return model.GenericPolicyRealizedResourceListResult{}, fmt.Errorf("failed to check realized state")
-				})
-				// Mock NSXTRealizeRetry with shorter backoff: 2 retries, 50ms interval
-				patches.ApplyGlobalVar(&util.NSXTRealizeRetry, wait.Backoff{
+				}
+
+				patches := gomonkey.ApplyGlobalVar(&util.NSXTRealizeRetry, wait.Backoff{
 					Steps:    2,
 					Duration: 50 * time.Millisecond,
 					Factor:   1.0,
@@ -508,11 +514,12 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 					return nil
 				})
 
-				patches := gomonkey.ApplyMethodSeq(service.NSXClient.RealizedEntitiesClient, "List", []gomonkey.OutputCell{{
-					Values: gomonkey.Params{model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", nsxutil.IPAllocationErrorCode)},
-					Times:  1,
-				}})
-				patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+				fakeEntitiesClient := service.NSXClient.RealizedEntitiesClient.(*fakeRealizedEntitiesClient)
+				fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+					return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", nsxutil.IPAllocationErrorCode)
+				}
+
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
 					return false
 				})
 				return patches
@@ -2533,4 +2540,83 @@ func TestReleasePortInSubnet(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSubnetPortService_CheckSubnetPortState_IPPoolExhausted(t *testing.T) {
+	fakeEntitiesClient := &fakeRealizedEntitiesClient{}
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", nsxutil.IPPoolExhaustedErrorCode)
+	}
+
+	nsxClient := &nsx.Client{
+		RealizedEntitiesClient: fakeEntitiesClient,
+		PortClient:             &fakePortClient{},
+		NsxConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+	}
+
+	// Initialize store
+	service.SubnetPortStore = &SubnetPortStore{
+		ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+				common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
+				common.TagScopePodUID:          subnetPortIndexByPodUID,
+			}),
+			BindingType: model.VpcSubnetPortBindingType(),
+		},
+	}
+
+	// Add a port to the store
+	uid := "test-uid"
+	portID := "test-port-id"
+	nsxSubnetPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	portPath := nsxSubnetPath + "/ports/test-port-id"
+	nsxSubnetPort := &model.VpcSubnetPort{
+		Id:   &portID,
+		Path: &portPath,
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: &uid},
+		},
+	}
+	service.SubnetPortStore.Add(nsxSubnetPort)
+
+	// Mock util.NSXTRealizeRetry to avoid long wait in test
+	originalRetry := util.NSXTRealizeRetry
+	util.NSXTRealizeRetry = wait.Backoff{
+		Steps:    1,
+		Duration: 10 * time.Millisecond,
+	}
+	defer func() { util.NSXTRealizeRetry = originalRetry }()
+
+	subnetPortCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(uid),
+		},
+	}
+
+	// Initialize PortCountInfo
+	service.SubnetPortStore.PortCountInfo.Store(nsxSubnetPath, &CountInfo{})
+
+	_, err := service.CheckSubnetPortState(subnetPortCR, nsxSubnetPath)
+	assert.Error(t, err)
+
+	// Verify that the subnet was marked as exhausted
+	infoObj, ok := service.SubnetPortStore.PortCountInfo.Load(nsxSubnetPath)
+	assert.True(t, ok)
+	info := infoObj.(*CountInfo)
+	assert.False(t, info.exhaustedCheckTime.IsZero())
 }

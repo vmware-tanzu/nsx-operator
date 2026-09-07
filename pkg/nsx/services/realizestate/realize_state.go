@@ -72,7 +72,7 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 						return nsxutil.NewRetryRealizeError(fmt.Sprintf("%s not realized with errors: %s", intentPath, errMsg))
 					}
 					if nsxutil.IsIPAllocationError(alarm) {
-						return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), nsxutil.IPAllocationErrorCode)
+						return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), int(*alarm.ErrorDetails.ErrorCode))
 					}
 				}
 				return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), 0)

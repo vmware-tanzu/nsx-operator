@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -18,7 +17,11 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
-type fakeRealizedEntitiesClient struct{}
+// fakeRealizedEntitiesClient implements infra_realized.RealizedEntitiesClient.
+// The listFn callback allows each test case to control the response without gomonkey.
+type fakeRealizedEntitiesClient struct {
+	listFn func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error)
+}
 
 // fakeRealizedEntityClient implements infra_realized.RealizedEntityClient.
 // The getFn callback allows each test case to control the response without gomonkey.
@@ -27,6 +30,9 @@ type fakeRealizedEntityClient struct {
 }
 
 func (c *fakeRealizedEntitiesClient) List(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	if c.listFn != nil {
+		return c.listFn(intentPathParam, sitePathParam)
+	}
 	return model.GenericPolicyRealizedResourceListResult{
 		Results: []model.GenericPolicyRealizedResource{},
 	}, nil
@@ -44,9 +50,10 @@ func (c *fakeRealizedEntityClient) Refresh(intentPathParam string, enforcementPo
 }
 
 func TestRealizeStateService_CheckRealizeState(t *testing.T) {
+	fakeEntitiesClient := &fakeRealizedEntitiesClient{}
 	commonService := common.Service{
 		NSXClient: &nsx.Client{
-			RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+			RealizedEntitiesClient: fakeEntitiesClient,
 			NsxConfig: &config.NSXOperatorConfig{
 				CoeConfig: &config.CoeConfig{
 					Cluster: "k8scl-one:test",
@@ -63,7 +70,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 		Service: commonService,
 	}
 
-	patches := gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -75,7 +82,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 
 	backoff := wait.Backoff{
 		Duration: 1 * time.Second,
@@ -98,8 +105,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port realized with errors: [mocked error]")
 
 	// check with extra ids
-	patches.Reset()
-	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -116,13 +122,12 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc", []string{common.GatewayInterfaceId})
 	assert.Equal(t, err, nil)
 
 	// for lbs, realized with ProviderNotReady and need retry
-	patches.Reset()
-	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -140,7 +145,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 
 	backoff = wait.Backoff{
 		Duration: 10 * time.Millisecond,
@@ -154,9 +159,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	assert.Equal(t, ok, true)
 
 	// for subnet, RealizedLogicalPort realized with errors
-	patches.Reset()
-
-	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -180,7 +183,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
 
 	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
@@ -188,9 +191,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	assert.Equal(t, realizeStateError.Error(), "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ realized with errors: [mocked error]")
 
 	// for subnet, realized successfully
-	patches.Reset()
-
-	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -210,14 +211,12 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/", []string{})
 	assert.Equal(t, err, nil)
 
 	// for subnet, need retry
-	patches.Reset()
-
-	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -237,7 +236,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 	backoff = wait.Backoff{
 		Duration: 10 * time.Millisecond,
 		Factor:   1,
@@ -248,10 +247,9 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	assert.NotEqual(t, err, nil)
 	_, ok = err.(*nsxutil.RealizeStateError)
 	assert.Equal(t, ok, false)
-	patches.Reset()
 
 	// for subnetport, realized with IPAllocationError
-	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -269,7 +267,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 
 	backoff = wait.Backoff{
 		Duration: 10 * time.Millisecond,
@@ -282,12 +280,35 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	realizedError, ok := err.(*nsxutil.RealizeStateError)
 	assert.Equal(t, ok, true)
 	assert.Equal(t, nsxutil.IPAllocationErrorCode, realizedError.GetCode())
-	patches.Reset()
+
+	// for subnetport, realized with IPPoolExhaustedError
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{
+			Results: []model.GenericPolicyRealizedResource{
+				{
+					State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+					Alarms: []model.PolicyAlarmResource{
+						{
+							Message: common.String("IpAddressPool path=[...] is exhausted"),
+							ErrorDetails: &model.PolicyApiError{
+								ErrorCode:    common.Int64(nsxutil.IPPoolExhaustedErrorCode),
+								ErrorMessage: common.String("IpAddressPool path=[...] is exhausted"),
+							},
+						},
+					},
+					EntityType: common.String("GenericPolicyRealizedResource"),
+				},
+			},
+		}, nil
+	}
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/default/vpcs/vpc/vpc-lbs/default", []string{})
+	assert.NotEqual(t, err, nil)
+	realizedError, ok = err.(*nsxutil.RealizeStateError)
+	assert.Equal(t, ok, true)
+	assert.Equal(t, nsxutil.IPPoolExhaustedErrorCode, realizedError.GetCode())
 
 	// for vpc, fail with related errors
-	patches.Reset()
-
-	patches = gomonkey.ApplyFunc((*fakeRealizedEntitiesClient).List, func(c *fakeRealizedEntitiesClient, intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
 		return model.GenericPolicyRealizedResourceListResult{
 			Results: []model.GenericPolicyRealizedResource{
 				{
@@ -307,7 +328,7 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 				},
 			},
 		}, nil
-	})
+	}
 	backoff = wait.Backoff{
 		Duration: 10 * time.Millisecond,
 		Factor:   1,
@@ -319,8 +340,6 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, "/orgs/default/projects/project-quality/vpcs/vpc realized with errors: [Found errors in the request. Please refer to the related errors for details. related error 1 related error 2]", realizeStateError.Error())
-
-	patches.Reset()
 }
 
 func TestGetPolicyInterfaceIPs(t *testing.T) {
