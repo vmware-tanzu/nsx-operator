@@ -279,23 +279,33 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 	targetIsParent := !isBranch
 
 	// subnetName is trunk Subnet: it can have multiple branch Subnets, but CANNOT be a branch Subnet in any binding.
-	subnetPaths, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, subnetIsParent)
+	subnetPaths, subnetIPType, err := r.validateVpcSubnetsBySubnetCR(ctx, bindingMap.Namespace, bindingMap.Spec.SubnetName, subnetIsParent)
 	if err != nil {
 		return "", nil, err
 	}
 	subnetPath := subnetPaths[0]
 
 	var targetSubnetPaths []string
+	var targetIPType v1alpha1.IPAddressType
 	if bindingMap.Spec.TargetSubnetName != "" {
 		// targetSubnetName is trunk Subnet: it can have multiple branch Subnets, but CANNOT be a branch Subnet in any binding.
-		targetSubnetPaths, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, targetIsParent)
+		targetSubnetPaths, targetIPType, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, targetIsParent)
 		if err != nil {
 			return "", nil, err
 		}
 	} else {
-		targetSubnetPaths, err = r.validateVpcSubnetsBySubnetSetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetSetName)
+		targetSubnetPaths, targetIPType, err = r.validateVpcSubnetsBySubnetSetCR(ctx, bindingMap.Namespace, bindingMap.Spec.TargetSubnetSetName)
 		if err != nil {
 			return "", nil, err
+		}
+	}
+
+	if (isBranch && !common.IsSupersetIPAddressTypes(subnetIPType, targetIPType)) ||
+		(!isBranch && !common.IsSupersetIPAddressTypes(targetIPType, subnetIPType)) {
+		return "", nil, &errorWithRetry{
+			message: fmt.Sprintf("Incompatible IPAddressType: Subnet IPAddressType %s targetSubnet IPAddressType %s, isBranch mode:%t", subnetIPType, targetIPType, isBranch),
+			error:   fmt.Errorf("incompatible IPAddressType: Subnet IPAddressType %s targetSubnet IPAddressType %s, isBranch mode:%t", subnetIPType, targetIPType, isBranch),
+			retry:   false,
 		}
 	}
 
@@ -321,14 +331,21 @@ func (r *Reconciler) getPreferredVlan(ctx context.Context, bindingMap *v1alpha1.
 	return preferred
 }
 
-func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, isParent bool) ([]string, *errorWithRetry) {
+func normalizeIPAddressType(ipType v1alpha1.IPAddressType) v1alpha1.IPAddressType {
+	if ipType == "" {
+		return v1alpha1.IPAddressTypeIPv4
+	}
+	return ipType
+}
+
+func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace, name string, isParent bool) ([]string, v1alpha1.IPAddressType, *errorWithRetry) {
 	subnetCR := &v1alpha1.Subnet{}
 	subnetKey := types.NamespacedName{Namespace: namespace, Name: name}
 	// Check the Subnet CR existence.
 	err := r.Client.Get(ctx, subnetKey, subnetCR)
 	if err != nil {
 		log.Error(err, "Failed to get Subnet CR", "Subnet", subnetKey.String())
-		return nil, &errorWithRetry{
+		return nil, "", &errorWithRetry{
 			message: fmt.Sprintf("Unable to get Subnet CR %s", name),
 			retry:   false,
 			error:   fmt.Errorf("failed to get Subnet %s in Namespace %s with error: %v", name, namespace, err),
@@ -340,7 +357,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 	if anno, ok := subnetCR.GetAnnotations()[servicecommon.AnnotationAssociatedResource]; ok {
 		// Shared / Pre-created subnets cannot act as a trunk subnet in connection bindings.
 		if isParent {
-			return nil, &errorWithRetry{
+			return nil, "", &errorWithRetry{
 				message: fmt.Sprintf("Subnet %s/%s is a pre-created Subnet", namespace, name),
 				error:   fmt.Errorf("pre-created Subnet %s/%s cannot be a trunk Subnet", namespace, name),
 				retry:   false,
@@ -354,7 +371,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 			}
 		}
 		if !realized {
-			return nil, &errorWithRetry{
+			return nil, "", &errorWithRetry{
 				message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
 				retry:   false,
 				error:   err,
@@ -365,7 +382,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 			// No need to retry as not support associated resource annotation
 			// changing after Subnet creation.
 			log.Error(err, "Failed to get NSX Subnet path for shared Subnet", "Subnet", subnetKey.String())
-			return nil, &errorWithRetry{
+			return nil, "", &errorWithRetry{
 				message: fmt.Sprintf("Failed to get NSX Subnet path for shared Subnet %s", name),
 				retry:   false,
 				error:   err,
@@ -381,7 +398,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 
 	if len(subnetPaths) == 0 {
 		log.Info("NSX VpcSubnets by Subnet CR do not exist", "Subnet", subnetKey.String())
-		return nil, &errorWithRetry{
+		return nil, "", &errorWithRetry{
 			message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
 			retry:   false,
 			error:   fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name),
@@ -394,7 +411,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 			bindings := r.SubnetBindingService.GetSubnetConnectionBindingMapsByChildSubnet(subnetPath)
 			if len(bindings) > 0 {
 				bmName := getBindingMapName(bindings[0])
-				return nil, &errorWithRetry{
+				return nil, "", &errorWithRetry{
 					message: fmt.Sprintf("Subnet CR %s is already used as a branch by %s", name, bmName),
 					error:   fmt.Errorf("the Subnet %s already works as a branch in SubnetConnectionBindingMap %s", name, bmName),
 					retry:   true,
@@ -406,7 +423,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 			bindings := r.SubnetBindingService.GetSubnetConnectionBindingMapsByParentSubnet(subnetPath)
 			if len(bindings) > 0 {
 				bmName := getBindingMapName(bindings[0])
-				return nil, &errorWithRetry{
+				return nil, "", &errorWithRetry{
 					message: fmt.Sprintf("Subnet CR %s is already used as a trunk by %s", name, bmName),
 					error:   fmt.Errorf("the Subnet %s already works as a trunk in SubnetConnectionBindingMap %s", name, bmName),
 					retry:   true,
@@ -415,16 +432,16 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 		}
 	}
 
-	return subnetPaths, nil
+	return subnetPaths, normalizeIPAddressType(subnetCR.Spec.IPAddressType), nil
 }
 
-func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namespace, name string) ([]string, *errorWithRetry) {
+func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namespace, name string) ([]string, v1alpha1.IPAddressType, *errorWithRetry) {
 	subnetSetCR := &v1alpha1.SubnetSet{}
 	subnetSetKey := types.NamespacedName{Namespace: namespace, Name: name}
 	err := r.Client.Get(ctx, subnetSetKey, subnetSetCR)
 	if err != nil {
 		log.Error(err, "Failed to get SubnetSet CR", "SubnetSet", subnetSetKey.String())
-		return nil, &errorWithRetry{
+		return nil, "", &errorWithRetry{
 			message: fmt.Sprintf("Unable to get SubnetSet CR %s", name),
 			error:   fmt.Errorf("failed to get SubnetSet %s in Namespace %s with error: %v", name, namespace, err),
 			retry:   false,
@@ -434,7 +451,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 	subnets := r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSetCR.UID))
 	if len(subnets) == 0 {
 		log.Info("NSX VpcSubnets by SubnetSet CR do not exist", "SubnetSet", subnetSetKey.String())
-		return nil, &errorWithRetry{
+		return nil, "", &errorWithRetry{
 			message: fmt.Sprintf("SubnetSet CR %s is not realized on NSX", name),
 			error:   fmt.Errorf("no existing NSX VpcSubnet created by SubnetSet CR '%s/%s'", namespace, name),
 			retry:   false,
@@ -444,7 +461,7 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 	for i := range subnets {
 		subnetPaths[i] = *subnets[i].Path
 	}
-	return subnetPaths, nil
+	return subnetPaths, normalizeIPAddressType(subnetSetCR.Spec.IPAddressType), nil
 }
 
 func updateBindingMapStatusWithUnreadyCondition(c client.Client, ctx context.Context, obj client.Object, _ metav1.Time, _ error, args ...interface{}) {
