@@ -336,6 +336,30 @@ func TestScanNamespaceProvidersFromAPI(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, t1)
 	assert.True(t, vpc)
+
+	// dual annotated namespace is ignored and does not set T1 or VPC
+	nsDual := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kube-state-metrics",
+			Annotations: map[string]string{
+				"nsx.vmware.com/vpc_network_config": "system",
+				"vmware-system-shared-t1":           "true",
+			},
+		},
+	}
+	nsT1Only := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "ns-t1-only",
+			Annotations: map[string]string{
+				"nsx.vmware.com/t1_default_config": "true",
+			},
+		},
+	}
+	clientsetDual := kubernetesfake.NewClientset(nsDual, nsT1Only)
+	t1, vpc, err = scanNamespaceProvidersFromAPI(ctx, clientsetDual)
+	assert.NoError(t, err)
+	assert.True(t, t1)
+	assert.False(t, vpc)
 }
 
 func TestScanNamespaceProvidersFromCache(t *testing.T) {
@@ -373,6 +397,31 @@ func TestScanNamespaceProvidersFromCache(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, t1)
 	assert.True(t, vpc)
+
+	// cache with dual annotated namespace is ignored and does not set T1 or VPC
+	readerDual := &stubReader{items: []v1.Namespace{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "kube-state-metrics",
+				Annotations: map[string]string{
+					"nsx.vmware.com/vpc_network_config": "system",
+					"vmware-system-shared-t1":           "true",
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "ns-t1-only",
+				Annotations: map[string]string{
+					"nsx.vmware.com/t1_default_config": "true",
+				},
+			},
+		},
+	}}
+	t1, vpc, err = scanNamespaceProvidersFromCache(ctx, readerDual)
+	assert.NoError(t, err)
+	assert.True(t, t1)
+	assert.False(t, vpc)
 
 	// list error is propagated
 	errReader := &stubReader{err: errors.New("list failed")}
@@ -504,6 +553,24 @@ func TestIsVPCNamespace(t *testing.T) {
 		assert.False(t, IsVPCNamespace(ns))
 	})
 
+	t.Run("per-namespace on dual vpc and t1 annotation returns false", func(t *testing.T) {
+		resetMixedModeState()
+		supported := true
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		stateMu.Unlock()
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "kube-state-metrics",
+				Annotations: map[string]string{
+					"nsx.vmware.com/vpc_network_config": "system",
+					"vmware-system-shared-t1":           "true",
+				},
+			},
+		}
+		assert.False(t, IsVPCNamespace(ns))
+	})
+
 	t.Run("per-namespace off IsVPCNamespace uses cluster flags", func(t *testing.T) {
 		resetMixedModeState()
 		supported := false
@@ -543,6 +610,24 @@ func TestIsT1Namespace(t *testing.T) {
 			},
 		}
 		assert.True(t, IsT1Namespace(ns))
+	})
+
+	t.Run("per-namespace on dual vpc and t1 annotation returns false", func(t *testing.T) {
+		resetMixedModeState()
+		supported := true
+		stateMu.Lock()
+		perNamespaceProvidersSupported = &supported
+		stateMu.Unlock()
+		ns := &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "kube-state-metrics",
+				Annotations: map[string]string{
+					"nsx.vmware.com/vpc_network_config": "system",
+					"vmware-system-shared-t1":           "true",
+				},
+			},
+		}
+		assert.False(t, IsT1Namespace(ns))
 	})
 
 	t.Run("per-namespace on bare namespace counts as false", func(t *testing.T) {
@@ -619,6 +704,41 @@ func TestGettersAndSetMixedModeStateForTest(t *testing.T) {
 	})
 }
 
+func TestResolveNamespaceProvider_Dedup(t *testing.T) {
+	resetMixedModeState()
+	dualAnno := map[string]string{
+		VPCNetworkConfigAnnotation: "system",
+		T1DefaultConfigAnnotation:  "true",
+	}
+
+	isT1, isVPC := resolveNamespaceProvider("test-ns", dualAnno)
+	assert.False(t, isT1)
+	assert.False(t, isVPC)
+
+	conflictLogMu.Lock()
+	_, logged := loggedConflictNamespaces["test-ns"]
+	conflictLogMu.Unlock()
+	assert.True(t, logged)
+
+	// Second call with conflict should remain in logged set and return false, false
+	isT1, isVPC = resolveNamespaceProvider("test-ns", dualAnno)
+	assert.False(t, isT1)
+	assert.False(t, isVPC)
+
+	// Valid annotation should clear the namespace from logged set
+	validVpcAnno := map[string]string{
+		VPCNetworkConfigAnnotation: "system",
+	}
+	isT1, isVPC = resolveNamespaceProvider("test-ns", validVpcAnno)
+	assert.False(t, isT1)
+	assert.True(t, isVPC)
+
+	conflictLogMu.Lock()
+	_, loggedAfter := loggedConflictNamespaces["test-ns"]
+	conflictLogMu.Unlock()
+	assert.False(t, loggedAfter)
+}
+
 func resetMixedModeState() {
 	stateMu.Lock()
 	defer stateMu.Unlock()
@@ -626,6 +746,9 @@ func resetMixedModeState() {
 	hasVPCNamespaces = false
 	stateInitialized = false
 	perNamespaceProvidersSupported = nil
+	conflictLogMu.Lock()
+	loggedConflictNamespaces = make(map[string]struct{})
+	conflictLogMu.Unlock()
 }
 
 func makeNamespace(name, vpcAnnotation string) *v1.Namespace {
