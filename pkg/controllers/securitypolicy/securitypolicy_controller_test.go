@@ -235,7 +235,25 @@ func Test_cleanSecurityPolicyErrorAnnotation(t *testing.T) {
 	ctx := context.TODO()
 	info := ctrcommon.ErrorNoDFWLicense
 
-	// Define a SecurityPolicy with an annotation
+	// Test case 1: Annotations is nil, should not call Update
+	securityPolicyNilAnnotations := &v1alpha1.SecurityPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: nil,
+		},
+	}
+	cleanSecurityPolicyErrorAnnotation(ctx, securityPolicyNilAnnotations, false, k8sClient)
+
+	// Test case 2: Annotations is not nil but does not contain NSXOperatorError, should not call Update
+	securityPolicyNoTargetAnnotation := &v1alpha1.SecurityPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"other-annotation": "value",
+			},
+		},
+	}
+	cleanSecurityPolicyErrorAnnotation(ctx, securityPolicyNoTargetAnnotation, false, k8sClient)
+
+	// Test case 3: Define a SecurityPolicy with an annotation (isVPCEnabled = false)
 	securityPolicy := &v1alpha1.SecurityPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
@@ -251,7 +269,6 @@ func Test_cleanSecurityPolicyErrorAnnotation(t *testing.T) {
 		},
 	}
 
-	// Test case with isVPCEnabled = false
 	isVPCEnabled := false
 	k8sClient.EXPECT().Update(ctx, expectedSecurityPolicy).Return(nil).Times(1)
 	// Run the function
@@ -259,7 +276,7 @@ func Test_cleanSecurityPolicyErrorAnnotation(t *testing.T) {
 	// Assertions annotation removed
 	assert.NotContains(t, securityPolicy.Annotations, ctrcommon.NSXOperatorError)
 
-	// Test case with isVPCEnabled = true
+	// Test case 4: with isVPCEnabled = true
 	isVPCEnabled = true
 	k8sClient.EXPECT().
 		Update(ctx, gomock.AssignableToTypeOf(&crdv1alpha1.SecurityPolicy{})).

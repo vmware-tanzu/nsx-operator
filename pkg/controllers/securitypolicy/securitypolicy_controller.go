@@ -92,6 +92,9 @@ func cleanSecurityPolicyErrorAnnotation(ctx context.Context, securityPolicy *v1a
 	if securityPolicy.Annotations == nil {
 		return
 	}
+	if _, exists := securityPolicy.Annotations[common.NSXOperatorError]; !exists {
+		return
+	}
 	delete(securityPolicy.Annotations, common.NSXOperatorError)
 
 	var updateErr error
