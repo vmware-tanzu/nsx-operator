@@ -45,6 +45,9 @@ type SubnetPortSpec struct {
 	StaticIPAllocationType StaticIPAllocationType `json:"staticIPAllocationType,omitempty"`
 	// Name of PortSetting associated with this SubnetPort.
 	PortSettingName string `json:"portSettingName,omitempty"`
+	// DNSHostName specifies the hostname used when auto-creating DNS records.
+	// +optional
+	DNSHostName string `json:"dnsHostName,omitempty"`
 }
 
 // PortAddressBinding defines static addresses for the Port.
@@ -62,6 +65,9 @@ type SubnetPortStatus struct {
 	// SubnetPort attachment state.
 	Attachment             PortAttachment         `json:"attachment,omitempty"`
 	NetworkInterfaceConfig NetworkInterfaceConfig `json:"networkInterfaceConfig,omitempty"`
+	// FQDN is the system-computed fully qualified domain name, formed by combining dnsHostName with DomainName.
+	// +optional
+	FQDN string `json:"fqdn,omitempty"`
 }
 
 // VIF attachment state of a SubnetPort.
@@ -86,6 +92,8 @@ type NetworkInterfaceConfig struct {
 	DHCPv6DeactivatedOnSubnet bool `json:"dhcpv6DeactivatedOnSubnet,omitempty"`
 	// RADeactivated indicates whether RAMode is deactivated on the VPC.
 	RADeactivated bool `json:"raDeactivated,omitempty"`
+	// DNSResolverIPs contains the VPC DNS resolver IP addresses (IPv4 and IPv6).
+	DNSResolverIPs []string `json:"dnsResolverIPs,omitempty"`
 }
 
 type NetworkInterfaceIPAddress struct {

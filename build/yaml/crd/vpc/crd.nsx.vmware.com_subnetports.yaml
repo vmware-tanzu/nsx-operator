@@ -72,6 +72,10 @@ spec:
                       type: string
                   type: object
                 type: array
+              dnsHostName:
+                description: DNSHostName specifies the hostname used when auto-creating
+                  DNS records.
+                type: string
               interfaceIPType:
                 description: |-
                   InterfaceIPType decides the address families of static IP allocation, when
@@ -157,6 +161,10 @@ spec:
                   - type
                   type: object
                 type: array
+              fqdn:
+                description: FQDN is the system-computed fully qualified domain name,
+                  formed by combining dnsHostName with DomainName.
+                type: string
               networkInterfaceConfig:
                 properties:
                   dhcpDeactivatedOnSubnet:
@@ -167,6 +175,12 @@ spec:
                     description: DHCPv6DeactivatedOnSubnet indicates whether DHCPv6
                       is deactivated on the Subnet.
                     type: boolean
+                  dnsResolverIPs:
+                    description: DNSResolverIPs contains the VPC DNS resolver IP addresses
+                      (IPv4 and IPv6).
+                    items:
+                      type: string
+                    type: array
                   ipAddresses:
                     items:
                       properties:

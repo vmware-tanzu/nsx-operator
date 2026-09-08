@@ -17,6 +17,7 @@ const (
 	LBCapability               ConditionType = "LBCapability"
 	DeleteFailure              ConditionType = "DeletionFailed"
 	UpdateFailure              ConditionType = "UpdateFailed"
+	DNSRecordReady             ConditionType = "DNSRecordReady"
 )
 
 // Condition defines condition of custom resource.
