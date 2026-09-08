@@ -151,6 +151,12 @@ spec:
                   - type
                   type: object
                 type: array
+              dnsResolverIPs:
+                description: DNSResolverIPs contains the VPC DNS resolver IP addresses
+                  (IPv4 and IPv6) from the VPC service profile.
+                items:
+                  type: string
+                type: array
               networkInterfaceConfig:
                 properties:
                   dhcpDeactivatedOnSubnet:
