@@ -149,6 +149,7 @@ _Appears in:_
 | `LBCapability` |  |
 | `DeletionFailed` |  |
 | `UpdateFailed` |  |
+| `DNSRecordReady` |  |
 
 
 #### ConnectivityState
@@ -270,9 +271,9 @@ _Appears in:_
 | `recordName` _string_ | RecordName specifies the DNS record name or, for PTR records, the host-octet label.<br />For A/AAAA/CNAME: the hostname portion of the FQDN (e.g., "api" for "api.coke.com").<br />For PTR: the host octet of the IP address (e.g., "10" for 10.0.0.10). |  | MaxLength: 255 <br />Required: \{\} <br /> |
 | `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA CNAME PTR NS TXT] <br />Required: \{\} <br /> |
 | `recordValues` _string array_ | RecordValues specifies the DNS record data values. |  | MinItems: 1 <br />Required: \{\} <br /> |
-| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  | Optional: \{\} <br /> |
-| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br />Optional: \{\} <br /> |
-| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  | Optional: \{\} <br /> |
+| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  |  |
+| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br /> |
+| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  |  |
 
 
 #### DNSRecordStatus
@@ -288,7 +289,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  |  |
 
 
 #### DNSRecordType
@@ -349,7 +350,8 @@ _Appears in:_
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified.<br />Supported starting with VCF 9.2.0. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
-| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  | Optional: \{\} <br /> |
+| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  |  |
+| `dnsHostName` _string_ | DNSHostName specifies the hostname used when auto-creating DNS records in NSX. |  |  |
 
 
 #### IPAddressAllocationStatus
@@ -1273,6 +1275,7 @@ _Appears in:_
 | `conditions` _[Condition](#condition) array_ | Conditions describes current state of SubnetPort. |  |  |
 | `attachment` _[PortAttachment](#portattachment)_ | SubnetPort attachment state. |  |  |
 | `networkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ |  |  |  |
+| `dnsResolverIPs` _string array_ | DNSResolverIPs contains the VPC DNS resolver IP addresses (IPv4 and IPv6) from the VPC service profile. |  |  |
 
 
 #### SubnetSet
@@ -1356,8 +1359,8 @@ _Appears in:_
 | `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for Subnet.<br />Supported starting with VCF 9.2.0. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 | `vlanConnectionName` _string_ | Distributed VLAN Connection name. |  |  |
-| `description` _string_ | Description of the Subnet. |  | MaxLength: 1024 <br />Optional: \{\} <br /> |
-| `ipBlockNames` _string array_ | IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).<br />The IPBlock should belong to one of the following sources:<br />1) The VPC's private IPBlock<br />2) The VPCConnectivityProfile's external IPBlock<br />3) The VPCConnectivityProfile's private-TGW IPBlock<br />4) The VPCConnectivityProfile's IPv6 IPBlock |  | MaxItems: 2 <br />MinItems: 0 <br />Optional: \{\} <br /> |
+| `description` _string_ | Description of the Subnet. |  | MaxLength: 1024 <br /> |
+| `ipBlockNames` _string array_ | IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).<br />The IPBlock should belong to one of the following sources:<br />1) The VPC's private IPBlock<br />2) The VPCConnectivityProfile's external IPBlock<br />3) The VPCConnectivityProfile's private-TGW IPBlock<br />4) The VPCConnectivityProfile's IPv6 IPBlock |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 
 
 #### SubnetStatus
@@ -1513,7 +1516,7 @@ _Appears in:_
 | `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets. |  | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
 | `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Supported starting with VCF 9.2.0. |  | Maximum: 127 <br />Minimum: 2 <br /> |
-| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  | Optional: \{\} <br /> |
+| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
 
 
 #### VPCNetworkConfigurationStatus
