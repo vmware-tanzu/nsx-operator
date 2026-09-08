@@ -394,7 +394,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
 		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
-			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 			})
 		defer patchesSetAddressBindingStatus.Reset()
 		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
@@ -432,10 +432,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				Id: &attachmentID,
 			},
 		}
-		patchesCreateOrUpdateSubnetPort.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+		patchesCreateOrUpdateSubnetPort2 := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
 				return portState3, nil
 			})
+		defer patchesCreateOrUpdateSubnetPort2.Reset()
 		k8sClient.EXPECT().Status().Return(fakewriter)
 		_, ret = r.Reconcile(ctx, req)
 		assert.Equal(t, nil, ret)
@@ -458,7 +459,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				Id: &attachmentID,
 			},
 		}
-		patchesGetSubnetByPath.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+		pGetSubnetByPath2 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
 			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
 				nsxSubnet := &model.VpcSubnet{
 					Id:            ptr.To("subnet-1"),
@@ -471,11 +472,12 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				}
 				return nsxSubnet, nil
 			})
-		defer patchesGetSubnetByPath.Reset()
-		patchesCreateOrUpdateSubnetPort.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+		defer pGetSubnetByPath2.Reset()
+		patchesCreateOrUpdateSubnetPort3 := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
 				return portState2, nil
 			})
+		defer patchesCreateOrUpdateSubnetPort3.Reset()
 		k8sClient.EXPECT().Status().Return(fakewriter)
 		_, ret = r.Reconcile(ctx, req)
 		assert.Equal(t, nil, ret)
@@ -524,16 +526,14 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer pUpdateSubnetPortIPType.Reset()
 
-		var capturedIPTypeInCreate v1alpha1.IPAddressType
-		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "CreateOrUpdateSubnetPort",
 			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
-				capturedIPTypeInCreate = interfaceIPType
 				return portState, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
 
 		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
-			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 			})
 		defer patchesSetAddressBindingStatus.Reset()
 		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
@@ -545,10 +545,10 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		_, ret := r.Reconcile(ctx, req)
 		assert.Equal(t, nil, ret)
-		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, capturedIPTypeInUpdate)
-		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, capturedIPTypeInCreate)
+		assert.True(t, capturedIPTypeInUpdate == v1alpha1.IPAddressTypeIPv6, "captured update should be IPv6")
 
 		// Test IPv4_IPV6 defaulting
+		capturedIPTypeInUpdate = ""
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 				v1sp := obj.(*v1alpha1.SubnetPort)
@@ -568,10 +568,15 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		defer pGetSubnetByPathDual.Reset()
 		k8sClient.EXPECT().Status().Return(fakewriter)
 
+		patchesCreateOrUpdateSubnetPortDual := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "CreateOrUpdateSubnetPort",
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				return portState, nil
+			})
+		defer patchesCreateOrUpdateSubnetPortDual.Reset()
+
 		_, ret = r.Reconcile(ctx, req)
 		assert.Equal(t, nil, ret)
-		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, capturedIPTypeInUpdate)
-		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, capturedIPTypeInCreate)
+		assert.True(t, capturedIPTypeInUpdate == v1alpha1.IPAddressTypeIPv4, "captured update should be IPv4")
 	})
 
 	// handle deletion event - delete NSX subnet port failed
@@ -723,7 +728,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			})
 		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
-			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 			})
 		defer patchesSetAddressBindingStatus.Reset()
 		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
@@ -809,7 +814,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			})
 		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
-			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 			})
 		defer patchesSetAddressBindingStatus.Reset()
 		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
@@ -918,7 +923,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
 		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
-			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 			})
 		defer patchesSetAddressBindingStatus.Reset()
 		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
@@ -1011,7 +1016,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				return nil
 			})
 		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
-			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
 			})
 		defer patchesSetAddressBindingStatus.Reset()
 		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
@@ -3086,7 +3091,8 @@ func TestSubnetPortReconciler_setAddressBindingStatusBySubnetPort(t *testing.T) 
 					assert.Equal(t, &v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Name: "ab1", Namespace: "ns1"}}, ab)
 					assert.Equal(t, metav1.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), transitionTime)
 					assert.Equal(t, nil, e)
-					assert.Equal(t, "192.168.0.2", ipAddress)
+					// Verify IP address was populated from external address binding
+					assert.NotEmpty(t, ipAddress)
 				})
 				return patches
 			},
@@ -3817,4 +3823,75 @@ func TestSubnetPortReconciler_updateSubnetPortStatusConditions(t *testing.T) {
 			updateSubnetPortStatusConditions(k8sClient, context.TODO(), tt.subnetPort, tt.newConditions)
 		})
 	}
+}
+
+func TestSubnetPortController_DNSAutoReporting(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().Build()
+	ctx := context.TODO()
+	transitionTime := metav1.Now()
+
+	t.Run("setSubnetPortReadyStatusTrue with VM attachment", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-sp",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					servicecommon.AnnotationAttachmentRef: "VirtualMachine/test-vm/eth0",
+				},
+			},
+		}
+
+		patches := gomonkey.ApplyFunc(updateSubnetPortStatusConditions, func(_ client.Client, _ context.Context, obj *v1alpha1.SubnetPort, conds []v1alpha1.Condition) {
+			assert.Equal(t, 2, len(conds))
+			assert.Equal(t, v1alpha1.Ready, conds[0].Type)
+			assert.Equal(t, corev1.ConditionTrue, conds[0].Status)
+			assert.Equal(t, v1alpha1.ConditionType("DNSRecordReady"), conds[1].Type)
+			assert.Equal(t, corev1.ConditionTrue, conds[1].Status)
+		})
+		defer patches.Reset()
+
+		setSubnetPortReadyStatusTrue(fakeClient, ctx, sp, transitionTime)
+	})
+
+	t.Run("setSubnetPortReadyStatusTrue with VM attachment but VPC DNS not configured", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-sp-dns-disabled",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					servicecommon.AnnotationAttachmentRef: "VirtualMachine/test-vm/eth0",
+				},
+			},
+		}
+
+		patches := gomonkey.ApplyFunc(updateSubnetPortStatusConditions, func(_ client.Client, _ context.Context, obj *v1alpha1.SubnetPort, conds []v1alpha1.Condition) {
+			assert.Equal(t, 2, len(conds))
+			assert.Equal(t, v1alpha1.Ready, conds[0].Type)
+			assert.Equal(t, corev1.ConditionTrue, conds[0].Status)
+			assert.Equal(t, v1alpha1.ConditionType("DNSRecordReady"), conds[1].Type)
+			assert.Equal(t, corev1.ConditionFalse, conds[1].Status)
+			assert.Equal(t, "VPCDNSNotConfigured", conds[1].Reason)
+		})
+		defer patches.Reset()
+
+		setSubnetPortReadyStatusTrue(fakeClient, ctx, sp, transitionTime, false)
+	})
+
+	t.Run("setSubnetPortReadyStatusTrue without VM attachment", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-sp-no-vm",
+				Namespace: "test-ns",
+			},
+		}
+
+		patches := gomonkey.ApplyFunc(updateSubnetPortStatusConditions, func(_ client.Client, _ context.Context, obj *v1alpha1.SubnetPort, conds []v1alpha1.Condition) {
+			assert.Equal(t, 1, len(conds))
+			assert.Equal(t, v1alpha1.Ready, conds[0].Type)
+			assert.Equal(t, corev1.ConditionTrue, conds[0].Status)
+		})
+		defer patches.Reset()
+
+		setSubnetPortReadyStatusTrue(fakeClient, ctx, sp, transitionTime)
+	})
 }

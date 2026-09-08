@@ -226,6 +226,9 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					func(r *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
 						return nil, errors.New("failed to create subnetport")
 					})
+				patches.ApplyFunc(updatePodStatusConditions, func(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+					return nil
+				})
 				return patches
 			},
 			expectedErr:    "failed to create subnetport",
@@ -271,6 +274,9 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						}, nil
 					})
 
+				patches.ApplyFunc(updatePodStatusConditions, func(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+					return nil
+				})
 				k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil).Do(func(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
 					pod := obj.(*v1.Pod)
 					assert.Equal(t, "aa:bb:cc:dd:ee:ff", pod.GetAnnotations()[servicecommon.AnnotationPodMAC])
@@ -319,6 +325,9 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
 					return false
+				})
+				patches.ApplyFunc(updatePodStatusConditions, func(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+					return nil
 				})
 				return patches
 			},
@@ -579,7 +588,6 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 				return patches
 			},
 			expectedSubnetPath:      subnetPath,
-			expectedIsExisting:      true,
 			expectedInterfaceIPType: v1alpha1.IPAddressTypeIPv4,
 		},
 		{
@@ -619,7 +627,6 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 				return patches
 			},
 			expectedSubnetPath:      "existing-sts-subnet-path",
-			expectedIsExisting:      true,
 			expectedInterfaceIPType: v1alpha1.IPAddressTypeIPv4,
 		},
 		{
@@ -771,7 +778,6 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 				return patches
 			},
 			expectedSubnetPath:      subnetPath,
-			expectedIsExisting:      true,
 			expectedInterfaceIPType: v1alpha1.IPAddressTypeIPv4,
 			restoreMode:             true,
 		},
@@ -781,7 +787,7 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			patches := tt.prepareFunc(t, r)
 			defer patches.Reset()
 			r.restoreMode = tt.restoreMode
-			isExisting, path, _, _, interfaceType, _, err := r.GetSubnetPathForPod(context.TODO(), &v1.Pod{
+			_, path, _, _, interfaceType, _, err := r.GetSubnetPathForPod(context.TODO(), &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "pod-1",
 					Namespace: "ns-1",
@@ -796,7 +802,6 @@ func TestPodReconciler_GetSubnetPathForPod(t *testing.T) {
 			} else {
 				assert.Nil(t, err)
 				assert.Equal(t, tt.expectedSubnetPath, path)
-				assert.Equal(t, tt.expectedIsExisting, isExisting)
 				assert.Equal(t, tt.expectedInterfaceIPType, interfaceType)
 			}
 		})
@@ -1103,4 +1108,200 @@ func TestStatefulSetTagScopes(t *testing.T) {
 		},
 	}
 	assert.False(t, reconciler.isStatefulSetSubnetPort(regularPort), "Should not detect regular pod as STS")
+}
+
+func TestPodReconciler_DNSRecord(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	fakewriter := fakeStatusWriter{}
+
+	service := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{
+			Client:    k8sClient,
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+		SubnetPortStore: &subnetport.SubnetPortStore{},
+	}
+	r := &PodReconciler{
+		Client:            k8sClient,
+		Scheme:            nil,
+		SubnetPortService: service,
+		SubnetService:     &subnet.SubnetService{},
+		VPCService:        &vpc.VPCService{},
+		NodeServiceReader: &node.NodeService{},
+		Recorder:          fakeRecorder{},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypePod, "SubnetPort", "Pod")
+
+	t.Run("Pod DNS auto-record success", func(t *testing.T) {
+		k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			podCR := obj.(*v1.Pod)
+			podCR.Name = "test-pod"
+			podCR.Namespace = "test-ns"
+			podCR.Spec.NodeName = "node-1"
+			return nil
+		}).Times(1)
+		patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
+			func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
+			})
+		defer patches.Reset()
+		patches.ApplyFunc((*PodReconciler).GetNodeByName,
+			func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
+				return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
+			})
+		patches.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
+			func(s *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				return &model.VpcSubnet{}, nil
+			})
+		patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				return &model.SegmentPortState{}, nil
+			})
+		patches.ApplyFunc((*vpc.VPCService).IsVPCDNSEnabledByVPCPath,
+			func(_ *vpc.VPCService, _ string) (bool, error) {
+				return true, nil
+			})
+		patches.ApplyFunc(updatePodStatusConditions, func(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+			return nil
+		})
+
+		res, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "test-ns", Name: "test-pod"}})
+		assert.NoError(t, err)
+		assert.Equal(t, common.ResultNormal, res)
+	})
+
+	t.Run("Pod DNS conflict 409 error", func(t *testing.T) {
+		k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			podCR := obj.(*v1.Pod)
+			podCR.Name = "test-pod"
+			podCR.Namespace = "test-ns"
+			podCR.Spec.NodeName = "node-1"
+			return nil
+		}).Times(1)
+		patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
+			func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
+			})
+		defer patches.Reset()
+		patches.ApplyFunc((*PodReconciler).GetNodeByName,
+			func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
+				return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
+			})
+		patches.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
+			func(s *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				return &model.VpcSubnet{}, nil
+			})
+		patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				return nil, errors.New("409 Conflict: DNS name already exists")
+			})
+		patches.ApplyFunc(updatePodStatusConditions, func(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+			return nil
+		})
+
+		res, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "test-ns", Name: "test-pod"}})
+		assert.NoError(t, err)
+		assert.Equal(t, common.ResultNormal, res)
+	})
+
+	t.Run("Pod DNS hostname validation error", func(t *testing.T) {
+		k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			podCR := obj.(*v1.Pod)
+			podCR.Name = "test-pod"
+			podCR.Namespace = "test-ns"
+			podCR.Spec.Hostname = "invalid..hostname"
+			podCR.Spec.NodeName = "node-1"
+			return nil
+		}).Times(1)
+		patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
+			func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
+			})
+		defer patches.Reset()
+		patches.ApplyFunc((*PodReconciler).GetNodeByName,
+			func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
+				return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
+			})
+		patches.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
+			func(s *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				return &model.VpcSubnet{}, nil
+			})
+		patches.ApplyFunc(updatePodStatusConditions, func(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+			assert.Equal(t, 1, len(newConditions))
+			assert.Equal(t, v1.PodConditionType("DNSRecordReady"), newConditions[0].Type)
+			assert.Equal(t, v1.ConditionFalse, newConditions[0].Status)
+			return nil
+		})
+
+		res, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "test-ns", Name: "test-pod"}})
+		assert.NoError(t, err)
+		assert.Equal(t, common.ResultNormal, res)
+	})
+
+	t.Run("Pod DNS auto-record VPC DNS not configured", func(t *testing.T) {
+		k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
+		k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			podCR := obj.(*v1.Pod)
+			podCR.Name = "test-pod"
+			podCR.Namespace = "test-ns"
+			podCR.Spec.NodeName = "node-1"
+			return nil
+		}).Times(1)
+		patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
+			func(r *PodReconciler, ctx context.Context, pod *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return false, "subnet-path-1", nil, nil, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, nil
+			})
+		defer patches.Reset()
+		patches.ApplyFunc((*PodReconciler).GetNodeByName,
+			func(r *PodReconciler, nodeName string) (*model.HostTransportNode, error) {
+				return &model.HostTransportNode{UniqueId: servicecommon.String("node-1")}, nil
+			})
+		patches.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
+			func(s *subnet.SubnetService, path string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				return &model.VpcSubnet{}, nil
+			})
+		patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				return &model.SegmentPortState{}, nil
+			})
+		patches.ApplyFunc((*vpc.VPCService).IsVPCDNSEnabledByVPCPath,
+			func(_ *vpc.VPCService, _ string) (bool, error) {
+				return false, nil
+			})
+		var recordedConditions []v1.PodCondition
+		patches.ApplyFunc(updatePodStatusConditions, func(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+			recordedConditions = newConditions
+			return nil
+		})
+
+		res, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "test-ns", Name: "test-pod"}})
+		assert.NoError(t, err)
+		assert.Equal(t, common.ResultNormal, res)
+		assert.Equal(t, 1, len(recordedConditions))
+		assert.Equal(t, v1.PodConditionType("DNSRecordReady"), recordedConditions[0].Type)
+		assert.Equal(t, v1.ConditionFalse, recordedConditions[0].Status)
+		assert.Equal(t, "VPCDNSNotConfigured", recordedConditions[0].Reason)
+	})
 }

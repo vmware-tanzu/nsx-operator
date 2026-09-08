@@ -493,6 +493,7 @@ func TestBuildSubnetPort(t *testing.T) {
 					ContextId:         common.String("fake_context_id"),
 				},
 				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv4),
+				DnsHostname:            common.String("fake_pod.fake_ns"),
 			},
 			expectedError: nil,
 		},
@@ -549,6 +550,7 @@ func TestBuildSubnetPort(t *testing.T) {
 					ContextId:         common.String("fake_context_id"),
 				},
 				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv6),
+				DnsHostname:            common.String("fake_pod.fake_ns"),
 			},
 			expectedError: nil,
 		},
@@ -617,6 +619,7 @@ func TestBuildSubnetPort(t *testing.T) {
 				},
 				// Updated: Uses ConvertCRIPAddressTypeToNSX(interfaceIPType)
 				StaticIpAllocationType: common.String(controllercommon.NSXIPAddressTypeIPv4),
+				DnsHostname:            common.String("fake_pod.fake_ns"),
 			},
 			expectedError: nil,
 			restore:       true,

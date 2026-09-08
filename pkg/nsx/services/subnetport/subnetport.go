@@ -190,6 +190,9 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		if existingSubnetPort.Attachment != nil {
 			nsxSubnetPort.Attachment.Id = existingSubnetPort.Attachment.Id
 		}
+		if existingSubnetPort.DnsHostname != nil && *existingSubnetPort.DnsHostname != "" && (nsxSubnetPort.DnsHostname == nil || *nsxSubnetPort.DnsHostname == "") {
+			nsxSubnetPort.DnsHostname = servicecommon.String("")
+		}
 		nsxSubnetPort.AddressBindings = mergeSubnetPortAddressBinding(existingSubnetPort.AddressBindings, nsxSubnetPort.AddressBindings)
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
 	}

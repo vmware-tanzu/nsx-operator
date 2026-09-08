@@ -141,6 +141,42 @@ func TestSubnetPortToComparable(t *testing.T) {
 			},
 			expectChanged: false,
 		},
+		{
+			name: "SubnetPort with diff DnsHostname",
+			nsxSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: common.String("new.example.com"),
+			},
+			existingSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: common.String("old.example.com"),
+			},
+			expectChanged: true,
+		},
+		{
+			name: "SubnetPort with cleared DnsHostname",
+			nsxSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: common.String(""),
+			},
+			existingSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: common.String("old.example.com"),
+			},
+			expectChanged: true,
+		},
+		{
+			name: "SubnetPort with both nil or empty DnsHostname",
+			nsxSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: common.String(""),
+			},
+			existingSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: nil,
+			},
+			expectChanged: false,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

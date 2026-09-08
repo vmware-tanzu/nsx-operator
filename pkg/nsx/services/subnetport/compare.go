@@ -17,6 +17,13 @@ func (sp *SubnetPort) Key() string {
 	return *sp.Id
 }
 
+func normalizeDNSHostname(s *string) *string {
+	if s == nil || *s == "" {
+		return nil
+	}
+	return s
+}
+
 func (sp *SubnetPort) Value() data.DataValue {
 	s := &SubnetPort{
 		Id:                     sp.Id,
@@ -24,6 +31,7 @@ func (sp *SubnetPort) Value() data.DataValue {
 		Tags:                   sp.Tags,
 		Attachment:             sp.Attachment,
 		StaticIpAllocationType: sp.StaticIpAllocationType,
+		DnsHostname:            normalizeDNSHostname(sp.DnsHostname),
 	}
 	if sp.Attachment != nil {
 		// Ignoring the fields BmsInterfaceConfig, ContextType, EvpnVlans, HyperbusMode

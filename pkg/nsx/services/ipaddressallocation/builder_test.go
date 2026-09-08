@@ -301,6 +301,38 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, 6, len(result.Tags))
 	})
 
+	t.Run("Build IPAddressAllocation with DNSHostName", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-dns-alloc",
+				Namespace: "default",
+				UID:       "uid-dns",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				AllocationSize: 1,
+				DNSHostName:    "db-service.qe",
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.NotNil(t, result.DnsHostname)
+		assert.Equal(t, "db-service.qe", *result.DnsHostname)
+	})
+
 	t.Run("Handle AllocationIPs for AddressBinding CR in normal mode", func(t *testing.T) {
 		ab := &v1alpha1.AddressBinding{
 			ObjectMeta: v1.ObjectMeta{

@@ -38,9 +38,14 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 	var allocationSize *int64
 	var ipAddressType string
 	var ipv6AllocationPrefixLength *int64
+	var dnsHostname *string
 
 	switch o := obj.(type) {
 	case *v1alpha1.IPAddressAllocation:
+		if o.Spec.DNSHostName != "" {
+			h := o.Spec.DNSHostName
+			dnsHostname = &h
+		}
 		if o.Spec.IPAddressType != "" {
 			ipAddressType = controllerscommon.ConvertCRIPAddressTypeToNSX(v1alpha1.IPAddressType(o.Spec.IPAddressType))
 		} else {
@@ -108,6 +113,7 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		AllocationIps:              allocationIps,
 		AllocationSize:             allocationSize,
 		Ipv6AllocationPrefixLength: ipv6AllocationPrefixLength,
+		DnsHostname:                dnsHostname,
 	}
 	if ipAddressType != model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
 		vpcIpAddressAllocation.IpAddressBlockVisibility = &ipAddressBlockVisibilityStr

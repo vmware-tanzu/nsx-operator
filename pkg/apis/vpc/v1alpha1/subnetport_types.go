@@ -61,7 +61,7 @@ type SubnetPortStatus struct {
 	Attachment             PortAttachment         `json:"attachment,omitempty"`
 	NetworkInterfaceConfig NetworkInterfaceConfig `json:"networkInterfaceConfig,omitempty"`
 	// DNSResolverIPs contains the VPC DNS resolver IP addresses (IPv4 and IPv6) from the VPC service profile.
-	DNSResolverIPs         []string               `json:"dnsResolverIPs,omitempty"`
+	DNSResolverIPs []string `json:"dnsResolverIPs,omitempty"`
 }
 
 // VIF attachment state of a SubnetPort.

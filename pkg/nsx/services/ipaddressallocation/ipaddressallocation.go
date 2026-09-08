@@ -77,20 +77,24 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	log.Debug("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
 
 	if existingIPAddressAllocation != nil {
-		if existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
-			// For the restored NSX VPC IPAddressAllocation, its allocation_size is null.
-			// After the restore, if the built variable nsxIPAddressAllocation still has the nonempty
-			// allocation_size, we need to remove it from the parameters, otherwise the NSX operator
-			// will keep reporting the following error and retrying:
-			// "nsx error code: 612866, message: Properties IP block, allocation IPs, allocation IP, IP block visibility, allocation size and IPAddressType of existing Vpc IP address allocation: <VPC IP address allocation path> can not be modified."
-			// For this kind of cases, we manually populate the allocation_size and allocation_ips before the comparison.
-			nsxIPAddressAllocation.AllocationSize = nil
-			nsxIPAddressAllocation.Ipv6AllocationPrefixLength = nil
+		if existingIPAddressAllocation.AllocationIps != nil {
+			// An existing NSX VPC IPAddressAllocation already has allocation_ips realized.
+			// The NSX Policy API prohibits modifying immutable properties: IP block, allocation IPs,
+			// allocation IP, IP block visibility, allocation size, and IPAddressType (error 612866).
+			// Preserve the realized allocation_ips on updates so NSX does not treat it as cleared.
+			// Furthermore, if existing allocation_size is nil (e.g. restore mode), keep allocation_size nil.
 			nsxIPAddressAllocation.AllocationIps = existingIPAddressAllocation.AllocationIps
+			if existingIPAddressAllocation.AllocationSize == nil {
+				nsxIPAddressAllocation.AllocationSize = nil
+				nsxIPAddressAllocation.Ipv6AllocationPrefixLength = nil
+			}
 		}
 		// Use the existing NSX resource's id and display_name.
 		nsxIPAddressAllocation.Id = String(*existingIPAddressAllocation.Id)
 		nsxIPAddressAllocation.DisplayName = String(*existingIPAddressAllocation.DisplayName)
+		if existingIPAddressAllocation.DnsHostname != nil && *existingIPAddressAllocation.DnsHostname != "" && obj.Spec.DNSHostName == "" {
+			nsxIPAddressAllocation.DnsHostname = String("")
+		}
 	}
 	ipAddressAllocationUpdated := common.CompareResource(IpAddressAllocationToComparable(existingIPAddressAllocation),
 		IpAddressAllocationToComparable(nsxIPAddressAllocation))

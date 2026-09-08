@@ -1217,6 +1217,92 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 	return &vpc, nil
 }
 
+// GetDNSResolverIPsByVPCPath retrieves the IPv4 and IPv6 DNS resolver IPs from the VPC Service Profile
+// associated with the VPC that owns the given NSX path.
+func (s *VPCService) GetDNSResolverIPsByVPCPath(vpcPath string) ([]string, error) {
+	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "Failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
+		return nil, err
+	}
+	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read VPC object from NSX", "VPC", vpcResInfo.GetVPCPath())
+		return nil, err
+	}
+	if vpc.VpcServiceProfile == nil || *vpc.VpcServiceProfile == "" {
+		log.Debug("No VpcServiceProfile configured on VPC", "VPC", vpcResInfo.GetVPCPath())
+		return nil, nil
+	}
+
+	profile, err := s.NSXClient.VpcServiceProfileClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, path.Base(*vpc.VpcServiceProfile))
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read VpcServiceProfile from NSX", "VpcServiceProfile", *vpc.VpcServiceProfile)
+		return nil, err
+	}
+
+	var resolverIPs []string
+	if profile.DnsConfig != nil {
+		if profile.DnsConfig.Ipv4ResolverIp != nil && *profile.DnsConfig.Ipv4ResolverIp != "" {
+			resolverIPs = append(resolverIPs, *profile.DnsConfig.Ipv4ResolverIp)
+		}
+		if profile.DnsConfig.Ipv6ResolverIp != nil && *profile.DnsConfig.Ipv6ResolverIp != "" {
+			resolverIPs = append(resolverIPs, *profile.DnsConfig.Ipv6ResolverIp)
+		}
+	}
+	return resolverIPs, nil
+}
+
+// IsVPCDNSEnabledByVPCPath checks whether DNS service is enabled and configured for the VPC that owns the given NSX path.
+// It returns true if the VPC has an associated VpcServiceProfile with a configured DnsConfig.
+func (s *VPCService) IsVPCDNSEnabledByVPCPath(vpcPath string) (bool, error) {
+	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
+	if err != nil {
+		log.Error(err, "Failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
+		return false, err
+	}
+	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read VPC object from NSX", "VPC", vpcResInfo.GetVPCPath())
+		return false, err
+	}
+	if vpc.VpcServiceProfile == nil || *vpc.VpcServiceProfile == "" {
+		log.Debug("No VpcServiceProfile configured on VPC", "VPC", vpcResInfo.GetVPCPath())
+		return false, nil
+	}
+
+	profile, err := s.NSXClient.VpcServiceProfileClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, path.Base(*vpc.VpcServiceProfile))
+	err = nsxutil.TransNSXApiError(err)
+	if err != nil {
+		log.Error(err, "Failed to read VpcServiceProfile from NSX", "VpcServiceProfile", *vpc.VpcServiceProfile)
+		return false, err
+	}
+
+	if profile.DnsConfig == nil {
+		return false, nil
+	}
+	if profile.DnsConfig.EnableProxy != nil && *profile.DnsConfig.EnableProxy {
+		return true, nil
+	}
+	if (profile.DnsConfig.Ipv4ResolverIp != nil && *profile.DnsConfig.Ipv4ResolverIp != "") ||
+		(profile.DnsConfig.Ipv6ResolverIp != nil && *profile.DnsConfig.Ipv6ResolverIp != "") {
+		return true, nil
+	}
+	return false, nil
+}
+
+// IsVPCDNSEnabledByNamespace checks whether DNS service is enabled and configured for the VPC in the given namespace.
+func (s *VPCService) IsVPCDNSEnabledByNamespace(ns string) (bool, error) {
+	vpcInfoList := s.ListVPCInfo(ns)
+	if len(vpcInfoList) == 0 {
+		return false, fmt.Errorf("no VPC found for namespace %s", ns)
+	}
+	return s.IsVPCDNSEnabledByVPCPath(vpcInfoList[0].GetVPCPath())
+}
+
 // IsRADeactivatedByVPCPath determines whether IPv6 Router Advertisement is deactivated for the
 // VPC that owns the given NSX path (a VPC path or any path nested under a VPC, e.g. a Subnet
 // path). It resolves the VPC's VpcServiceProfile, finds the referenced Ipv6NdraProfile, and

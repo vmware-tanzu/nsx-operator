@@ -8,15 +8,15 @@ import (
 type ConditionType string
 
 const (
-	Ready                      ConditionType = "Ready"
-	SubnetCreationFailed       ConditionType = "SubnetCreationFailed"
-	GatewayConnectionReady     ConditionType = "GatewayConnectionReady"
-	ServiceClusterReady        ConditionType = "ServiceClusterReady"
-	AutoSnatEnabled            ConditionType = "AutoSnatEnabled"
-	ExternalIPBlocksConfigured ConditionType = "ExternalIPBlocksConfigured"
-	LBCapability               ConditionType = "LBCapability"
-	DeleteFailure              ConditionType = "DeletionFailed"
-	UpdateFailure              ConditionType = "UpdateFailed"
+	Ready                       ConditionType = "Ready"
+	SubnetCreationFailed        ConditionType = "SubnetCreationFailed"
+	GatewayConnectionReady      ConditionType = "GatewayConnectionReady"
+	ServiceClusterReady         ConditionType = "ServiceClusterReady"
+	AutoSnatEnabled             ConditionType = "AutoSnatEnabled"
+	ExternalIPBlocksConfigured  ConditionType = "ExternalIPBlocksConfigured"
+	LBCapability                ConditionType = "LBCapability"
+	DeleteFailure               ConditionType = "DeletionFailed"
+	UpdateFailure               ConditionType = "UpdateFailed"
 	ConditionTypeDNSRecordReady ConditionType = "DNSRecordReady"
 )
 

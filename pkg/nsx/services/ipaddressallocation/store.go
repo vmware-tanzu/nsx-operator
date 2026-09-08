@@ -156,3 +156,11 @@ func buildIPAddressAllocationStore() *IPAddressAllocationStore {
 		BindingType: model.VpcIpAddressAllocationBindingType(),
 	}}
 }
+
+func BuildIPAddressAllocationStore() *IPAddressAllocationStore {
+	return buildIPAddressAllocationStore()
+}
+
+func (service *IPAddressAllocationService) SetIPAddressAllocationStore(store *IPAddressAllocationStore) {
+	service.ipAddressAllocationStore = store
+}

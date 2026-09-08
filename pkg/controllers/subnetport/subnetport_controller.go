@@ -191,14 +191,42 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			return common.ResultRequeue, err
 		}
+		vmName, _, _ := common.GetVirtualMachineNameForSubnetPort(subnetPort)
+		if vmName == "" && vm != nil {
+			vmName = vm.Name
+		}
+		if vmName != "" {
+			dnsHostname := nsxutil.BuildDNSHostname(vmName, subnetPort.Namespace)
+			if err := nsxutil.ValidateDNSHostname(dnsHostname); err != nil {
+				log.Error(err, "DNS hostname validation failed for SubnetPort", "SubnetPort", req.NamespacedName, "dnsHostname", dnsHostname)
+				common.SetSubnetPortDNSRecordCondition(subnetPort, v1.ConditionFalse, nsxutil.ConditionReasonDNSInvalidLength, err.Error())
+				if r.Recorder != nil {
+					r.Recorder.Event(subnetPort, v1.EventTypeWarning, nsxutil.EventReasonDNSConfigFailed, err.Error())
+				}
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "DNS hostname validation failed", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+				return common.ResultNormal, nil
+			}
+		}
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
 		if err != nil {
+			if vmName != "" {
+				outcome := nsxutil.ClassifyDNSError(err)
+				common.SetSubnetPortDNSRecordCondition(subnetPort, v1.ConditionFalse, outcome.ConditionReason, outcome.Message)
+				if r.Recorder != nil {
+					r.Recorder.Event(subnetPort, outcome.EventType, outcome.EventReason, outcome.Message)
+				}
+				if outcome.IsPermanent {
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, outcome.Message, setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					return common.ResultNormal, nil
+				}
+			}
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
 			if nsxutil.IsRealizeStateError(err) {
 				return common.ResultRequeueAfter60sec, nil
 			}
 			return common.ResultRequeue, err
 		}
+		dnsActive := false
 		if nsxSubnetPortState != nil {
 			if nsxSubnetPortState.ExternalAddressBinding == nil && ab == nil {
 				err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
@@ -267,6 +295,28 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if err != nil {
 				log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
 			}
+			if r.VPCService != nil {
+				resolverIPs, rErr := r.VPCService.GetDNSResolverIPsByVPCPath(nsxSubnetPath)
+				if rErr != nil {
+					log.Error(rErr, "Failed to retrieve DNS resolver IPs for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+				} else if len(resolverIPs) > 0 {
+					subnetPort.Status.DNSResolverIPs = resolverIPs
+				} else {
+					subnetPort.Status.DNSResolverIPs = nil
+				}
+				active, dErr := r.VPCService.IsVPCDNSEnabledByVPCPath(nsxSubnetPath)
+				if dErr != nil {
+					log.Warn("Failed to check if VPC DNS is enabled for SubnetPort", "SubnetPort", subnetPort.Name, "error", dErr)
+				} else {
+					dnsActive = active
+				}
+				if len(resolverIPs) == 0 && (vmName != "" || isVmSubnetPort) {
+					log.Warn("No DNS resolver IPs configured in VPC service profile for SubnetPort", "SubnetPort", subnetPort.Name, "Namespace", subnetPort.Namespace, "nsxSubnetPath", nsxSubnetPath)
+					if r.Recorder != nil {
+						r.Recorder.Event(subnetPort, v1.EventTypeWarning, nsxutil.EventReasonVPCResolverIPMissing, "VPC DNS resolver IPs are not configured in VPC service profile; downstream VM or workload cannot obtain VPC DNS resolvers")
+					}
+				}
+			}
 		}
 		if reflect.DeepEqual(*old_status, subnetPort.Status) {
 			log.Info("Status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
@@ -274,7 +324,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// If the SubnetPort CR's status changed, let's clean the conditions, to ensure the r.Client.Status().Update in the following updateSuccess will be invoked at any time.
 			subnetPort.Status.Conditions = nil
 		}
-		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService)
+		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService, dnsActive)
+		if vmName != "" && r.Recorder != nil {
+			if dnsActive {
+				r.Recorder.Event(subnetPort, v1.EventTypeNormal, nsxutil.EventReasonDNSRecordCreated, "DNS auto-record successfully created")
+			} else {
+				r.Recorder.Event(subnetPort, v1.EventTypeWarning, nsxutil.EventReasonVPCDNSNotConfigured, "VPC DNS service is not configured on VPC service profile; DNS auto-record is not active in NSX")
+			}
+		}
 		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 			// UpdateSuccess may fail due to k8s connection or update conflicts.
 			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
@@ -775,18 +832,30 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 }
 
 func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, args ...interface{}) {
-	if len(args) != 1 {
-		log.Error(nil, "SubnetPortService are needed when updating SubnetPort status")
+	if len(args) < 1 {
+		log.Error(nil, "SubnetPortService is needed when updating SubnetPort status")
 		return
 	}
 	subnetPort := obj.(*v1alpha1.SubnetPort)
 	subnetPortService := args[0].(*subnetport.SubnetPortService)
-	setSubnetPortReadyStatusTrue(client, ctx, obj, transitionTime)
+	dnsActive := true
+	if len(args) > 1 {
+		if active, ok := args[1].(bool); ok {
+			dnsActive = active
+		}
+	}
+	setSubnetPortReadyStatusTrue(client, ctx, obj, transitionTime, dnsActive)
 	setAddressBindingStatusBySubnetPort(client, ctx, subnetPort, subnetPortService, transitionTime, nil)
 }
 
-func setSubnetPortReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time) {
+func setSubnetPortReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, args ...interface{}) {
 	subnetPort := obj.(*v1alpha1.SubnetPort)
+	dnsActive := true
+	if len(args) > 0 {
+		if active, ok := args[0].(bool); ok {
+			dnsActive = active
+		}
+	}
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -795,6 +864,26 @@ func setSubnetPortReadyStatusTrue(client client.Client, ctx context.Context, obj
 			Reason:             "SubnetPortReady",
 			LastTransitionTime: transitionTime,
 		},
+	}
+	vmName, _, _ := common.GetVirtualMachineNameForSubnetPort(subnetPort)
+	if vmName != "" {
+		if dnsActive {
+			newConditions = append(newConditions, v1alpha1.Condition{
+				Type:               v1alpha1.ConditionType(nsxutil.ConditionTypeDNSRecordReady),
+				Status:             v1.ConditionTrue,
+				Message:            "DNS auto-record successfully created",
+				Reason:             nsxutil.ConditionReasonDNSSuccess,
+				LastTransitionTime: transitionTime,
+			})
+		} else {
+			newConditions = append(newConditions, v1alpha1.Condition{
+				Type:               v1alpha1.ConditionType(nsxutil.ConditionTypeDNSRecordReady),
+				Status:             v1.ConditionFalse,
+				Message:            "VPC DNS service is not configured on VPC service profile; DNS auto-record is not active in NSX",
+				Reason:             nsxutil.ConditionReasonVPCDNSNotConfigured,
+				LastTransitionTime: transitionTime,
+			})
+		}
 	}
 	updateSubnetPortStatusConditions(client, ctx, subnetPort, newConditions)
 }
@@ -838,8 +927,16 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 		}
 		// subnetPort might be cleared to indicate a change in other fields in status, keep it to make sure
 		// the status is updated when conditions are unchanged while other fields are changed.
-		latestSubnetPort.Status.Conditions = subnetPort.Status.Conditions
+		if subnetPort.Status.Conditions == nil {
+			latestSubnetPort.Status.Conditions = nil
+		}
 		conditionsUpdated := false
+		vmName, _, _ := common.GetVirtualMachineNameForSubnetPort(subnetPort)
+		if vmName == "" {
+			if common.RemoveSubnetPortDNSRecordCondition(latestSubnetPort) {
+				conditionsUpdated = true
+			}
+		}
 		for i := range newConditions {
 			if mergeSubnetPortStatusCondition(latestSubnetPort, &newConditions[i]) {
 				conditionsUpdated = true
@@ -848,6 +945,7 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 		if conditionsUpdated {
 			latestSubnetPort.Status.Attachment = subnetPort.Status.Attachment
 			latestSubnetPort.Status.NetworkInterfaceConfig = subnetPort.Status.NetworkInterfaceConfig
+			latestSubnetPort.Status.DNSResolverIPs = subnetPort.Status.DNSResolverIPs
 			log.Info("Updated SubnetPort Status", "Name", latestSubnetPort.Name, "Namespace", latestSubnetPort.Namespace, "Status", latestSubnetPort.Status)
 			return client.Status().Update(ctx, latestSubnetPort)
 		}

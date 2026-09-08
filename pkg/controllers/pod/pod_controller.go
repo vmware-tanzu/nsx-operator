@@ -78,6 +78,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		log.Error(err, "Unable to fetch Pod", "Pod", req.NamespacedName)
 		return common.ResultRequeue, err
 	}
+	if pod.Name == "" && req.Name != "" {
+		pod.Name = req.Name
+		pod.Namespace = req.Namespace
+	}
 	if len(pod.Spec.NodeName) == 0 {
 		log.Info("Pod is not scheduled on Node yet, skipping", "Pod", req.NamespacedName)
 		return common.ResultNormal, nil
@@ -117,10 +121,83 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
 		}
+		podName := pod.Name
+		if pod.Spec.Hostname != "" {
+			podName = pod.Spec.Hostname
+		}
+		dnsHostname := nsxutil.BuildDNSHostname(podName, pod.Namespace)
+		if err := nsxutil.ValidateDNSHostname(dnsHostname); err != nil {
+			log.Error(err, "DNS hostname validation failed for Pod", "Pod", req.NamespacedName, "dnsHostname", dnsHostname)
+			if r.Recorder != nil {
+				_ = updatePodStatusConditions(r.Client, ctx, pod, []v1.PodCondition{
+					{
+						Type:               v1.PodConditionType(nsxutil.ConditionTypeDNSRecordReady),
+						Status:             v1.ConditionFalse,
+						Reason:             nsxutil.ConditionReasonDNSInvalidLength,
+						Message:            err.Error(),
+						LastTransitionTime: metav1.Now(),
+					},
+				})
+				r.Recorder.Event(pod, v1.EventTypeWarning, nsxutil.EventReasonDNSConfigFailed, err.Error())
+			}
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "DNS hostname validation failed", nil)
+			return common.ResultNormal, nil
+		}
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(pod, nsxSubnet, contextID, &pod.ObjectMeta.Labels, false, r.restoreMode, interfaceIPType)
 		if err != nil {
+			outcome := nsxutil.ClassifyDNSError(err)
+			if r.Recorder != nil {
+				_ = updatePodStatusConditions(r.Client, ctx, pod, []v1.PodCondition{
+					{
+						Type:               v1.PodConditionType(nsxutil.ConditionTypeDNSRecordReady),
+						Status:             v1.ConditionFalse,
+						Reason:             outcome.ConditionReason,
+						Message:            outcome.Message,
+						LastTransitionTime: metav1.Now(),
+					},
+				})
+				r.Recorder.Event(pod, outcome.EventType, outcome.EventReason, outcome.Message)
+			}
+			if outcome.IsPermanent {
+				r.StatusUpdater.UpdateFail(ctx, pod, err, outcome.Message, nil)
+				return common.ResultNormal, nil
+			}
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultRequeue, err
+		}
+		if r.Recorder != nil {
+			dnsActive := false
+			if r.VPCService != nil {
+				active, dErr := r.VPCService.IsVPCDNSEnabledByVPCPath(nsxSubnetPath)
+				if dErr != nil {
+					log.Warn("Failed to check if VPC DNS is enabled for Pod", "Pod", req.NamespacedName, "error", dErr)
+				} else {
+					dnsActive = active
+				}
+			}
+			if dnsActive {
+				_ = updatePodStatusConditions(r.Client, ctx, pod, []v1.PodCondition{
+					{
+						Type:               v1.PodConditionType(nsxutil.ConditionTypeDNSRecordReady),
+						Status:             v1.ConditionTrue,
+						Reason:             nsxutil.ConditionReasonDNSSuccess,
+						Message:            "DNS auto-record successfully created",
+						LastTransitionTime: metav1.Now(),
+					},
+				})
+				r.Recorder.Event(pod, v1.EventTypeNormal, nsxutil.EventReasonDNSRecordCreated, "DNS auto-record successfully created")
+			} else {
+				_ = updatePodStatusConditions(r.Client, ctx, pod, []v1.PodCondition{
+					{
+						Type:               v1.PodConditionType(nsxutil.ConditionTypeDNSRecordReady),
+						Status:             v1.ConditionFalse,
+						Reason:             nsxutil.ConditionReasonVPCDNSNotConfigured,
+						Message:            "VPC DNS service is not configured on VPC service profile; DNS auto-record is not active in NSX",
+						LastTransitionTime: metav1.Now(),
+					},
+				})
+				r.Recorder.Event(pod, v1.EventTypeWarning, nsxutil.EventReasonVPCDNSNotConfigured, "VPC DNS service is not configured on VPC service profile; DNS auto-record is not active in NSX")
+			}
 		}
 		// appplatform webhook may be down if cpvm network is not restored, which blocks annotation update
 		// Avoid to update the MAC annotation on Pod in restore mode as it should not change

@@ -46,8 +46,16 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var addressBindings []model.PortAddressBindingEntry
 	var hasMacSpecified bool
 	var staticIpAllocationType string
+	var dnsHostname *string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
+		vmName, _, _ := controllercommon.GetVirtualMachineNameForSubnetPort(o)
+		if vmName != "" {
+			h := nsxutil.BuildDNSHostname(vmName, o.Namespace)
+			if err := nsxutil.ValidateDNSHostname(h); err == nil {
+				dnsHostname = &h
+			}
+		}
 		externalAddressBinding, err = service.buildExternalAddressBinding(o, restoreMode)
 		if err != nil {
 			return nil, err
@@ -93,6 +101,14 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		}
 		staticIpAllocationType = controllercommon.ConvertCRStaticIPAddressTypeToNSX(o.Spec.StaticIPAllocationType)
 	case *corev1.Pod:
+		podName := o.Name
+		if o.Spec.Hostname != "" {
+			podName = o.Spec.Hostname
+		}
+		h := nsxutil.BuildDNSHostname(podName, o.Namespace)
+		if err := nsxutil.ValidateDNSHostname(h); err == nil {
+			dnsHostname = &h
+		}
 		if restoreMode && len(o.Status.PodIPs) > 0 {
 			addressBindings = []model.PortAddressBindingEntry{}
 			for _, ip := range o.Status.PodIPs {
@@ -227,6 +243,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		Path:                   &nsxSubnetPortPath,
 		ParentPath:             nsxSubnet.Path,
 		ExternalAddressBinding: externalAddressBinding,
+		DnsHostname:            dnsHostname,
 	}
 	// For backward compatibility, only set StaticIpAllocationType for 9.2+
 	if service.NSXClient.NSXCheckVersion(nsx.IPv6) {

@@ -514,6 +514,288 @@ func TestIsRADeactivatedByVPCPath_NoStaleCaching(t *testing.T) {
 	assert.False(t, secondResult, "second call must reflect the newly re-enabled NDRA profile, not a cached stale value")
 }
 
+func TestGetDNSResolverIPsByVPCPath(t *testing.T) {
+	vpcPath := "/orgs/default/projects/p1/vpcs/vpc1"
+
+	newVpcService := func() *VPCService {
+		return &VPCService{
+			Service: common.Service{
+				NSXClient: &nsx.Client{
+					Cluster:                 &nsx.Cluster{},
+					VPCClient:               &fakeVpcsClientForRA{},
+					VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+				},
+			},
+		}
+	}
+
+	t.Run("invalid VPC path", func(t *testing.T) {
+		service := newVpcService()
+		ips, err := service.GetDNSResolverIPsByVPCPath("invalid-path")
+		assert.Error(t, err)
+		assert.Nil(t, ips)
+	})
+
+	t.Run("error getting VPC", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{}, errors.New("failed to get VPC")},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		ips, err := service.GetDNSResolverIPsByVPCPath(vpcPath)
+		assert.Error(t, err)
+		assert.Nil(t, ips)
+	})
+
+	t.Run("VPC without VpcServiceProfile", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		ips, err := service.GetDNSResolverIPsByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.Nil(t, ips)
+	})
+
+	t.Run("error getting VpcServiceProfile", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{}, errors.New("failed to get VpcServiceProfile")},
+			Times:  1,
+		}})
+		ips, err := service.GetDNSResolverIPsByVPCPath(vpcPath)
+		assert.Error(t, err)
+		assert.Nil(t, ips)
+	})
+
+	t.Run("VpcServiceProfile with DnsConfig nil", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{DnsConfig: nil}, nil},
+			Times:  1,
+		}})
+		ips, err := service.GetDNSResolverIPsByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.Nil(t, ips)
+	})
+
+	t.Run("VpcServiceProfile with IPv4 and IPv6 resolver IPs", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{
+				DnsConfig: &model.VpcProfileDnsConfig{
+					Ipv4ResolverIp: common.String("100.100.100.100"),
+					Ipv6ResolverIp: common.String("fd00:bc::1"),
+				},
+			}, nil},
+			Times: 1,
+		}})
+		ips, err := service.GetDNSResolverIPsByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"100.100.100.100", "fd00:bc::1"}, ips)
+	})
+}
+
+func TestIsVPCDNSEnabledByVPCPath(t *testing.T) {
+	vpcPath := "/orgs/default/projects/p1/vpcs/vpc1"
+
+	newVpcService := func() *VPCService {
+		return &VPCService{
+			Service: common.Service{
+				NSXClient: &nsx.Client{
+					Cluster:                 &nsx.Cluster{},
+					VPCClient:               &fakeVpcsClientForRA{},
+					VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+				},
+			},
+		}
+	}
+
+	t.Run("invalid VPC path", func(t *testing.T) {
+		service := newVpcService()
+		enabled, err := service.IsVPCDNSEnabledByVPCPath("invalid-path")
+		assert.Error(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("error getting VPC", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{}, errors.New("failed to get VPC")},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		enabled, err := service.IsVPCDNSEnabledByVPCPath(vpcPath)
+		assert.Error(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("VPC without VpcServiceProfile", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		enabled, err := service.IsVPCDNSEnabledByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("error getting VpcServiceProfile", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{}, errors.New("failed to get VpcServiceProfile")},
+			Times:  1,
+		}})
+		enabled, err := service.IsVPCDNSEnabledByVPCPath(vpcPath)
+		assert.Error(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("VpcServiceProfile with DnsConfig nil", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{DnsConfig: nil}, nil},
+			Times:  1,
+		}})
+		enabled, err := service.IsVPCDNSEnabledByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("VpcServiceProfile with EnableProxy=true", func(t *testing.T) {
+		service := newVpcService()
+		enableProxy := true
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{
+				DnsConfig: &model.VpcProfileDnsConfig{
+					EnableProxy: &enableProxy,
+				},
+			}, nil},
+			Times: 1,
+		}})
+		enabled, err := service.IsVPCDNSEnabledByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.True(t, enabled)
+	})
+
+	t.Run("VpcServiceProfile with resolver IP configured", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{
+				DnsConfig: &model.VpcProfileDnsConfig{
+					Ipv4ResolverIp: common.String("192.168.1.1"),
+				},
+			}, nil},
+			Times: 1,
+		}})
+		enabled, err := service.IsVPCDNSEnabledByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.True(t, enabled)
+	})
+
+	t.Run("VpcServiceProfile with EnableProxy=false and no resolver IPs", func(t *testing.T) {
+		service := newVpcService()
+		enableProxy := false
+		patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+			Times:  1,
+		}})
+		defer patches.Reset()
+		patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+			Values: gomonkey.Params{model.VpcServiceProfile{
+				DnsConfig: &model.VpcProfileDnsConfig{
+					EnableProxy: &enableProxy,
+				},
+			}, nil},
+			Times: 1,
+		}})
+		enabled, err := service.IsVPCDNSEnabledByVPCPath(vpcPath)
+		assert.NoError(t, err)
+		assert.False(t, enabled)
+	})
+}
+
+func TestIsVPCDNSEnabledByNamespace(t *testing.T) {
+	newVpcService := func() *VPCService {
+		return &VPCService{
+			Service: common.Service{
+				NSXClient: &nsx.Client{
+					Cluster:                 &nsx.Cluster{},
+					VPCClient:               &fakeVpcsClientForRA{},
+					VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+				},
+			},
+		}
+	}
+
+	t.Run("no VPC found for namespace", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListVPCInfo", func(_ *VPCService, _ string) []common.VPCResourceInfo {
+			return nil
+		})
+		defer patches.Reset()
+		enabled, err := service.IsVPCDNSEnabledByNamespace("ns1")
+		assert.Error(t, err)
+		assert.False(t, enabled)
+	})
+
+	t.Run("VPC found and DNS enabled", func(t *testing.T) {
+		service := newVpcService()
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListVPCInfo", func(_ *VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{OrgID: "default", ProjectID: "p1", ID: "vpc1"},
+			}
+		})
+		defer patches.Reset()
+		patches.ApplyMethod(reflect.TypeOf(service), "IsVPCDNSEnabledByVPCPath", func(_ *VPCService, _ string) (bool, error) {
+			return true, nil
+		})
+		enabled, err := service.IsVPCDNSEnabledByNamespace("ns1")
+		assert.NoError(t, err)
+		assert.True(t, enabled)
+	})
+}
+
 type fakeIPAddressAllocationClient struct{}
 
 func (c fakeIPAddressAllocationClient) Delete(orgIdParam string, projectIdParam string, vpcIdParam string, ipAddressAllocationIdParam string) error {

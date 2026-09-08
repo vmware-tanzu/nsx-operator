@@ -25,6 +25,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 var (
@@ -62,8 +63,14 @@ func setReadyStatusFalse(client client.Client, ctx context.Context, obj client.O
 	updateIPAddressAllocationStatusConditions(client, ctx, ipaddressallocation, newConditions)
 }
 
-func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
+func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, args ...interface{}) {
 	ipaddressallocation := obj.(*v1alpha1.IPAddressAllocation)
+	dnsActive := true
+	if len(args) > 0 {
+		if active, ok := args[0].(bool); ok {
+			dnsActive = active
+		}
+	}
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:               v1alpha1.Ready,
@@ -73,11 +80,35 @@ func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Ob
 			LastTransitionTime: transitionTime,
 		},
 	}
+	if ipaddressallocation.Spec.DNSHostName != "" {
+		if dnsActive {
+			newConditions = append(newConditions, v1alpha1.Condition{
+				Type:               v1alpha1.ConditionType(nsxutil.ConditionTypeDNSRecordReady),
+				Status:             v1.ConditionTrue,
+				Message:            "DNS auto-record successfully created",
+				Reason:             nsxutil.ConditionReasonDNSSuccess,
+				LastTransitionTime: transitionTime,
+			})
+		} else {
+			newConditions = append(newConditions, v1alpha1.Condition{
+				Type:               v1alpha1.ConditionType(nsxutil.ConditionTypeDNSRecordReady),
+				Status:             v1.ConditionFalse,
+				Message:            "VPC DNS service is not configured on VPC service profile; DNS auto-record is not active in NSX",
+				Reason:             nsxutil.ConditionReasonVPCDNSNotConfigured,
+				LastTransitionTime: transitionTime,
+			})
+		}
+	}
 	updateIPAddressAllocationStatusConditions(client, ctx, ipaddressallocation, newConditions)
 }
 
 func updateIPAddressAllocationStatusConditions(client client.Client, ctx context.Context, ipaddressallocation *v1alpha1.IPAddressAllocation, newConditions []v1alpha1.Condition) {
 	conditionsUpdated := false
+	if ipaddressallocation.Spec.DNSHostName == "" {
+		if common.RemoveIPAddressAllocationDNSRecordCondition(ipaddressallocation) {
+			conditionsUpdated = true
+		}
+	}
 	for i := range newConditions {
 		if mergeIPAddressAllocationStatusCondition(ipaddressallocation, &newConditions[i]) {
 			conditionsUpdated = true
@@ -144,8 +175,30 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseUpdateTotal()
+	if obj.Spec.DNSHostName != "" {
+		if err := nsxutil.ValidateDNSHostname(obj.Spec.DNSHostName); err != nil {
+			log.Error(err, "DNS hostname validation failed for IPAddressAllocation", "IPAddressAllocation", obj.Name, "Namespace", obj.Namespace, "dnsHostname", obj.Spec.DNSHostName)
+			common.SetIPAddressAllocationDNSRecordCondition(obj, v1.ConditionFalse, nsxutil.ConditionReasonDNSInvalidLength, err.Error())
+			if r.Recorder != nil {
+				r.Recorder.Event(obj, v1.EventTypeWarning, nsxutil.EventReasonDNSConfigFailed, err.Error())
+			}
+			r.StatusUpdater.UpdateFail(ctx, obj, err, "DNS hostname validation failed", setReadyStatusFalse)
+			return resultNormal, nil
+		}
+	}
 	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj, r.restoreMode)
 	if err != nil {
+		if obj.Spec.DNSHostName != "" {
+			outcome := nsxutil.ClassifyDNSError(err)
+			common.SetIPAddressAllocationDNSRecordCondition(obj, v1.ConditionFalse, outcome.ConditionReason, outcome.Message)
+			if r.Recorder != nil {
+				r.Recorder.Event(obj, outcome.EventType, outcome.EventReason, outcome.Message)
+			}
+			if outcome.IsPermanent {
+				r.StatusUpdater.UpdateFail(ctx, obj, err, outcome.Message, setReadyStatusFalse)
+				return resultNormal, nil
+			}
+		}
 		r.StatusUpdater.UpdateFail(ctx, obj, err, "", setReadyStatusFalse)
 		return resultRequeue, err
 	}
@@ -153,7 +206,23 @@ func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v
 		// If the IPAddressAllocation is updated, we clear the conditions to ensure the status is updated anyway
 		obj.Status.Conditions = nil
 	}
-	r.StatusUpdater.UpdateSuccess(ctx, obj, setReadyStatusTrue)
+	dnsActive := false
+	if r.VPCService != nil && obj.Spec.DNSHostName != "" {
+		active, vpcErr := r.VPCService.IsVPCDNSEnabledByNamespace(obj.Namespace)
+		if vpcErr != nil {
+			log.Warn("Failed to check if VPC DNS is enabled for IPAddressAllocation", "IPAddressAllocation", obj.Name, "Namespace", obj.Namespace, "error", vpcErr)
+		} else {
+			dnsActive = active
+		}
+	}
+	r.StatusUpdater.UpdateSuccess(ctx, obj, setReadyStatusTrue, dnsActive)
+	if obj.Spec.DNSHostName != "" && r.Recorder != nil {
+		if dnsActive {
+			r.Recorder.Event(obj, v1.EventTypeNormal, nsxutil.EventReasonDNSRecordCreated, "DNS auto-record successfully created")
+		} else {
+			r.Recorder.Event(obj, v1.EventTypeWarning, nsxutil.EventReasonVPCDNSNotConfigured, "VPC DNS service is not configured on VPC service profile; DNS auto-record is not active in NSX")
+		}
+	}
 	return resultNormal, nil
 }
 

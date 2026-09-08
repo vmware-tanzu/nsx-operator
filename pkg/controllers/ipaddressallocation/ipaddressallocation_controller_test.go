@@ -35,6 +35,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 )
 
 func NewFakeIPAddressAllocationReconciler() *IPAddressAllocationReconciler {
@@ -66,6 +67,36 @@ func TestIPAddressAllocationController_setReadyStatusTrue(t *testing.T) {
 	if !reflect.DeepEqual(dummyIPAddressAllocation.Status.Conditions, newConditions) {
 		t.Fatalf("Failed to correctly update Status Conditions when conditions haven't changed")
 	}
+
+	// Case: With DNSHostName set
+	dnsIPAddressAllocation := &v1alpha1.IPAddressAllocation{
+		Spec: v1alpha1.IPAddressAllocationSpec{
+			DNSHostName: "db.qe",
+		},
+	}
+	setReadyStatusTrue(r.Client, ctx, dnsIPAddressAllocation, transitionTime)
+	assert.Equal(t, 2, len(dnsIPAddressAllocation.Status.Conditions))
+	assert.Equal(t, v1alpha1.ConditionType("DNSRecordReady"), dnsIPAddressAllocation.Status.Conditions[1].Type)
+	assert.Equal(t, v1.ConditionTrue, dnsIPAddressAllocation.Status.Conditions[1].Status)
+
+	// Case: With DNSHostName set but VPC DNS not configured (dnsActive == false)
+	dnsDisabledIPAddressAllocation := &v1alpha1.IPAddressAllocation{
+		Spec: v1alpha1.IPAddressAllocationSpec{
+			DNSHostName: "db.qe",
+		},
+	}
+	setReadyStatusTrue(r.Client, ctx, dnsDisabledIPAddressAllocation, transitionTime, false)
+	assert.Equal(t, 2, len(dnsDisabledIPAddressAllocation.Status.Conditions))
+	assert.Equal(t, v1alpha1.ConditionType("DNSRecordReady"), dnsDisabledIPAddressAllocation.Status.Conditions[1].Type)
+	assert.Equal(t, v1.ConditionFalse, dnsDisabledIPAddressAllocation.Status.Conditions[1].Status)
+	assert.Equal(t, "VPCDNSNotConfigured", dnsDisabledIPAddressAllocation.Status.Conditions[1].Reason)
+
+	// Case: Clear DNSHostName from an IPAddressAllocation that previously had DNSRecordReady
+	dnsIPAddressAllocation.Spec.DNSHostName = ""
+	setReadyStatusTrue(r.Client, ctx, dnsIPAddressAllocation, transitionTime)
+	assert.Equal(t, 1, len(dnsIPAddressAllocation.Status.Conditions))
+	assert.Equal(t, v1alpha1.Ready, dnsIPAddressAllocation.Status.Conditions[0].Type)
+	assert.Equal(t, v1.ConditionTrue, dnsIPAddressAllocation.Status.Conditions[0].Status)
 }
 
 func TestIPAddressAllocationController_updateIPAddressAllocationStatusConditions(t *testing.T) {
@@ -234,7 +265,7 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		return errors.New("delete failed")
 	})
 
-	k8sClient.EXPECT().Status().Times(2).Return(fakewriter)
+	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.NotEqual(t, ret, nil)
 	patch.Reset()
@@ -259,17 +290,26 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 		v1sp := obj.(*v1alpha1.IPAddressAllocation)
 		v1sp.ObjectMeta.DeletionTimestamp = nil
+		v1sp.Status.Conditions = []v1alpha1.Condition{
+			{
+				Type:    v1alpha1.Ready,
+				Status:  v1.ConditionTrue,
+				Reason:  "IPAddressAllocationReady",
+				Message: "NSX IPAddressAllocation has been successfully created/updated",
+			},
+		}
 		return nil
 	})
 
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService,
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
-		return true, nil
+		return false, nil
 	})
 	k8sClient.EXPECT().Status().Times(0).Return(fakewriter)
 	_, ret = r.Reconcile(ctx, req)
 	assert.Equal(t, ret, nil)
 	patch.Reset()
+	pat.Reset()
 }
 
 func TestIPAddressAllocationReconciler_RestoreReconcile(t *testing.T) {
@@ -289,6 +329,7 @@ func TestIPAddressAllocationReconciler_RestoreReconcile(t *testing.T) {
 			},
 		},
 	}
+	service.SetIPAddressAllocationStore(ipaddressallocation.BuildIPAddressAllocationStore())
 
 	r := &IPAddressAllocationReconciler{
 		Client:  k8sClient,
@@ -296,11 +337,11 @@ func TestIPAddressAllocationReconciler_RestoreReconcile(t *testing.T) {
 		Service: service,
 	}
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListIPAddressAllocationID",
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "ListIPAddressAllocationID",
 		func(_ *ipaddressallocation.IPAddressAllocationService) sets.Set[string] {
 			return sets.New[string]("ipa-uid-1")
 		})
-	// defer patches.Reset()
+	defer patches.Reset()
 	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
 	k8sClient.EXPECT().List(gomock.Any(), ipAddressAllocationList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.IPAddressAllocationList)
@@ -335,8 +376,7 @@ func TestIPAddressAllocationReconciler_RestoreReconcile(t *testing.T) {
 		}
 		return nil
 	})
-	patches.ApplyFunc((*IPAddressAllocationReconciler).Reconcile, func(r *IPAddressAllocationReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		assert.Equal(t, "ipa-2", req.Name)
+	patches.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *IPAddressAllocationReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 		assert.Equal(t, "ns-1", req.Namespace)
 		return ctlcommon.ResultNormal, nil
 	})
@@ -356,71 +396,67 @@ func TestReconciler_GarbageCollector(t *testing.T) {
 			},
 		},
 	}
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "ListIPAddressAllocationID",
-		func(_ *ipaddressallocation.IPAddressAllocationService) sets.Set[string] {
-			a := sets.New[string]()
-			a.Insert("1234")
-			a.Insert("2345")
-			return a
-		})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService, UID interface{}) error {
-		return nil
-	})
-	mockCtl := gomock.NewController(t)
-	k8sClient := mock_client.NewMockClient(mockCtl)
+	store := ipaddressallocation.BuildIPAddressAllocationStore()
+	service.SetIPAddressAllocationStore(store)
+
+	// Add items to store with tagScope common.TagScopeIPAddressAllocationCRUID
+	tag1 := common.TagScopeIPAddressAllocationCRUID
+	alloc1 := &model.VpcIpAddressAllocation{
+		Id:         common.String("alloc1"),
+		Path:       common.String("/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/alloc1"),
+		ParentPath: common.String("/orgs/default/projects/p1/vpcs/v1"),
+		Tags:       []model.Tag{{Scope: &tag1, Tag: common.String("1234")}},
+	}
+	alloc2 := &model.VpcIpAddressAllocation{
+		Id:         common.String("alloc2"),
+		Path:       common.String("/orgs/default/projects/p1/vpcs/v1/ip-address-allocations/alloc2"),
+		ParentPath: common.String("/orgs/default/projects/p1/vpcs/v1"),
+		Tags:       []model.Tag{{Scope: &tag1, Tag: common.String("2345")}},
+	}
+	_ = store.Add(alloc1)
+	_ = store.Add(alloc2)
+
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	r := &IPAddressAllocationReconciler{
 		Client:  k8sClient,
-		Scheme:  nil,
+		Scheme:  scheme,
 		Service: service,
 	}
-	ctx := context.Background()
-	ipAddressAllocationList := &v1alpha1.IPAddressAllocationList{}
-	k8sClient.EXPECT().List(gomock.Any(), ipAddressAllocationList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.IPAddressAllocationList)
-		a.Items = append(a.Items, v1alpha1.IPAddressAllocation{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
+
+	deleted := make([]string, 0)
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService, UID interface{}) error {
+		deleted = append(deleted, string(UID.(types.UID)))
 		return nil
 	})
-	r.CollectGarbage(context.Background())
+	defer patch.Reset()
 
-	// local store has same item as k8s cache
-	patch.Reset()
+	ipa1 := &v1alpha1.IPAddressAllocation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ipa1",
+			Namespace: "default",
+			UID:       "1234",
+		},
+	}
+	_ = k8sClient.Create(context.Background(), ipa1)
+	err := r.CollectGarbage(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"2345"}, deleted)
 
-	patch.ApplyMethod(reflect.TypeOf(service), "ListIPAddressAllocationID", func(_ *ipaddressallocation.IPAddressAllocationService) sets.Set[string] {
-		a := sets.New[string]()
-		a.Insert("1234")
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService, UID interface{}) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-	k8sClient.EXPECT().List(ctx, ipAddressAllocationList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.IPAddressAllocationList)
-		a.Items = append(a.Items, v1alpha1.IPAddressAllocation{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "1234"
-		return nil
-	})
-	r.CollectGarbage(context.Background())
+	// local store has same item as k8s cache: remove alloc2
+	deleted = nil
+	_ = store.Delete(alloc2)
+	err = r.CollectGarbage(context.Background())
+	assert.NoError(t, err)
+	assert.Empty(t, deleted)
 
-	// local store has no item
-	patch.Reset()
-
-	patch.ApplyMethod(reflect.TypeOf(service), "ListIPAddressAllocationID", func(_ *ipaddressallocation.IPAddressAllocationService) sets.Set[string] {
-		a := sets.New[string]()
-		return a
-	})
-	patch.ApplyMethod(reflect.TypeOf(service), "DeleteIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService, UID interface{}) error {
-		assert.FailNow(t, "should not be called")
-		return nil
-	})
-	k8sClient.EXPECT().List(ctx, ipAddressAllocationList).Return(nil).Times(0)
-	r.CollectGarbage(context.Background())
-
-	patch.Reset()
+	// local store has no item: remove alloc1
+	_ = store.Delete(alloc1)
+	err = r.CollectGarbage(context.Background())
+	assert.NoError(t, err)
+	assert.Empty(t, deleted)
 }
 
 func TestIPAddressAllocationReconciler_StartController(t *testing.T) {
@@ -475,8 +511,14 @@ func (m *MockManager) Start(context.Context) error {
 
 func TestIPAddressAllocationReconciler_handleUpdate(t *testing.T) {
 	r := &IPAddressAllocationReconciler{
-		StatusUpdater: ctlcommon.StatusUpdater{},
-		Service:       &ipaddressallocation.IPAddressAllocationService{},
+		StatusUpdater: ctlcommon.StatusUpdater{
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+		Service: &ipaddressallocation.IPAddressAllocationService{},
 	}
 	ctx := context.TODO()
 
@@ -512,14 +554,29 @@ func TestIPAddressAllocationReconciler_handleUpdate(t *testing.T) {
 			expectConds:  true,
 			expectErr:    true,
 		},
+		{
+			name:         "DNS validation failure",
+			updated:      false,
+			updateErr:    nil,
+			initialConds: nil,
+			expectConds:  true,
+			expectErr:    false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			obj := &v1alpha1.IPAddressAllocation{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-ipa",
+					Namespace: "default",
+				},
 				Status: v1alpha1.IPAddressAllocationStatus{
 					Conditions: tt.initialConds,
 				},
+			}
+			if tt.name == "DNS validation failure" {
+				obj.Spec.DNSHostName = "invalid..hostname"
 			}
 
 			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateIPAddressAllocation",

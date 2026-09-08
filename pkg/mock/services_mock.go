@@ -75,6 +75,45 @@ func (m *MockVPCServiceProvider) IsRADeactivatedByVPCPath(vpcPath string) (bool,
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockVPCServiceProvider) GetDNSResolverIPsByVPCPath(vpcPath string) ([]string, error) {
+	if len(m.ExpectedCalls) > 0 {
+		for _, call := range m.ExpectedCalls {
+			if call.Method == "GetDNSResolverIPsByVPCPath" {
+				args := m.Called(vpcPath)
+				if args.Get(0) == nil {
+					return nil, args.Error(1)
+				}
+				return args.Get(0).([]string), args.Error(1)
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockVPCServiceProvider) IsVPCDNSEnabledByVPCPath(vpcPath string) (bool, error) {
+	if len(m.ExpectedCalls) > 0 {
+		for _, call := range m.ExpectedCalls {
+			if call.Method == "IsVPCDNSEnabledByVPCPath" {
+				args := m.Called(vpcPath)
+				return args.Bool(0), args.Error(1)
+			}
+		}
+	}
+	return true, nil
+}
+
+func (m *MockVPCServiceProvider) IsVPCDNSEnabledByNamespace(ns string) (bool, error) {
+	if len(m.ExpectedCalls) > 0 {
+		for _, call := range m.ExpectedCalls {
+			if call.Method == "IsVPCDNSEnabledByNamespace" {
+				args := m.Called(ns)
+				return args.Bool(0), args.Error(1)
+			}
+		}
+	}
+	return true, nil
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }

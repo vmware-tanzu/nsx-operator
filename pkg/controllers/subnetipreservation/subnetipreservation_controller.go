@@ -283,13 +283,23 @@ func (r *Reconciler) validateSubnet(ctx context.Context, ns, name string) (*v1al
 		Name:      name,
 	}, subnetCR); err != nil {
 		if apierrors.IsNotFound(err) {
-			// Not requeue the SubnetIPReservation if Subnet is not created
-			log.Debug("Subnet CR does not exists", "Namespace", ns, "Subnet", name)
-			return nil, &errorWithRetry{
-				error:   err,
-				retry:   false,
-				message: "Subnet is not created",
+			if r.IPReservationService.NSXConfig.K8sConfig.EnableVNetCRD {
+				// Not requeue the SubnetIPReservation if Subnet is not created
+				log.Debug("Subnet CR does not exists", "Namespace", ns, "Subnet", name)
+				return nil, &errorWithRetry{
+					error:   err,
+					retry:   false,
+					message: "Subnet is not created",
+				}
 			}
+			log.Debug("Subnet CR does not exists but EnableVNetCRD is false, skip checking Subnet CR", "Namespace", ns, "Subnet", name)
+			// Return a dummy Subnet CR with basic info so caller won't panic
+			return &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: ns,
+					Name:      name,
+				},
+			}, nil
 		}
 		// Retry if fail to get the Subnet due to k8s error
 		return nil, &errorWithRetry{
