@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -362,6 +363,13 @@ func main() {
 		log.Error(err, "Failed to get rest config for manager")
 		os.Exit(1)
 	}
+	// Create a dedicated REST config for leader election with a shorter timeout.
+	// By default, controller-runtime inherits the main client's timeout (which is DefaultK8sClientTimeout = 2 minutes).
+	// If the first renew API request hangs, a 120s timeout would block the entire renew loop and result the new leader
+	// get elected before the old leader knows it has lost the lease.
+	// By explicitly setting the client timeout to 5s (RenewDeadline / 2), a hung request will be terminated at 5s.
+	leaderElectionCfg := rest.CopyConfig(cfg)
+	leaderElectionCfg.Timeout = 5 * time.Second
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                  scheme,
 		HealthProbeBindAddress:  config.ProbeAddr,
@@ -369,6 +377,7 @@ func main() {
 		LeaderElection:          cf.HAEnabled(),
 		LeaderElectionNamespace: nsxOperatorNamespace,
 		LeaderElectionID:        "nsx-operator",
+		LeaderElectionConfig:    leaderElectionCfg,
 		Controller: ctrlconfig.Controller{
 			CacheSyncTimeout: pkgutil.GetCacheSyncTimeout(),
 		},
