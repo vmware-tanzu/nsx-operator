@@ -1,28 +1,75 @@
 package staticroute
 
 import (
+	"sort"
+
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
-// assume that staticroute doesn't have the same ipaddress, return true if equal
-func (service *StaticRouteService) compareStaticRoute(oldStaticRoute *model.StaticRoutes, newStaticRoute *model.StaticRoutes) bool {
-	if *oldStaticRoute.Network != *newStaticRoute.Network {
-		return false
+type (
+	StaticRoute model.StaticRoutes
+)
+
+type Comparable = common.Comparable
+
+func (sr *StaticRoute) Key() string {
+	if sr != nil && sr.Id != nil {
+		return *sr.Id
 	}
-	oldNextHops := oldStaticRoute.NextHops
-	newNextHops := newStaticRoute.NextHops
-	if len(oldNextHops) != len(newNextHops) {
-		return false
+	return ""
+}
+
+func (sr *StaticRoute) Value() data.DataValue {
+	if sr == nil {
+		return nil
 	}
-	oldHopsSet := sets.NewString()
-	for _, addr := range oldNextHops {
-		oldHopsSet.Insert(*addr.IpAddress)
-	}
-	for _, addr := range newNextHops {
-		if !oldHopsSet.Has(*addr.IpAddress) {
-			return false
+	var nextHops []model.RouterNexthop
+	if len(sr.NextHops) > 0 {
+		nextHops = make([]model.RouterNexthop, len(sr.NextHops))
+		for i, nh := range sr.NextHops {
+			nextHops[i] = model.RouterNexthop{
+				IpAddress: nh.IpAddress,
+			}
 		}
+		sort.Slice(nextHops, func(i, j int) bool {
+			if nextHops[i].IpAddress == nil {
+				return true
+			}
+			if nextHops[j].IpAddress == nil {
+				return false
+			}
+			return *nextHops[i].IpAddress < *nextHops[j].IpAddress
+		})
 	}
-	return true
+	s := &StaticRoute{
+		Network:                 sr.Network,
+		NetworkIpAllocationPath: sr.NetworkIpAllocationPath,
+		NextHops:                nextHops,
+	}
+	dataValue, _ := ComparableToStaticRoute(s).GetDataValue__()
+	return dataValue
+}
+
+func StaticRouteToComparable(sr *model.StaticRoutes) Comparable {
+	return (*StaticRoute)(sr)
+}
+
+func ComparableToStaticRoute(sr Comparable) *model.StaticRoutes {
+	if sr == nil {
+		return nil
+	}
+	return (*model.StaticRoutes)(sr.(*StaticRoute))
+}
+
+func (service *StaticRouteService) compareStaticRoute(oldStaticRoute *model.StaticRoutes, newStaticRoute *model.StaticRoutes) bool {
+	if oldStaticRoute == nil && newStaticRoute == nil {
+		return true
+	}
+	if oldStaticRoute == nil || newStaticRoute == nil {
+		return false
+	}
+	return !common.CompareResource(StaticRouteToComparable(oldStaticRoute), StaticRouteToComparable(newStaticRoute))
 }
