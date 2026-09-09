@@ -14,32 +14,26 @@ import (
 )
 
 func TestStatefulSetPodSubnetPortFeatureEnabled(t *testing.T) {
-	f := false
-	tr := true
 	nsxClient := &Client{}
 
 	t.Run("nil client", func(t *testing.T) {
-		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nil, &config.NSXOperatorConfig{}))
+		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nil))
 	})
 
-	t.Run("version supports and vpc_wcp_enhance opt-in", func(t *testing.T) {
-		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+	t.Run("version supports", func(t *testing.T) {
+		p := gomonkey.ApplyMethodFunc(&Client{}, "NSXCheckVersion", func(feature int) bool {
 			return feature == StatefulSetPod
 		})
 		defer p.Reset()
-		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient, nil))
-		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: nil}))
-		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
-		assert.True(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &tr}}))
-		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &f}}))
+		assert.True(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient))
 	})
 
 	t.Run("version does not support", func(t *testing.T) {
-		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+		p := gomonkey.ApplyMethodFunc(&Client{}, "NSXCheckVersion", func(feature int) bool {
 			return false
 		})
 		defer p.Reset()
-		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
+		assert.False(t, StatefulSetPodSubnetPortFeatureEnabled(nsxClient))
 	})
 }
 

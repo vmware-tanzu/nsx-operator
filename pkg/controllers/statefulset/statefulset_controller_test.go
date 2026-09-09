@@ -2069,40 +2069,27 @@ func TestReconcile_NoOpWhenFeatureDisabled(t *testing.T) {
 }
 
 func TestStatefulSetPodFeatureEnabled_NSXCheckVersion(t *testing.T) {
-	defer patchNSXClientStatefulSetPodVersion(t, true)()
-	s := &subnetportservice.SubnetPortService{
-		Service: servicecommon.Service{
-			NSXClient: &nsx.Client{},
-			NSXConfig: testNSXConfigWithStatefulSetPodEnhance(),
-		},
-	}
-	r := &StatefulSetReconciler{SubnetPortService: s}
-	assert.True(t, r.StatefulSetPodFeatureEnabled())
-}
+	t.Run("enabled when NSX check version returns true", func(t *testing.T) {
+		defer patchNSXClientStatefulSetPodVersion(t, true)()
+		s := &subnetportservice.SubnetPortService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{},
+			},
+		}
+		r := &StatefulSetReconciler{SubnetPortService: s}
+		assert.True(t, r.StatefulSetPodFeatureEnabled())
+	})
 
-func TestStatefulSetPodFeatureEnabled_DisabledWhenVpcWcpEnhanceUnset(t *testing.T) {
-	defer patchNSXClientStatefulSetPodVersion(t, true)()
-	s := &subnetportservice.SubnetPortService{
-		Service: servicecommon.Service{
-			NSXClient: &nsx.Client{},
-			NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{EnforcementPoint: "vmc-enforcementpoint"}},
-		},
-	}
-	r := &StatefulSetReconciler{SubnetPortService: s}
-	assert.False(t, r.StatefulSetPodFeatureEnabled())
-}
-
-func TestStatefulSetPodFeatureEnabled_DisabledWhenVpcWcpEnhanceFalse(t *testing.T) {
-	defer patchNSXClientStatefulSetPodVersion(t, true)()
-	off := false
-	s := &subnetportservice.SubnetPortService{
-		Service: servicecommon.Service{
-			NSXClient: &nsx.Client{},
-			NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &off}},
-		},
-	}
-	r := &StatefulSetReconciler{SubnetPortService: s}
-	assert.False(t, r.StatefulSetPodFeatureEnabled())
+	t.Run("disabled when NSX check version returns false", func(t *testing.T) {
+		defer patchNSXClientStatefulSetPodVersion(t, false)()
+		s := &subnetportservice.SubnetPortService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{},
+			},
+		}
+		r := &StatefulSetReconciler{SubnetPortService: s}
+		assert.False(t, r.StatefulSetPodFeatureEnabled())
+	})
 }
 
 func TestCollectGarbage_GetPodErrorDoesNotSkipDelete(t *testing.T) {
