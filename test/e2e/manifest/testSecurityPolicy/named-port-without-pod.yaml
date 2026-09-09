@@ -45,5 +45,7 @@ spec:
       name: named-port-rule
     - direction: in
       action: drop
+      name: all_ingress_isolation
     - direction: out
       action: drop
+      name: all_egress_isolation
