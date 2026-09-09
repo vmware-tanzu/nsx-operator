@@ -21,6 +21,14 @@ spec:
           IPBlockUsage is the usage information of an IPBlock.
           It contains used IP ranges and available IP ranges statistics of an IPBlock.
         properties:
+          addressType:
+            description: |-
+              IP address type of the IPBlock.
+              Must be IPv4 or IPv6.
+            enum:
+            - IPv4
+            - IPv6
+            type: string
           apiVersion:
             description: |-
               APIVersion defines the versioned schema of this representation of an object.

@@ -36,7 +36,18 @@ type IPBlockUsage struct {
 	// Must be External or Private.
 	// +kubebuilder:validation:Enum=External;Private
 	Visibility IPAddressVisibility `json:"visibility,omitempty"`
+	// IP address type of the IPBlock.
+	// Must be IPv4 or IPv6.
+	// +kubebuilder:validation:Enum=IPv4;IPv6
+	AddressType IPAddressType `json:"addressType,omitempty"`
 }
+
+type IPAddressType string
+
+const (
+	IPv4 IPAddressType = "IPv4"
+	IPv6 IPAddressType = "IPv6"
+)
 
 // Represents used and available IP statistics for CIDRs in an IPBlock.
 type CIDRUsage struct {

@@ -346,6 +346,13 @@ func schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref common.ReferenceCallback) com
 							Format:      "",
 						},
 					},
+					"addressType": {
+						SchemaProps: spec.SchemaProps{
+							Description: "AddressType of IPBlock. Must be IPv4 or IPv6.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 				},
 			},
 		},
