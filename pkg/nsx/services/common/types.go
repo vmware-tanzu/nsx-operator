@@ -60,7 +60,6 @@ const (
 	TagScopeAddressBindingCRUID        string = "nsx-op/addressbinding_uid"
 	TagScopeVMNamespaceUID             string = "nsx-op/vm_namespace_uid"
 	TagScopeVMNamespace                string = "nsx-op/vm_namespace"
-	TagScopeNativeGroupType            string = "nsx-op/native_group"
 	TagScopeManagedBy                  string = "nsx/managed-by"
 	TagScopeEnable                     string = "ENABLED"
 	AutoCreatedTagValue                string = "nsx-op"

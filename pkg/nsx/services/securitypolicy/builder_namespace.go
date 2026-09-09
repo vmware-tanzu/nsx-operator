@@ -37,12 +37,17 @@ func (service *SecurityPolicyService) buildNativeCondition(memberType, value, op
 
 // buildNativeNamespaceCondition builds a Namespace tag condition for the given memberType.
 // value format: "scope|tag" (e.g., "vm_namespace|ns-uid-123")
-func (service *SecurityPolicyService) buildNativeNamespaceCondition(memberType, tagScope, tagValue, operator string) *data.StructValue {
+func (service *SecurityPolicyService) buildNativeNamespaceCondition(tagScope, tagValue, operator string) *data.StructValue {
 	return service.buildNativeCondition(
-		memberType,
+		common.MemberTypeNamespace,
 		fmt.Sprintf("%s|%s", tagScope, tagValue),
 		operator, "EQUALS",
 	)
+}
+
+// buildNativeVMTypeCondition builds a VirtualMachine NodeType condition (key=NodeType, not Tag/Type).
+func (service *SecurityPolicyService) buildNativeVMTypeCondition(vmType string) *data.StructValue {
+	return service.buildExpression("Condition", common.MemberTypeVirtualMachine, vmType, "NodeType", "EQUALS", "EQUALS")
 }
 
 // buildNativeNestedExpression wraps a list of conditions.
@@ -74,7 +79,10 @@ func (service *SecurityPolicyService) buildNativeNestedExpression(conditions []*
 
 func formatNativeTagScope(key string, memberType string) string {
 	if memberType == common.MemberTypeVirtualMachine && !strings.HasPrefix(key, "K8sTag/") {
-		return fmt.Sprintf("K8sTag/%s", key)
+		key = fmt.Sprintf("K8sTag/%s", key)
+	}
+	if len(key) > common.MaxTagScopeLength {
+		return key[:common.MaxTagScopeLength]
 	}
 	return key
 }
@@ -164,16 +172,25 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 	}
 
 	var selector *v1.LabelSelector
+	var vmType string
 
 	if target.PodSelector != nil {
 		selector = target.PodSelector
+		vmType = common.VMTypePod
 	} else if target.VMSelector != nil {
 		selector = target.VMSelector
+		vmType = common.VMTypeRegular
 	} else {
 		return 0, 0, nil
 	}
 
 	var baseConditions []*data.StructValue
+
+	// Namespace condition: scope to the SecurityPolicy's own namespace
+	isVM := target.VMSelector != nil
+	nsTagScope := getScopeNamespaceUIDTag(service, isVM)
+	nsUID := string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))
+	baseConditions = append(baseConditions, service.buildNativeNamespaceCondition(nsTagScope, nsUID, "EQUALS"))
 
 	// VM/Pod selector conditions
 	selectorConds, inExpr, err := service.buildNativeSelectorConditions(selector, common.MemberTypeVirtualMachine)
@@ -181,6 +198,9 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 		return 0, 0, err
 	}
 	baseConditions = append(baseConditions, selectorConds...)
+
+	// VM type condition
+	baseConditions = append(baseConditions, service.buildNativeVMTypeCondition(vmType))
 
 	addedCount := 0
 	totalConds := 0
@@ -262,28 +282,38 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 		if len(nsConds) == 0 && nsIn == nil && peer.NamespaceSelector.Size() == 0 {
 			// Empty namespace selector means "all namespaces" — add cluster-scoped namespace condition
 			nsConds = append(nsConds, service.buildNativeNamespaceCondition(
-				common.MemberTypeNamespace,
 				getScopeCluserTag(service), getCluster(service), "EQUALS",
 			))
 		}
 		allBaseConditions = append(allBaseConditions, nsConds...)
+	} else {
+		// No namespace selector: scope to the SecurityPolicy's own namespace
+		isVM := peer.VMSelector != nil
+		nsTagScope := getScopeNamespaceUIDTag(service, isVM)
+		nsUID := string(service.GetNamespaceUID(obj.ObjectMeta.Namespace))
+		allBaseConditions = append(allBaseConditions, service.buildNativeNamespaceCondition(nsTagScope, nsUID, "EQUALS"))
 	}
 
 	// Build VM/Pod conditions
+	var vmType string
 	if peer.PodSelector != nil {
+		vmType = common.VMTypePod
 		vmConds, vmIn, err := service.buildNativeSelectorConditions(peer.PodSelector, common.MemberTypeVirtualMachine)
 		if err != nil {
 			return 0, 0, err
 		}
 		vmInExpr = vmIn
 		allBaseConditions = append(allBaseConditions, vmConds...)
+		allBaseConditions = append(allBaseConditions, service.buildNativeVMTypeCondition(vmType))
 	} else if peer.VMSelector != nil {
+		vmType = common.VMTypeRegular
 		vmConds, vmIn, err := service.buildNativeSelectorConditions(peer.VMSelector, common.MemberTypeVirtualMachine)
 		if err != nil {
 			return 0, 0, err
 		}
 		vmInExpr = vmIn
 		allBaseConditions = append(allBaseConditions, vmConds...)
+		allBaseConditions = append(allBaseConditions, service.buildNativeVMTypeCondition(vmType))
 	}
 
 	nsVals := []string{""}
@@ -348,10 +378,23 @@ func (service *SecurityPolicyService) buildNativePolicyGroup(
 	targetTags := service.buildTargetTags(obj, &appliedTo, "", createdFor)
 	policyAppliedGroup.Tags = targetTags
 
+	targetGroupCriteriaCount, targetGroupTotalExprCount := 0, 0
 	for i := range appliedTo {
-		_, _, err := service.updateNativeTargetExpressions(obj, &appliedTo[i], &policyAppliedGroup)
+		criteriaCount, totalExprCount, err := service.updateNativeTargetExpressions(obj, &appliedTo[i], &policyAppliedGroup)
 		if err != nil {
 			return nil, "", err
+		}
+		targetGroupCriteriaCount += criteriaCount
+		targetGroupTotalExprCount += totalExprCount
+	}
+
+	if targetGroupCriteriaCount > MaxCriteria {
+		return nil, "", &nsxutil.ValidationError{
+			Desc: fmt.Sprintf("total counts of policy target group criteria %d exceed NSX limit of %d", targetGroupCriteriaCount, MaxCriteria),
+		}
+	} else if targetGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		return nil, "", &nsxutil.ValidationError{
+			Desc: fmt.Sprintf("total expression counts in policy target group criteria %d exceed NSX limit of %d", targetGroupTotalExprCount, MaxTotalCriteriaExpressions),
 		}
 	}
 
@@ -385,10 +428,23 @@ func (service *SecurityPolicyService) buildNativeRuleAppliedGroupByRule(
 		Path:        &ruleAppliedGroupPath,
 	}
 
+	ruleGroupCriteriaCount, ruleGroupTotalExprCount := 0, 0
 	for i := range appliedTo {
-		_, _, err := service.updateNativeTargetExpressions(obj, &appliedTo[i], &ruleAppliedGroup)
+		criteriaCount, totalExprCount, err := service.updateNativeTargetExpressions(obj, &appliedTo[i], &ruleAppliedGroup)
 		if err != nil {
 			return nil, "", err
+		}
+		ruleGroupCriteriaCount += criteriaCount
+		ruleGroupTotalExprCount += totalExprCount
+	}
+
+	if ruleGroupCriteriaCount > MaxCriteria {
+		return nil, "", &nsxutil.ValidationError{
+			Desc: fmt.Sprintf("total counts of rule applied group criteria %d exceed NSX limit of %d", ruleGroupCriteriaCount, MaxCriteria),
+		}
+	} else if ruleGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		return nil, "", &nsxutil.ValidationError{
+			Desc: fmt.Sprintf("total expression counts in rule applied group criteria %d exceed NSX limit of %d", ruleGroupTotalExprCount, MaxTotalCriteriaExpressions),
 		}
 	}
 
@@ -396,11 +452,11 @@ func (service *SecurityPolicyService) buildNativeRuleAppliedGroupByRule(
 }
 
 // buildNativeRulePeerGroup builds a rule peer group (source or destination) using inventory-based expressions.
-// In the inventory-based model, all groups are placed under Project Infra scope.
+// In the inventory-based model, groups are placed under Project or Infra scope based on isDefaultProject.
 func (service *SecurityPolicyService) buildNativeRulePeerGroup(
 	obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int, ruleBaseID string, isSource bool, createdFor string,
-	vpcInfo *common.VPCResourceInfo,
+	vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) (*model.Group, string, *GroupShare, error) {
 	var rulePeers []v1alpha1.SecurityPolicyPeer
 	var ruleDirection string
@@ -414,9 +470,13 @@ func (service *SecurityPolicyService) buildNativeRulePeerGroup(
 	}
 
 	groupScope := ProjectInfraScopeGroup
+	if IsVPCEnabled(service) && isDefaultProject {
+		groupScope = InfraScopeGroup
+	}
+
 	rulePeerGroupID := service.buildRulePeerGroupID(obj, ruleIdx, ruleBaseID, isSource, groupScope)
 	rulePeerGroupName := service.buildRulePeerGroupName(obj, ruleIdx, isSource)
-	rulePeerGroupPath, err := service.buildNativeGroupPath(rulePeerGroupID, vpcInfo)
+	rulePeerGroupPath, err := service.buildRulePeerGroupPath(rulePeerGroupID, groupScope, vpcInfo)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -430,43 +490,44 @@ func (service *SecurityPolicyService) buildNativeRulePeerGroup(
 	}
 
 	rulePeers = service.dedupBlocks(rulePeers)
+	rulePeerGroupCriteriaCount, rulePeerGroupTotalExprCount := 0, 0
 	for i := range rulePeers {
-		_, _, err = service.updateNativePeerExpressions(obj, &rulePeers[i], &rulePeerGroup)
+		criteriaCount, totalExprCount, err := service.updateNativePeerExpressions(obj, &rulePeers[i], &rulePeerGroup)
 		if err != nil {
 			return nil, "", nil, err
+		}
+		rulePeerGroupCriteriaCount += criteriaCount
+		rulePeerGroupTotalExprCount += totalExprCount
+	}
+
+	if rulePeerGroupCriteriaCount > MaxCriteria {
+		return nil, "", nil, &nsxutil.ValidationError{
+			Desc: fmt.Sprintf("total counts of rule %s group criteria %d exceed NSX limit of %d", ruleDirection, rulePeerGroupCriteriaCount, MaxCriteria),
+		}
+	} else if rulePeerGroupTotalExprCount > MaxTotalCriteriaExpressions {
+		return nil, "", nil, &nsxutil.ValidationError{
+			Desc: fmt.Sprintf("total expression counts in %s group criteria %d exceed NSX limit of %d", ruleDirection, rulePeerGroupTotalExprCount, MaxTotalCriteriaExpressions),
 		}
 	}
+
 	log.Debug(fmt.Sprintf("Built native rule %s group", ruleDirection), "group", rulePeerGroup)
 
-	// In inventory-based model, groups are under Project scope.
-	// If VPC SecurityPolicy needs to reference this Project group, a Share is needed.
+	// In inventory-based model, groups are under Project/Infra scope.
+	// If VPC SecurityPolicy needs to reference this group, a Share is needed.
 	if IsVPCEnabled(service) {
-		var projectGroupShare GroupShare
-		projectGroupShare.shareGroup = &rulePeerGroup
+		var groupShare GroupShare
+		groupShare.shareGroup = &rulePeerGroup
 		sharedWith := service.buildSharedWith(vpcInfo, groupScope)
-		nsxProjectShare, err := service.buildGroupShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, vpcInfo, groupScope, createdFor)
+		nsxShare, err := service.buildGroupShare(obj, &rulePeerGroup, []string{rulePeerGroupPath}, *sharedWith, vpcInfo, groupScope, createdFor)
 		if err != nil {
-			log.Error(err, "Failed to build NSX project share for native group", "ruleGroupName", rulePeerGroupName)
+			log.Error(err, "Failed to build NSX share for native group", "ruleGroupName", rulePeerGroupName)
 			return nil, "", nil, err
 		}
-		projectGroupShare.share = nsxProjectShare
-		return nil, rulePeerGroupPath, &projectGroupShare, nil
+		groupShare.share = nsxShare
+		return nil, rulePeerGroupPath, &groupShare, nil
 	}
 
 	return &rulePeerGroup, rulePeerGroupPath, nil, nil
-}
-
-// buildNativeGroupPath builds the group path under Project Infra domain.
-// For inventory-based groups, all groups are placed under Project scope.
-func (service *SecurityPolicyService) buildNativeGroupPath(groupID string, vpcInfo *common.VPCResourceInfo) (string, error) {
-	if IsVPCEnabled(service) {
-		if vpcInfo == nil {
-			return "", fmt.Errorf("vpcInfo is nil when building native group path for group %s", groupID)
-		}
-		return fmt.Sprintf("/orgs/%s/projects/%s/infra/domains/%s/groups/%s",
-			vpcInfo.OrgID, vpcInfo.ProjectID, getVPCProjectDomain(), groupID), nil
-	}
-	return fmt.Sprintf("/infra/domains/%s/groups/%s", getDomain(service), groupID), nil
 }
 
 // buildNativeRuleAppliedToGroup builds the rule-level applied-to group using inventory-based expressions.
@@ -486,7 +547,7 @@ func (service *SecurityPolicyService) buildNativeRuleAppliedToGroup(
 func (service *SecurityPolicyService) buildNativeRuleInGroup(
 	obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	nsxRule *model.Rule, ruleIdx int, ruleBaseID, createdFor string,
-	vpcInfo *common.VPCResourceInfo,
+	vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) (*model.Group, string, string, *GroupShare, error) {
 	var nsxRuleSrcGroup *model.Group
 	var nsxGroupShare *GroupShare
@@ -497,7 +558,7 @@ func (service *SecurityPolicyService) buildNativeRuleInGroup(
 	if len(sources) > 0 {
 		var err error
 		nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxGroupShare, err = service.buildNativeRulePeerGroup(
-			obj, rule, ruleIdx, ruleBaseID, true, createdFor, vpcInfo)
+			obj, rule, ruleIdx, ruleBaseID, true, createdFor, vpcInfo, isDefaultProject)
 		if err != nil {
 			return nil, "", "", nil, err
 		}
@@ -517,7 +578,7 @@ func (service *SecurityPolicyService) buildNativeRuleInGroup(
 func (service *SecurityPolicyService) buildNativeRuleOutGroup(
 	obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	nsxRule *model.Rule, ruleIdx int, ruleBaseID, createdFor string,
-	vpcInfo *common.VPCResourceInfo,
+	vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) (*model.Group, string, string, *GroupShare, error) {
 	var nsxRuleDstGroup *model.Group
 	var nsxGroupShare *GroupShare
@@ -531,7 +592,7 @@ func (service *SecurityPolicyService) buildNativeRuleOutGroup(
 		if len(destinations) > 0 {
 			var err error
 			nsxRuleDstGroup, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildNativeRulePeerGroup(
-				obj, rule, ruleIdx, ruleBaseID, false, createdFor, vpcInfo)
+				obj, rule, ruleIdx, ruleBaseID, false, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
 				return nil, "", "", nil, err
 			}
@@ -553,7 +614,7 @@ func (service *SecurityPolicyService) buildNativeRuleOutGroup(
 func (service *SecurityPolicyService) buildNativeRuleAndGroups(
 	obj *v1alpha1.SecurityPolicy, rule *v1alpha1.SecurityPolicyRule,
 	ruleIdx int, createdFor string, policyGroupPath string,
-	vpcInfo *common.VPCResourceInfo,
+	vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) ([]*model.Rule, []*model.Group, []*GroupShare, error) {
 	var ruleGroups []*model.Group
 	var nsxRuleAppliedGroup *model.Group
@@ -581,7 +642,7 @@ func (service *SecurityPolicyService) buildNativeRuleAndGroups(
 		switch ruleDirection {
 		case "IN":
 			nsxRuleSrcGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildNativeRuleInGroup(
-				obj, rule, nsxRule, ruleIdx, ruleBaseID, createdFor, vpcInfo)
+				obj, rule, nsxRule, ruleIdx, ruleBaseID, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -590,7 +651,7 @@ func (service *SecurityPolicyService) buildNativeRuleAndGroups(
 			}
 		case "OUT":
 			nsxRuleDstGroup, nsxRuleSrcGroupPath, nsxRuleDstGroupPath, nsxGroupShare, err = service.buildNativeRuleOutGroup(
-				obj, rule, nsxRule, ruleIdx, ruleBaseID, createdFor, vpcInfo)
+				obj, rule, nsxRule, ruleIdx, ruleBaseID, createdFor, vpcInfo, isDefaultProject)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -619,7 +680,7 @@ func (service *SecurityPolicyService) buildNativeRuleAndGroups(
 // buildNativeSecurityPolicy builds the full SecurityPolicy model using inventory-based group expressions.
 func (service *SecurityPolicyService) buildNativeSecurityPolicy(
 	obj *v1alpha1.SecurityPolicy, createdFor string,
-	vpcInfo *common.VPCResourceInfo,
+	vpcInfo *common.VPCResourceInfo, isDefaultProject bool,
 ) (*model.SecurityPolicy, *[]model.Group, *[]GroupShare, error) {
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
@@ -662,7 +723,7 @@ func (service *SecurityPolicyService) buildNativeSecurityPolicy(
 	for ruleIdx, r := range obj.Spec.Rules {
 		rule := r
 		expandRules, buildGroups, buildGroupShares, err := service.buildNativeRuleAndGroups(
-			obj, &rule, ruleIdx, createdFor, policyGroupPath, vpcInfo)
+			obj, &rule, ruleIdx, createdFor, policyGroupPath, vpcInfo, isDefaultProject)
 		if err != nil {
 			log.Error(err, "Failed to build native rule and groups", "rule", rule, "ruleIndex", ruleIdx)
 			return nil, nil, nil, err
