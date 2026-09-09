@@ -59,6 +59,7 @@ func TestResourceKindToCreatedFor_table(t *testing.T) {
 		{ResourceKindGRPCRoute, servicecommon.TagValueDNSRecordForGRPCRoute},
 		{ResourceKindTLSRoute, servicecommon.TagValueDNSRecordForTLSRoute},
 		{ResourceKindService, servicecommon.TagValueDNSRecordForService},
+		{ResourceKindDNSRecord, servicecommon.TagValueDNSRecordForDNSRecord},
 		{"UnknownKind", ""},
 		{"", ""},
 	}
