@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -615,6 +616,10 @@ func testSecurityPolicyNativeInventoryGroup(t *testing.T) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
 	defer deadlineCancel()
 
+	if testData.nsxClient != nil && !testData.nsxClient.NSXCheckVersion(nsx.NamespaceGroup) {
+		t.Skip("NSX backend does not support NamespaceGroup feature (requires NSX 9.2.0+), skipping native inventory group test")
+	}
+
 	// Use dedicated pre-created VC namespace
 	ns := NsSecurityPolicyNativeInv
 	securityPolicyName := "native-inv-group-policy-1"
@@ -653,6 +658,7 @@ func testSecurityPolicyNativeInventoryGroup(t *testing.T) {
 	groupResults, err := testData.queryResource(common.ResourceTypeGroup, []string{common.TagScopeNamespace, ns})
 	if err == nil {
 		log.Info("Queried NSX Groups for native inventory policy", "count", len(groupResults.Results))
+		assert.NotEmpty(t, groupResults.Results, "should find at least one NSX Group for policy")
 	}
 
 	require.True(t, checkTrafficByCurl(ns, "native-inv-client-allow", "native-inv-client-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server with policy")

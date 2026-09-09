@@ -47,6 +47,12 @@ func TestBuildNativeConditions(t *testing.T) {
 
 	m := cond.Fields()
 	require.NotNil(t, m)
+
+	nsCond := service.buildNativeNamespaceCondition("vm_namespace", "ns-1", "EQUALS")
+	require.NotNil(t, nsCond)
+
+	vmTypeCond := service.buildNativeVMTypeCondition(common.VMTypePod)
+	require.NotNil(t, vmTypeCond)
 }
 
 func TestBuildNativeSelectorConditions(t *testing.T) {
@@ -115,7 +121,8 @@ func TestUpdateNativeTargetExpressions(t *testing.T) {
 	added, condCount, err := service.updateNativeTargetExpressions(sp, targetValid, grpValid)
 	require.NoError(t, err)
 	assert.Equal(t, 1, added)
-	assert.Greater(t, condCount, 0)
+	// Expect 3 conditions: namespace UID + K8sTag/app=web + NodeType=POD
+	assert.Equal(t, 3, condCount)
 	assert.NotEmpty(t, grpValid.Expression)
 }
 
@@ -159,13 +166,24 @@ func TestUpdateNativePeerExpressions(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, grpIP.Expression)
 
+	// PodSelector only (no namespaceSelector) -> same-namespace defaulting
+	peerPodOnly := &v1alpha1.SecurityPolicyPeer{
+		PodSelector: &v1.LabelSelector{MatchLabels: map[string]string{"app": "client"}},
+	}
+	grpPodOnly := &model.Group{}
+	added, condCount, err := service.updateNativePeerExpressions(sp, peerPodOnly, grpPodOnly)
+	require.NoError(t, err)
+	assert.Equal(t, 1, added)
+	// Expect 3 conditions: same-namespace UID + K8sTag/app=client + NodeType=POD
+	assert.Equal(t, 3, condCount)
+
 	// NamespaceSelector + PodSelector
 	peerCombined := &v1alpha1.SecurityPolicyPeer{
 		NamespaceSelector: &v1.LabelSelector{MatchLabels: map[string]string{"ns-label": "value"}},
 		PodSelector:       &v1.LabelSelector{MatchLabels: map[string]string{"app": "client"}},
 	}
 	grpCombined := &model.Group{}
-	added, condCount, err := service.updateNativePeerExpressions(sp, peerCombined, grpCombined)
+	added, condCount, err = service.updateNativePeerExpressions(sp, peerCombined, grpCombined)
 	require.NoError(t, err)
 	assert.Equal(t, 1, added)
 	assert.Greater(t, condCount, 0)
@@ -224,7 +242,7 @@ func TestBuildNativeSecurityPolicy(t *testing.T) {
 		},
 	}
 
-	policyModel, groups, shares, err := service.buildNativeSecurityPolicy(sp, common.ResourceTypeSecurityPolicy, nil)
+	policyModel, groups, shares, err := service.buildNativeSecurityPolicy(sp, common.ResourceTypeSecurityPolicy, nil, false)
 	require.NoError(t, err)
 	require.NotNil(t, policyModel)
 	require.NotNil(t, groups)
@@ -234,6 +252,8 @@ func TestBuildNativeSecurityPolicy(t *testing.T) {
 	assert.GreaterOrEqual(t, len(*groups), 1)
 
 	// Test VPC mode
+	service.VPCMode = true
+	defer func() { service.VPCMode = false }()
 	config.SetMixedModeStateForTest(false, true)
 	defer config.SetMixedModeStateForTest(false, false)
 
@@ -242,11 +262,18 @@ func TestBuildNativeSecurityPolicy(t *testing.T) {
 		ProjectID: "project-1",
 		VPCID:     "vpc-1",
 	}
-	policyModelVPC, groupsVPC, sharesVPC, err := service.buildNativeSecurityPolicy(sp, common.ResourceTypeSecurityPolicy, vpcInfo)
+	policyModelVPC, groupsVPC, sharesVPC, err := service.buildNativeSecurityPolicy(sp, common.ResourceTypeSecurityPolicy, vpcInfo, false)
 	require.NoError(t, err)
 	require.NotNil(t, policyModelVPC)
 	require.NotNil(t, groupsVPC)
 	require.NotNil(t, sharesVPC)
 	require.NotNil(t, (*groupsVPC)[0].Path)
 	assert.Equal(t, "/orgs/default/projects/project-1/vpcs/vpc-1/groups/native-sp-scope_r91b0", *(*groupsVPC)[0].Path)
+
+	// Test VPC mode with default project (InfraScopeGroup)
+	policyModelVPCDef, groupsVPCDef, sharesVPCDef, err := service.buildNativeSecurityPolicy(sp, common.ResourceTypeSecurityPolicy, vpcInfo, true)
+	require.NoError(t, err)
+	require.NotNil(t, policyModelVPCDef)
+	require.NotNil(t, groupsVPCDef)
+	require.NotNil(t, sharesVPCDef)
 }
