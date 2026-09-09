@@ -68,6 +68,10 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              dnsHostName:
+                description: DNSHostName specifies the hostname used when auto-creating
+                  DNS records.
+                type: string
               ipAddressBlockVisibility:
                 description: |-
                   IPAddressBlockVisibility specifies the visibility of the IPBlocks to allocate IP addresses. Can be External, Private or PrivateTGW.
