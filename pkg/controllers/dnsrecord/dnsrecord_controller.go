@@ -12,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -118,22 +120,12 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	r.StatusUpdater.IncreaseUpdateTotal()
 
-	needsUpdate := false
-	if !controllerutil.ContainsFinalizer(obj, servicecommon.DNSRecordFinalizerName) {
-		controllerutil.AddFinalizer(obj, servicecommon.DNSRecordFinalizerName)
-		needsUpdate = true
-	}
-
 	computedFQDN := calculateFQDN(obj.Spec.RecordName, obj.Spec.DomainName)
 	if obj.Spec.FQDN != computedFQDN {
 		obj.Spec.FQDN = computedFQDN
-		needsUpdate = true
-	}
-
-	if needsUpdate {
 		if err := r.Client.Update(ctx, obj); err != nil {
-			log.Error(err, "Failed to update finalizer/FQDN on DNSRecord CR", "DNSRecord", req.NamespacedName)
-			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to update finalizer/FQDN", setDNSRecordReadyStatusFalse)
+			log.Error(err, "Failed to update FQDN on DNSRecord CR", "DNSRecord", req.NamespacedName)
+			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to update FQDN", setDNSRecordReadyStatusFalse)
 			return ResultRequeue, err
 		}
 	}
@@ -229,6 +221,7 @@ func (r *DNSRecordReconciler) StartController(mgr ctrl.Manager, _ webhook.Server
 		log.Error(err, "Failed to create controller", "controller", "DNSRecord")
 		return err
 	}
+	go common.GenericGarbageCollector(make(chan bool), servicecommon.GCInterval, r.CollectGarbage)
 	return nil
 }
 
@@ -242,44 +235,23 @@ func (r *DNSRecordReconciler) CollectGarbage(ctx context.Context) error {
 		log.Error(err, "failed to list DNSRecord CRs")
 		return err
 	}
-	crdNamespacesAndNames := make(map[string]struct{})
+	crdNames := sets.New[types.NamespacedName]()
 	for _, item := range crdList.Items {
-		crdNamespacesAndNames[fmt.Sprintf("%s/%s", item.Namespace, item.Name)] = struct{}{}
+		crdNames.Insert(types.NamespacedName{Namespace: item.Namespace, Name: item.Name})
 	}
 
-	nsxRecords := r.Service.DNSRecordStore.ListDNSRecords()
-	for _, rec := range nsxRecords {
-		if rec == nil {
+	ownersByKind := r.Service.ListRecordOwnerResource()
+	cachedDNSRecords := ownersByKind[dns.ResourceKindDNSRecord]
+	for nn := range cachedDNSRecords {
+		if crdNames.Has(nn) {
 			continue
 		}
-		for _, tag := range rec.Tags {
-			if tag.Scope != nil && *tag.Scope == servicecommon.TagScopeDNSRecordFor && tag.Tag != nil && *tag.Tag == servicecommon.TagValueDNSRecordForDNSRecord {
-				ns := ""
-				name := ""
-				for _, t := range rec.Tags {
-					if t.Scope == nil || t.Tag == nil {
-						continue
-					}
-					switch *t.Scope {
-					case servicecommon.TagScopeDNSRecordOwnerNamespace:
-						ns = *t.Tag
-					case servicecommon.TagScopeDNSRecordOwnerName:
-						name = *t.Tag
-					}
-				}
-				if ns != "" && name != "" {
-					key := fmt.Sprintf("%s/%s", ns, name)
-					if _, exists := crdNamespacesAndNames[key]; !exists {
-						log.Info("GC removing stale DNSRecord on NSX", "Namespace", ns, "Name", name)
-						r.StatusUpdater.IncreaseDeleteTotal()
-						if _, err := r.Service.DeleteRecordByOwnerNN(ctx, dns.ResourceKindDNSRecord, ns, name); err != nil {
-							r.StatusUpdater.IncreaseDeleteFailTotal()
-						} else {
-							r.StatusUpdater.IncreaseDeleteSuccessTotal()
-						}
-					}
-				}
-			}
+		log.Info("GC removing stale DNSRecord on NSX", "Namespace", nn.Namespace, "Name", nn.Name)
+		r.StatusUpdater.IncreaseDeleteTotal()
+		if _, err := r.Service.DeleteRecordByOwnerNN(ctx, dns.ResourceKindDNSRecord, nn.Namespace, nn.Name); err != nil {
+			r.StatusUpdater.IncreaseDeleteFailTotal()
+		} else {
+			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
 	return nil

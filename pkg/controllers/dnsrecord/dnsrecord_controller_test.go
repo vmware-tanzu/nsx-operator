@@ -186,7 +186,7 @@ func TestDNSRecordReconciler_Reconcile_CreateAndUpdate(t *testing.T) {
 	r := &DNSRecordReconciler{
 		Client:        fakeClient,
 		Scheme:        scheme,
-		Service:       nil, // Service is nil -> tests controller FQDN calculation & finalizer addition
+		Service:       nil, // Service is nil -> tests controller FQDN calculation
 		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
 	}
 
@@ -195,7 +195,7 @@ func TestDNSRecordReconciler_Reconcile_CreateAndUpdate(t *testing.T) {
 		NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-dnsrecord"},
 	}
 
-	// First reconcile adds finalizer and computes FQDN
+	// First reconcile computes FQDN without adding finalizer
 	res, err := r.Reconcile(ctx, req)
 	assert.NoError(t, err)
 	assert.Equal(t, ResultNormal, res)
@@ -203,7 +203,7 @@ func TestDNSRecordReconciler_Reconcile_CreateAndUpdate(t *testing.T) {
 	updatedCR := &v1alpha1.DNSRecord{}
 	err = fakeClient.Get(ctx, req.NamespacedName, updatedCR)
 	assert.NoError(t, err)
-	assert.Contains(t, updatedCR.Finalizers, servicecommon.DNSRecordFinalizerName)
+	assert.NotContains(t, updatedCR.Finalizers, servicecommon.DNSRecordFinalizerName)
 	assert.Equal(t, "api.example.com", updatedCR.Spec.FQDN)
 	assert.Len(t, updatedCR.Status.Conditions, 1)
 	assert.Equal(t, string(v1alpha1.Ready), updatedCR.Status.Conditions[0].Type)

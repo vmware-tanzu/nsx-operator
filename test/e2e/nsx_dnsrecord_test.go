@@ -52,7 +52,7 @@ func testDNSRecordTypeA(t *testing.T, ns string) {
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
 
 	assert.Equal(t, "e2e-a.example.com", dnsRecord.Spec.FQDN)
-	assert.Contains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
+	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
 	assert.Equal(t, v1alpha1.DNSRecordTypeA, dnsRecord.Spec.RecordType)
 	assert.Equal(t, []string{"10.0.0.100"}, dnsRecord.Spec.RecordValues)
 }
@@ -66,7 +66,7 @@ func testDNSRecordTypeCNAME(t *testing.T, ns string) {
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
 
 	assert.Equal(t, "e2e-cname.example.com", dnsRecord.Spec.FQDN)
-	assert.Contains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
+	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
 	assert.Equal(t, v1alpha1.DNSRecordTypeCNAME, dnsRecord.Spec.RecordType)
 
 	// Update TTL and verify
@@ -102,7 +102,7 @@ func testDNSRecordApexRecord(t *testing.T, ns string) {
 
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
 	assert.Equal(t, "example.com", dnsRecord.Spec.FQDN)
-	assert.Contains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
+	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
 }
 
 func waitForDNSRecordCRReady(t *testing.T, ns, dnsRecordName string) *v1alpha1.DNSRecord {
