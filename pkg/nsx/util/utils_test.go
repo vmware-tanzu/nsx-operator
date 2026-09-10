@@ -27,6 +27,8 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 func Ptr[T any](v T) *T {
@@ -183,7 +185,7 @@ func TestInitErrorFromResponse(t *testing.T) {
 	handler(w, req)
 	resp := w.Result()
 	body, _ := io.ReadAll(resp.Body)
-	err := InitErrorFromResponse("10.0.0.1", resp.StatusCode, body)
+	err := InitErrorFromResponse("10.0.0.1", resp.StatusCode, body, log)
 
 	assert.Equal(err, nil, "Read resp body error")
 	assert.Equal(string(body), result, "Read resp body error")
@@ -196,7 +198,7 @@ func TestInitErrorFromResponse(t *testing.T) {
 	handler(w, req)
 	resp = w.Result()
 	body, _ = io.ReadAll(resp.Body)
-	err = InitErrorFromResponse("10.0.0.1", resp.StatusCode, body)
+	err = InitErrorFromResponse("10.0.0.1", resp.StatusCode, body, log)
 	assert.Equal(err, nil, "Empty body")
 	assert.Equal(string(body), "", "Empty body")
 
@@ -231,7 +233,7 @@ func TestShouldRegenerate(t *testing.T) {
 func TestUtil_InitErrorFromResponse(t *testing.T) {
 	body := `{"httpStatus": "BAD_REQUEST", "error_code": 8327, "module_name": "common-services", "error_message": "Principal attempts to delete or modify an object of type nsx$LrPortEcResourceAllocation it doesn't own. (createUser=nsx_policy, allowOverwrite=null)"}`
 	statusCode := 400
-	err := InitErrorFromResponse("10.0.0.1", statusCode, []byte(body))
+	err := InitErrorFromResponse("10.0.0.1", statusCode, []byte(body), log)
 	assert.NotEqual(t, err, nil)
 	_, ok := err.(*NsxOverlapVlan)
 	assert.Equal(t, ok, true)
@@ -240,7 +242,7 @@ func TestUtil_InitErrorFromResponse(t *testing.T) {
 
 	body = `{"httpStatus": "BAD_REQUEST", "error_code": 98, "module_name": "common-services", "error_message": "Principal attempts to delete or modify an object of type nsx$LrPortEcResourceAllocation it doesn't own. (createUser=nsx_policy, allowOverwrite=null)"}`
 	statusCode = 403
-	err = InitErrorFromResponse("10.0.0.1", statusCode, []byte(body))
+	err = InitErrorFromResponse("10.0.0.1", statusCode, []byte(body), log)
 	assert.NotEqual(t, err, nil)
 	_, ok = err.(*BadXSRFToken)
 	assert.Equal(t, ok, true)
@@ -249,7 +251,7 @@ func TestUtil_InitErrorFromResponse(t *testing.T) {
 
 	body = `{"httpStatus": "BAD_REQUEST", "error_code": 98, "module_name": "common-services", "error_message": "Principal attempts to delete or modify an object of type nsx$LrPortEcResourceAllocation it doesn't own. (createUser=nsx_policy, allowOverwrite=null)"}`
 	statusCode = 500
-	err = InitErrorFromResponse("10.0.0.1", statusCode, []byte(body))
+	err = InitErrorFromResponse("10.0.0.1", statusCode, []byte(body), log)
 	assert.NotEqual(t, err, nil)
 	_, ok = err.(*CannotConnectToServer)
 	assert.Equal(t, ok, true)
@@ -283,23 +285,23 @@ func TestVCClient_handleHTTPResponse(t *testing.T) {
 	var sessionData map[string]string
 
 	// http status code > 300
-	err, _ := HandleHTTPResponse(response, &sessionData, false)
+	err, _ := HandleHTTPResponse(response, &sessionData, false, log)
 	expect := errors.New("received HTTP Error")
 	assert.Equal(t, err, expect)
 
 	// result interface is null
 	response.StatusCode = 200
-	err, _ = HandleHTTPResponse(response, nil, false)
+	err, _ = HandleHTTPResponse(response, nil, false, log)
 	assert.Equal(t, err, nil)
 
 	// 	response.StatusCode = 200， body content correct
 	response.Body = io.NopCloser(bytes.NewReader([]byte(`{"value": "hello"}`)))
-	err, _ = HandleHTTPResponse(response, &sessionData, false)
+	err, _ = HandleHTTPResponse(response, &sessionData, false, log)
 	assert.Equal(t, err, nil)
 
 	// 	response.StatusCode = 200， body content invalid
 	response.Body = io.NopCloser(bytes.NewReader([]byte(`{"value": 4}`)))
-	err, _ = HandleHTTPResponse(response, &sessionData, false)
+	err, _ = HandleHTTPResponse(response, &sessionData, false, log)
 	_, ok := err.(*json.UnmarshalTypeError)
 	assert.Equal(t, ok, true)
 }
@@ -810,7 +812,8 @@ func TestExtractHTTPDetailFromBody(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotDetail, err := extractHTTPDetailFromBody(tt.host, tt.statusCode, tt.body)
+			log := logger.ZapCustomLogger(false, 0)
+			gotDetail, err := extractHTTPDetailFromBody(tt.host, tt.statusCode, tt.body, log)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("extractHTTPDetailFromBody() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -919,7 +922,7 @@ func TestDumpHttpRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			DumpHttpRequest(tt.request)
+			DumpHttpRequest(tt.request, log)
 			if tt.request != nil && tt.request.Body != nil {
 				body, err := io.ReadAll(tt.request.Body)
 				assert.NoError(t, err)

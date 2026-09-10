@@ -79,3 +79,19 @@ func TestCustomLogger(t *testing.T) {
 
 	t.Log("CustomLogger test completed - verify all log levels are displayed with proper formatting and colors")
 }
+
+func TestCustomLogger_Fallback(t *testing.T) {
+	// Uninitialized CustomLogger (GetSink() == nil) should fallback to global Log
+	var emptyLogger CustomLogger
+	fb := emptyLogger.Fallback()
+	if fb.GetSink() == nil {
+		t.Errorf("Expected fallback to return logger with valid sink (global Log)")
+	}
+
+	// Initialized CustomLogger should return itself
+	customLogger := ZapCustomLogger(true, 1)
+	fb2 := customLogger.Fallback()
+	if fb2.GetSink() != customLogger.GetSink() {
+		t.Errorf("Expected fallback on initialized logger to return itself")
+	}
+}

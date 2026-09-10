@@ -17,18 +17,17 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mock_org_root "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
+	mock_realizedentitiesclient "github.com/vmware-tanzu/nsx-operator/pkg/mock/realizedentitiesclient"
 	mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/staticrouteclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -87,20 +86,30 @@ func createService(t *testing.T) (*StaticRouteService, *gomock.Controller, *mock
 	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
 	cluster, _ := nsx.NewCluster(config2)
+	cluster.StopKeepAlive()
 	rc := cluster.NewRestConnector()
 
 	mockCtrl := gomock.NewController(t)
 	mockStaticRouteclient := mocks.NewMockStaticRoutesClient(mockCtrl)
+	mockRealizedEntitiesClient := mock_realizedentitiesclient.NewMockRealizedEntitiesClient(mockCtrl)
 
 	staticRouteStore := buildStaticRouteStore()
 
+	scheme := apimachineryruntime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
 	service := &StaticRouteService{
-		VPCService: &vpc.VPCService{},
+		VPCService: &vpc.VPCService{
+			Service: common.Service{
+				Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			},
+		},
 		Service: common.Service{
 			NSXClient: &nsx.Client{
-				QueryClient:       &fakeQueryClient{},
-				StaticRouteClient: mockStaticRouteclient,
-				RestConnector:     rc,
+				QueryClient:            &fakeQueryClient{},
+				StaticRouteClient:      mockStaticRouteclient,
+				RealizedEntitiesClient: mockRealizedEntitiesClient,
+				RestConnector:          rc,
 				NsxConfig: &config.NSXOperatorConfig{
 					CoeConfig: &config.CoeConfig{
 						Cluster: "k8scl-one:test",
@@ -594,15 +603,23 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		defer patchPatch.Reset()
 		// Patch StaticRouteClient.Get to succeed, but realization check fails and delete fails
 		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
-		patchRealize := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-			func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
-				return nsxutil.NewRealizeStateError("mocked realized error", 0)
-			})
-		defer patchRealize.Reset()
-		patchDelete := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *StaticRouteService, _ *model.StaticRoutes) error {
-			return fmt.Errorf("delete error")
-		})
-		defer patchDelete.Reset()
+		mockRealizedEntitiesClient := mock_realizedentitiesclient.NewMockRealizedEntitiesClient(mockController)
+		service.NSXClient.RealizedEntitiesClient = mockRealizedEntitiesClient
+		mockRealizedEntitiesClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(
+			model.GenericPolicyRealizedResourceListResult{
+				Results: []model.GenericPolicyRealizedResource{
+					{
+						State: &[]string{"ERROR"}[0],
+						Alarms: []model.PolicyAlarmResource{
+							{
+								Message: &[]string{"mocked realized error"}[0],
+							},
+						},
+					},
+				},
+			}, nil,
+		).AnyTimes()
+		mockStaticRouteclient.EXPECT().Delete("org1", "proj1", "vpc1", staticRouteID).Return(fmt.Errorf("delete error")).Times(1)
 
 		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
@@ -641,16 +658,24 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		defer patchPatch.Reset()
 		// Patch StaticRouteClient.Get to succeed, but realization check fails and delete fails
 		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
-		patchRealize := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-			func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
-				return nsxutil.NewRealizeStateError("mocked realized error", 0)
-			})
-		defer patchRealize.Reset()
+		mockRealizedEntitiesClient := mock_realizedentitiesclient.NewMockRealizedEntitiesClient(mockController)
+		service.NSXClient.RealizedEntitiesClient = mockRealizedEntitiesClient
+		mockRealizedEntitiesClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(
+			model.GenericPolicyRealizedResourceListResult{
+				Results: []model.GenericPolicyRealizedResource{
+					{
+						State: &[]string{"ERROR"}[0],
+						Alarms: []model.PolicyAlarmResource{
+							{
+								Message: &[]string{"mocked realized error"}[0],
+							},
+						},
+					},
+				},
+			}, nil,
+		).AnyTimes()
 		// Patch DeleteStaticRoute to succeed
-		patchDelete := gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteStaticRoute", func(_ *StaticRouteService, _ *model.StaticRoutes) error {
-			return nil
-		})
-		defer patchDelete.Reset()
+		mockStaticRouteclient.EXPECT().Delete("org1", "proj1", "vpc1", staticRouteID).Return(nil).Times(1)
 		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "realized error")
@@ -685,11 +710,17 @@ func TestStaticRouteService_CreateOrUpdateStaticRoute(t *testing.T) {
 		})
 		defer patchPatch.Reset()
 		// Patch Add to succeed, should return nil
-		patchRealize := gomonkey.ApplyFunc((*realizestate.RealizeStateService).CheckRealizeState,
-			func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
-				return nil
-			})
-		defer patchRealize.Reset()
+		mockRealizedEntitiesClient := mock_realizedentitiesclient.NewMockRealizedEntitiesClient(mockController)
+		service.NSXClient.RealizedEntitiesClient = mockRealizedEntitiesClient
+		mockRealizedEntitiesClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(
+			model.GenericPolicyRealizedResourceListResult{
+				Results: []model.GenericPolicyRealizedResource{
+					{
+						State: &[]string{"REALIZED"}[0],
+					},
+				},
+			}, nil,
+		).AnyTimes()
 		mockStaticRouteclient.EXPECT().Get("org1", "proj1", "vpc1", staticRouteID).Return(*nsxStaticRoute, nil).Times(1)
 		err := service.CreateOrUpdateStaticRoute(context.Background(), "ns", &v1alpha1.StaticRoute{})
 		assert.NoError(t, err)
