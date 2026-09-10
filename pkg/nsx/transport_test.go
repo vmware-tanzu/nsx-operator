@@ -65,8 +65,11 @@ func TestRoundTripRetry(t *testing.T) {
 	req, _ := http.NewRequest("GET", ts.URL, nil)
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-	_, err = tr.RoundTrip(req)
+	resp, err := tr.RoundTrip(req)
 	assert.Equal(err, nil)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
 }
 
 func TestSelectEndpoint(t *testing.T) {
@@ -135,6 +138,9 @@ func TestTransport_RoundTrip(t *testing.T) {
 				config:    tt.fields.config,
 			}
 			got, err := tr.RoundTrip(tt.args.r)
+			if got != nil && got.Body != nil {
+				defer got.Body.Close()
+			}
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Transport.RoundTrip() error = %v, wantErr %v", err, tt.wantErr)
 				return

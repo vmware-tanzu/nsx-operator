@@ -857,7 +857,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
 					IPv6PrefixLength: 64,
 					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
-						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+						Mode: v1alpha1.DHCPv6ConfigModeServer,
 					},
 				},
 			},
@@ -918,7 +918,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 					IPv4SubnetSize:   24,
 					IPv6PrefixLength: 80,
 					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
-						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
+						Mode: v1alpha1.DHCPv6ConfigModeServerStateless,
 					},
 				},
 			},

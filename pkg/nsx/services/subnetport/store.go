@@ -209,7 +209,6 @@ func (subnetPortStore *SubnetPortStore) DeleteMultipleObjects(ports []*model.Vpc
 }
 
 func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*model.VpcSubnetPort, error) {
-	subnetPort := &model.VpcSubnetPort{}
 	var indexResults []interface{}
 	for _, index := range []string{common.TagScopeSubnetPortCRUID, common.TagScopePodUID} {
 		indexResult, err := subnetPortStore.ByIndex(index, string(uid))
@@ -221,13 +220,10 @@ func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*m
 	}
 
 	if len(indexResults) > 0 {
-		t := indexResults[0].(*model.VpcSubnetPort)
-		subnetPort = t
-	} else {
-		log.Info("Did not get VpcSubnetPort with index", "UID", string(uid))
-		return nil, nil
+		return indexResults[0].(*model.VpcSubnetPort), nil
 	}
-	return subnetPort, nil
+	log.Info("Did not get VpcSubnetPort with index", "UID", string(uid))
+	return nil, nil
 }
 
 type VifStore struct {

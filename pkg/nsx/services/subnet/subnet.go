@@ -699,19 +699,19 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 		// Convert from NSX format to v1alpha1 format
 		switch dhcpv6Mode {
 		case "DHCP_SERVER":
-			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer)
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigModeServer
 			if nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig != nil && len(nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges) > 0 {
 				subnetCR.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges = nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges
 			}
 		case "DHCP_RELAY":
-			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay)
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigModeRelay
 		case "DHCP_SERVER_STATELESS":
-			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless)
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigModeServerStateless
 		default:
-			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated)
+			subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigModeDeactivated
 		}
 	} else if util.IPAddressTypeIncludesIPv6(subnetCR.Spec.IPAddressType) {
-		subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated)
+		subnetCR.Spec.SubnetDHCPv6Config.Mode = v1alpha1.DHCPv6ConfigModeDeactivated
 	}
 
 	// Map VlanConnectionName from NSX Subnet

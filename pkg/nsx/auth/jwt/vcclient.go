@@ -91,6 +91,7 @@ func (vcClient *VCClient) createVAPISession() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer response.Body.Close()
 	var sessionData map[string]string
 	err, _ = util.HandleHTTPResponse(response, &sessionData, false)
 	if err != nil {
@@ -233,6 +234,7 @@ func (client *VCClient) HandleRequest(urlPath string, data []byte, responseData 
 	if err != nil {
 		return err
 	}
+	defer response.Body.Close()
 	log.Debug("HTTP req", "request", request.URL, "response status", response.StatusCode)
 	err, _ = util.HandleHTTPResponse(response, responseData, false)
 	return err
@@ -289,7 +291,7 @@ func createCertificate(userName string) (*tls.Certificate, error) {
 
 	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certBytes})
 	privateKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privKey)})
-	certificate, err := tls.X509KeyPair([]byte(cert), []byte(privateKey))
+	certificate, err := tls.X509KeyPair(cert, privateKey)
 	if err != nil {
 		log.Error(err, "Failed to process service account keypair")
 		return nil, err

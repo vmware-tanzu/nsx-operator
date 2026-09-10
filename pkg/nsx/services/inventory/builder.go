@@ -338,7 +338,6 @@ func (s *InventoryService) BuildNamespace(namespace *corev1.Namespace) (retry bo
 
 func (s *InventoryService) BuildService(service *corev1.Service) (retry bool) {
 	log.Trace("Building Service", "Service", service.Name, "Namespace", service.Namespace)
-	retry = false
 
 	preContainerApplication := s.ApplicationStore.GetByKey(string(service.UID))
 	if preContainerApplication != nil {

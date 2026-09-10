@@ -79,12 +79,11 @@ func (s *IPReservationService) CreateOrUpdateSubnetIPReservation(ipReservation *
 // StaticIPReservation refers to the SubnetIPReservation with ReservedIPs specified. It can be updated after creation.
 func (s *IPReservationService) CreateOrUpdateStaticIPReservation(ipReservation *v1alpha1.SubnetIPReservation, subnetPath string) ([]string, error) {
 	nsxIPReservation := s.buildStaticIPReservation(ipReservation, subnetPath)
-	isChanged := true
 	existingIPReservations := s.StaticIPReservationStore.GetByIndex(common.TagScopeSubnetIPReservationCRUID, string(ipReservation.UID))
 	if len(existingIPReservations) > 0 {
 		// Update NSX StaticIPReservation id with the existing settings.
 		nsxIPReservation.Id = existingIPReservations[0].Id
-		isChanged = common.CompareResource(StaticIpAddressReservationToComparable(existingIPReservations[0]), StaticIpAddressReservationToComparable(nsxIPReservation))
+		isChanged := common.CompareResource(StaticIpAddressReservationToComparable(existingIPReservations[0]), StaticIpAddressReservationToComparable(nsxIPReservation))
 		if !isChanged {
 			log.Info("NSX StaticIPReservation not changed, skipping the update", "StaticIPReservation", *existingIPReservations[0].Path)
 			return existingIPReservations[0].ReservedIps, nil

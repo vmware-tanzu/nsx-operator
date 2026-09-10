@@ -394,7 +394,7 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 		if crdSubnet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
-		if crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeRelay) || crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless) {
+		if crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigModeRelay || crdSubnet.Spec.SubnetDHCPv6Config.Mode == v1alpha1.DHCPv6ConfigModeServerStateless {
 			return true, fmt.Errorf("DHCPRelay or DHCPServerStateless Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
 		}
 		if isFirstSubnet {

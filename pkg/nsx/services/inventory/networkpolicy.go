@@ -31,7 +31,11 @@ func (s *InventoryService) initContainerNetworkPolicy(clusterId string) error {
 		if cursor != "" {
 			opts.Cursor = optional.New(cursor)
 		}
-		networkPolicies, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.ListContainerNetworkPolicies(context.Background(), opts)
+		networkPolicies, resp, err := s.NSXClient.NsxApiClient.ContainerClustersApi.ListContainerNetworkPolicies(context.Background(), opts)
+		// Defensively close response body to satisfy bodyclose and guard against connection leaks if SDK internals change.
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			return fmt.Errorf("failed to retrieve ContainerNetworkPolicy err: %w", err)
 		}

@@ -296,6 +296,10 @@ func (s *InventoryService) sendNSXRequestAndUpdateInventoryStore(ctx context.Con
 		resp, err := s.NSXClient.NsxApiClient.ContainerInventoryApi.AddContainerInventoryUpdateUpdates(ctx,
 			util.GetClusterUUID(s.NSXConfig.Cluster).String(),
 			containerinventory.ContainerInventoryData{ContainerInventoryObjects: s.requestBuffer})
+		// Defensively close response body to satisfy bodyclose and guard against connection leaks if SDK internals change.
+		if resp != nil && resp.Body != nil {
+			defer resp.Body.Close()
+		}
 
 		// Update NSX Inventory store when the request succeeds.
 		if resp != nil {

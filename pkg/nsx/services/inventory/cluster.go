@@ -31,6 +31,10 @@ func (s *InventoryService) GetContainerCluster(cleanup bool) (containerinventory
 		return containerCluster, err
 	}
 	containerCluster, resp, err := s.NSXClient.NsxApiClient.ContainerClustersApi.GetContainerCluster(context.TODO(), clusterUUID)
+	// Defensively close response body to satisfy bodyclose and guard against connection leaks if SDK internals change.
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	// there was no error_code in the err, so we need to check the response to return the HttpNotFoundError error
 	if resp != nil && resp.StatusCode == http.StatusNotFound {
 		return containerCluster, nsx_util.HttpNotFoundError
@@ -44,7 +48,11 @@ func (s *InventoryService) GetContainerCluster(cleanup bool) (containerinventory
 func (s *InventoryService) AddContainerCluster(cluster containerinventory.ContainerCluster) (containerinventory.ContainerCluster, error) {
 	log.Info("Send request to NSX to create inventory cluster", "Cluster", cluster)
 	cluster.ClusterType = InventoryClusterTypeSupervisor
-	cluster, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.AddContainerCluster(context.TODO(), cluster)
+	cluster, resp, err := s.NSXClient.NsxApiClient.ContainerClustersApi.AddContainerCluster(context.TODO(), cluster)
+	// Defensively close response body to satisfy bodyclose and guard against connection leaks if SDK internals change.
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
 	return cluster, err
 }
 
