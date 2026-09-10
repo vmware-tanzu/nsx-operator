@@ -43,11 +43,13 @@ const (
 // Because EAS is read-only it does not need leader election; all replicas serve
 // concurrently and the Kubernetes Service load-balances across Ready pods.
 type EASServer struct {
-	vpcProvider     eas.VPCInfoProvider
-	vpcIPUsage      *storage.VPCIPAddressUsageStorage
-	ipBlockUsage    *storage.IPBlockUsageStorage
-	subnetIPPools   *storage.SubnetIPPoolsStorage
-	subnetDHCPStats *storage.SubnetDHCPStatsStorage
+	vpcProvider             eas.VPCInfoProvider
+	vpcIPUsage              *storage.VPCIPAddressUsageStorage
+	ipBlockUsage            *storage.IPBlockUsageStorage
+	subnetIPPools           *storage.SubnetIPPoolsStorage
+	subnetDHCPStats         *storage.SubnetDHCPStatsStorage
+	vpcEndpointStats        *storage.VPCEndpointStatisticsStorage
+	vpcServiceEndpointStats *storage.ServiceEndpointStatisticsStorage
 	// nsxHealthChecker is added to the generic API server's /readyz endpoint
 	// so that the pod is removed from Service endpoints when NSX is unreachable.
 	nsxHealthChecker healthz.HealthChecker
@@ -85,11 +87,13 @@ func NewEASServer(
 	caCert []byte,
 ) *EASServer {
 	return &EASServer{
-		vpcProvider:     vpcProvider,
-		vpcIPUsage:      storage.NewVPCIPAddressUsageStorage(nsxClient, vpcProvider),
-		ipBlockUsage:    storage.NewIPBlockUsageStorage(nsxClient, vpcProvider),
-		subnetIPPools:   storage.NewSubnetIPPoolsStorage(nsxClient, k8sClient),
-		subnetDHCPStats: storage.NewSubnetDHCPStatsStorage(nsxClient, k8sClient),
+		vpcProvider:             vpcProvider,
+		vpcIPUsage:              storage.NewVPCIPAddressUsageStorage(nsxClient, vpcProvider),
+		ipBlockUsage:            storage.NewIPBlockUsageStorage(nsxClient, vpcProvider),
+		subnetIPPools:           storage.NewSubnetIPPoolsStorage(nsxClient, k8sClient),
+		subnetDHCPStats:         storage.NewSubnetDHCPStatsStorage(nsxClient, k8sClient),
+		vpcEndpointStats:        storage.NewVPCEndpointStatisticsStorage(nsxClient, vpcProvider),
+		vpcServiceEndpointStats: storage.NewServiceEndpointStatisticsStorage(nsxClient, vpcProvider),
 		// /readyz reports not-ready when NSX is unreachable, causing kube-proxy
 		// to stop routing traffic to this pod until connectivity is restored.
 		nsxHealthChecker: healthz.NamedCheck("nsx", nsxClient.NSXChecker.CheckNSXHealth),
@@ -233,10 +237,12 @@ func (s *EASServer) buildGenericAPIServer() (*genericapiserver.GenericAPIServer,
 		codecs,
 	)
 	apiGroupInfo.VersionedResourcesStorageMap[easv1alpha1.GroupVersion.Version] = map[string]apirest.Storage{
-		"vpcipaddressusages":    rest.NewVPCIPUsageStorage(s.vpcIPUsage, s.vpcProvider),
-		"ipblockusages":         rest.NewIPBlockUsageStorage(s.ipBlockUsage, s.vpcProvider),
-		"subnetippools":         rest.NewSubnetIPPoolsStorage(s.subnetIPPools),
-		"subnetdhcpserverstats": rest.NewSubnetDHCPStatsStorage(s.subnetDHCPStats),
+		"vpcipaddressusages":        rest.NewVPCIPUsageStorage(s.vpcIPUsage, s.vpcProvider),
+		"ipblockusages":             rest.NewIPBlockUsageStorage(s.ipBlockUsage, s.vpcProvider),
+		"subnetippools":             rest.NewSubnetIPPoolsStorage(s.subnetIPPools),
+		"subnetdhcpserverstats":     rest.NewSubnetDHCPStatsStorage(s.subnetDHCPStats),
+		"vpcendpointstatistics":     rest.NewVPCEndpointStatisticsREST(s.vpcEndpointStats),
+		"serviceendpointstatistics": rest.NewServiceEndpointStatisticsREST(s.vpcServiceEndpointStats),
 	}
 
 	if err := srv.InstallAPIGroup(&apiGroupInfo); err != nil {

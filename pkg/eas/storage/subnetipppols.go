@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"strings"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
@@ -39,7 +41,7 @@ func NewSubnetIPPoolsStorage(nsxClient *nsx.Client, k8sClient k8sclient.Client) 
 // infra-scoped).  NSX subnets in that VPC are listed and matched by the
 // nsx-op/subnet_name tag (or by ID as fallback) to find the NSX subnet ID.
 // The returned object always has metadata.name equal to the input name.
-func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) (*easv1alpha1.SubnetIPPools, error) {
+func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) (*easv1alpha1.SubnetIPPoolsList, error) {
 	log := logger.Log
 
 	// Resolve VPC info from the Subnet CR's spec.vpcName.
@@ -80,12 +82,12 @@ func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) 
 		return s.fetchIPPools(namespace, *subnet.Id, name, info)
 	}
 
-	return nil, fmt.Errorf("SubnetIPPools %s/%s not found", namespace, name)
+	return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "subnetippools"}, name), "subnetippools", name, nil)
 }
 
 // fetchIPPools calls NSX for the IP pools of a specific NSX subnet and returns the result
 // with metadata.name set to name (the Subnet CR name).
-func (s *SubnetIPPoolsStorage) fetchIPPools(namespace, nsxSubnetID, name string, info nsxcommon.VPCResourceInfo) (*easv1alpha1.SubnetIPPools, error) {
+func (s *SubnetIPPoolsStorage) fetchIPPools(namespace, nsxSubnetID, name string, info nsxcommon.VPCResourceInfo) (*easv1alpha1.SubnetIPPoolsList, error) {
 	log := logger.Log
 	nsxPools, err := s.nsxClient.IPPoolClient.List(info.OrgID, info.ProjectID, info.VPCID, nsxSubnetID,
 		nil, nil, nil, nil, nil, nil)
@@ -94,38 +96,40 @@ func (s *SubnetIPPoolsStorage) fetchIPPools(namespace, nsxSubnetID, name string,
 	}
 	log.Debug("Got subnet IP pools", "subnetID", nsxSubnetID, "name", name, "poolCount", len(nsxPools.Results))
 
-	result := &easv1alpha1.SubnetIPPools{
+	result := &easv1alpha1.SubnetIPPoolsList{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: easv1alpha1.GroupVersion.String(),
-			Kind:       "SubnetIPPools",
+			Kind:       "SubnetIPPoolsList",
 		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
+		Items: make([]easv1alpha1.SubnetIPPools, 0, len(nsxPools.Results)),
 	}
 
-	if len(nsxPools.Results) > 0 {
-		p0 := nsxPools.Results[0]
-		if p0.IpAddressType != nil {
-			result.IPAddressType = *p0.IpAddressType
+	for _, pool := range nsxPools.Results {
+		item := easv1alpha1.SubnetIPPools{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: easv1alpha1.GroupVersion.String(),
+				Kind:       "SubnetIPPools",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
 		}
-		var agg easv1alpha1.PoolUsage
-		hadUsage := false
-		for _, pool := range nsxPools.Results {
-			if pool.PoolUsage == nil {
-				continue
-			}
-			hadUsage = true
+
+		if pool.IpAddressType != nil {
+			item.IPAddressType = *pool.IpAddressType
+		}
+
+		if pool.PoolUsage != nil {
 			pu := pool.PoolUsage
-			agg.TotalIPs += DerefInt64(pu.TotalIps)
-			agg.AvailableIPs += DerefInt64(pu.AvailableIps)
-			agg.AllocatedIPAllocations += DerefInt64(pu.AllocatedIpAllocations)
-			agg.RequestedIPAllocations += DerefInt64(pu.RequestedIpAllocations)
+			item.PoolUsage = &easv1alpha1.PoolUsage{
+				TotalIPs:               DerefInt64(pu.TotalIps),
+				AvailableIPs:           DerefInt64(pu.AvailableIps),
+				AllocatedIPAllocations: DerefInt64(pu.AllocatedIpAllocations),
+				RequestedIPAllocations: DerefInt64(pu.RequestedIpAllocations),
+			}
 		}
-		if hadUsage {
-			result.PoolUsage = &agg
-		}
+		result.Items = append(result.Items, item)
 	}
 
 	return result, nil

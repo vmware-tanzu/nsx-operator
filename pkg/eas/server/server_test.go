@@ -50,6 +50,8 @@ func TestNewEASServer(t *testing.T) {
 	assert.NotNil(t, s.ipBlockUsage)
 	assert.NotNil(t, s.subnetIPPools)
 	assert.NotNil(t, s.subnetDHCPStats)
+	assert.NotNil(t, s.vpcEndpointStats)
+	assert.NotNil(t, s.vpcServiceEndpointStats)
 }
 
 func TestBuildGenericAPIServer_ErrorsWithoutCert(t *testing.T) {

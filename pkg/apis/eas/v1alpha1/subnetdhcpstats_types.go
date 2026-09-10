@@ -31,6 +31,9 @@ type SubnetDHCPServerStats struct {
 	// DHCP IP pool usage statistics.
 	// +listType=atomic
 	IPPoolStats []DHCPIPPoolUsage `json:"ipPoolStats,omitempty"`
+	// DHCP IPv6 pool usage statistics.
+	// +listType=atomic
+	IPv6PoolStats []DHCPIPPoolUsage `json:"ipv6PoolStats,omitempty"`
 }
 
 //+kubebuilder:object:root=true
