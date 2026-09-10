@@ -399,6 +399,7 @@ func (cluster *Cluster) GetVersion() (*NsxVersion, error) {
 		log.Error(err, "Failed to get NSX version")
 		return nil, err
 	}
+	defer resp.Body.Close()
 	err, _ = util.HandleHTTPResponse(resp, cluster.nsxVersion, true)
 	if err == nil {
 		cluster.lastTimeGetVersion = time.Now()
@@ -427,6 +428,7 @@ func (cluster *Cluster) HttpGet(url string) (map[string]interface{}, error) {
 		log.Error(err, "Failed to do HTTP GET operation")
 		return nil, err
 	}
+	defer resp.Body.Close()
 	respJson := make(map[string]interface{})
 	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
 	return respJson, err
@@ -439,6 +441,7 @@ func (cluster *Cluster) HttpGetAndDecode(url string, result interface{}) error {
 		log.Error(err, "Failed to do HTTP GET operation")
 		return err
 	}
+	defer resp.Body.Close()
 	err, _ = util.HandleHTTPResponse(resp, result, true)
 	return err
 }
@@ -481,10 +484,13 @@ func (cluster *Cluster) httpAction(url, method string, requestBody ...interface{
 
 // HttpDelete sends an http DELETE request to the cluster, exported for use
 func (cluster *Cluster) HttpDelete(url string) error {
-	_, err := cluster.httpAction(url, "DELETE")
+	resp, err := cluster.httpAction(url, "DELETE")
 	if err != nil {
 		log.Error(err, "Failed to do HTTP DELETE operation")
 		return err
+	}
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
 	}
 	return nil
 }
@@ -496,6 +502,7 @@ func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[strin
 		log.Error(err, "Failed to do HTTP POST operation")
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	respJson := make(map[string]interface{})
 	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
@@ -509,6 +516,7 @@ func (cluster *Cluster) HttpPatch(url string, requestBody interface{}) (map[stri
 		log.Error(err, "Failed to do HTTP PATCH operation")
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	respJson := make(map[string]interface{})
 	err, _ = util.HandleHTTPResponse(resp, &respJson, true)
@@ -612,6 +620,7 @@ func (cluster *Cluster) FetchLicense() error {
 		log.Error(err, "Failed to get NSX license")
 		return err
 	}
+	defer resp.Body.Close()
 	nsxLicense := &util.NsxLicense{}
 	err, _ = util.HandleHTTPResponse(resp, nsxLicense, true)
 	if err != nil {

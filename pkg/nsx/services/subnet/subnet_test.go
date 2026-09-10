@@ -1511,7 +1511,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
 					},
 					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
-						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated),
+						Mode: v1alpha1.DHCPv6ConfigModeDeactivated,
 					},
 				},
 			},
@@ -1538,7 +1538,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
 					IPv6PrefixLength: 64,
 					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
-						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+						Mode: v1alpha1.DHCPv6ConfigModeServer,
 						DHCPv6ServerAdditionalConfig: v1alpha1.DHCPv6ServerAdditionalConfig{
 							ReservedIPRanges: []string{"fd00:1234:5678:9abc::1-fd00:1234:5678:9abc::10"},
 						},
@@ -1565,7 +1565,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
 					IPv6PrefixLength: 64,
 					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
-						Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
+						Mode: v1alpha1.DHCPv6ConfigModeServerStateless,
 					},
 				},
 			},
