@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 // keyFunc is used to get the key of a resource, usually, which is the ID of the resource
@@ -96,6 +97,39 @@ func subnetPortIndexPodNamespace(obj interface{}) ([]string, error) {
 	default:
 		return nil, errors.New("subnetPortIndexPodNamespace doesn't support unknown type")
 	}
+}
+
+func subnetPortIndexByStatefulSetUID(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnetPort:
+		return filterTag(o.Tags, common.TagScopeStatefulSetUID), nil
+	default:
+		return nil, errors.New("subnetPortIndexByStatefulSetUID doesn't support unknown type")
+	}
+}
+
+func subnetPortIndexByStatefulSetName(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnetPort:
+		return filterTag(o.Tags, common.TagScopeStatefulSetName), nil
+	default:
+		return nil, errors.New("subnetPortIndexByStatefulSetName doesn't support unknown type")
+	}
+}
+
+func subnetPortIndexBySts(obj interface{}) ([]string, error) {
+	port, ok := obj.(*model.VpcSubnetPort)
+	if !ok {
+		return nil, errors.New("subnetPortIndexBySts doesn't support unknown type")
+	}
+	if port == nil {
+		return nil, nil
+	}
+	stsUID := util.FindTag(port.Tags, common.TagScopeStatefulSetUID)
+	if stsUID != "" {
+		return []string{common.StsPortBucket}, nil
+	}
+	return nil, nil
 }
 
 // SubnetPortStore is a store for SubnetPorts

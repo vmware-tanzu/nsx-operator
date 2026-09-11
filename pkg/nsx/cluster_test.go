@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
@@ -253,6 +254,143 @@ func TestCluster_getVersion(t *testing.T) {
 	nsxVersion, err := cluster.GetVersion()
 	assert.Equal(t, err, nil)
 	assert.Equal(t, nsxVersion.NodeVersion, "3.1.3.3.0.18844962")
+}
+
+func TestCluster_GetVersion_invokesOnNodeVersionChangedWhenNodeVersionChanges(t *testing.T) {
+	var (
+		callbackCalls int
+		gotOld        string
+		gotNew        string
+	)
+	versionCalls := 0
+	resHealth := `{
+					"healthy" : true,
+					"components_health" : "MANAGER:UP, SEARCH:UP, UI:UP, NODE_MGMT:UP"
+					}`
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
+			w.Write([]byte(resHealth))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/api/v1/node/version") {
+			versionCalls++
+			var body string
+			if versionCalls == 1 {
+				body = `{"node_version":"9.1.0.0.0.10000000","product_version":"9.1.0"}`
+			} else {
+				body = `{"node_version":"9.2.0.0.0.20000000","product_version":"9.2.0"}`
+			}
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer ts.Close()
+	thumbprint := []string{"123"}
+	index := strings.Index(ts.URL, "//")
+	a := ts.URL[index+2:]
+	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	cluster, err := NewCluster(config)
+	assert.NoError(t, err)
+
+	cluster.SetOnNodeVersionChanged(func(oldV, newV string) {
+		callbackCalls++
+		gotOld, gotNew = oldV, newV
+	})
+
+	ver1, err := cluster.GetVersion()
+	assert.NoError(t, err)
+	assert.Equal(t, "9.1.0.0.0.10000000", ver1.NodeVersion)
+	assert.Equal(t, 0, callbackCalls, "first successful fetch has no prior node_version, callback must not run")
+
+	cluster.lastTimeGetVersion = time.Now().Add(-40 * time.Minute)
+	ver2, err := cluster.GetVersion()
+	assert.NoError(t, err)
+	assert.Equal(t, "9.2.0.0.0.20000000", ver2.NodeVersion)
+	assert.Equal(t, 1, callbackCalls)
+	assert.Equal(t, "9.1.0.0.0.10000000", gotOld)
+	assert.Equal(t, "9.2.0.0.0.20000000", gotNew)
+}
+
+func TestCluster_GetVersion_noOnNodeVersionChangedWhenVersionUnchanged(t *testing.T) {
+	var callbackCalls int
+	versionCalls := 0
+	resHealth := `{
+					"healthy" : true,
+					"components_health" : "MANAGER:UP, SEARCH:UP, UI:UP, NODE_MGMT:UP"
+					}`
+	const sameVersion = `{"node_version":"9.1.0.0.0.10000000","product_version":"9.1.0"}`
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
+			w.Write([]byte(resHealth))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/api/v1/node/version") {
+			versionCalls++
+			_, _ = w.Write([]byte(sameVersion))
+			return
+		}
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer ts.Close()
+	thumbprint := []string{"123"}
+	index := strings.Index(ts.URL, "//")
+	a := ts.URL[index+2:]
+	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	cluster, err := NewCluster(config)
+	assert.NoError(t, err)
+
+	cluster.SetOnNodeVersionChanged(func(_, _ string) {
+		callbackCalls++
+	})
+
+	_, err = cluster.GetVersion()
+	assert.NoError(t, err)
+	cluster.lastTimeGetVersion = time.Now().Add(-40 * time.Minute)
+	_, err = cluster.GetVersion()
+	assert.NoError(t, err)
+	assert.Equal(t, 0, callbackCalls)
+}
+
+func TestCluster_GetVersion_noPanicWhenOnNodeVersionChangedNil(t *testing.T) {
+	versionCalls := 0
+	resHealth := `{
+					"healthy" : true,
+					"components_health" : "MANAGER:UP, SEARCH:UP, UI:UP, NODE_MGMT:UP"
+					}`
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(r.URL.Path, "reverse-proxy/node/health") {
+			w.Write([]byte(resHealth))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/api/v1/node/version") {
+			versionCalls++
+			if versionCalls == 1 {
+				_, _ = w.Write([]byte(`{"node_version":"4.1.0.0.0.1","product_version":"4.1.0"}`))
+			} else {
+				_, _ = w.Write([]byte(`{"node_version":"4.1.1.0.0.1","product_version":"4.1.1"}`))
+			}
+			return
+		}
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer ts.Close()
+	thumbprint := []string{"123"}
+	index := strings.Index(ts.URL, "//")
+	a := ts.URL[index+2:]
+	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	cluster, err := NewCluster(config)
+	assert.NoError(t, err)
+
+	cluster.SetOnNodeVersionChanged(nil)
+	_, err = cluster.GetVersion()
+	assert.NoError(t, err)
+	cluster.lastTimeGetVersion = time.Now().Add(-40 * time.Minute)
+	_, err = cluster.GetVersion()
+	assert.NoError(t, err)
 }
 
 func TestCluster_CreateServerUrl(t *testing.T) {

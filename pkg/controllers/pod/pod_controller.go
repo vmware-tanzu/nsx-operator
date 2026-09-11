@@ -31,8 +31,10 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -82,7 +84,7 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return common.ResultNormal, nil
 	}
 
-	if !podIsDeleted(pod) {
+	if !common.PodIsDeleted(pod) {
 		r.StatusUpdater.IncreaseUpdateTotal()
 		isExisting, nsxSubnetPath, subnetSetUID, subnetSetLock, err := r.GetSubnetPathForPod(ctx, pod)
 		if subnetSetLock != nil {
@@ -150,6 +152,11 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return common.ResultRequeue, err
 		}
 		if subnetPort != nil {
+			if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) && r.isStatefulSetSubnetPort(subnetPort) {
+				log.Info("Ignoring subnet port deletion for StatefulSet pod",
+					"pod", subnetPort.DisplayName, "statefulset-uid", r.getStsUID(subnetPort))
+				return common.ResultNormal, nil
+			}
 			if err := r.SubnetPortService.DeleteSubnetPort(subnetPort); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, pod, err)
 				return common.ResultRequeue, err
@@ -346,6 +353,18 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(PodSet)
 	for elem := range diffSet {
+		// StatefulSet pod ports are keyed in the pod-UID index but may briefly outlive the old Pod
+		// object (crash/replace window). STS SubnetPort lifecycle is owned by the StatefulSet
+		// reconciler when the feature is enabled; do not delete here (same as deleteSubnetPortByPodName).
+		store := r.SubnetPortService.SubnetPortStore
+		if store != nil && store.Indexer != nil {
+			if nsxSubnetPort := store.GetByKey(elem); nsxSubnetPort != nil &&
+				r.SubnetPortService.NSXClient != nil &&
+				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
+				log.Info("Skipping pod GC for StatefulSet pod subnet port", "NSXSubnetPortID", elem, "statefulset-uid", r.getStsUID(nsxSubnetPort))
+				continue
+			}
+		}
 		log.Debug("GC collected Pod", "NSXSubnetPortID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
 		err = r.SubnetPortService.DeleteSubnetPortById(elem)
@@ -382,6 +401,19 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 	if err != nil {
 		return false, "", subnetSetUID, subnetSetLock, err
 	}
+
+	// Check if this is a StatefulSet pod and we can reuse an existing SubnetPort
+	if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) {
+		stsUID := subnetport.GetStatefulSetUID(pod)
+		if port := r.SubnetPortService.GetExistingSubnetPortForStatefulSetPod(pod.Name, stsUID); port != nil {
+			if port.ParentPath != nil {
+				subnetPath = *port.ParentPath
+			}
+			log.Info("Found existing SubnetPort for StatefulSet pod, forcing old subnet", "podName", pod.Name, "stsUID", stsUID, "subnetPath", subnetPath)
+			return true, subnetPath, subnetSetUID, subnetSetLock, nil
+		}
+	}
+
 	log.Info("Got default SubnetSet for Pod, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "pod.Name", pod.Name, "pod.UID", pod.UID)
 	if r.restoreMode {
 		// For restore case, Pod will be created on the Subnet with matching CIDR
@@ -403,21 +435,34 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 	return false, subnetPath, subnetSetUID, subnetSetLock, nil
 }
 
-func podIsDeleted(pod *v1.Pod) bool {
-	return !pod.ObjectMeta.DeletionTimestamp.IsZero() || pod.Status.Phase == "Succeeded" || pod.Status.Phase == "Failed"
-}
-
 func (r *PodReconciler) deleteSubnetPortByPodName(ctx context.Context, ns string, name string) error {
 	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByPodName(ns, name)
 
 	for _, nsxSubnetPort := range nsxSubnetPorts {
+		// Check if this subnet port was created for StatefulSet
+		// Only skip if StatefulSet pod SubnetPort feature is enabled
+		if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
+			log.Info("Ignoring subnet port deletion for StatefulSet pod",
+				"pod", name, "statefulset-uid", r.getStsUID(nsxSubnetPort))
+			continue // Skip deletion
+		}
+
+		// Normal pod: delete the subnet port
 		if err := r.SubnetPortService.DeleteSubnetPort(nsxSubnetPort); err != nil {
 			return err
 		}
 	}
 	log.Info("Successfully deleted nsxSubnetPort for Pod", "Namespace", ns, "Name", name)
 	return nil
+}
+
+func (r *PodReconciler) isStatefulSetSubnetPort(nsxSubnetPort *model.VpcSubnetPort) bool {
+	return r.getStsUID(nsxSubnetPort) != ""
+}
+
+func (r *PodReconciler) getStsUID(nsxSubnetPort *model.VpcSubnetPort) string {
+	return nsxutil.FindTag(nsxSubnetPort.Tags, servicecommon.TagScopeStatefulSetUID)
 }
 
 // PredicateFuncsPod filters out events where pod.Spec.HostNetwork is true
