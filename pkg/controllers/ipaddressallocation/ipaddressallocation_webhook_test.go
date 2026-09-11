@@ -22,6 +22,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcendpoint"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -133,6 +134,24 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 				return nil
 			},
 			want: admission.Denied("IPAddressAllocation ip1 is used by StaticRoute sr1"),
+		},
+		{
+			name: "delete with existing vpcendpoint",
+			args: args{req: admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Delete,
+				OldObject: runtime.RawExtension{Raw: reqDelete},
+			}}},
+			prepareFunc: func(t *testing.T, client client.Client, ctx context.Context) *gomonkey.Patches {
+				client.Create(ctx, &v1alpha1.VPCEndpoint{
+					ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "vpcep1"},
+					Spec: v1alpha1.VPCEndpointSpec{
+						IPAllocationName:    "ip1",
+						ServiceEndpointName: "p1:v1:se1",
+					},
+				})
+				return nil
+			},
+			want: admission.Denied("IPAddressAllocation ip1 is used by VPCEndpoint vpcep1"),
 		},
 		{
 			name: "delete without address binding",
@@ -263,7 +282,7 @@ func TestIPAddressAllocationValidator_Handle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := clientgoscheme.Scheme
 			v1alpha1.AddToScheme(scheme)
-			client := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&v1alpha1.AddressBinding{}, util.AddressBindingIPAddressAllocationNameIndexKey, indexFunc).WithIndex(&v1alpha1.StaticRoute{}, util.StaticRouteIPAddressAllocationNameIndexKey, indexFunc2).Build()
+			client := fake.NewClientBuilder().WithScheme(scheme).WithIndex(&v1alpha1.AddressBinding{}, util.AddressBindingIPAddressAllocationNameIndexKey, indexFunc).WithIndex(&v1alpha1.StaticRoute{}, util.StaticRouteIPAddressAllocationNameIndexKey, indexFunc2).WithIndex(&v1alpha1.VPCEndpoint{}, util.VPCEndpointIPAllocationNameIndexKey, vpcendpoint.VPCEndpointIPAllocationNameIndexFunc).Build()
 			decoder := admission.NewDecoder(scheme)
 			ctx := context.TODO()
 			if tt.prepareFunc != nil {
