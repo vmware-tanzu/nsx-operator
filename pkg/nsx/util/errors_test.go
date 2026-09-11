@@ -283,6 +283,15 @@ func TestIsIPAllocationError(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "IPPoolExhausted error",
+			alarm: model.PolicyAlarmResource{
+				ErrorDetails: &model.PolicyApiError{
+					ErrorCode: int64Ptr(IPPoolExhaustedErrorCode),
+				},
+			},
+			expected: true,
+		},
+		{
 			name: "Different error code",
 			alarm: model.PolicyAlarmResource{
 				ErrorDetails: &model.PolicyApiError{

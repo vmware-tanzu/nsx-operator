@@ -301,7 +301,8 @@ func (service *SubnetPortService) CheckSubnetPortState(obj interface{}, nsxSubne
 		log.Error(err, "Failed to get realized status", "nsxSubnetPortPath", *nsxSubnetPort.Path)
 		if nsxutil.IsRealizeStateError(err) {
 			realizedStateErr := err.(*nsxutil.RealizeStateError)
-			if realizedStateErr.GetCode() == nsxutil.IPAllocationErrorCode {
+			code := realizedStateErr.GetCode()
+			if code == nsxutil.IPAllocationErrorCode || code == nsxutil.IPPoolExhaustedErrorCode {
 				service.updateExhaustedSubnet(nsxSubnetPath)
 			}
 			log.Error(err, "The created SubnetPort is in error realization state, cleaning the resource", "SubnetPort", portID)
