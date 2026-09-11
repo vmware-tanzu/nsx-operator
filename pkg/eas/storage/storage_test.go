@@ -89,80 +89,24 @@ func (f *fakeInfraIPBlockUsageClient) List(_ *string, _ *bool, _ *string, _ *str
 	return model.IpAddressBlockUsageList{}, nil
 }
 
-type fakeProjectIPBlockUsageClient struct {
-	getResult  model.IpAddressBlockUsage
-	listResult model.IpAddressBlockUsageList
-	err        error
+type fakeVPCIPBlockUsageClient struct {
+	listResult     model.IpAddressBlockUsageList
+	listResultsMap map[string]model.IpAddressBlockUsageList
+	err            error
+	calledVPCs     []string
 }
 
-func (f *fakeProjectIPBlockUsageClient) Get(string, string, string) (model.IpAddressBlockUsage, error) {
-	return f.getResult, f.err
-}
-func (f *fakeProjectIPBlockUsageClient) List(_, _ string, _ *string, _ *bool, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressBlockUsageList, error) {
-	return f.listResult, f.err
-}
-
-type fakeVpcsClient struct {
-	result model.Vpc
-	err    error
-}
-
-func (f *fakeVpcsClient) Get(_, _, _ string) (model.Vpc, error) {
-	return f.result, f.err
-}
-func (f *fakeVpcsClient) Delete(_, _, _ string, _ *bool) error {
-	return nil
-}
-func (f *fakeVpcsClient) Patch(_, _, _ string, _ model.Vpc) error {
-	return nil
-}
-func (f *fakeVpcsClient) Update(_, _, _ string, _ model.Vpc) (model.Vpc, error) {
-	return model.Vpc{}, nil
-}
-func (f *fakeVpcsClient) List(_, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcListResult, error) {
-	return model.VpcListResult{}, nil
-}
-
-type fakeVpcAttachmentClient struct {
-	result model.VpcAttachmentListResult
-	err    error
-}
-
-func (f *fakeVpcAttachmentClient) Get(_, _, _, _ string) (model.VpcAttachment, error) {
-	return model.VpcAttachment{}, nil
-}
-func (f *fakeVpcAttachmentClient) Delete(_, _, _, _ string) error {
-	return nil
-}
-func (f *fakeVpcAttachmentClient) Patch(_, _, _, _ string, _ model.VpcAttachment) error {
-	return nil
-}
-func (f *fakeVpcAttachmentClient) Update(_, _, _, _ string, _ model.VpcAttachment) (model.VpcAttachment, error) {
-	return model.VpcAttachment{}, nil
-}
-func (f *fakeVpcAttachmentClient) List(_, _, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
-	return f.result, f.err
-}
-
-type fakeVpcConnectivityProfilesClient struct {
-	result model.VpcConnectivityProfile
-	err    error
-}
-
-func (f *fakeVpcConnectivityProfilesClient) Get(_, _, _ string) (model.VpcConnectivityProfile, error) {
-	return f.result, f.err
-}
-func (f *fakeVpcConnectivityProfilesClient) Delete(_, _, _ string) error {
-	return nil
-}
-func (f *fakeVpcConnectivityProfilesClient) Patch(_, _, _ string, _ model.VpcConnectivityProfile) error {
-	return nil
-}
-func (f *fakeVpcConnectivityProfilesClient) Update(_, _, _ string, _ model.VpcConnectivityProfile) (model.VpcConnectivityProfile, error) {
-	return model.VpcConnectivityProfile{}, nil
-}
-func (f *fakeVpcConnectivityProfilesClient) List(_, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcConnectivityProfileListResult, error) {
-	return model.VpcConnectivityProfileListResult{}, nil
+func (f *fakeVPCIPBlockUsageClient) List(_, _, vpcID string, _ *string) (model.IpAddressBlockUsageList, error) {
+	f.calledVPCs = append(f.calledVPCs, vpcID)
+	if f.err != nil {
+		return model.IpAddressBlockUsageList{}, f.err
+	}
+	if f.listResultsMap != nil {
+		if res, ok := f.listResultsMap[vpcID]; ok {
+			return res, nil
+		}
+	}
+	return f.listResult, nil
 }
 
 // emptyVPCProvider never resolves a VPC.

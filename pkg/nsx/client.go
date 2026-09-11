@@ -30,7 +30,6 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects"
 	project_infra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
-	project_infra_ip_blocks "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra/ip_blocks"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/transit_gateways"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs"
 	vpc_ip_blocks "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/ip_blocks"
@@ -114,7 +113,6 @@ type Client struct {
 	IPAddressUsageClient              vpcs.IpAddressUsageClient
 	VPCIPBlockUsageClient             vpc_ip_blocks.UsageClient
 	InfraIPBlockUsageClient           infra_ip_blocks.UsageClient
-	ProjectIPBlockUsageClient         project_infra_ip_blocks.UsageClient
 	SubnetsClient                     vpcs.SubnetsClient
 	IPAddressAllocationClient         vpcs.IpAddressAllocationsClient
 	VPCLBSClient                      vpcs.VpcLbsClient
@@ -239,7 +237,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	ipAddressUsageClient := vpcs.NewIpAddressUsageClient(connector)
 	vpcIpBlockUsageClient := vpc_ip_blocks.NewUsageClient(connector)
 	infraIPBlockUsageClient := infra_ip_blocks.NewUsageClient(connector)
-	projectIPBlockUsageClient := project_infra_ip_blocks.NewUsageClient(connector)
 	subnetsClient := vpcs.NewSubnetsClient(connector)
 	subnetStatusClient := subnets.NewStatusClient(connector)
 	ipAddressAllocationClient := vpcs.NewIpAddressAllocationsClient(connectorAllowOverwrite)
@@ -323,7 +320,6 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		IPAddressUsageClient:              ipAddressUsageClient,
 		VPCIPBlockUsageClient:             vpcIpBlockUsageClient,
 		InfraIPBlockUsageClient:           infraIPBlockUsageClient,
-		ProjectIPBlockUsageClient:         projectIPBlockUsageClient,
 		SubnetsClient:                     subnetsClient,
 		IPAddressAllocationClient:         ipAddressAllocationClient,
 		TransitGatewayClient:              transitGatewayClient,
