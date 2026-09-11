@@ -31,16 +31,39 @@ var (
 )
 
 func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.VpcSubnetPort, error) {
-	var objNamespace, appId, allocateAddresses string
+	var objNamespace, appId, allocateAddresses, podName, stsName, stsUID string
 	objMeta := getObjectMeta(obj)
 	if objMeta == nil {
 		return nil, fmt.Errorf("unsupported object: %v", obj)
 	}
 	objNamespace = objMeta.Namespace
-	if _, ok := obj.(*corev1.Pod); ok {
+	if pod, ok := obj.(*corev1.Pod); ok {
 		appId = string(objMeta.UID)
+		podName = pod.Name
+		stsUID = GetStatefulSetUID(pod)
+		stsKind := appsv1.SchemeGroupVersion.WithKind("StatefulSet").Kind
+		if ref := metav1.GetControllerOf(pod); ref != nil && ref.Kind == stsKind {
+			stsName = ref.Name
+		}
+	} else if sp, ok := obj.(*v1alpha1.SubnetPort); ok {
+		for _, ref := range sp.GetOwnerReferences() {
+			if ref.Kind == "Pod" {
+				appId = string(ref.UID)
+				podName = ref.Name
+				if service != nil && service.Client != nil {
+					pod := &corev1.Pod{}
+					if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: sp.Namespace, Name: ref.Name}, pod); err == nil {
+						stsUID = GetStatefulSetUID(pod)
+						stsKind := appsv1.SchemeGroupVersion.WithKind("StatefulSet").Kind
+						if stsRef := metav1.GetControllerOf(pod); stsRef != nil && stsRef.Kind == stsKind {
+							stsName = stsRef.Name
+						}
+					}
+				}
+				break
+			}
+		}
 	}
-	stsUID := GetStatefulSetUID(obj)
 	var externalAddressBinding *model.ExternalAddressBinding
 	var err error
 	var addressBindings []model.PortAddressBindingEntry
@@ -155,7 +178,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	namespaceUid := namespace.UID
 
-	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID)
+	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID, podName)
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 
 	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
@@ -178,6 +201,21 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			continue
 		}
 		tagsFiltered = append(tagsFiltered, tag)
+	}
+
+	if _, ok := obj.(*v1alpha1.SubnetPort); ok && !isVmSubnetPort {
+		if podName != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopePodName), Tag: common.String(podName)})
+		}
+		if appId != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopePodUID), Tag: common.String(appId)})
+		}
+		if stsName != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopeStatefulSetName), Tag: common.String(stsName)})
+		}
+		if stsUID != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopeStatefulSetUID), Tag: common.String(stsUID)})
+		}
 	}
 
 	if labelTags != nil {
@@ -248,10 +286,15 @@ func (service *SubnetPortService) GetExistingSubnetPortForStatefulSetPod(podName
 	return nil
 }
 
-func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string) (string, string) {
+func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string, podName ...string) (string, string) {
 	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(obj.GetUID())
 	if err == nil && existingSubnetPort != nil {
 		return *existingSubnetPort.Id, *existingSubnetPort.DisplayName
+	}
+
+	targetPodName := obj.Name
+	if len(podName) > 0 && podName[0] != "" {
+		targetPodName = podName[0]
 	}
 
 	// For StatefulSet pods: check if a SubnetPort with the same StatefulSet UID and pod name exists
@@ -259,9 +302,9 @@ func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMet
 	// Only reuse if StatefulSet pod SubnetPort feature is enabled
 	enableStsFeature := nsx.StatefulSetPodSubnetPortFeatureEnabled(service.NSXClient, service.NSXConfig)
 	if enableStsFeature {
-		if port := service.GetExistingSubnetPortForStatefulSetPod(obj.Name, stsUID); port != nil {
+		if port := service.GetExistingSubnetPortForStatefulSetPod(targetPodName, stsUID); port != nil {
 			log.Info("Reusing existing SubnetPort for StatefulSet pod",
-				"podName", obj.Name, "stsUID", stsUID, "portID", *port.Id)
+				"podName", targetPodName, "stsUID", stsUID, "portID", *port.Id)
 			return *port.Id, *port.DisplayName
 		}
 	}
