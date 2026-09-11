@@ -286,14 +286,15 @@ func TestIPBlockUsageStorage_Get_Project_ErrorDoesNotAffectList(t *testing.T) {
 	p := singleVPCProvider{info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}}
 	c := &nsx.Client{}
 	c.ProjectIPBlockUsageClient = &fakeProjectIPBlockUsageClient{err: fmt.Errorf("nsx error")}
+	c.VPCIPBlockUsageClient = &fakeVPCIPBlockUsageClient{}
 	s := NewIPBlockUsageStorage(c, p)
 	_, err := s.List(context.Background(), "ns1")
-	require.Error(t, err)
+	require.NoError(t, err)
 }
 func TestIPBlockUsageStorage_List_OK(t *testing.T) {
 	p := singleVPCProvider{info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}}
 	c := &nsx.Client{}
-	c.ProjectIPBlockUsageClient = &fakeProjectIPBlockUsageClient{}
+	c.VPCIPBlockUsageClient = &fakeVPCIPBlockUsageClient{}
 	s := NewIPBlockUsageStorage(c, p)
 	list, err := s.List(context.Background(), "ns1")
 	require.NoError(t, err)
@@ -302,7 +303,7 @@ func TestIPBlockUsageStorage_List_OK(t *testing.T) {
 func TestIPBlockUsageStorage_List_Error(t *testing.T) {
 	p := singleVPCProvider{info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}}
 	c := &nsx.Client{}
-	c.ProjectIPBlockUsageClient = &fakeProjectIPBlockUsageClient{err: fmt.Errorf("nsx error")}
+	c.VPCIPBlockUsageClient = &fakeVPCIPBlockUsageClient{err: fmt.Errorf("nsx error")}
 	s := NewIPBlockUsageStorage(c, p)
 	_, err := s.List(context.Background(), "ns1")
 	require.Error(t, err)
@@ -312,35 +313,81 @@ func TestIPBlockUsageStorage_List_WithResults(t *testing.T) {
 	blockID := "block-1"
 	// Project-scoped path: metadata.name must be "block-1"
 	intent := "/orgs/default/projects/p1/infra/ip-blocks/" + blockID
-	c := &nsx.Client{}
-	c.ProjectIPBlockUsageClient = &fakeProjectIPBlockUsageClient{
+	fakeClient := &fakeVPCIPBlockUsageClient{
 		listResult: model.IpAddressBlockUsageList{
 			Results: []model.IpAddressBlockUsage{{IntentPath: &intent}},
 		},
 	}
+	c := &nsx.Client{}
+	c.VPCIPBlockUsageClient = fakeClient
 	s := NewIPBlockUsageStorage(c, p)
 	list, err := s.List(context.Background(), "ns1")
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 	assert.Equal(t, blockID, list.Items[0].Name)
+	assert.Equal(t, []string{"vpc1"}, fakeClient.calledVPCs)
 }
-func TestIPBlockUsageStorage_List_DeduplicatesProjects(t *testing.T) {
-	// Two VPCs in the same project should only produce one List call.
+func TestIPBlockUsageStorage_List_DeduplicatesVPCs(t *testing.T) {
+	// Two VPC entries with the same VPC ID should only query that VPC once.
 	vpc1 := eas.VPCEntry{DisplayName: "vpc1", Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}}
-	vpc2 := eas.VPCEntry{DisplayName: "vpc2", Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc2"}}
+	vpc2 := eas.VPCEntry{DisplayName: "vpc1", Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}}
 	p := multiVPCProvider{entries: []eas.VPCEntry{vpc1, vpc2}}
 	blockID := "block-1"
 	intent := "/orgs/default/projects/p1/infra/ip-blocks/" + blockID
-	c := &nsx.Client{}
-	c.ProjectIPBlockUsageClient = &fakeProjectIPBlockUsageClient{
+	fakeClient := &fakeVPCIPBlockUsageClient{
 		listResult: model.IpAddressBlockUsageList{
 			Results: []model.IpAddressBlockUsage{{IntentPath: &intent}},
 		},
 	}
+	c := &nsx.Client{}
+	c.VPCIPBlockUsageClient = fakeClient
 	s := NewIPBlockUsageStorage(c, p)
 	list, err := s.List(context.Background(), "ns1")
 	require.NoError(t, err)
-	// Only one set of results because both VPCs share project p1.
 	require.Len(t, list.Items, 1)
 	assert.Equal(t, blockID, list.Items[0].Name)
+	assert.Equal(t, []string{"vpc1"}, fakeClient.calledVPCs)
+}
+func TestIPBlockUsageStorage_List_MultipleVPCs(t *testing.T) {
+	// Two distinct VPCs in the namespace should each have their IP blocks queried.
+	vpc1 := eas.VPCEntry{DisplayName: "vpc1", Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}}
+	vpc2 := eas.VPCEntry{DisplayName: "vpc2", Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc2"}}
+	p := multiVPCProvider{entries: []eas.VPCEntry{vpc1, vpc2}}
+	intent1 := "/orgs/default/projects/p1/infra/ip-blocks/block-1"
+	intent2 := "/orgs/default/projects/p1/infra/ip-blocks/block-2"
+	fakeClient := &fakeVPCIPBlockUsageClient{
+		listResultsMap: map[string]model.IpAddressBlockUsageList{
+			"vpc1": {Results: []model.IpAddressBlockUsage{{IntentPath: &intent1}}},
+			"vpc2": {Results: []model.IpAddressBlockUsage{{IntentPath: &intent2}}},
+		},
+	}
+	c := &nsx.Client{}
+	c.VPCIPBlockUsageClient = fakeClient
+	s := NewIPBlockUsageStorage(c, p)
+	list, err := s.List(context.Background(), "ns1")
+	require.NoError(t, err)
+	require.Len(t, list.Items, 2)
+	assert.Equal(t, "block-1", list.Items[0].Name)
+	assert.Equal(t, "block-2", list.Items[1].Name)
+	assert.Equal(t, []string{"vpc1", "vpc2"}, fakeClient.calledVPCs)
+}
+func TestIPBlockUsageStorage_List_DeduplicatesSharedBlocksAcrossVPCs(t *testing.T) {
+	// If two VPCs in the same namespace share the same IP block, the block should only appear once.
+	vpc1 := eas.VPCEntry{DisplayName: "vpc1", Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}}
+	vpc2 := eas.VPCEntry{DisplayName: "vpc2", Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc2"}}
+	p := multiVPCProvider{entries: []eas.VPCEntry{vpc1, vpc2}}
+	intent := "/orgs/default/projects/p1/infra/ip-blocks/block-shared"
+	fakeClient := &fakeVPCIPBlockUsageClient{
+		listResult: model.IpAddressBlockUsageList{
+			Results: []model.IpAddressBlockUsage{{IntentPath: &intent}},
+		},
+	}
+	c := &nsx.Client{}
+	c.VPCIPBlockUsageClient = fakeClient
+	s := NewIPBlockUsageStorage(c, p)
+	list, err := s.List(context.Background(), "ns1")
+	require.NoError(t, err)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "block-shared", list.Items[0].Name)
+	assert.Equal(t, []string{"vpc1", "vpc2"}, fakeClient.calledVPCs)
 }

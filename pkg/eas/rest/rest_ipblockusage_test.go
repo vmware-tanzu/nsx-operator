@@ -111,7 +111,7 @@ func TestIPBlockUsageStorage_List_CrossNamespace_ErrorSkipped(t *testing.T) {
 		},
 	}
 	nsxClient := &nsx.Client{}
-	nsxClient.ProjectIPBlockUsageClient = &fakeErrProjectIPBlockUsageClient{}
+	nsxClient.VPCIPBlockUsageClient = &fakeErrVPCIPBlockUsageClient{}
 	r := NewIPBlockUsageStorage(
 		storage.NewIPBlockUsageStorage(nsxClient, provider),
 		provider,
@@ -127,13 +127,9 @@ func TestIPBlockUsageStorage_Destroy(t *testing.T) {
 	(&ipBlockUsageStorage{}).Destroy()
 }
 
-// fakeErrProjectIPBlockUsageClient implements ip_blocks.UsageClient; always errors on List.
-type fakeErrProjectIPBlockUsageClient struct{}
+// fakeErrVPCIPBlockUsageClient implements vpc_ip_blocks.UsageClient; always errors on List.
+type fakeErrVPCIPBlockUsageClient struct{}
 
-func (f *fakeErrProjectIPBlockUsageClient) Get(_, _, _ string) (model.IpAddressBlockUsage, error) {
-	return model.IpAddressBlockUsage{}, fmt.Errorf("nsx unreachable")
-}
-
-func (f *fakeErrProjectIPBlockUsageClient) List(_, _ string, _ *string, _ *bool, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressBlockUsageList, error) {
+func (f *fakeErrVPCIPBlockUsageClient) List(_, _, _ string, _ *string) (model.IpAddressBlockUsageList, error) {
 	return model.IpAddressBlockUsageList{}, fmt.Errorf("nsx unreachable")
 }
