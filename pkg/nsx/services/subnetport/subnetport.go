@@ -491,6 +491,11 @@ func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) [
 		tagName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
 		if tagName == name {
 			result = append(result, subnetport)
+			continue
+		}
+		tagPodName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopePodName)
+		if tagPodName == name {
+			result = append(result, subnetport)
 		}
 	}
 	return result

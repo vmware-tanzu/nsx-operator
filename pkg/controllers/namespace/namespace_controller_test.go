@@ -366,6 +366,21 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 		setupMocks              func(r *NamespaceReconciler) *gomonkey.Patches
 	}{
 		{
+			name:               "Skip case - not create SubnetSet for kube-system when VpcWcpEnhance is true",
+			namespace:          "kube-system",
+			defaultSubnetSize:  24,
+			existingResources:  []client.Object{},
+			expectedError:      false,
+			networkStack:       v1alpha1.FullStackVPC,
+			nameSpaceType:      ctlcommon.SystemNs,
+			expectedSubnetSets: 0,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				tr := true
+				r.NSXConfig.NsxConfig.VpcWcpEnhance = &tr
+				return gomonkey.NewPatches()
+			},
+		},
+		{
 			name:              "Skip case - not create SubnetSet for NormalNs",
 			namespace:         "test-ns",
 			defaultSubnetSize: 24,
