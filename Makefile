@@ -89,6 +89,14 @@ golangci-fix: $(GOLANGCI_LINT_BIN)
 test: manifests generate fmt vet envtest .coverage ## Run tests with clean output (only pass/fail results)
 	./hack/test-unit.sh
 
+.PHONY: test-snaps-update
+test-snaps-update: manifests generate fmt vet envtest .coverage ## Run all unit tests and update/regenerate all snapshots
+	UPDATE_SNAPS=true ./hack/test-unit.sh
+
+.PHONY: test-snaps-cleanup
+test-snaps-cleanup: ## Detect and delete obsolete centralized snapshot files whose feature names are no longer referenced in any Go code
+	@./hack/snaps-cleanup.sh
+
 ##@ Build
 
 .PHONY: build
