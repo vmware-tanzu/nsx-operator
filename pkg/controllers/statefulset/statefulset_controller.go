@@ -72,12 +72,12 @@ func (r *StatefulSetReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Finished reconciling StatefulSet", "StatefulSet", req.NamespacedName, "duration", time.Since(startTime))
 	}()
 
-	r.StatusUpdater.IncreaseSyncTotal()
 	if !r.StatefulSetPodFeatureEnabled() {
 		log.Debug("StatefulSet pod NSX feature disabled; skipping reconcile (pod controller owns SubnetPort lifecycle)",
 			"StatefulSet", req.NamespacedName)
 		return common.ResultNormal, nil
 	}
+	r.StatusUpdater.IncreaseSyncTotal()
 
 	sts := &appsv1.StatefulSet{}
 	if err := r.Client.Get(ctx, req.NamespacedName, sts); err != nil {
@@ -188,7 +188,7 @@ func (r *StatefulSetReconciler) releaseSubnetPortsForStatefulSet(ctx context.Con
 				podUid := util.FindTag(subnetPort.Tags, servicecommon.TagScopePodUID)
 				if pod.UID != types.UID(podUid) {
 					log.Info("Pod UID mismatch, deleting subnet port ", "pod", podName, "podUID", pod.UID, "subnetPortUID", podUid)
-				} else if !common.PodIsDeleted(pod) {
+				} else if !isPodTerminatingOrDeleted(pod) {
 					log.Info("Pod still exists, skipping subnet port deletion", "pod", podName)
 					pendingRunningPod = true
 					continue
@@ -219,6 +219,7 @@ func (r *StatefulSetReconciler) releaseSubnetPortForPod(ctx context.Context, nam
 	log.Info("Releasing subnet port for pod", "pod", podName, "namespace", namespace)
 
 	pod := &corev1.Pod{}
+	podExists := false
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Debug("Pod does not exist, releasing subnet port", "pod", podName, "namespace", namespace)
@@ -226,26 +227,49 @@ func (r *StatefulSetReconciler) releaseSubnetPortForPod(ctx context.Context, nam
 			log.Error(err, "Failed to get pod", "pod", podName, "namespace", namespace)
 			return releaseSubnetPortNoop, err
 		}
-	} else if !common.PodIsDeleted(pod) {
-		log.Debug("Pod still exists, skipping subnet port release", "pod", podName, "namespace", namespace, "podPhase", pod.Status.Phase)
-		return releaseSubnetPortSkippedRunningPod, nil
+	} else {
+		podExists = true
 	}
 
 	targetPorts := r.SubnetPortService.ListSubnetPortByPodName(namespace, podName)
 	if len(targetPorts) == 0 {
+		if podExists && !isPodTerminatingOrDeleted(pod) {
+			log.Debug("Pod still exists, skipping subnet port release", "pod", podName, "namespace", namespace, "podPhase", pod.Status.Phase)
+			return releaseSubnetPortSkippedRunningPod, nil
+		}
 		log.Debug("No subnet port found for pod", "pod", podName)
 		return releaseSubnetPortNoop, nil
 	}
 
+	pendingRunningPod := false
+	releasedAny := false
 	for _, targetPort := range targetPorts {
+		if podExists {
+			podUid := util.FindTag(targetPort.Tags, servicecommon.TagScopePodUID)
+			if pod.UID != types.UID(podUid) {
+				log.Info("Pod UID mismatch, deleting subnet port", "pod", podName, "podUID", pod.UID, "subnetPortUID", podUid)
+			} else if !isPodTerminatingOrDeleted(pod) {
+				log.Debug("Pod still exists, skipping subnet port release", "pod", podName, "namespace", namespace, "podPhase", pod.Status.Phase)
+				pendingRunningPod = true
+				continue
+			}
+		}
+
 		if err := r.SubnetPortService.DeleteSubnetPort(targetPort); err != nil {
 			log.Error(err, "Failed to delete subnet port for pod", "pod", podName)
 			return releaseSubnetPortNoop, err
 		}
+		releasedAny = true
 	}
 
-	log.Info("Successfully released subnet port for pod", "pod", podName)
-	return releaseSubnetPortReleased, nil
+	if pendingRunningPod {
+		return releaseSubnetPortSkippedRunningPod, nil
+	}
+	if releasedAny {
+		log.Info("Successfully released subnet port for pod", "pod", podName)
+		return releaseSubnetPortReleased, nil
+	}
+	return releaseSubnetPortNoop, nil
 }
 
 // stsPodOrdinalFromPort returns the StatefulSet pod ordinal from NSX port tags.
@@ -314,9 +338,14 @@ func (r *StatefulSetReconciler) CollectGarbage(ctx context.Context) error {
 			if idx < start || idx > end {
 				if podName != "" {
 					pod := &corev1.Pod{}
-					if err := r.Client.Get(ctx, types.NamespacedName{Namespace: sts.Namespace, Name: podName}, pod); err == nil && !common.PodIsDeleted(pod) {
-						log.Debug("GC: pod still exists, skipping port deletion", "pod", podName)
-						continue
+					if err := r.Client.Get(ctx, types.NamespacedName{Namespace: sts.Namespace, Name: podName}, pod); err == nil {
+						podUid := util.FindTag(port.Tags, servicecommon.TagScopePodUID)
+						if pod.UID != types.UID(podUid) {
+							log.Info("GC: Pod UID mismatch, deleting subnet port", "pod", podName, "podUID", pod.UID, "subnetPortUID", podUid)
+						} else if !isPodTerminatingOrDeleted(pod) {
+							log.Debug("GC: pod still exists, skipping port deletion", "pod", podName)
+							continue
+						}
 					}
 				}
 				log.Info("StatefulSet garbage collector: found out-of-range port", "index", idx, "stsUID", sts.UID, "start", start, "end", end, "namespace", sts.Namespace)
@@ -337,7 +366,7 @@ func (r *StatefulSetReconciler) CollectGarbage(ctx context.Context) error {
 			namespace := util.FindTag(port.Tags, servicecommon.TagScopeNamespace)
 			if podName != "" && namespace != "" {
 				pod := &corev1.Pod{}
-				if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err == nil && !common.PodIsDeleted(pod) {
+				if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err == nil && !isPodTerminatingOrDeleted(pod) {
 					if isPodBelongToStatefulSet(pod, types.UID(stsID)) {
 						log.Debug("GC: pod still exists and belongs to StatefulSet, skipping orphaned port deletion", "pod", podName)
 						continue
@@ -366,6 +395,15 @@ func isPodBelongToStatefulSet(pod *corev1.Pod, stsID types.UID) bool {
 	return false
 }
 
+// isPodTerminatingOrDeleted reports whether a Pod is terminal (Succeeded / Failed) or terminating (DeletionTimestamp != nil).
+// In StatefulSet context, terminating pods allow eager release of subnet ports during scale-down or deletion.
+func isPodTerminatingOrDeleted(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	return common.PodIsDeleted(pod) || !pod.DeletionTimestamp.IsZero()
+}
+
 func (r *StatefulSetReconciler) GetOrdinalRange(sts *appsv1.StatefulSet) (int, int) {
 	start := 0
 	if sts.Spec.Ordinals != nil {
@@ -373,12 +411,12 @@ func (r *StatefulSetReconciler) GetOrdinalRange(sts *appsv1.StatefulSet) (int, i
 		start = int(sts.Spec.Ordinals.Start)
 	}
 
-	replicas := 0
+	replicas := 1
 	if sts.Spec.Replicas != nil {
 		replicas = int(*sts.Spec.Replicas)
 	}
 
-	if replicas == 0 {
+	if replicas <= 0 {
 		// No desired pods: empty ordinal range. Callers treat any idx>=0 as out-of-range
 		// so handleReplicaChange/GC release all STS-tagged ports for this StatefulSet.
 		return -1, -1
@@ -396,8 +434,9 @@ func (r *StatefulSetReconciler) GetOrdinalRange(sts *appsv1.StatefulSet) (int, i
 // shrinks: either the start moves right (newStart > oldStart) or the end moves left (newEnd < oldEnd).
 // Other updates, including scale-up and unchanged replica/ordinal fields, are ignored.
 //
-// Create and generic events are ignored; subnet wiring for new pods is handled via Pod
-// reconciliation. Delete events are always admitted so the controller can tear down
+// Create events only admit StatefulSets marked for deletion (e.g. terminating StatefulSets
+// discovered on operator restart). Generic events are ignored; subnet wiring for new pods is handled
+// via Pod reconciliation. Delete events are always admitted so the controller can tear down
 // remaining resources for the StatefulSet.
 var PredicateFuncsForStatefulSet = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
@@ -446,7 +485,10 @@ var PredicateFuncsForStatefulSet = predicate.Funcs{
 		return false
 	},
 	CreateFunc: func(e event.CreateEvent) bool {
-		return false
+		if e.Object == nil {
+			return false
+		}
+		return e.Object.GetDeletionTimestamp() != nil
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		return true

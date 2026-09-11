@@ -274,6 +274,14 @@ func TestPredicateFuncsForStatefulSet(t *testing.T) {
 	createEvent := event.CreateEvent{}
 	assert.False(t, PredicateFuncsForStatefulSet.CreateFunc(createEvent))
 
+	now := metav1.Now()
+	createEventWithDeletion := event.CreateEvent{
+		Object: &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &now},
+		},
+	}
+	assert.True(t, PredicateFuncsForStatefulSet.CreateFunc(createEventWithDeletion))
+
 	deleteEvent := event.DeleteEvent{}
 	assert.True(t, PredicateFuncsForStatefulSet.DeleteFunc(deleteEvent))
 
@@ -986,10 +994,10 @@ func TestGetOrdinalRange(t *testing.T) {
 			expectedEnd:   -1,
 		},
 		{
-			name:          "nil replicas",
+			name:          "nil replicas defaults to 1",
 			sts:           &appsv1.StatefulSet{},
-			expectedStart: -1,
-			expectedEnd:   -1,
+			expectedStart: 0,
+			expectedEnd:   0,
 		},
 	}
 
@@ -1088,10 +1096,12 @@ func TestHandleReplicaChange_WithNilDisplayName(t *testing.T) {
 }
 
 func TestReleaseSubnetPortForPod_PodExists(t *testing.T) {
+	livePodUID := types.UID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 	fakeClient := fake.NewClientBuilder().WithObjects(&corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "existing-pod",
 			Namespace: "default",
+			UID:       livePodUID,
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}).Build()
@@ -1104,9 +1114,68 @@ func TestReleaseSubnetPortForPod_PodExists(t *testing.T) {
 		SubnetPortService: subnetPortService,
 	}
 
+	patches := gomonkey.ApplyFunc(
+		(*subnetportservice.SubnetPortService).ListSubnetPortByPodName,
+		func(s *subnetportservice.SubnetPortService, ns string, name string) []*model.VpcSubnetPort {
+			podUIDScope := servicecommon.TagScopePodUID
+			return []*model.VpcSubnetPort{
+				{Id: servicecommon.String("port1"),
+					Tags: []model.Tag{
+						{Scope: &podUIDScope, Tag: servicecommon.String(string(livePodUID))},
+					}},
+			}
+		})
+	defer patches.Reset()
+
 	outcome, err := r.releaseSubnetPortForPod(context.Background(), "default", "existing-pod")
 	assert.NoError(t, err)
 	assert.Equal(t, releaseSubnetPortSkippedRunningPod, outcome)
+}
+
+func TestReleaseSubnetPortForPod_PodUIDMismatchDeletesPort(t *testing.T) {
+	livePodUID := types.UID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	stalePortPodUID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	fakeClient := fake.NewClientBuilder().WithObjects(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod-0",
+			Namespace: "default",
+			UID:       livePodUID,
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}).Build()
+	subnetPortService := &subnetportservice.SubnetPortService{
+		SubnetPortStore: &subnetportservice.SubnetPortStore{},
+	}
+
+	r := &StatefulSetReconciler{
+		Client:            fakeClient,
+		SubnetPortService: subnetPortService,
+	}
+
+	var deleteCalls int
+	patches := gomonkey.ApplyFunc(
+		(*subnetportservice.SubnetPortService).ListSubnetPortByPodName,
+		func(s *subnetportservice.SubnetPortService, ns string, name string) []*model.VpcSubnetPort {
+			podUIDScope := servicecommon.TagScopePodUID
+			return []*model.VpcSubnetPort{
+				{Id: servicecommon.String("port1"),
+					Tags: []model.Tag{
+						{Scope: &podUIDScope, Tag: servicecommon.String(stalePortPodUID)},
+					}},
+			}
+		})
+	patches.ApplyFunc(
+		(*subnetportservice.SubnetPortService).DeleteSubnetPort,
+		func(s *subnetportservice.SubnetPortService, port *model.VpcSubnetPort) error {
+			deleteCalls++
+			return nil
+		})
+	defer patches.Reset()
+
+	outcome, err := r.releaseSubnetPortForPod(context.Background(), "default", "test-pod-0")
+	assert.NoError(t, err)
+	assert.Equal(t, releaseSubnetPortReleased, outcome)
+	assert.Equal(t, 1, deleteCalls, "stale subnet port with mismatched UID should be deleted even if pod is running")
 }
 
 func TestReleaseSubnetPortsForStatefulSet_PodExists(t *testing.T) {
@@ -2376,6 +2445,30 @@ func Test_isPodBelongToStatefulSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			actual := isPodBelongToStatefulSet(tt.pod, tt.stsUID)
 			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
+
+func Test_isPodTerminatingOrDeleted(t *testing.T) {
+	now := metav1.Now()
+	tests := []struct {
+		name string
+		pod  *corev1.Pod
+		want bool
+	}{
+		{"nil pod", nil, false},
+		{"running pod", &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}, false},
+		{"pending pod", &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodPending}}, false},
+		{"terminating pod", &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: &now},
+			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+		}, true},
+		{"succeeded pod", &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodSucceeded}}, true},
+		{"failed pod", &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodFailed}}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isPodTerminatingOrDeleted(tt.pod))
 		})
 	}
 }
