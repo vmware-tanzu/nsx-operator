@@ -278,6 +278,54 @@ func TestSubnetValidator_Handle(t *testing.T) {
 		},
 	})
 
+	// Subnet with IPBlockNames and IPv4
+	subnetIPv4IPBlock, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			IPBlockNames:  []string{":block-1"},
+		},
+	})
+
+	// Updated subnet with changed IPBlockNames and IPv4 (invalid)
+	updatedSubnetIPBlockIPv4, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4,
+			IPBlockNames:  []string{":block-1", ":block-2"},
+		},
+	})
+
+	// Updated subnet with added IPBlockNames and IPv4IPv6 (valid)
+	updatedSubnetIPBlockDualStack, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			IPBlockNames:  []string{":block-1", ":block-2"},
+		},
+	})
+
+	// Updated subnet with removed IPBlockNames and IPv4IPv6 (invalid)
+	updatedSubnetIPBlockDualStackRemoved, _ := json.Marshal(&v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-6",
+			Name:      "subnet-to-update",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+			IPBlockNames:  []string{":block-2"},
+		},
+	})
+
 	type testCase struct {
 		name            string
 		operation       admissionv1.Operation
@@ -528,7 +576,34 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			object:          updatedSubnetIP,
 			oldObject:       oldSubnet,
 			user:            "non-nsx-operator",
-			want:            admission.Denied("ipAddresses is immutable"),
+			want:            admission.Denied("Subnet ipAddresses can only be updated when ipAddressType transitions from IPv4 or IPv6 to IPv4IPv6"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "Update subnet with changed IPBlockNames - invalid without IPAddressType transition",
+			operation:       admissionv1.Update,
+			object:          updatedSubnetIPBlockIPv4,
+			oldObject:       subnetIPv4IPBlock,
+			user:            "non-nsx-operator",
+			want:            admission.Denied("Subnet ipBlockNames can only be updated when ipAddressType transitions from IPv4 or IPv6 to IPv4IPv6"),
+			accessModeCheck: true,
+		},
+		{
+			name:            "Update subnet with changed IPBlockNames - valid conversion (IPv4 to IPv4IPv6 with added block)",
+			operation:       admissionv1.Update,
+			object:          updatedSubnetIPBlockDualStack,
+			oldObject:       subnetIPv4IPBlock,
+			user:            "non-nsx-operator",
+			want:            admission.Allowed(""),
+			accessModeCheck: true,
+		},
+		{
+			name:            "Update subnet with changed IPBlockNames - invalid removal of existing block",
+			operation:       admissionv1.Update,
+			object:          updatedSubnetIPBlockDualStackRemoved,
+			oldObject:       subnetIPv4IPBlock,
+			user:            "non-nsx-operator",
+			want:            admission.Denied("Subnet existing ipBlockNames cannot be removed or modified"),
 			accessModeCheck: true,
 		},
 		{

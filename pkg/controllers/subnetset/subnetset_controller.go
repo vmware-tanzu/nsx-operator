@@ -70,26 +70,12 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 	subnetsetCR.Spec.SubnetNames = &dedupSubnetNames
 
 	if subnetsetCR.Spec.IPAddressType == "" {
-		// IPAddressType should be the intersection of subnet types and supervisor IP family
 		supervisorIPFamily := r.SubnetService.NSXConfig.K8sConfig.GetIPAddressType()
-		var subnetIPTypes []v1alpha1.IPAddressType
-		subnetIPTypes = append(subnetIPTypes, supervisorIPFamily)
-
-		// Collect IP address types from all referenced subnets
-		for _, subnetName := range *subnetsetCR.Spec.SubnetNames {
-			subnet := &v1alpha1.Subnet{}
-			if err := r.Client.Get(ctx, types.NamespacedName{Namespace: subnetsetCR.Namespace, Name: subnetName}, subnet); err != nil {
-				return err
-			}
-			subnetIPTypes = append(subnetIPTypes, subnet.Spec.IPAddressType)
-		}
-
-		// Compute intersection and update SubnetSet
-		intersectedType, err := common.IntersectIPAddressTypes(subnetIPTypes)
+		expectedType, err := common.GetPrecreatedSubnetSetIPAddressType(ctx, r.Client, subnetsetCR.Namespace, subnetsetCR.Spec.SubnetNames, subnetsetCR.Spec.IPAddressType, supervisorIPFamily)
 		if err != nil {
-			return fmt.Errorf("IP address types of Subnets in SubnetSet do not have intersection: %v, ipTypes: %v", err, subnetIPTypes)
+			return err
 		}
-		subnetsetCR.Spec.IPAddressType = intersectedType
+		subnetsetCR.Spec.IPAddressType = expectedType
 		specChanged = true
 	}
 

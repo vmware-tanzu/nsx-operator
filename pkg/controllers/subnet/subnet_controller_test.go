@@ -1707,6 +1707,28 @@ func TestSubnetReconciler_updateSubnetStatus(t *testing.T) {
 			hasChanged: false,
 			expectErr:  false,
 		},
+		{
+			name:       "nil network address status",
+			nsxSubnets: []*model.VpcSubnet{{Id: common.String("subnet-1")}},
+			statusList: []model.VpcSubnetStatus{
+				{
+					GatewayAddress: common.String("10.0.0.1"),
+				},
+			},
+			hasChanged: false,
+			expectErr:  true,
+		},
+		{
+			name:       "nil gateway address status",
+			nsxSubnets: []*model.VpcSubnet{{Id: common.String("subnet-1")}},
+			statusList: []model.VpcSubnetStatus{
+				{
+					NetworkAddress: common.String("10.0.0.0/24"),
+				},
+			},
+			hasChanged: false,
+			expectErr:  true,
+		},
 	}
 
 	for _, tt := range tests {
