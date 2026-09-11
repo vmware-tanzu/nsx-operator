@@ -102,6 +102,26 @@ func (f *fakeProjectIPBlockUsageClient) List(_, _ string, _ *string, _ *bool, _ 
 	return f.listResult, f.err
 }
 
+type fakeVPCIPBlockUsageClient struct {
+	listResult     model.IpAddressBlockUsageList
+	listResultsMap map[string]model.IpAddressBlockUsageList
+	err            error
+	calledVPCs     []string
+}
+
+func (f *fakeVPCIPBlockUsageClient) List(_, _, vpcID string, _ *string) (model.IpAddressBlockUsageList, error) {
+	f.calledVPCs = append(f.calledVPCs, vpcID)
+	if f.err != nil {
+		return model.IpAddressBlockUsageList{}, f.err
+	}
+	if f.listResultsMap != nil {
+		if res, ok := f.listResultsMap[vpcID]; ok {
+			return res, nil
+		}
+	}
+	return f.listResult, nil
+}
+
 type fakeVpcsClient struct {
 	result model.Vpc
 	err    error

@@ -138,9 +138,9 @@ func extractProjectFromPath(path string) string {
 	return ""
 }
 
-// List retrieves IP block usage for all project-scoped IP blocks associated with the namespace.
-// It resolves the project ID from VPC entries in the namespace and calls
-// /orgs/{org}/projects/{project}/infra/ip-blocks/{block}/usage for each unique project.
+// List retrieves IP block usage for all IP blocks used by the VPCs associated with the namespace.
+// It resolves the VPC entries in the namespace and calls
+// /orgs/{org}/projects/{project}/vpcs/{vpc}/ip-blocks/usage for each unique VPC.
 // metadata.name per item uses the block ID (last path segment) regardless of scope.
 func (s *IPBlockUsageStorage) List(_ context.Context, namespace string) (*easv1alpha1.IPBlockUsageList, error) {
 	log := logger.Log
@@ -163,27 +163,34 @@ func (s *IPBlockUsageStorage) List(_ context.Context, namespace string) (*easv1a
 		Items: make([]easv1alpha1.IPBlockUsage, 0),
 	}
 
-	// Deduplicate by project ID: multiple VPCs can share the same project.
-	seen := make(map[string]struct{})
+	// Deduplicate by VPC ID: multiple entries may reference the same VPC.
+	seenVPC := make(map[string]struct{})
+	seenBlocks := make(map[string]struct{})
 	for _, entry := range vpcInfos {
-		pid := entry.Info.ProjectID
-		if pid == "" {
+		info := entry.Info
+		orgID, pid, vpcID := info.OrgID, info.ProjectID, info.VPCID
+		if orgID == "" || pid == "" || vpcID == "" {
 			continue
 		}
-		if _, ok := seen[pid]; ok {
+		if _, ok := seenVPC[vpcID]; ok {
 			continue
 		}
-		seen[pid] = struct{}{}
+		seenVPC[vpcID] = struct{}{}
 
-		orgID := entry.Info.OrgID
-		log.Debug("Fetching project IP block usage from NSX", "orgID", orgID, "projectID", pid)
-		nsxList, err := s.nsxClient.ProjectIPBlockUsageClient.List(orgID, pid, nil, nil, nil, nil, nil, nil, nil)
+		log.Debug("Fetching VPC IP block usage from NSX", "orgID", orgID, "projectID", pid, "vpcID", vpcID)
+		nsxList, err := s.nsxClient.VPCIPBlockUsageClient.List(orgID, pid, vpcID, nil)
 		if err != nil {
-			return nil, HandleEASError(err, "ipblockusages", "", fmt.Errorf("failed to list IP block usage for project %s: %w", pid, err))
+			return nil, HandleEASError(err, "ipblockusages", "", fmt.Errorf("failed to list IP block usage for VPC %s: %w", vpcID, err))
 		}
 		items := ConvertIpAddressBlockUsageList(&nsxList, pid, namespace)
-		log.Debug("Got project IP block usage", "projectID", pid, "itemCount", len(items))
-		list.Items = append(list.Items, items...)
+		log.Debug("Got VPC IP block usage", "vpcID", vpcID, "itemCount", len(items))
+		for _, item := range items {
+			if _, ok := seenBlocks[item.Name]; ok {
+				continue
+			}
+			seenBlocks[item.Name] = struct{}{}
+			list.Items = append(list.Items, item)
+		}
 	}
 
 	return list, nil
