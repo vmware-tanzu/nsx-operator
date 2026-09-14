@@ -2152,6 +2152,83 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 			restoreMode: true,
 			expectedErr: "mocked getSubnetBySubnetPort error",
 		},
+		{
+			name: "ReusePortAnnotationSuccess",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return nil, nil
+					})
+				patches.ApplyFunc((*subnetport.SubnetPortService).ListSubnetPortByName,
+					func(s *subnetport.SubnetPortService, ns string, name string) []*model.VpcSubnetPort {
+						if ns == "kube-system" && name == "old-vm" {
+							return []*model.VpcSubnetPort{
+								{
+									Id:         servicecommon.String("reused-port-id"),
+									ParentPath: servicecommon.String("subnet-path-reused"),
+								},
+							}
+						}
+						return nil
+					})
+				return patches
+			},
+			expectedSubnetPath: "subnet-path-reused",
+			expectedIsExisting: true,
+			subnetport: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-vm",
+					Namespace: "user-ns",
+					Annotations: map[string]string{
+						servicecommon.AnnotationReusePort: "kube-system/old-vm",
+					},
+				},
+			},
+		},
+		{
+			name: "ReusePortAnnotationEmpty",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return nil, nil
+					})
+				return patches
+			},
+			expectedErr: "reused port cannot be empty",
+			subnetport: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "empty-anno-vm",
+					Namespace: "user-ns",
+					Annotations: map[string]string{
+						servicecommon.AnnotationReusePort: "",
+					},
+				},
+			},
+		},
+		{
+			name: "ReusePortAnnotationNotFound",
+			prepareFunc: func(t *testing.T, spr *SubnetPortReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+					func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+						return nil, nil
+					})
+				patches.ApplyFunc((*subnetport.SubnetPortService).ListSubnetPortByName,
+					func(s *subnetport.SubnetPortService, ns string, name string) []*model.VpcSubnetPort {
+						return nil
+					})
+				return patches
+			},
+			expectedErr: "reused port kube-system/not-exist not found in runtime store",
+			subnetport: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "notfound-anno-vm",
+					Namespace: "user-ns",
+					Annotations: map[string]string{
+						servicecommon.AnnotationReusePort: "kube-system/not-exist",
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
