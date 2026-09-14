@@ -47,10 +47,16 @@ spec:
                 description: IPAllocationName defines the IPAddressAllocation CR name
                   that supplies the IP of VPC endpoint.
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
               serviceEndpointName:
                 description: ServiceEndpointName is the VPC service endpoint name
                   being consumed.
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             required:
             - ipAllocationName
             - serviceEndpointName
