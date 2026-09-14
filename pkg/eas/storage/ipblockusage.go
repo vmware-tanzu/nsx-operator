@@ -44,10 +44,8 @@ func NewIPBlockUsageStorage(nsxClient *nsx.Client, vpcService eas.VPCInfoProvide
 // Get retrieves IP block usage for a single IP block identified by name.
 //
 // If name starts with ":", it is treated as an NSX infra IP block ID (global scope).
-// Otherwise it is treated as a project-scoped IP block: the namespace's VPC is resolved.
-// For external / privateTGW IP blocks, the VPC Connectivity Profile is checked to find
-// the block path and extract the correct project ID. For private IP blocks (not found in
-// the connectivity profile), the VPC's own project ID is used directly.
+// Otherwise it is treated as a VPC-scoped IP block: the namespace's VPC is resolved
+// and /orgs/{org}/projects/{project}/vpcs/{vpc}/ip-blocks/usage is queried from NSX.
 // The returned object has metadata.name set to the original name.
 func (s *IPBlockUsageStorage) Get(_ context.Context, namespace, name string) (*easv1alpha1.IPBlockUsage, error) {
 	log := logger.Log
@@ -66,81 +64,44 @@ func (s *IPBlockUsageStorage) Get(_ context.Context, namespace, name string) (*e
 		return ConvertIpAddressBlockUsage(&nsxUsage, name, namespace), nil
 	}
 
-	// Project scope: resolve via namespace VPC
+	// VPC scope: resolve via namespace VPC
 	blockID := name
 	vpcInfos := s.vpcService.ListVPCInfo(namespace)
 	if len(vpcInfos) == 0 {
 		return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "ipblockusages"}, name), "ipblockusages", name, nil)
 	}
 
+	seenVPC := make(map[string]struct{})
 	for _, entry := range vpcInfos {
 		info := entry.Info
-		orgID, projectID, vpcID := info.OrgID, info.ProjectID, info.VPCID
-		if orgID == "" || projectID == "" || vpcID == "" {
+		orgID, pid, vpcID := info.OrgID, info.ProjectID, info.VPCID
+		if orgID == "" || pid == "" || vpcID == "" {
 			continue
 		}
+		if _, ok := seenVPC[vpcID]; ok {
+			continue
+		}
+		seenVPC[vpcID] = struct{}{}
 
-		matchedProjectID, ok := s.resolveProjectBlock(orgID, projectID, vpcID, blockID)
-		if ok {
-			log.Debug("Fetching project IP block usage from NSX", "namespace", namespace, "projectID", matchedProjectID, "ipBlockID", blockID)
-			nsxUsage, err := s.nsxClient.ProjectIPBlockUsageClient.Get(orgID, matchedProjectID, blockID)
-			if err != nil {
-				return nil, HandleEASError(err, "ipblockusages", name, fmt.Errorf("failed to get IP block usage for project %s, block %s: %w", matchedProjectID, blockID, err))
+		log.Debug("Fetching VPC IP block usage from NSX", "namespace", namespace, "vpcID", vpcID, "ipBlockID", blockID)
+		nsxList, err := s.nsxClient.VPCIPBlockUsageClient.List(orgID, pid, vpcID, nil)
+		if err != nil {
+			return nil, HandleEASError(err, "ipblockusages", name, fmt.Errorf("failed to get IP block usage for VPC %s, block %s: %w", vpcID, blockID, err))
+		}
+		items := ConvertIpAddressBlockUsageList(&nsxList, pid, namespace)
+		for _, item := range items {
+			if item.Name == blockID {
+				return &item, nil
 			}
-			return ConvertIpAddressBlockUsage(&nsxUsage, name, namespace), nil
 		}
 	}
 
 	return nil, HandleEASError(k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: "ipblockusages"}, blockID), "ipblockusages", blockID, nil)
 }
 
-// resolveProjectBlock checks the given VPC's connectivity profile for external /
-// privateTGW IP block references. If blockID is found there, the project ID is
-// extracted from the block path. If not found, the block is assumed to be a
-// private IP block in the VPC's own project and the VPC's projectID is returned.
-func (s *IPBlockUsageStorage) resolveProjectBlock(orgID, projectID, vpcID, blockID string) (string, bool) {
-	// Fetch VPC attachments to get connectivity profile
-	attachments, err := s.nsxClient.VpcAttachmentClient.List(orgID, projectID, vpcID, nil, nil, nil, nil, nil, nil)
-	if err == nil && len(attachments.Results) > 0 && attachments.Results[0].VpcConnectivityProfile != nil {
-		profilePath := *attachments.Results[0].VpcConnectivityProfile
-		profileName := policyPathLeaf(profilePath)
-		profile, err := s.nsxClient.VPCConnectivityProfilesClient.Get(orgID, projectID, profileName)
-		if err == nil {
-			for _, path := range profile.ExternalIpBlocks {
-				if policyPathLeaf(path) == blockID {
-					if pid := extractProjectFromPath(path); pid != "" {
-						return pid, true
-					}
-				}
-			}
-			for _, path := range profile.PrivateTgwIpBlocks {
-				if policyPathLeaf(path) == blockID {
-					if pid := extractProjectFromPath(path); pid != "" {
-						return pid, true
-					}
-				}
-			}
-		}
-	}
-
-	// Block not found in connectivity profile; assume it is a private block
-	// in the VPC's own project.
-	return projectID, true
-}
-
-func extractProjectFromPath(path string) string {
-	parts := splitPolicyPath(path)
-	for i, p := range parts {
-		if p == "projects" && i+1 < len(parts) {
-			return parts[i+1]
-		}
-	}
-	return ""
-}
-
-// List retrieves IP block usage for all project-scoped IP blocks associated with the namespace.
-// It resolves the project ID from VPC entries in the namespace and calls
-// /orgs/{org}/projects/{project}/infra/ip-blocks/{block}/usage for each unique project.
+// List retrieves IP block usage for all IP blocks used by the VPCs associated with the namespace.
+// It resolves the VPC entries in the namespace and calls
+// /orgs/{org}/projects/{project}/vpcs/{vpc}/ip-blocks/usage for each unique VPC.
 // metadata.name per item uses the block ID (last path segment) regardless of scope.
 func (s *IPBlockUsageStorage) List(_ context.Context, namespace string) (*easv1alpha1.IPBlockUsageList, error) {
 	log := logger.Log
@@ -163,27 +124,34 @@ func (s *IPBlockUsageStorage) List(_ context.Context, namespace string) (*easv1a
 		Items: make([]easv1alpha1.IPBlockUsage, 0),
 	}
 
-	// Deduplicate by project ID: multiple VPCs can share the same project.
-	seen := make(map[string]struct{})
+	// Deduplicate by VPC ID: multiple entries may reference the same VPC.
+	seenVPC := make(map[string]struct{})
+	seenBlocks := make(map[string]struct{})
 	for _, entry := range vpcInfos {
-		pid := entry.Info.ProjectID
-		if pid == "" {
+		info := entry.Info
+		orgID, pid, vpcID := info.OrgID, info.ProjectID, info.VPCID
+		if orgID == "" || pid == "" || vpcID == "" {
 			continue
 		}
-		if _, ok := seen[pid]; ok {
+		if _, ok := seenVPC[vpcID]; ok {
 			continue
 		}
-		seen[pid] = struct{}{}
+		seenVPC[vpcID] = struct{}{}
 
-		orgID := entry.Info.OrgID
-		log.Debug("Fetching project IP block usage from NSX", "orgID", orgID, "projectID", pid)
-		nsxList, err := s.nsxClient.ProjectIPBlockUsageClient.List(orgID, pid, nil, nil, nil, nil, nil, nil, nil)
+		log.Debug("Fetching VPC IP block usage from NSX", "orgID", orgID, "projectID", pid, "vpcID", vpcID)
+		nsxList, err := s.nsxClient.VPCIPBlockUsageClient.List(orgID, pid, vpcID, nil)
 		if err != nil {
-			return nil, HandleEASError(err, "ipblockusages", "", fmt.Errorf("failed to list IP block usage for project %s: %w", pid, err))
+			return nil, HandleEASError(err, "ipblockusages", "", fmt.Errorf("failed to list IP block usage for VPC %s: %w", vpcID, err))
 		}
 		items := ConvertIpAddressBlockUsageList(&nsxList, pid, namespace)
-		log.Debug("Got project IP block usage", "projectID", pid, "itemCount", len(items))
-		list.Items = append(list.Items, items...)
+		log.Debug("Got VPC IP block usage", "vpcID", vpcID, "itemCount", len(items))
+		for _, item := range items {
+			if _, ok := seenBlocks[item.Name]; ok {
+				continue
+			}
+			seenBlocks[item.Name] = struct{}{}
+			list.Items = append(list.Items, item)
+		}
 	}
 
 	return list, nil
