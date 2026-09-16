@@ -42,7 +42,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
-	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
 )
 
@@ -1279,8 +1278,9 @@ func testSSHConnection(host, username, password string, port int, timeout time.D
 
 	address := net.JoinHostPort(host, strconv.Itoa(port))
 
-	return retry.Do(
-		func() error {
+	var lastErr error
+	for attempt := uint(0); attempt < attempts; attempt++ {
+		lastErr = func() error {
 			conn, err := ssh.Dial("tcp", address, cfg)
 			if err != nil {
 				return fmt.Errorf("failed to establish SSH connection to %s: %w", address, err)
@@ -1302,14 +1302,18 @@ func testSSHConnection(host, username, password string, port int, timeout time.D
 			}()
 
 			return nil
-		},
-		retry.Attempts(attempts),
-		retry.Delay(delay),
-		retry.OnRetry(func(n uint, err error) {
-			log.Info("Retrying SSH connection", "attempt", n+1, "total_attempts", attempts, "error", err)
-		}),
-		retry.LastErrorOnly(true),
-	)
+		}()
+
+		if lastErr == nil {
+			return nil
+		}
+
+		if attempt < attempts-1 {
+			log.Info("Retrying SSH connection", "attempt", attempt+1, "total_attempts", attempts, "error", lastErr)
+			time.Sleep(delay)
+		}
+	}
+	return lastErr
 }
 
 // getRandomString generates a random string by hashing the current timestamp
