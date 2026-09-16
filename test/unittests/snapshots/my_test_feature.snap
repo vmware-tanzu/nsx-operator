@@ -1,0 +1,15 @@
+
+[TestAssertOutput_Success - 1]
+{
+ "metadata": {
+  "component": "my-component",
+  "description": "my-description",
+  "scenario": "my-scenario"
+ },
+ "payload": {
+  "name": "test-resource",
+  "resourceVersion": "MASKED_RESOURCE_VERSION",
+  "uid": "MASKED_UID"
+ }
+}
+---
