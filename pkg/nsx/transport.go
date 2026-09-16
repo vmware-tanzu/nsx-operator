@@ -49,7 +49,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			ep.wait()
 			util.DumpHttpRequest(r)
 			waitTime := time.Since(start)
-			if resp, resul = t.base().RoundTrip(r); resul != nil {
+			if resp, resul = t.base().RoundTrip(r); resul != nil { //nolint:bodyclose // response body is backed up and returned to caller
 				ep.setStatus(DOWN)
 				return handleRoundTripError(resul, ep)
 			}

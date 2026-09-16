@@ -556,12 +556,10 @@ func TestConnectStrings(t *testing.T) {
 	int1 := 11
 	int2 := 22
 	connectString = connectStrings(common.ConnectorUnderline, strconv.Itoa(int1), strconv.Itoa(int2))
-	expString = "11" + common.ConnectorUnderline + "22"
 	expString = fmt.Sprintf("%d%s%d", int1, common.ConnectorUnderline, int2)
 	assert.Equal(t, connectString, expString)
 
 	connectString = connectStrings(common.ConnectorUnderline, string1, strconv.Itoa(int2))
-	expString = "aa" + common.ConnectorUnderline + "22"
 	expString = fmt.Sprintf("%s%s%d", string1, common.ConnectorUnderline, int2)
 	assert.Equal(t, connectString, expString)
 }

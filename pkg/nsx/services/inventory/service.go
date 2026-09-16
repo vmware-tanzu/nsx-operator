@@ -26,7 +26,11 @@ func (s *InventoryService) initContainerApplication(clusterId string) error {
 		if cursor != "" {
 			opts.Cursor = optional.New(cursor)
 		}
-		applications, _, err := s.NSXClient.NsxApiClient.ContainerApplicationsApi.ListContainerApplications(context.Background(), opts)
+		applications, resp, err := s.NSXClient.NsxApiClient.ContainerApplicationsApi.ListContainerApplications(context.Background(), opts)
+		// Defensively close response body to satisfy bodyclose and guard against connection leaks if SDK internals change.
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			return fmt.Errorf("failed to retrieve ContainerApplication err: %w", err)
 		}

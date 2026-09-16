@@ -148,7 +148,7 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 			ipv4SubnetSize:   0,
 			ipv6PrefixLength: 64,
 			dhcpMode:         "",
-			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigModeServer,
 			expectIPv4Config: false,
 			expectIPv6Config: true,
 			expectStaticIP:   false,
@@ -159,7 +159,7 @@ func TestBuildSubnetForSubnetSet(t *testing.T) {
 			ipv4SubnetSize:   24,
 			ipv6PrefixLength: 64,
 			dhcpMode:         v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
-			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigModeServerStateless,
 			expectIPv4Config: true,
 			expectIPv6Config: true,
 			expectStaticIP:   false,
@@ -285,7 +285,7 @@ func TestBuildSubnetStaticIPAllocationParity(t *testing.T) {
 	}
 
 	dhcpModes := []v1alpha1.DHCPConfigMode{"", v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer)}
-	dhcpv6Modes := []v1alpha1.DHCPv6ConfigMode{"", v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer)}
+	dhcpv6Modes := []v1alpha1.DHCPv6ConfigMode{"", v1alpha1.DHCPv6ConfigModeServer}
 	ipTypes := []v1alpha1.IPAddressType{
 		v1alpha1.IPAddressTypeIPv4,
 		v1alpha1.IPAddressTypeIPv6,
@@ -1471,14 +1471,14 @@ func TestBuildSubnetForSubnet_IPv6(t *testing.T) {
 		{
 			name:             "IPv6 subnet with DHCPv6 Server",
 			ipAddressType:    v1alpha1.IPAddressTypeIPv6,
-			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigModeServer,
 			ipv6PrefixLength: 64,
 			expectedDHCPv6:   true,
 		},
 		{
 			name:             "IPv4IPv6 dual stack with DHCPv6",
 			ipAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
-			dhcpv6Mode:       v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServerStateless),
+			dhcpv6Mode:       v1alpha1.DHCPv6ConfigModeServerStateless,
 			ipv6PrefixLength: 80,
 			expectedDHCPv6:   true,
 		},

@@ -14,7 +14,14 @@ linters:
     - gosec
     - govet
     - revive
+    - bodyclose
+    - ineffassign
+    - nilerr
+    - unconvert
   settings:
+    govet:
+      enable:
+        - nilness
     revive:
       severity: warning
       confidence: 0.8
@@ -67,6 +74,11 @@ linters:
         # configs are generated for this project the existing test helpers cannot be
         # migrated, so suppress the warning project-wide.
         text: "SA1019: kubefake.NewSimpleClientset is deprecated"
+      - linters:
+          - nilerr
+        # In e2e tests, wait.Poll* callbacks return (false, nil) on error to retry polling
+        # until timeout rather than aborting immediately on transient API failures.
+        path: ^test/e2e/.*
 
 formatters:
   enable:

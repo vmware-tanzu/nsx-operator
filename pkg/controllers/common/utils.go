@@ -588,7 +588,7 @@ func CheckAccessModeOrVisibility(client k8sclient.Client, ctx context.Context, n
 			return fmt.Errorf("IPAddressVisibility other than External is not supported for VLANBackedVPC")
 		}
 	} else {
-		if tepLess && (accessMode == string(v1alpha1.AccessModePrivate) || accessMode == string(v1alpha1.AccessModeProject)) {
+		if tepLess && (accessMode == v1alpha1.AccessModePrivate || accessMode == v1alpha1.AccessModeProject) {
 			return fmt.Errorf("AccessMode other than Public/L2Only is not supported for VLANBackedVPC")
 		}
 
@@ -708,7 +708,7 @@ func ConvertNSXIPAddressTypeToCR(nsxType string) v1alpha1.IPAddressType {
 	case NSXIPAddressTypeIPv4IPv6:
 		return v1alpha1.IPAddressTypeIPv4IPv6
 	default:
-		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", string(nsxType))
+		log.Warn("Unknown IP address type, defaulting to IPv4", "unknownType", nsxType)
 		return v1alpha1.IPAddressTypeIPv4
 	}
 }

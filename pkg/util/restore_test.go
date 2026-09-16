@@ -166,7 +166,7 @@ func TestCompareNSXRestore(t *testing.T) {
 						Status: &model.GlobalRestoreStatus{
 							Value: common.String(RestoreStatusSuccess),
 						},
-						RestoreEndTime: common.Int64(int64(time.Now().AddDate(0, 0, -1).UnixMilli())),
+						RestoreEndTime: common.Int64(time.Now().AddDate(0, 0, -1).UnixMilli()),
 					}, nil
 				})
 				return patches

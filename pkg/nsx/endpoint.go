@@ -151,6 +151,7 @@ func (ep *Endpoint) keepAlive() error {
 		log.Error(err, "Failed to validate API cluster", "endpoint", ep.Host())
 		return err
 	}
+	defer resp.Body.Close()
 	var a epHealthy
 	err, body := util.HandleHTTPResponse(resp, &a, true)
 	if err == nil && a.Healthy {

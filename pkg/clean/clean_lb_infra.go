@@ -102,7 +102,7 @@ func (s *LBInfraCleaner) CleanupInfraResources(ctx context.Context) error {
 func (s *LBInfraCleaner) cleanupInfraSharedResources(ctx context.Context) error {
 	store, err := s.queryNCPCreatedResources([]string{common.ResourceTypeSharedResource}, model.SharedResourceBindingType(), nil)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var srSet []*model.SharedResource

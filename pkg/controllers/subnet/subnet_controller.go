@@ -372,7 +372,7 @@ func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj cli
 	if util.IPAddressTypeIncludesIPv6(subnetCR.Spec.IPAddressType) {
 		dhcpv6Mode := subnetCR.Spec.SubnetDHCPv6Config.Mode
 		if dhcpv6Mode == "" {
-			dhcpv6Mode = v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeDeactivated)
+			dhcpv6Mode = v1alpha1.DHCPv6ConfigModeDeactivated
 		}
 		statusMsgs = append(statusMsgs, fmt.Sprintf("DHCPv6: %s", dhcpv6Mode))
 	}

@@ -48,7 +48,11 @@ func (s *InventoryService) initContainerClusterNode(clusterId string) error {
 		if cursor != "" {
 			opts.Cursor = optional.New(cursor)
 		}
-		nodes, _, err := s.NSXClient.NsxApiClient.ContainerClustersApi.ListContainerClusterNodes(context.Background(), opts)
+		nodes, resp, err := s.NSXClient.NsxApiClient.ContainerClustersApi.ListContainerClusterNodes(context.Background(), opts)
+		// Defensively close response body to satisfy bodyclose and guard against connection leaks if SDK internals change.
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			return fmt.Errorf("failed to retrieve container cluster nodes err: %w", err)
 		}

@@ -1011,7 +1011,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 	} else {
-		subnetSet := &v1alpha1.SubnetSet{}
+		var subnetSet *v1alpha1.SubnetSet
 		subnetSet, err = common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.DefaultVMNetwork)
 		if err != nil {
 			return

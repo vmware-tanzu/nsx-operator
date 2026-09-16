@@ -104,7 +104,6 @@ func (service *IPAddressAllocationService) indexedIPAddressAllocation(uid types.
 }
 
 func (ipAddressAllocationStore *IPAddressAllocationStore) GetByUID(uid types.UID) (*model.VpcIpAddressAllocation, error) {
-	nsxIPAddressAllocation := &model.VpcIpAddressAllocation{}
 	indicies := []string{common.TagScopeIPAddressAllocationCRUID, common.TagScopeAddressBindingCRUID, common.TagScopeSubnetPortCRUID}
 	var indexResults []interface{}
 	for _, index := range indicies {
@@ -117,13 +116,10 @@ func (ipAddressAllocationStore *IPAddressAllocationStore) GetByUID(uid types.UID
 	}
 
 	if len(indexResults) > 0 {
-		t := indexResults[0].(*model.VpcIpAddressAllocation)
-		nsxIPAddressAllocation = t
-	} else {
-		log.Info("did not get ipaddressallocation with index", "UID", string(uid))
-		return nil, nil
+		return indexResults[0].(*model.VpcIpAddressAllocation), nil
 	}
-	return nsxIPAddressAllocation, nil
+	log.Info("did not get ipaddressallocation with index", "UID", string(uid))
+	return nil, nil
 }
 
 func (ipAddressAllocationStore *IPAddressAllocationStore) GetByVPCPath(vpcPath string) ([]*model.VpcIpAddressAllocation, error) {

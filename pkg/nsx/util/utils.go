@@ -402,7 +402,7 @@ func (e *NSXApiError) Type() apierrors.ErrorTypeEnum {
 // If the processed API error is nil, return the original error
 func TransNSXApiError(err error) error {
 	if err == nil {
-		return err
+		return nil
 	}
 	apierror, errorType := DumpAPIError(err)
 	if apierror == nil {
