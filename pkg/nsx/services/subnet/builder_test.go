@@ -796,6 +796,28 @@ func TestBuildSubnetWithCustomDHCPServerAddresses(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, nsxSubnet4.AdvancedConfig)
 	assert.Equal(t, false, *nsxSubnet4.AdvancedConfig.StaticIpAllocation.Enabled)
+
+	// Test case 5: DHCPv6 Server Stateless active + custom DHCP server addresses (should be set)
+	subnet5 := &v1alpha1.Subnet{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      "subnet-dhcpv6-stateless-custom",
+			Namespace: "ns-1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddresses: []string{"fd00:1234:5678:9abc::/64"},
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+				Mode: v1alpha1.DHCPv6ConfigModeServerStateless,
+			},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				DHCPServerAddresses: []string{"fd00:1234:5678:9abc::5"},
+			},
+		},
+	}
+
+	nsxSubnet5, err := service.buildSubnet(subnet5, tags, []string{})
+	assert.Nil(t, err)
+	assert.NotNil(t, nsxSubnet5.AdvancedConfig)
+	assert.Equal(t, []string{"fd00:1234:5678:9abc::5"}, nsxSubnet5.AdvancedConfig.DhcpServerAddresses)
 }
 
 // ─── IPv6 / dual-stack builder tests ────────────────────────────────────────
