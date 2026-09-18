@@ -487,6 +487,82 @@ func TestPodReconciler_CollectGarbage(t *testing.T) {
 	r.CollectGarbage(context.TODO())
 }
 
+func TestPodReconciler_CollectGarbage_PodIsDeleted(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{
+			Client: k8sClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+	}
+	r := &PodReconciler{
+		Client:            k8sClient,
+		Scheme:            nil,
+		SubnetPortService: service,
+	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, r.SubnetPortService.NSXConfig, r.Recorder, MetricResTypePod, "SubnetPort", "Pod")
+
+	ListNSXSubnetPortIDForPod := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListNSXSubnetPortIDForPod,
+		func(s *subnetport.SubnetPortService) sets.Set[string] {
+			return sets.New("port-active", "port-deleted")
+		})
+	defer ListNSXSubnetPortIDForPod.Reset()
+
+	patchesGetVpcSubnetPortByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+		func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			if uid == "uid-active" {
+				return &model.VpcSubnetPort{Id: servicecommon.String("port-active")}, nil
+			}
+			if uid == "uid-deleted" {
+				return &model.VpcSubnetPort{Id: servicecommon.String("port-deleted")}, nil
+			}
+			return nil, nil
+		})
+	defer patchesGetVpcSubnetPortByUID.Reset()
+
+	deletedPorts := sets.New[string]()
+	patchesDeleteSubnetPortById := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPortById,
+		func(s *subnetport.SubnetPortService, uid string) error {
+			deletedPorts.Insert(uid)
+			return nil
+		})
+	defer patchesDeleteSubnetPortById.Reset()
+
+	podList := &v1.PodList{}
+	k8sClient.EXPECT().List(gomock.Any(), podList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		a := list.(*v1.PodList)
+		a.Items = []v1.Pod{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  "uid-active",
+					Name: "pod-active",
+				},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					UID:  "uid-deleted",
+					Name: "pod-deleted",
+				},
+				Status: v1.PodStatus{
+					Phase: v1.PodSucceeded,
+				},
+			},
+		}
+		return nil
+	})
+
+	err := r.CollectGarbage(context.TODO())
+	assert.Nil(t, err)
+	assert.True(t, deletedPorts.Has("port-deleted"), "deleted pod subnet port should be collected by GC")
+	assert.False(t, deletedPorts.Has("port-active"), "active pod subnet port should not be collected by GC")
+}
+
 func TestPodReconciler_GetNodeByName(t *testing.T) {
 	r := &PodReconciler{
 		NodeServiceReader: &node.NodeService{},
