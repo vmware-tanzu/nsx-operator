@@ -101,6 +101,7 @@ const (
 	AnnotationReconfigureNic           string = "nsx/reconfigure-nic"
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	AnnotationAttachment               string = "nsx.vmware.com/attachment"
+	AnnotationESXHostName              string = "pod.vmware.com/esx-host-name"
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
 	TagScopePodName                    string = "nsx-op/pod_name"
 	TagScopePodUID                     string = "nsx-op/pod_uid"

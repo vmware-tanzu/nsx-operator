@@ -13,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,6 +23,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -783,4 +785,94 @@ func ValidateAccessModeTransition(oldAccessMode, newAccessMode v1alpha1.AccessMo
 // IsConditionSemanticEqual checks if two conditions are semantically equal.
 func IsConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.Condition) bool {
 	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
+}
+
+// GetPodNameForSubnetPort returns the owner Pod's name for a SubnetPort, or empty if not owned by a Pod.
+func GetPodNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) string {
+	if subnetPort == nil {
+		return ""
+	}
+	for _, ref := range subnetPort.GetOwnerReferences() {
+		if ref.Kind == "Pod" {
+			return ref.Name
+		}
+	}
+	return ""
+}
+
+// GetSubnetPortForPod searches for the SubnetPort CR associated with the given Pod via ownerReferences.
+func GetSubnetPortForPod(ctx context.Context, c k8sclient.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
+	if pod == nil {
+		return nil, nil
+	}
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	spIndexValue := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
+	err := c.List(ctx, subnetPortList, k8sclient.MatchingFields{util.SubnetPortNamespacePodIndexKey: spIndexValue})
+	if err != nil {
+		return nil, err
+	}
+	for _, sp := range subnetPortList.Items {
+		for _, ref := range sp.GetOwnerReferences() {
+			if ref.Kind == "Pod" && ref.UID == pod.UID {
+				return &sp, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// GenerateSubnetPortName generates a SubnetPort name following the naming convention:
+// Attempt 0: pod-<pod_name[:20]>-<pod_uid[:8]>
+// Attempt 1: pod-<pod_name[:20]>-<pod_uid> (full UID)
+// Attempt >= 2: pod-<pod_name[:20]>-<random_8_char>
+func GenerateSubnetPortName(pod *v1.Pod, attempt int) string {
+	podNamePrefix := pod.Name
+	if len(podNamePrefix) > 20 {
+		podNamePrefix = podNamePrefix[:20]
+	}
+	podUID := string(pod.UID)
+	switch attempt {
+	case 0:
+		uidShort := podUID
+		if len(uidShort) > 8 {
+			uidShort = uidShort[:8]
+		}
+		return fmt.Sprintf("pod-%s-%s", podNamePrefix, uidShort)
+	case 1:
+		return fmt.Sprintf("pod-%s-%s", podNamePrefix, podUID)
+	default:
+		return fmt.Sprintf("pod-%s-%s", podNamePrefix, rand.String(8))
+	}
+}
+
+// GetNodeByName returns the HostTransportNode for a node name using the NodeServiceReader.
+func GetNodeByName(nodeServiceReader servicecommon.NodeServiceReader, nodeName string) (*model.HostTransportNode, error) {
+	if nodeServiceReader == nil {
+		return nil, fmt.Errorf("nodeServiceReader is nil")
+	}
+	nodes := nodeServiceReader.GetNodeByName(nodeName)
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("node %s not found", nodeName)
+	}
+	if len(nodes) > 1 {
+		var nodeIDs []string
+		for _, node := range nodes {
+			nodeIDs = append(nodeIDs, *node.UniqueId)
+		}
+		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
+	}
+	return nodes[0], nil
+}
+
+// GetStsUID retrieves the StatefulSet UID tag from a VpcSubnetPort.
+func GetStsUID(nsxSubnetPort *model.VpcSubnetPort) string {
+	if nsxSubnetPort == nil {
+		return ""
+	}
+	return nsxutil.FindTag(nsxSubnetPort.Tags, servicecommon.TagScopeStatefulSetUID)
+}
+
+// IsStatefulSetSubnetPort checks if a VpcSubnetPort has a StatefulSet UID tag.
+func IsStatefulSetSubnetPort(nsxSubnetPort *model.VpcSubnetPort) bool {
+	return GetStsUID(nsxSubnetPort) != ""
 }

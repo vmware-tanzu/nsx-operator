@@ -1491,3 +1491,100 @@ func TestValidateAccessModeTransition(t *testing.T) {
 		})
 	}
 }
+
+func TestGetPodNameForSubnetPort(t *testing.T) {
+	assert.Equal(t, "", GetPodNameForSubnetPort(nil))
+
+	spNoOwner := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sp-1",
+		},
+	}
+	assert.Equal(t, "", GetPodNameForSubnetPort(spNoOwner))
+
+	spPodOwner := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sp-1",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Kind: "Pod",
+					Name: "pod-1",
+					UID:  "uid-1",
+				},
+			},
+		},
+	}
+	assert.Equal(t, "pod-1", GetPodNameForSubnetPort(spPodOwner))
+}
+
+func TestGenerateSubnetPortName(t *testing.T) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-long-pod-name-exceeding-twenty-characters",
+			UID:  "12345678-abcd-1234-abcd-1234567890ab",
+		},
+	}
+	// Attempt 0: pod-<name[:20]>-<uid[:8]>
+	name0 := GenerateSubnetPortName(pod, 0)
+	assert.Equal(t, "pod-my-long-pod-name-exc-12345678", name0)
+
+	// Attempt 1: pod-<name[:20]>-<full_uid>
+	name1 := GenerateSubnetPortName(pod, 1)
+	assert.Equal(t, "pod-my-long-pod-name-exc-12345678-abcd-1234-abcd-1234567890ab", name1)
+
+	// Attempt 2: pod-<name[:20]>-<random_8_char>
+	name2 := GenerateSubnetPortName(pod, 2)
+	assert.True(t, strings.HasPrefix(name2, "pod-my-long-pod-name-exc-"))
+	assert.Equal(t, len("pod-my-long-pod-name-exc-")+8, len(name2))
+}
+
+type fakeNodeServiceReader struct {
+	nodes map[string][]*model.HostTransportNode
+}
+
+func (f *fakeNodeServiceReader) GetNodeByName(nodeName string) []*model.HostTransportNode {
+	return f.nodes[nodeName]
+}
+
+func TestGetNodeByName(t *testing.T) {
+	_, err := GetNodeByName(nil, "node1")
+	assert.Error(t, err)
+
+	mockReader := &fakeNodeServiceReader{
+		nodes: map[string][]*model.HostTransportNode{
+			"node1": {
+				{UniqueId: servicecommon.String("id-1")},
+			},
+			"node2": {
+				{UniqueId: servicecommon.String("id-2a")},
+				{UniqueId: servicecommon.String("id-2b")},
+			},
+		},
+	}
+
+	node, err := GetNodeByName(mockReader, "node1")
+	assert.NoError(t, err)
+	assert.Equal(t, "id-1", *node.UniqueId)
+
+	_, err = GetNodeByName(mockReader, "node2")
+	assert.Error(t, err)
+
+	_, err = GetNodeByName(mockReader, "node3")
+	assert.Error(t, err)
+}
+
+func TestStatefulSetSubnetPortHelpers(t *testing.T) {
+	assert.False(t, IsStatefulSetSubnetPort(nil))
+	assert.Equal(t, "", GetStsUID(nil))
+
+	port := &model.VpcSubnetPort{
+		Tags: []model.Tag{
+			{
+				Scope: servicecommon.String(servicecommon.TagScopeStatefulSetUID),
+				Tag:   servicecommon.String("sts-uid-123"),
+			},
+		},
+	}
+	assert.True(t, IsStatefulSetSubnetPort(port))
+	assert.Equal(t, "sts-uid-123", GetStsUID(port))
+}
