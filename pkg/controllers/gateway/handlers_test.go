@@ -523,3 +523,135 @@ func TestIsGatewayOwnedByService(t *testing.T) {
 		})
 	}
 }
+
+func TestPredicateFuncsGateway(t *testing.T) {
+	p := predicateFuncsGateway
+
+	baseProgrammedGW := func(name string, gen int64, obsGen int64, progStatus metav1.ConditionStatus) *gatewayv1.Gateway {
+		return &gatewayv1.Gateway{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:  "default",
+				Name:       name,
+				Generation: gen,
+			},
+			Spec: gatewayv1.GatewaySpec{
+				GatewayClassName: "istio",
+				Listeners: []gatewayv1.Listener{
+					{
+						Name:     "http",
+						Port:     80,
+						Protocol: gatewayv1.HTTPProtocolType,
+					},
+				},
+			},
+			Status: gatewayv1.GatewayStatus{
+				Addresses: []gatewayv1.GatewayStatusAddress{
+					{
+						Type:  ptrGatewayAddressType(gatewayv1.IPAddressType),
+						Value: "10.0.0.1",
+					},
+				},
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(gatewayv1.GatewayConditionProgrammed),
+						Status:             progStatus,
+						ObservedGeneration: obsGen,
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("CreateFunc", func(t *testing.T) {
+		gwValid := baseProgrammedGW("gw1", 1, 1, metav1.ConditionTrue)
+		assert.True(t, p.Create(event.CreateEvent{Object: gwValid}))
+
+		gwUnprogrammed := baseProgrammedGW("gw2", 1, 1, metav1.ConditionFalse)
+		assert.False(t, p.Create(event.CreateEvent{Object: gwUnprogrammed}))
+
+		gwMismatch := baseProgrammedGW("gw3", 2, 1, metav1.ConditionTrue)
+		assert.False(t, p.Create(event.CreateEvent{Object: gwMismatch}))
+
+		gwNoIP := baseProgrammedGW("gw4", 1, 1, metav1.ConditionTrue)
+		gwNoIP.Status.Addresses = nil
+		assert.False(t, p.Create(event.CreateEvent{Object: gwNoIP}))
+
+		gwUnmanaged := baseProgrammedGW("gw5", 1, 1, metav1.ConditionTrue)
+		gwUnmanaged.Spec.GatewayClassName = "unmanaged-class"
+		assert.False(t, p.Create(event.CreateEvent{Object: gwUnmanaged}))
+	})
+
+	t.Run("UpdateFunc", func(t *testing.T) {
+		// Programmed status recovery (UBMWM-10251):
+		// oldObj was unprogrammed (observedGeneration mismatch after port edit),
+		// newObj is programmed (observedGeneration updated to current generation).
+		oldUnprog := baseProgrammedGW("gw", 2, 1, metav1.ConditionTrue)
+		newProg := baseProgrammedGW("gw", 2, 2, metav1.ConditionTrue)
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldUnprog, ObjectNew: newProg}))
+
+		// Programmed condition recovery from ConditionFalse to ConditionTrue:
+		oldFalse := baseProgrammedGW("gw", 1, 1, metav1.ConditionFalse)
+		newTrue := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldFalse, ObjectNew: newTrue}))
+
+		// Programmed condition lost:
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: oldFalse}))
+
+		// Other condition changes (e.g. DNSRecordReady updated) while Programmed remains True:
+		// Should NOT trigger reconcile (avoids infinite reconcile loop).
+		oldWithDNS := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newWithDNS := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newWithDNS.Status.Conditions = append(newWithDNS.Status.Conditions, metav1.Condition{
+			Type:   "DNSRecordReady",
+			Status: metav1.ConditionTrue,
+		})
+		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldWithDNS, ObjectNew: newWithDNS}))
+
+		// Unchanged gateway:
+		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newTrue}))
+
+		// Both unprogrammed:
+		oldUnprog1 := baseProgrammedGW("gw", 1, 1, metav1.ConditionFalse)
+		newUnprog2 := baseProgrammedGW("gw", 1, 1, metav1.ConditionFalse)
+		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldUnprog1, ObjectNew: newUnprog2}))
+
+		// GatewayClassName changed:
+		newClass := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newClass.Spec.GatewayClassName = "avi-lb"
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newClass}))
+
+		// Hostname annotation changed:
+		newAnno := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newAnno.Annotations = map[string]string{servicecommon.AnnotationDNSHostnameKey: "foo.example.com"}
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newAnno}))
+
+		// DNSSkip annotation changed:
+		newSkip := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newSkip.Annotations = map[string]string{servicecommon.AnnotationsDNSSkip: "true"}
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newSkip}))
+
+		// Status.Addresses changed:
+		newAddr := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newAddr.Status.Addresses = []gatewayv1.GatewayStatusAddress{
+			{Type: ptrGatewayAddressType(gatewayv1.IPAddressType), Value: "10.0.0.2"},
+		}
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newAddr}))
+
+		// OwnerReferences changed:
+		newOwner := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newOwner.OwnerReferences = []metav1.OwnerReference{{Kind: "Service", Name: "svc1"}}
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newOwner}))
+
+		// Listeners changed:
+		newListener := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newListener.Spec.Listeners = []gatewayv1.Listener{
+			{Name: "http", Port: 8080, Protocol: gatewayv1.HTTPProtocolType},
+		}
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newListener}))
+	})
+
+	t.Run("DeleteFunc", func(t *testing.T) {
+		gw := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		assert.True(t, p.Delete(event.DeleteEvent{Object: gw}))
+	})
+}
