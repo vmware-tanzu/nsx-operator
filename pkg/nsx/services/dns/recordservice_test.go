@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
@@ -32,6 +33,7 @@ import (
 	searchmocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/searchclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
 
@@ -689,10 +691,94 @@ func TestDedupeRecordsByPath(t *testing.T) {
 }
 
 func TestDeleteDnsRecordOnNSX(t *testing.T) {
-	env := newTestDNSRecordService(t, BuildDNSRecordStore())
-	p := "/orgs/org1/projects/proj1/dns-records/rec1"
-	err := env.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
-	require.NoError(t, err)
+	t.Run("success", func(t *testing.T) {
+		env := newTestDNSRecordService(t, BuildDNSRecordStore())
+		p := "/orgs/org1/projects/proj1/dns-records/rec1"
+		err := env.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
+		require.NoError(t, err)
+	})
+
+	t.Run("404 treated as success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		dnsRec := dnsrecmocks.NewMockDnsRecordsClient(ctrl)
+		dnsRec.EXPECT().Delete("org1", "proj1", "rec1").Return(nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_NOT_FOUND))
+		builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
+		require.NoError(t, err)
+		svc := &DNSRecordService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{DnsRecordsClient: dnsRec},
+			},
+			DnsRecordBuilder: builder,
+		}
+		p := "/orgs/org1/projects/proj1/dns-records/rec1"
+		err = svc.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
+		require.NoError(t, err)
+	})
+
+	t.Run("pending delete related error 500045 treated as success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		pendingCode := int64(nsxutil.PendingDeleteErrorCode)
+		relatedCode := int64(100)
+		dnsRec := dnsrecmocks.NewMockDnsRecordsClient(ctrl)
+		dnsRec.EXPECT().Delete("org1", "proj1", "rec1").Return(nsxutil.NewNSXApiError(&model.ApiError{
+			ErrorCode: &relatedCode,
+			RelatedErrors: []model.RelatedApiError{
+				{ErrorCode: &pendingCode},
+			},
+		}, ""))
+		builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
+		require.NoError(t, err)
+		svc := &DNSRecordService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{DnsRecordsClient: dnsRec},
+			},
+			DnsRecordBuilder: builder,
+		}
+		p := "/orgs/org1/projects/proj1/dns-records/rec1"
+		err = svc.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
+		require.NoError(t, err)
+	})
+
+	t.Run("pending delete NSXApiError 500045 treated as success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		pendingCode := int64(nsxutil.PendingDeleteErrorCode)
+		dnsRec := dnsrecmocks.NewMockDnsRecordsClient(ctrl)
+		dnsRec.EXPECT().Delete("org1", "proj1", "rec1").Return(nsxutil.NewNSXApiError(&model.ApiError{
+			ErrorCode: &pendingCode,
+		}, ""))
+		builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
+		require.NoError(t, err)
+		svc := &DNSRecordService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{DnsRecordsClient: dnsRec},
+			},
+			DnsRecordBuilder: builder,
+		}
+		p := "/orgs/org1/projects/proj1/dns-records/rec1"
+		err = svc.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
+		require.NoError(t, err)
+	})
+
+	t.Run("generic error returns error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+		dnsRec := dnsrecmocks.NewMockDnsRecordsClient(ctrl)
+		dnsRec.EXPECT().Delete("org1", "proj1", "rec1").Return(errors.New("backend timeout"))
+		builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
+		require.NoError(t, err)
+		svc := &DNSRecordService{
+			Service: servicecommon.Service{
+				NSXClient: &nsx.Client{DnsRecordsClient: dnsRec},
+			},
+			DnsRecordBuilder: builder,
+		}
+		p := "/orgs/org1/projects/proj1/dns-records/rec1"
+		err = svc.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
+		require.Error(t, err)
+	})
 }
 
 func TestAppendRecordOwnershipTags_table(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -669,5 +670,20 @@ func (s *DNSRecordService) deleteDnsRecordOnNSX(live *model.DnsRecord) error {
 	}
 	log.Info("Deleting DnsRecord from NSX", "Id", recordID)
 	err = s.NSXClient.DnsRecordsClient.Delete(orgID, projectID, recordID)
-	return nsxutil.TransNSXApiError(err)
+	err = nsxutil.TransNSXApiError(err)
+	if err == nil {
+		return nil
+	}
+	var nsxApiErr *nsxutil.NSXApiError
+	if errors.As(err, &nsxApiErr) {
+		if nsxApiErr.Type() == apierrors.ErrorType_NOT_FOUND {
+			log.Info("DnsRecord not found on NSX during deletion, treating as deleted", "Id", recordID)
+			return nil
+		}
+		if nsxutil.IsPendingDelete(nsxApiErr) {
+			log.Info("DnsRecord is already marked for deletion on NSX", "Id", recordID)
+			return nil
+		}
+	}
+	return err
 }
