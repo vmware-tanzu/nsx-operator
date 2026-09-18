@@ -58,10 +58,11 @@ var (
 )
 
 var (
-	vmOrInterfaceNotFoundError          = fmt.Errorf("VM or interface not found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
-	subnetPortRealizationError          = fmt.Errorf("SubnetPort realization error") //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
-	multipleInterfaceFoundError         = fmt.Errorf("multiple interfaces found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
-	errorAddressBindingIPv6NotSupported = fmt.Errorf("address binding is not supported for IPv6")
+	vmOrInterfaceNotFoundError                  = fmt.Errorf("VM or interface not found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	subnetPortRealizationError                  = fmt.Errorf("SubnetPort realization error") //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	multipleInterfaceFoundError                 = fmt.Errorf("multiple interfaces found")    //nolint:staticcheck // ST1012: renaming would change variable names referenced in tests
+	errorAddressBindingIPv6NotSupported         = fmt.Errorf("address binding is not supported for IPv6")
+	errorAddressBindingPublicSubnetNotSupported = fmt.Errorf("address binding is not supported for public subnet")
 )
 
 // SubnetPortReconciler reconciles a SubnetPort object
@@ -113,11 +114,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		if isParentResourceTerminating {
 			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
 			return common.ResultNormal, err
 		}
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
 			return common.ResultRequeue, err
 		}
 		if !isExisting {
@@ -131,7 +132,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		var labels *map[string]string
 		vm, nicName, err := r.getVirtualMachine(ctx, subnetPort, r.restoreMode)
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get labels from VirtualMachine", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get labels from VirtualMachine", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
 			return common.ResultRequeue, err
 		}
 		if vm != nil {
@@ -154,9 +155,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					err = errors.Join(err, e)
 				}
 			}
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
 			return common.ResultRequeue, err
 		}
+		isPublicSubnet := nsxSubnet != nil && nsxSubnet.AccessMode != nil && strings.EqualFold(*nsxSubnet.AccessMode, model.VpcSubnet_ACCESS_MODE_PUBLIC)
 		// If SubnetPort is created before VM creation, VM Operator will update the SubnetPort for owner references
 		// Under certain race conditions, the backfilled InterfaceIPType and StaticIPAllocationType in SubnetPort spec may be overwritten by the VM Operator
 		// If the NSX SubnetPort is created, interfaceIPType here will be empty. The correct interfaceIPType shall be generated based on NSX Subnet IPAddressType
@@ -165,7 +167,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if nsxSubnet != nil && nsxSubnet.IpAddressType != nil {
 				parentIPAddressType = common.ConvertNSXIPAddressTypeToCR(*nsxSubnet.IpAddressType)
 			}
-			interfaceIPType, err = subnetport.GetDefaultInterfaceIPType(interfaceIPType, parentIPAddressType)
+			interfaceIPType, err = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, parentIPAddressType)
 			if err != nil {
 				return common.ResultNormal, err
 			}
@@ -177,7 +179,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		raDeactivated, err := r.VPCService.IsRADeactivatedByVPCPath(nsxSubnetPath)
 		if err != nil {
 			log.Error(err, "Failed to determine RA mode for SubnetPort's VPC", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to determine RA mode for SubnetPort's VPC", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to determine RA mode for SubnetPort's VPC", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			return common.ResultNormal, err
 		}
 
@@ -190,17 +192,17 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			(*labels)[servicecommon.LabelImageFetcher] = "true"
 		}
 		var ab *v1alpha1.AddressBinding
-		if interfaceIPType != v1alpha1.IPAddressTypeIPv6 {
+		if interfaceIPType != v1alpha1.IPAddressTypeIPv6 && !isPublicSubnet {
 			ab = r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
 			err = r.IpAddressAllocationService.CreateIPAddressAllocationForAddressBinding(ab, subnetPort, r.restoreMode)
 			if err != nil {
-				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 				return common.ResultRequeue, err
 			}
 		}
 		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			if nsxutil.IsRealizeStateError(err) {
 				return common.ResultRequeueAfter60sec, nil
 			}
@@ -211,7 +213,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
 				if err != nil {
 					log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
-					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 					return common.ResultRequeue, err
 				}
 			}
@@ -224,7 +226,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				// since mixed-mode Subnets can realize the DHCP family first.
 				if !realizedBindingsCoverStaticFamilies(nsxSubnetPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType) {
 					err = errors.New("IP and MAC are missing for SubnetPort")
-					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 					return common.ResultNormal, err
 				}
 			}
@@ -281,7 +283,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// If the SubnetPort CR's status changed, let's clean the conditions, to ensure the r.Client.Status().Update in the following updateSuccess will be invoked at any time.
 			subnetPort.Status.Conditions = nil
 		}
-		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService)
+		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService, isPublicSubnet)
 		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 			// UpdateSuccess may fail due to k8s connection or update conflicts.
 			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
@@ -328,13 +330,13 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		vpcSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 		if err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-			setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError)
+			setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError, false)
 			return common.ResultRequeue, err
 		}
 		if vpcSubnetPort != nil {
 			if err = r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError)
+				setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError, false)
 				return common.ResultRequeue, err
 			}
 		}
@@ -346,13 +348,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultRequeue, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
-		setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), vmOrInterfaceNotFoundError)
+		setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), vmOrInterfaceNotFoundError, false)
 	}
 	return common.ResultNormal, nil
 }
 
 func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subnetPort *v1alpha1.SubnetPort, interfaceIPType v1alpha1.IPAddressType, nsxSubnet *model.VpcSubnet) error {
 	specChanged := false
+	isPublicSubnet := nsxSubnet != nil && nsxSubnet.AccessMode != nil && strings.EqualFold(*nsxSubnet.AccessMode, model.VpcSubnet_ACCESS_MODE_PUBLIC)
 	if subnetPort.Spec.InterfaceIPType == "" {
 		subnetPort.Spec.InterfaceIPType = interfaceIPType
 		specChanged = true
@@ -363,14 +366,14 @@ func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subne
 	} else if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
 		// User-set StaticIPAllocationType must be a subset of InterfaceIPType.
 		if err := validateStaticIPSubsetOfInterface(subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.InterfaceIPType); err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "SubnetPort spec is invalid", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "SubnetPort spec is invalid", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			return err
 		}
 	}
 	if specChanged {
 		err := r.Client.Update(ctx, subnetPort)
 		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to update SubnetPort InterfaceIPType or StaticIPAllocationType", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to update SubnetPort InterfaceIPType or StaticIPAllocationType", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			return err
 		}
 	}
@@ -782,14 +785,15 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 }
 
 func setReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, args ...interface{}) {
-	if len(args) != 1 {
-		log.Error(nil, "SubnetPortService are needed when updating SubnetPort status")
+	if len(args) != 2 {
+		log.Error(nil, "SubnetPortService and isPublicSubnet are needed when updating SubnetPort status")
 		return
 	}
 	subnetPort := obj.(*v1alpha1.SubnetPort)
 	subnetPortService := args[0].(*subnetport.SubnetPortService)
+	isPublicSubnet := args[1].(bool)
 	setSubnetPortReadyStatusTrue(client, ctx, obj, transitionTime)
-	setAddressBindingStatusBySubnetPort(client, ctx, subnetPort, subnetPortService, transitionTime, nil)
+	setAddressBindingStatusBySubnetPort(client, ctx, subnetPort, subnetPortService, transitionTime, nil, isPublicSubnet)
 }
 
 func setSubnetPortReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time) {
@@ -807,13 +811,14 @@ func setSubnetPortReadyStatusTrue(client client.Client, ctx context.Context, obj
 }
 
 func setSubnetPortReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
-	if len(args) != 2 {
-		log.Error(nil, "restoreMode and SubnetPortService are needed when updating SubnetPort status")
+	if len(args) != 3 {
+		log.Error(nil, "SubnetPortService, restoreMode, and isPublicSubnet are needed when updating SubnetPort status")
 		return
 	}
 	subnetPort := obj.(*v1alpha1.SubnetPort)
 	subnetPortService := args[0].(*subnetport.SubnetPortService)
 	restoreMode := args[1].(bool)
+	isPublicSubnet := args[2].(bool)
 	newConditions := []v1alpha1.Condition{
 		{
 			Type:   v1alpha1.Ready,
@@ -831,7 +836,7 @@ func setSubnetPortReadyStatusFalse(client client.Client, ctx context.Context, ob
 		// We need to reserve the Status info on the AddressBinding for the restore.
 		return
 	}
-	setAddressBindingStatusBySubnetPort(client, ctx, subnetPort, subnetPortService, transitionTime, subnetPortRealizationError)
+	setAddressBindingStatusBySubnetPort(client, ctx, subnetPort, subnetPortService, transitionTime, subnetPortRealizationError, isPublicSubnet)
 }
 
 func updateSubnetPortStatusConditions(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, newConditions []v1alpha1.Condition) {
@@ -1372,10 +1377,12 @@ func (r *SubnetPortReconciler) collectAddressBindingGarbage(ctx context.Context,
 	}
 }
 
-func setAddressBindingStatusBySubnetPort(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
+func setAddressBindingStatusBySubnetPort(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error, isPublicSubnet bool) {
 	ipAddress := ""
 	if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv6 {
 		e = errorAddressBindingIPv6NotSupported
+	} else if isPublicSubnet {
+		e = errorAddressBindingPublicSubnetNotSupported
 	} else {
 		nsxSubnetPort, err := subnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 		if err != nil {

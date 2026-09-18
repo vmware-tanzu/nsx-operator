@@ -48,7 +48,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var staticIpAllocationType string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
-		externalAddressBinding, err = service.buildExternalAddressBinding(o, restoreMode)
+		externalAddressBinding, err = service.buildExternalAddressBinding(o, nsxSubnet, restoreMode)
 		if err != nil {
 			return nil, err
 		}
@@ -294,9 +294,13 @@ func getCluster(service *SubnetPortService) string {
 	return service.NSXConfig.Cluster
 }
 
-func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort, restoreMode bool) (*model.ExternalAddressBinding, error) {
+func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet, restoreMode bool) (*model.ExternalAddressBinding, error) {
 	if sp.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv6 {
 		// IPv6 is not supported in ExternalAddressBinding
+		return nil, nil
+	}
+	if nsxSubnet != nil && nsxSubnet.AccessMode != nil && strings.EqualFold(*nsxSubnet.AccessMode, model.VpcSubnet_ACCESS_MODE_PUBLIC) {
+		// Public Subnet is not supported in ExternalAddressBinding
 		return nil, nil
 	}
 	addressBinding := service.GetAddressBindingBySubnetPort(sp)
