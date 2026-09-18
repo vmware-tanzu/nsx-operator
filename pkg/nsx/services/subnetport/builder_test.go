@@ -1438,9 +1438,10 @@ func TestBuildSubnetPortIdAndName_reuseSTSPortByUIDAndPodName(t *testing.T) {
 	assert.Equal(t, "test-pod", name)
 }
 
-// TestBuildSubnetPortMACPool verifies that the MAC_POOL migration guard works correctly:
-// - Normal reconcile (non-restore): existing status MAC must NOT trigger NONE→MAC_POOL migration
-// - Restore mode: existing status MAC IS included so NSX re-uses the same MAC
+// TestBuildSubnetPortMACPool verifies that for SubnetPort without MAC specified,
+// NONE is used instead of MAC_POOL in both normal and backup/restore modes:
+// - Normal reconcile (non-restore): uses NONE and does not bind MAC
+// - Restore mode: also uses NONE and does not bind MAC
 func TestBuildSubnetPortMACPool(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -1494,25 +1495,23 @@ func TestBuildSubnetPortMACPool(t *testing.T) {
 		},
 	}
 
-	// Non-restore: existing MAC in status must NOT cause MAC_POOL migration.
+	// Non-restore: SubnetPort without MAC specified uses NONE.
 	port, err := service.buildSubnetPort(spWithStatusMAC, dhcpSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
 	assert.Nil(t, err)
 	assert.Equal(t, "NONE", *port.Attachment.AllocateAddresses)
 	assert.Empty(t, port.AddressBindings)
 
-	// Restore mode: existing MAC in status IS preserved via MAC_POOL so NSX reuses it.
+	// Restore mode: SubnetPort without MAC specified also uses NONE.
 	port, err = service.buildSubnetPort(spWithStatusMAC, dhcpSubnet, "ctx", nil, false, true, v1alpha1.IPAddressTypeIPv4)
 	assert.Nil(t, err)
-	assert.Equal(t, "MAC_POOL", *port.Attachment.AllocateAddresses)
-	if assert.Len(t, port.AddressBindings, 1) {
-		assert.Equal(t, "aa:bb:cc:dd:ee:ff", *port.AddressBindings[0].MacAddress)
-	}
+	assert.Equal(t, "NONE", *port.Attachment.AllocateAddresses)
+	assert.Empty(t, port.AddressBindings)
 }
 
 // TestBuildSubnetPortIPOnlyAllocateAddresses verifies allocateAddresses when the
 // user specifies an IP only (no MAC) on NSX 9.2+:
 //   - staticIPAllocationType set (IP falls in the subnet's static IP pool) -> BOTH
-//   - staticIPAllocationType None (IP outside any static pool)             -> MAC_POOL
+//   - staticIPAllocationType None (IP outside any static pool)             -> NONE
 func TestBuildSubnetPortIPOnlyAllocateAddresses(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)
@@ -1578,11 +1577,11 @@ func TestBuildSubnetPortIPOnlyAllocateAddresses(t *testing.T) {
 		assert.Equal(t, "10.0.0.5", *port.AddressBindings[0].IpAddress)
 	}
 
-	// IP is not in any static IP pool (staticIPAllocationType None) -> MAC_POOL.
+	// IP is not in any static IP pool (staticIPAllocationType None) -> NONE.
 	spOutOfPool := newSP("b", v1alpha1.StaticIPAllocationTypeNone)
 	port, err = service.buildSubnetPort(spOutOfPool, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
 	assert.Nil(t, err)
-	assert.Equal(t, "MAC_POOL", *port.Attachment.AllocateAddresses)
+	assert.Equal(t, "NONE", *port.Attachment.AllocateAddresses)
 	if assert.Len(t, port.AddressBindings, 1) {
 		assert.Equal(t, "10.0.0.5", *port.AddressBindings[0].IpAddress)
 	}

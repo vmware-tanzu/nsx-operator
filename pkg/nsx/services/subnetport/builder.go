@@ -116,7 +116,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	//   static non-None + MAC → IP_POOL
 	//   static non-None + no MAC → BOTH
 	//   static None + MAC → NONE
-	//   static None + no MAC → MAC_POOL (guarded below)
+	//   static None + no MAC → NONE
 	isStaticEnabled := staticIpAllocationType != controllercommon.NSXIPAddressTypeNone
 	if isStaticEnabled {
 		if hasMacSpecified {
@@ -125,30 +125,8 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			allocateAddresses = "BOTH"
 		}
 	} else {
-		if hasMacSpecified {
-			allocateAddresses = "NONE"
-		} else {
-			allocateAddresses = "MAC_POOL"
-		}
-	}
-	// MAC_POOL for DHCP subnets requires NSX 9.2+ with VpcWcpEnhance. On older versions
-	// or when the feature is disabled, fall back to NONE (current behavior).
-	if allocateAddresses == "MAC_POOL" {
-		if !nsx.MacPoolDHCPFeatureEnabled(service.NSXClient, service.NSXConfig) {
-			allocateAddresses = "NONE"
-		} else if len(addressBindings) == 0 {
-			// MAC_POOL requires non-empty bindings (NSX SwitchingValidator rejects empty ones).
-			// In restore mode: the NSX port was deleted and is being recreated — include the
-			// existing status MAC so NSX re-uses it instead of allocating a new pool MAC.
-			// In normal reconciliation: leave NONE so existing ports are not mass-migrated
-			// (their MACs were assigned in NONE mode and NSX will reject a MAC_POOL update).
-			if sp, ok := obj.(*v1alpha1.SubnetPort); ok && restoreMode && len(sp.Status.NetworkInterfaceConfig.MACAddress) > 0 {
-				mac := sp.Status.NetworkInterfaceConfig.MACAddress
-				addressBindings = append(addressBindings, model.PortAddressBindingEntry{MacAddress: &mac})
-			} else {
-				allocateAddresses = "NONE"
-			}
-		}
+		// TODO: MAC_POOL is not fully supported on NSX for DHCP subnets yet, use NONE for now.
+		allocateAddresses = "NONE"
 	}
 
 	var nsxCIFID uuid.UUID
