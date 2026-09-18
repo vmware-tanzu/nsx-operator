@@ -6,7 +6,6 @@ package gateway
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -95,7 +94,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			res, derr := r.clearGatewayDNSRecordsAndCache(ctx, gw, req, "Gateway not found")
 			if derr != nil {
 				log.Error(derr, "Failed to delete unmanaged gateway", "Gateway", req.NamespacedName)
-				return common.ResultRequeueAfter10sec, nil
+				return res, nil
 			}
 			return res, nil
 		}
@@ -110,7 +109,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		res, derr := r.clearGatewayDNSRecordsAndCache(ctx, gw, req, reason)
 		if derr != nil {
 			log.Error(derr, "Failed to delete unmanaged gateway", "Gateway", req.NamespacedName)
-			return common.ResultRequeueAfter10sec, nil
+			return res, nil
 		}
 		return res, nil
 	}
@@ -151,16 +150,10 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		r.enqueueAttachedRoutesForGatewayDNSFromAPI(ctx, nn)
 	}
 
-	var dnsErr error
 	if err := r.reconcileGatewayDNS(ctx, gw); err != nil {
 		log.Error(err, "Failed to reconcile DNS for Gateway", "Gateway", req.NamespacedName)
-		dnsErr = fmt.Errorf("reconciling DNS: %w", err)
-	}
-
-	if dnsErr != nil {
-		r.StatusUpdater.UpdateFail(ctx, gw, dnsErr, "reconciling DNS record failed", nil)
-		log.Info("Reconciling Gateway failed", "Gateway", req.NamespacedName, "error", dnsErr)
-		return common.ResultRequeueAfter10sec, nil
+		r.StatusUpdater.UpdateFail(ctx, gw, err, "reconciling DNS record failed", nil)
+		return common.RequeueResultFromReconcileError(err), nil
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, gw, nil)
 	log.Info("Reconciling Gateway", "Gateway", req.NamespacedName, "IPs", entry.IPs)
@@ -180,7 +173,7 @@ func (r *GatewayReconciler) clearGatewayDNSRecordsAndCache(ctx context.Context, 
 	if _, err := r.DNS.DeleteRecordByOwnerNN(ctx, dns.ResourceKindGateway, gw.Namespace, gw.Name); err != nil {
 		r.StatusUpdater.DeleteFail(req.NamespacedName, gw, err)
 		log.Error(err, "Failed to delete DNS records for Gateway", "Gateway", req.NamespacedName)
-		return common.ResultRequeueAfter10sec, err
+		return common.RequeueResultFromReconcileError(err), err
 	}
 	if uerr := r.removeGatewayDNSConfigCondition(ctx, gwNN); uerr != nil {
 		log.Error(uerr, "Failed to clear Gateway DNSRecordReady condition", "Gateway", req.NamespacedName)

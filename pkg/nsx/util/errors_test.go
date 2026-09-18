@@ -1,6 +1,8 @@
 package util
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -324,6 +326,144 @@ func TestIsIPAllocationError(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestIsPendingDelete(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *NSXApiError
+		expected bool
+	}{
+		{
+			name:     "NilError",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "NilApiError",
+			err:      &NSXApiError{},
+			expected: false,
+		},
+		{
+			name:     "NSXApiError directly with PendingDeleteErrorCode",
+			err:      &NSXApiError{ApiError: &model.ApiError{ErrorCode: int64Ptr(PendingDeleteErrorCode)}},
+			expected: true,
+		},
+		{
+			name: "NSXApiError with RelatedErrors containing PendingDeleteErrorCode",
+			err: &NSXApiError{
+				ApiError: &model.ApiError{
+					ErrorCode: int64Ptr(100),
+					RelatedErrors: []model.RelatedApiError{
+						{ErrorCode: int64Ptr(PendingDeleteErrorCode)},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name:     "NSXApiError with other error code",
+			err:      &NSXApiError{ApiError: &model.ApiError{ErrorCode: int64Ptr(12345)}},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsPendingDelete(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestRetryAfterError(t *testing.T) {
+	delErr := CreateNsxPendingDelete()
+	assert.Equal(t, DefaultPendingDeleteRetryAfterSeconds, delErr.RetryAfterSeconds())
+	assert.Equal(t, 300, delErr.RetryAfterSeconds())
+
+	// Interface check
+	var retriable RetryAfterError = delErr
+	assert.Equal(t, 300, retriable.RetryAfterSeconds())
+
+	// AsRetryAfterError direct
+	r, ok := AsRetryAfterError(delErr)
+	assert.True(t, ok)
+	assert.Equal(t, 300, r.RetryAfterSeconds())
+
+	// AsRetryAfterError wrapped
+	wrapped := fmt.Errorf("wrapped context: %w", delErr)
+	r, ok = AsRetryAfterError(wrapped)
+	assert.True(t, ok)
+	assert.Equal(t, 300, r.RetryAfterSeconds())
+
+	// Non-retriable error
+	r, ok = AsRetryAfterError(errors.New("other error"))
+	assert.False(t, ok)
+	assert.Nil(t, r)
+}
+
+func TestConvertToRetryAfterError(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+
+	// Nil error
+	r, ok := ConvertToRetryAfterError(nil)
+	assert.False(t, ok)
+	assert.Nil(t, r)
+
+	// Non-retriable error
+	r, ok = ConvertToRetryAfterError(errors.New("generic error"))
+	assert.False(t, ok)
+	assert.Nil(t, r)
+
+	// Direct NsxPendingDelete
+	delErr := CreateNsxPendingDelete()
+	r, ok = ConvertToRetryAfterError(delErr)
+	assert.True(t, ok)
+	assert.Equal(t, 300, r.RetryAfterSeconds())
+
+	// Wrapped NsxPendingDelete
+	r, ok = ConvertToRetryAfterError(fmt.Errorf("wrap: %w", delErr))
+	assert.True(t, ok)
+	assert.Equal(t, 300, r.RetryAfterSeconds())
+
+	// NSXApiError with 500045
+	apiErr := &NSXApiError{
+		ApiError: &model.ApiError{
+			ErrorCode:    int64Ptr(PendingDeleteErrorCode),
+			ErrorMessage: strPtr("object marked for deletion"),
+		},
+	}
+	r, ok = ConvertToRetryAfterError(apiErr)
+	assert.True(t, ok)
+	assert.Equal(t, 300, r.RetryAfterSeconds())
+	assert.Equal(t, "object marked for deletion", r.Error())
+
+	// Wrapped NSXApiError with 500045
+	r, ok = ConvertToRetryAfterError(fmt.Errorf("failed: %w", apiErr))
+	assert.True(t, ok)
+	assert.Equal(t, 300, r.RetryAfterSeconds())
+
+	// NSXApiError with RelatedErrors containing 500045
+	relApiErr := &NSXApiError{
+		ApiError: &model.ApiError{
+			ErrorCode: int64Ptr(100),
+			RelatedErrors: []model.RelatedApiError{
+				{
+					ErrorCode:    int64Ptr(PendingDeleteErrorCode),
+					ErrorMessage: strPtr("related object marked for deletion"),
+				},
+			},
+		},
+	}
+	r, ok = ConvertToRetryAfterError(relApiErr)
+	assert.True(t, ok)
+	assert.Equal(t, 300, r.RetryAfterSeconds())
+
+	// NSXApiError with other error code
+	otherApiErr := &NSXApiError{ApiError: &model.ApiError{ErrorCode: int64Ptr(99999)}}
+	r, ok = ConvertToRetryAfterError(otherApiErr)
+	assert.False(t, ok)
+	assert.Nil(t, r)
 }
 
 // Helper function

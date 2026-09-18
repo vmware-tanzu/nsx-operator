@@ -82,7 +82,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if apierrors.IsNotFound(err) {
 			log.Info("Not found LB service", "req", req.NamespacedName)
 			if err := r.deleteDNSForService(ctx, req.Namespace, req.Name, "deleted Service"); err != nil {
-				return common.ResultRequeueAfter10sec, nil
+				return common.RequeueResultFromReconcileError(err), nil
 			}
 			return ResultNormal, nil
 		}
@@ -93,7 +93,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if service.Spec.Type != v1.ServiceTypeLoadBalancer || !service.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Try to delete DNS records for Service when it is not a LoadBalancer or is marked for deletion
 		if err := r.clearDNSAndConditionForService(ctx, req.NamespacedName, "non-LB or terminating Service"); err != nil {
-			return common.ResultRequeueAfter10sec, nil
+			return common.RequeueResultFromReconcileError(err), nil
 		}
 		return ResultNormal, nil
 	}
@@ -118,7 +118,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if dnsErr != nil {
-		return common.ResultRequeueAfter10sec, nil
+		return common.RequeueResultFromReconcileError(dnsErr), nil
 	}
 
 	return ResultNormal, nil

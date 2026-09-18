@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -1488,6 +1491,69 @@ func TestValidateAccessModeTransition(t *testing.T) {
 			} else {
 				assert.EqualError(t, err, tt.wantErr)
 			}
+		})
+	}
+}
+
+func TestRequeueResultFromReconcileError(t *testing.T) {
+	int64Ptr := func(i int64) *int64 { return &i }
+
+	tests := []struct {
+		name     string
+		err      error
+		expected ctrl.Result
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: ResultNormal,
+		},
+		{
+			name:     "generic non-retriable error",
+			err:      errors.New("generic error"),
+			expected: ResultRequeueAfter10sec,
+		},
+		{
+			name:     "direct NsxPendingDelete",
+			err:      nsxutil.CreateNsxPendingDelete(),
+			expected: ctrl.Result{RequeueAfter: 300 * time.Second},
+		},
+		{
+			name:     "wrapped NsxPendingDelete",
+			err:      fmt.Errorf("reconciling: %w", nsxutil.CreateNsxPendingDelete()),
+			expected: ctrl.Result{RequeueAfter: 300 * time.Second},
+		},
+		{
+			name:     "NSXApiError with 500045 PendingDeleteErrorCode",
+			err:      nsxutil.NewNSXApiError(&model.ApiError{ErrorCode: int64Ptr(nsxutil.PendingDeleteErrorCode)}, ""),
+			expected: ctrl.Result{RequeueAfter: 300 * time.Second},
+		},
+		{
+			name:     "wrapped NSXApiError with 500045",
+			err:      fmt.Errorf("call failed: %w", nsxutil.NewNSXApiError(&model.ApiError{ErrorCode: int64Ptr(nsxutil.PendingDeleteErrorCode)}, "")),
+			expected: ctrl.Result{RequeueAfter: 300 * time.Second},
+		},
+		{
+			name: "NSXApiError with RelatedErrors containing 500045",
+			err: nsxutil.NewNSXApiError(&model.ApiError{
+				ErrorCode: int64Ptr(100),
+				RelatedErrors: []model.RelatedApiError{
+					{ErrorCode: int64Ptr(nsxutil.PendingDeleteErrorCode)},
+				},
+			}, ""),
+			expected: ctrl.Result{RequeueAfter: 300 * time.Second},
+		},
+		{
+			name:     "NSXApiError with other error code",
+			err:      nsxutil.NewNSXApiError(&model.ApiError{ErrorCode: int64Ptr(12345)}, ""),
+			expected: ResultRequeueAfter10sec,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := RequeueResultFromReconcileError(tt.err)
+			assert.Equal(t, tt.expected, res)
 		})
 	}
 }
