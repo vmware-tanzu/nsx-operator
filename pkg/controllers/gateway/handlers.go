@@ -291,7 +291,7 @@ func listenersSortedByName(ls []gatewayv1.Listener) []gatewayv1.Listener {
 	return out
 }
 
-// predicateFuncsGateway: managed class + IP; annos, addresses, or sorted listeners changed.
+// predicateFuncsGateway: managed class + IP; programmed status, annos, addresses, or sorted listeners changed.
 var predicateFuncsGateway = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
 		gw := e.Object.(*gatewayv1.Gateway)
@@ -302,6 +302,9 @@ var predicateFuncsGateway = predicate.Funcs{
 		newObj := e.ObjectNew.(*gatewayv1.Gateway)
 		if !shouldProcessGateway(oldObj) && !shouldProcessGateway(newObj) {
 			return false
+		}
+		if isGatewayProgrammed(oldObj) != isGatewayProgrammed(newObj) {
+			return true
 		}
 		if oldObj.Spec.GatewayClassName != newObj.Spec.GatewayClassName {
 			return true
