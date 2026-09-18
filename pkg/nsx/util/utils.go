@@ -411,6 +411,61 @@ func TransNSXApiError(err error) error {
 	return NewNSXApiError(apierror, *errorType)
 }
 
+// ConvertToRetryAfterError checks if err or any error in its chain is or can be converted to a RetryAfterError.
+func ConvertToRetryAfterError(err error) (RetryAfterError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	if retryAfterErr, ok := AsRetryAfterError(err); ok {
+		return retryAfterErr, true
+	}
+	var nsxApiErr *NSXApiError
+	if errors.As(err, &nsxApiErr) && nsxApiErr.ApiError != nil {
+		if retryAfterErr, ok := apiErrorToRetryAfterError(nsxApiErr.ApiError); ok {
+			return retryAfterErr, true
+		}
+	}
+	if apiError, _ := DumpAPIError(err); apiError != nil {
+		if retryAfterErr, ok := apiErrorToRetryAfterError(apiError); ok {
+			return retryAfterErr, true
+		}
+	}
+	return nil, false
+}
+
+func apiErrorToRetryAfterError(err *model.ApiError) (RetryAfterError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	if isPendingDeleteCode(err.ErrorCode) {
+		return toNsxPendingDelete(err.ErrorCode, err.ErrorMessage, err.Details), true
+	}
+	for _, rel := range err.RelatedErrors {
+		if isPendingDeleteCode(rel.ErrorCode) {
+			return toNsxPendingDelete(rel.ErrorCode, rel.ErrorMessage, rel.Details), true
+		}
+	}
+	return nil, false
+}
+
+func isPendingDeleteCode(code *int64) bool {
+	return code != nil && *code == int64(PendingDeleteErrorCode)
+}
+
+func toNsxPendingDelete(code *int64, errMsg, details *string) *NsxPendingDelete {
+	nsxErr := CreateNsxPendingDelete()
+	if errMsg != nil {
+		nsxErr.msg = *errMsg
+	}
+	if code != nil {
+		nsxErr.setDetail(&ErrorDetail{
+			ErrorCode: int(*code),
+			Details:   safeString(details),
+		})
+	}
+	return nsxErr
+}
+
 func relatedErrorToString(err *model.RelatedApiError) string {
 	if err == nil {
 		return "nil"

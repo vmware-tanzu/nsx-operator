@@ -25,6 +25,7 @@ import (
 	mockdns "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnsrecordprovider"
 	mockgateway "github.com/vmware-tanzu/nsx-operator/pkg/mock/gateway"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
 
@@ -612,6 +613,18 @@ func TestGatewayReconciler_Reconcile(t *testing.T) {
 				s.EXPECT().DeleteFail(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 			},
 			wantRes: common.ResultRequeueAfter10sec,
+		},
+		{
+			name: "retriable error on delete requeues with RetryAfterSeconds",
+			setupMock: func(c *mockclient.MockClient, d *mockdns.MockDNSRecordProvider, s *mockgateway.MockStatusUpdater) {
+				c.EXPECT().Get(gomock.Any(), gwReq.NamespacedName, gomock.Any()).Return(apierrors.NewNotFound(schema.GroupResource{}, ""))
+				retriableErr := nsxutil.CreateNsxPendingDelete()
+				d.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindGateway, "default", "gw1").Return(false, retriableErr)
+				s.EXPECT().IncreaseSyncTotal().AnyTimes()
+				s.EXPECT().IncreaseDeleteTotal().AnyTimes()
+				s.EXPECT().DeleteFail(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			},
+			wantRes: ctrl.Result{RequeueAfter: time.Duration(nsxutil.DefaultPendingDeleteRetryAfterSeconds) * time.Second},
 		},
 	}
 
