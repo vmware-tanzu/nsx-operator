@@ -20,12 +20,24 @@ const (
 func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.Group:
+		if v == nil || v.Id == nil {
+			return "", nil
+		}
 		return *v.Id, nil
 	case *model.SecurityPolicy:
+		if v == nil || v.Id == nil {
+			return "", nil
+		}
 		return *v.Id, nil
 	case *model.Rule:
+		if v == nil || v.Id == nil {
+			return "", nil
+		}
 		return *v.Id, nil
 	case *model.Share:
+		if v == nil || v.Id == nil {
+			return "", nil
+		}
 		return *v.Id, nil
 	default:
 		return "", errors.New("keyFunc doesn't support unknown type")
