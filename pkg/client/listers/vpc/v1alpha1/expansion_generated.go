@@ -41,6 +41,10 @@ type NetworkInfoListerExpansion interface{}
 // NetworkInfoNamespaceLister.
 type NetworkInfoNamespaceListerExpansion interface{}
 
+// NetworkResourceTransitionListerExpansion allows custom methods to be added to
+// NetworkResourceTransitionLister.
+type NetworkResourceTransitionListerExpansion interface{}
+
 // SecurityPolicyListerExpansion allows custom methods to be added to
 // SecurityPolicyLister.
 type SecurityPolicyListerExpansion interface{}
