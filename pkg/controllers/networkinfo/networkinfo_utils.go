@@ -2,6 +2,7 @@ package networkinfo
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"slices"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func setNetworkInfoVPCStatusWithError(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ error, args ...interface{}) {
@@ -376,4 +378,45 @@ func hasVMDefaultSubnets(subnets []v1alpha1.SharedSubnet) bool {
 		}
 	}
 	return hasVMDefaultSubnets
+}
+
+// enhanceVPCLBSErrorMessage checks if the VPC creation error is an Edge Cluster capacity shortage
+// or form factor sizing constraint for Load Balancer Service and returns a user-friendly, actionable error message.
+// Returns an empty string if the error is not an LBS capacity error.
+func enhanceVPCLBSErrorMessage(err error, defaultLBSize string) string {
+	if err == nil {
+		return ""
+	}
+	size := defaultLBSize
+	if size == "" {
+		size = "SMALL"
+	}
+
+	// Check if this is an Edge capacity or sizing error for LBS based on NSX error codes.
+	if code := nsxutil.GetLBSEdgeCapacityErrorCode(err); code != 0 {
+		if code == nsxutil.LBSEdgeNodeSizeNotSupportedErrorCode {
+			return fmt.Sprintf("Load Balancer Service (size: %s) creation failed: Edge node form factor does not support Load Balancer Service size %s (NSX error code: %d). Please verify Edge Node sizing in NSX.", size, size, code)
+		}
+		return fmt.Sprintf("Load Balancer Service (size: %s) creation failed: Insufficient Edge Cluster capacity on NSX (error code: %d). Please expand Edge Cluster resources or verify Edge Cluster sizing in NSX.", size, code)
+	}
+
+	return ""
+}
+
+// getVPCCreationFailureCondition returns an enhanced NamespaceCondition when VPC or LBS creation fails.
+// If the error is related to Load Balancer Service, it formats a user-friendly and actionable error message
+// instead of exposing the raw NSX error.
+func getVPCCreationFailureCondition(err error, lbsSize string) *v1.NamespaceCondition {
+	if err == nil {
+		return nsMsgVPCIsReady.getNSNetworkCondition()
+	}
+	if msg := enhanceVPCLBSErrorMessage(err, lbsSize); msg != "" {
+		return &v1.NamespaceCondition{
+			Type:    NamespaceNetworkReady,
+			Status:  v1.ConditionFalse,
+			Reason:  NSReasonVPCNotReady,
+			Message: msg,
+		}
+	}
+	return nsMsgVPCCreateUpdateError.getNSNetworkCondition(err)
 }

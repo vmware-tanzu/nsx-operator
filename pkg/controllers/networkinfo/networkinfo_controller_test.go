@@ -1478,6 +1478,64 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			want:    common.ResultRequeueAfter10sec,
 			wantErr: true,
 		},
+		{
+			name: "VPCCreationFailureWithLBSEdgeCapacityError",
+			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: requestArgs.req.Namespace,
+						Name:      requestArgs.req.Name,
+					},
+				}))
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "system",
+					},
+				}))
+				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
+					return servicecommon.SystemVPCNetworkConfigurationName, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return &v1alpha1.VPCNetworkConfiguration{
+						ObjectMeta: metav1.ObjectMeta{Name: servicecommon.SystemVPCNetworkConfigurationName},
+						Spec: v1alpha1.VPCNetworkConfigurationSpec{
+							VPCConnectivityProfile: "/orgs/default/projects/nsx_operator_e2e_test/vpc-connectivity-profiles/default",
+							NSXProject:             "/orgs/default/projects/project-quality",
+						},
+					}, true, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+					return vpc.NSXLB, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*servicecommon.VPCConnectionStatus, error) {
+					return &servicecommon.VPCConnectionStatus{
+						GatewayConnectionReady: true,
+						ServiceClusterReady:    true,
+					}, nil
+				})
+				lbsErr := nsxutil.NewRealizeStateError("/orgs/default/projects/project-quality/vpcs/ns-1/vpc-lbs/default realized with errors: There is no available capacity on edge node", 502103)
+				patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider, _ bool, _ bool) (*model.Vpc, error) {
+					return nil, lbsErr
+				})
+				conditionSet := false
+				patches.ApplyFunc(setNSNetworkReadyCondition, func(_ context.Context, _ client.Client, _ string, condition *corev1.NamespaceCondition) {
+					assert.Equal(t, corev1.ConditionFalse, condition.Status)
+					assert.Equal(t, NSReasonVPCNotReady, condition.Reason)
+					assert.Contains(t, condition.Message, "Load Balancer Service (size: SMALL) creation failed: Insufficient Edge Cluster capacity on NSX (error code: 502103)")
+					conditionSet = true
+				})
+				patches.ApplyFunc((*common.StatusUpdater).UpdateFail, func(_ *common.StatusUpdater, _ context.Context, _ client.Object, _ error, msg string, _ common.UpdateFailStatusFn, _ ...interface{}) {
+					assert.Contains(t, msg, "Load Balancer Service (size: SMALL) creation failed")
+				})
+				t.Cleanup(func() {
+					assert.True(t, conditionSet, "setNSNetworkReadyCondition must be called with enhanced LBS capacity error")
+				})
+				return patches
+			},
+			args:    requestArgs,
+			want:    common.ResultRequeueAfter10sec,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

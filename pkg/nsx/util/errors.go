@@ -30,6 +30,14 @@ const (
 	// configuration errors; the controller should not requeue on them.
 	mixedModeIPAllocationErrorMin = 660000
 	mixedModeIPAllocationErrorMax = 660011
+
+	// Policy Load Balancer Service capacity error codes.
+	LBSEdgeNodeNoCapacityForSizeErrorCode = 502103
+	LBSEdgeNodeSizeNotSupportedErrorCode  = 502105
+
+	// Edge routing allocation error codes.
+	EdgeClusterInsufficientResourcesErrorCode = 10087
+	EdgeClusterNoCapacityPoolErrorCode        = 10145
 )
 
 // IsMixedModeIPAllocationError reports whether code is an NSX error in the
@@ -660,8 +668,9 @@ var (
 )
 
 type RealizeStateError struct {
-	message string
-	code    int
+	message      string
+	code         int
+	relatedCodes []int
 }
 
 func (e *RealizeStateError) Error() string {
@@ -672,8 +681,12 @@ func (e *RealizeStateError) GetCode() int {
 	return e.code
 }
 
-func NewRealizeStateError(msg string, code int) *RealizeStateError {
-	return &RealizeStateError{message: msg, code: code}
+func (e *RealizeStateError) GetRelatedCodes() []int {
+	return e.relatedCodes
+}
+
+func NewRealizeStateError(msg string, code int, relatedCodes ...int) *RealizeStateError {
+	return &RealizeStateError{message: msg, code: code, relatedCodes: relatedCodes}
 }
 
 func IsRealizeStateError(err error) bool {
@@ -709,4 +722,112 @@ func IsIPAllocationError(alarm model.PolicyAlarmResource) bool {
 		return code == IPAllocationErrorCode || code == IPPoolExhaustedErrorCode
 	}
 	return false
+}
+
+var (
+	// LBSEdgeCapacityErrorCodes contains all NSX error codes that signify edge node/cluster capacity
+	// or sizing constraints for Load Balancer Services, ordered by priority (most specific first).
+	LBSEdgeCapacityErrorCodes = []int64{
+		LBSEdgeNodeSizeNotSupportedErrorCode,
+		LBSEdgeNodeNoCapacityForSizeErrorCode,
+		EdgeClusterInsufficientResourcesErrorCode,
+		EdgeClusterNoCapacityPoolErrorCode,
+	}
+)
+
+// ExtractAllErrorCodes extracts all distinct error codes from a structured error object (including wrapped
+// NSXApiError, RealizeStateError, and GeneralNsxError).
+func ExtractAllErrorCodes(err error) []int64 {
+	if err == nil {
+		return nil
+	}
+	var codes []int64
+	seen := make(map[int64]bool)
+
+	addCode := func(code int64) {
+		if code > 0 && !seen[code] {
+			seen[code] = true
+			codes = append(codes, code)
+		}
+	}
+
+	// 1. Structured NSXApiError (supports Go 1.13+ error wrapping via errors.As)
+	var apiErr *NSXApiError
+	if errors.As(err, &apiErr) && apiErr != nil && apiErr.ApiError != nil {
+		if apiErr.ErrorCode != nil {
+			addCode(*apiErr.ErrorCode)
+		}
+		for _, rel := range apiErr.RelatedErrors {
+			if rel.ErrorCode != nil {
+				addCode(*rel.ErrorCode)
+			}
+		}
+	}
+
+	// 2. Structured RealizeStateError (supports Go 1.13+ error wrapping via errors.As)
+	var realizeErr *RealizeStateError
+	if errors.As(err, &realizeErr) && realizeErr != nil {
+		if realizeErr.GetCode() > 0 {
+			addCode(int64(realizeErr.GetCode()))
+		}
+		for _, rc := range realizeErr.GetRelatedCodes() {
+			if rc > 0 {
+				addCode(int64(rc))
+			}
+		}
+	}
+
+	// 3. Structured GeneralNsxError (supports Go 1.13+ error wrapping via errors.As)
+	var generalNsxErr *GeneralNsxError
+	if errors.As(err, &generalNsxErr) && generalNsxErr != nil {
+		addCode(int64(generalNsxErr.ErrorCode))
+		for _, c := range generalNsxErr.RelatedErrorCodes {
+			addCode(int64(c))
+		}
+	}
+
+	return codes
+}
+
+// HasAnyErrorCode returns true if err contains any of targetCodes.
+func HasAnyErrorCode(err error, targetCodes ...int64) bool {
+	if err == nil || len(targetCodes) == 0 {
+		return false
+	}
+	extracted := ExtractAllErrorCodes(err)
+	for _, c := range extracted {
+		for _, t := range targetCodes {
+			if c == t {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetFirstMatchingErrorCode returns the first error code in err matching targetCodes in targetCodes' priority order, or 0 if none match.
+func GetFirstMatchingErrorCode(err error, targetCodes ...int64) int64 {
+	if err == nil || len(targetCodes) == 0 {
+		return 0
+	}
+	extracted := ExtractAllErrorCodes(err)
+	for _, t := range targetCodes {
+		for _, c := range extracted {
+			if c == t {
+				return t
+			}
+		}
+	}
+	return 0
+}
+
+// IsLBSEdgeCapacityError reports whether the error indicates insufficient Edge cluster/node capacity
+// or unsupported sizing for Load Balancer Service based on NSX error codes.
+func IsLBSEdgeCapacityError(err error) bool {
+	return HasAnyErrorCode(err, LBSEdgeCapacityErrorCodes...)
+}
+
+// GetLBSEdgeCapacityErrorCode returns the matched capacity error code, or 0 if none matched.
+func GetLBSEdgeCapacityErrorCode(err error) int64 {
+	return GetFirstMatchingErrorCode(err, LBSEdgeCapacityErrorCodes...)
 }
