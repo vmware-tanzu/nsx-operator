@@ -152,11 +152,13 @@ func TestReconcile(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name         string
-		expectRes    ctrl.Result
-		expectErrStr string
-		patches      func(r *SubnetSetReconciler) *gomonkey.Patches
-		restoreMode  bool
+		name            string
+		expectRes       ctrl.Result
+		expectErrStr    string
+		patches         func(r *SubnetSetReconciler) *gomonkey.Patches
+		restoreMode     bool
+		modifySubnetSet func(s *v1alpha1.SubnetSet)
+		assertSubnetSet func(t *testing.T, r *SubnetSetReconciler)
 	}{
 		{
 			name:      "Create a SubnetSet with find VPCNetworkConfig error",
@@ -365,6 +367,122 @@ func TestReconcile(t *testing.T) {
 				return patches
 			},
 		},
+		{
+			name:         "Restore SubnetSet with SubnetCreationFailed condition restores subnet but ready status remains False",
+			expectRes:    ResultNormal,
+			expectErrStr: "",
+			restoreMode:  true,
+			modifySubnetSet: func(s *v1alpha1.SubnetSet) {
+				s.Status.Conditions = []v1alpha1.Condition{
+					{
+						Type:    v1alpha1.SubnetCreationFailed,
+						Status:  v12.ConditionTrue,
+						Message: "failed to create NSX subnet: pool exhausted",
+						Reason:  "SubnetCreationFailed",
+					},
+				}
+			},
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				tags := []model.Tag{{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(ns)}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+					return []*model.VpcSubnet{&vpcSubnet}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{{}}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "RestoreSubnetSet", func(_ *subnet.SubnetService, obj *v1alpha1.SubnetSet, vpcInfo common.VPCResourceInfo, tags []model.Tag) error {
+					return nil
+				})
+				return patches
+			},
+			assertSubnetSet: func(t *testing.T, r *SubnetSetReconciler) {
+				updated := &v1alpha1.SubnetSet{}
+				err := r.Client.Get(context.TODO(), types.NamespacedName{Name: subnetsetName, Namespace: ns}, updated)
+				assert.NoError(t, err)
+				var readyCond *v1alpha1.Condition
+				for _, cond := range updated.Status.Conditions {
+					if cond.Type == v1alpha1.Ready {
+						readyCond = &cond
+						break
+					}
+				}
+				require.NotNil(t, readyCond)
+				assert.Equal(t, v12.ConditionFalse, readyCond.Status)
+				assert.Equal(t, "SubnetCreationFailed", readyCond.Reason)
+			},
+		},
+		{
+			name:         "SubnetSet with SubnetCreationFailed=False sets ready status to True",
+			expectRes:    ResultNormal,
+			expectErrStr: "",
+			modifySubnetSet: func(s *v1alpha1.SubnetSet) {
+				s.Status.Conditions = []v1alpha1.Condition{
+					{
+						Type:    v1alpha1.SubnetCreationFailed,
+						Status:  v12.ConditionFalse,
+						Message: "no error",
+						Reason:  "SubnetCreationSucceeded",
+					},
+				}
+			},
+			patches: func(r *SubnetSetReconciler) *gomonkey.Patches {
+				vpcnetworkConfig := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, ns string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return vpcnetworkConfig, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "GetNetworkStackFromNC", func(_ *vpc.VPCService, config *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+					return v1alpha1.FullStackVPC, nil
+				})
+				patches.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet", func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+					return []v1alpha1.SubnetConnectionBindingMap{}
+				})
+				tags := []model.Tag{{Scope: common.String(common.TagScopeVMNamespace), Tag: common.String(ns)}}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					id1 := "fake-id"
+					path := "fake-path"
+					vpcSubnet := model.VpcSubnet{Id: &id1, Path: &path, Tags: tags}
+					return []*model.VpcSubnet{&vpcSubnet}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return tags
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "UpdateSubnetSet", func(_ *subnet.SubnetService, ns string, vpcSubnets []*model.VpcSubnet, tags []model.Tag, subnetsetCR *v1alpha1.SubnetSet) error {
+					return nil
+				})
+				return patches
+			},
+			assertSubnetSet: func(t *testing.T, r *SubnetSetReconciler) {
+				updated := &v1alpha1.SubnetSet{}
+				err := r.Client.Get(context.TODO(), types.NamespacedName{Name: subnetsetName, Namespace: ns}, updated)
+				assert.NoError(t, err)
+				var readyCond *v1alpha1.Condition
+				for _, cond := range updated.Status.Conditions {
+					if cond.Type == v1alpha1.Ready {
+						readyCond = &cond
+						break
+					}
+				}
+				require.NotNil(t, readyCond)
+				assert.Equal(t, v12.ConditionTrue, readyCond.Status)
+				assert.Equal(t, "SubnetSetReady", readyCond.Reason)
+			},
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -372,8 +490,12 @@ func TestReconcile(t *testing.T) {
 			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: subnetsetName, Namespace: ns}}
 
 			namespace := &v12.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
+			currentSubnetSet := subnetSet.DeepCopy()
+			if testCase.modifySubnetSet != nil {
+				testCase.modifySubnetSet(currentSubnetSet)
+			}
 
-			r := createFakeSubnetSetReconciler([]client.Object{subnetSet, namespace})
+			r := createFakeSubnetSetReconciler([]client.Object{currentSubnetSet, namespace})
 			if testCase.patches != nil {
 				patches := testCase.patches(r)
 				defer patches.Reset()
@@ -388,6 +510,9 @@ func TestReconcile(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, testCase.expectRes, res)
+			if testCase.assertSubnetSet != nil {
+				testCase.assertSubnetSet(t, r)
+			}
 		})
 	}
 }
