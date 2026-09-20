@@ -15,6 +15,7 @@
 - [IPAddressAllocation](#ipaddressallocation)
 - [IPBlocksInfo](#ipblocksinfo)
 - [NetworkInfo](#networkinfo)
+- [NetworkResourceTransition](#networkresourcetransition)
 - [SecurityPolicy](#securitypolicy)
 - [ServiceEndpoint](#serviceendpoint)
 - [StaticRoute](#staticroute)
@@ -108,6 +109,7 @@ Condition defines condition of custom resource.
 _Appears in:_
 - [AddressBindingStatus](#addressbindingstatus)
 - [IPAddressAllocationStatus](#ipaddressallocationstatus)
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
 - [SecurityPolicyStatus](#securitypolicystatus)
 - [StaticRouteCondition](#staticroutecondition)
 - [SubnetConnectionBindingMapStatus](#subnetconnectionbindingmapstatus)
@@ -166,6 +168,45 @@ _Appears in:_
 | --- | --- |
 | `Connected` |  |
 | `Disconnected` |  |
+
+
+#### CreateSubnetPortSpec
+
+
+
+CreateSubnetPortSpec specifies the source SubnetIPReservation(s) and target SubnetPort to realize.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionSpec](#networkresourcetransitionspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnetIPReservations` _[NamespacedObjectReference](#namespacedobjectreference) array_ | SubnetIPReservations specifies the list of source SubnetIPReservations in the staging namespace to cut over.<br />Supports dual-stack (IPv4 and IPv6) reservations mapped to a single SubnetPort. |  | MinItems: 1 <br /> |
+| `subnetPort` _[NamespacedObjectReference](#namespacedobjectreference)_ | SubnetPort specifies the target SubnetPort to create in the destination workload namespace. |  | Required: \{\} <br /> |
+
+
+#### CreateSubnetPortStatus
+
+
+
+CreateSubnetPortStatus records the observed transition status for a SubnetPort cutover.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnetPort` _[NamespacedObjectReference](#namespacedobjectreference)_ | SubnetPort mirrors the target SubnetPort reference. |  |  |
+| `subnetIPReservations` _[NamespacedObjectReference](#namespacedobjectreference) array_ | SubnetIPReservations mirrors the source SubnetIPReservation references. |  |  |
+| `phase` _[MigrationPhase](#migrationphase)_ | Phase of this specific cutover operation. |  | Enum: [Pending Migrating Succeeded Failed PartiallyFailed] <br /> |
+| `message` _string_ | Message describes details or error information. |  |  |
+| `attachmentID` _string_ | AttachmentID of the realized SubnetPort on NSX. |  |  |
+| `ipAddresses` _string array_ | IPAddresses realized on the target SubnetPort. |  |  |
+| `macAddress` _string_ | MACAddress preserved and programmed on the target SubnetPort. |  |  |
 
 
 #### DHCPConfigMode
@@ -471,6 +512,85 @@ _Appears in:_
 | `end` _string_ | The end IP Address of the IP Range. |  |  |
 
 
+#### MigrationPhase
+
+_Underlying type:_ _string_
+
+MigrationPhase defines the overall or per-resource phase of network resource transition.
+
+_Validation:_
+- Enum: [Pending Migrating Succeeded Failed PartiallyFailed]
+
+_Appears in:_
+- [CreateSubnetPortStatus](#createsubnetportstatus)
+- [MoveIPAddressAllocationStatus](#moveipaddressallocationstatus)
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
+
+| Field | Description |
+| --- | --- |
+| `Pending` |  |
+| `Migrating` |  |
+| `Succeeded` |  |
+| `Failed` |  |
+| `PartiallyFailed` |  |
+
+
+#### MoveIPAddressAllocationSpec
+
+
+
+MoveIPAddressAllocationSpec specifies the source and target for transferring an IPAddressAllocation (LB VIP).
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionSpec](#networkresourcetransitionspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `source` _[NamespacedObjectReference](#namespacedobjectreference)_ | Source specifies the existing IPAddressAllocation in the staging namespace. |  | Required: \{\} <br /> |
+| `target` _[NamespacedObjectReference](#namespacedobjectreference)_ | Target specifies the target IPAddressAllocation in the destination namespace. |  | Required: \{\} <br /> |
+
+
+#### MoveIPAddressAllocationStatus
+
+
+
+MoveIPAddressAllocationStatus records the observed transition status for an IPAddressAllocation move.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `source` _[NamespacedObjectReference](#namespacedobjectreference)_ | Source mirrors the source IPAddressAllocation reference. |  |  |
+| `target` _[NamespacedObjectReference](#namespacedobjectreference)_ | Target mirrors the target IPAddressAllocation reference. |  |  |
+| `phase` _[MigrationPhase](#migrationphase)_ | Phase of this specific move operation. |  | Enum: [Pending Migrating Succeeded Failed PartiallyFailed] <br /> |
+| `message` _string_ | Message describes details or error information. |  |  |
+
+
+#### NamespacedObjectReference
+
+
+
+NamespacedObjectReference contains namespace and name to uniquely identify a namespaced Kubernetes resource.
+
+
+
+_Appears in:_
+- [CreateSubnetPortSpec](#createsubnetportspec)
+- [CreateSubnetPortStatus](#createsubnetportstatus)
+- [MoveIPAddressAllocationSpec](#moveipaddressallocationspec)
+- [MoveIPAddressAllocationStatus](#moveipaddressallocationstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `namespace` _string_ | Namespace of the referent. |  | Required: \{\} <br /> |
+| `name` _string_ | Name of the referent. |  | Required: \{\} <br /> |
+
+
 #### NetworkInfo
 
 
@@ -528,6 +648,64 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `ipAddress` _string_ | IP address string with the prefix. |  |  |
 | `gateway` _string_ | Gateway address of the Subnet. |  |  |
+
+
+#### NetworkResourceTransition
+
+
+
+NetworkResourceTransition is the Schema for the networkresourcetransitions API.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
+| `kind` _string_ | `NetworkResourceTransition` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[NetworkResourceTransitionSpec](#networkresourcetransitionspec)_ |  |  |  |
+| `status` _[NetworkResourceTransitionStatus](#networkresourcetransitionstatus)_ |  |  |  |
+
+
+#### NetworkResourceTransitionSpec
+
+
+
+NetworkResourceTransitionSpec defines the desired transition of network resources from staging to target namespaces.
+
+
+
+_Appears in:_
+- [NetworkResourceTransition](#networkresourcetransition)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `createSubnetPort` _[CreateSubnetPortSpec](#createsubnetportspec) array_ | CreateSubnetPort specifies workload cutover(s) from SubnetIPReservation(s) to SubnetPort(s). |  |  |
+| `moveIPAddressAllocation` _[MoveIPAddressAllocationSpec](#moveipaddressallocationspec) array_ | MoveIPAddressAllocation specifies Load Balancer VIP(s) to adopt into tenant namespaces. |  |  |
+
+
+#### NetworkResourceTransitionStatus
+
+
+
+NetworkResourceTransitionStatus defines the observed state of NetworkResourceTransition.
+
+
+
+_Appears in:_
+- [NetworkResourceTransition](#networkresourcetransition)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `phase` _[MigrationPhase](#migrationphase)_ | Phase defines the overall migration phase. |  | Enum: [Pending Migrating Succeeded Failed PartiallyFailed] <br /> |
+| `totalResources` _integer_ | TotalResources is the total number of target resources to migrate. |  |  |
+| `succeededResources` _integer_ | SucceededResources is the count of successfully transitioned resources. |  |  |
+| `failedResources` _integer_ | FailedResources is the count of failed resources. |  |  |
+| `createSubnetPort` _[CreateSubnetPortStatus](#createsubnetportstatus) array_ | CreateSubnetPort mirrors the status for each SubnetPort cutover. |  |  |
+| `moveIPAddressAllocation` _[MoveIPAddressAllocationStatus](#moveipaddressallocationstatus) array_ | MoveIPAddressAllocation mirrors the status for each IPAddressAllocation move. |  |  |
+| `conditions` _[Condition](#condition) array_ | Conditions track overall transition conditions. |  |  |
 
 
 #### NetworkStackType
