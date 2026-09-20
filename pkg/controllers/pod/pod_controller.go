@@ -342,6 +342,10 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 
 	PodSet := sets.New[string]()
 	for _, pod := range podList.Items {
+		if common.PodIsDeleted(&pod) {
+			log.Info("Pod is complete, needed to GC NSX SubnetPort", "POD UID", pod.GetUID())
+			continue
+		}
 		subnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(pod.GetUID())
 		if err != nil || subnetPort == nil {
 			log.Info("Not found existing VpcSubnetPort for Pod", "POD UID", pod.GetUID())
