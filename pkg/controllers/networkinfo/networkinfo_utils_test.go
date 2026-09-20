@@ -20,9 +20,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestSetVPCNetworkConfigurationStatusWithGatewayConnection(t *testing.T) {
@@ -572,4 +575,86 @@ func TestSetNetworkInfoVPCStatus_AllowedDNSDomains(t *testing.T) {
 	setNetworkInfoVPCStatus(kubeClient, ctx, networkInfoCR, metav1.Now(), state2, []string(nil))
 	require.NoError(t, kubeClient.Get(ctx, apitypes.NamespacedName{Namespace: "ns1", Name: "ni1"}, networkInfoCR))
 	assert.Nil(t, networkInfoCR.AllowedDNSDomains)
+}
+
+func TestGetVPCCreationFailureCondition(t *testing.T) {
+	tests := []struct {
+		name            string
+		err             error
+		lbsSize         string
+		expectedStatus  corev1.ConditionStatus
+		expectedReason  string
+		expectedMessage string
+	}{
+		{
+			name:           "nil error returns VPC ready condition",
+			err:            nil,
+			lbsSize:        "SMALL",
+			expectedStatus: corev1.ConditionTrue,
+			expectedReason: "",
+		},
+		{
+			name: "LBS Edge capacity error with code 502103",
+			err: func() error {
+				mainCode := int64(502001)
+				relCode := int64(502103)
+				return &nsxutil.NSXApiError{
+					ApiError: &model.ApiError{
+						ErrorCode: &mainCode,
+						RelatedErrors: []model.RelatedApiError{
+							{ErrorCode: &relCode},
+						},
+					},
+				}
+			}(),
+			lbsSize:         "SMALL",
+			expectedStatus:  corev1.ConditionFalse,
+			expectedReason:  NSReasonVPCNotReady,
+			expectedMessage: "Load Balancer Service (size: SMALL) creation failed: Insufficient Edge Cluster capacity on NSX (error code: 502103). Please expand Edge Cluster resources or verify Edge Cluster sizing in NSX.",
+		},
+		{
+			name: "LBS Edge node size not supported with code 502105",
+			err: func() error {
+				code := int64(502105)
+				return &nsxutil.NSXApiError{
+					ApiError: &model.ApiError{
+						ErrorCode: &code,
+					},
+				}
+			}(),
+			lbsSize:         "XLARGE",
+			expectedStatus:  corev1.ConditionFalse,
+			expectedReason:  NSReasonVPCNotReady,
+			expectedMessage: "Load Balancer Service (size: XLARGE) creation failed: Edge node form factor does not support Load Balancer Service size XLARGE (NSX error code: 502105). Please verify Edge Node sizing in NSX.",
+		},
+		{
+			name:            "Routing allocation insufficient resources with code 10087",
+			err:             nsxutil.NewRealizeStateError("alarm occurred", 10087),
+			lbsSize:         "MEDIUM",
+			expectedStatus:  corev1.ConditionFalse,
+			expectedReason:  NSReasonVPCNotReady,
+			expectedMessage: "Load Balancer Service (size: MEDIUM) creation failed: Insufficient Edge Cluster capacity on NSX (error code: 10087). Please expand Edge Cluster resources or verify Edge Cluster sizing in NSX.",
+		},
+		{
+			name:            "Non-capacity error falls back to standard VPC unready message",
+			err:             fmt.Errorf("project /orgs/default/projects/p1 not found"),
+			lbsSize:         "SMALL",
+			expectedStatus:  corev1.ConditionFalse,
+			expectedReason:  NSReasonVPCNotReady,
+			expectedMessage: "Error happened to create or update VPC: project /orgs/default/projects/p1 not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cond := getVPCCreationFailureCondition(tt.err, tt.lbsSize)
+			require.NotNil(t, cond)
+			assert.Equal(t, NamespaceNetworkReady, cond.Type)
+			assert.Equal(t, tt.expectedStatus, cond.Status)
+			assert.Equal(t, tt.expectedReason, cond.Reason)
+			if tt.expectedMessage != "" {
+				assert.Equal(t, tt.expectedMessage, cond.Message)
+			}
+		})
+	}
 }

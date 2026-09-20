@@ -235,6 +235,14 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 	return nil
 }
 
+func (r *NetworkInfoReconciler) getVPCCreationFailureCondition(err error) *corev1.NamespaceCondition {
+	lbsSize := ""
+	if r.Service != nil && r.Service.NSXConfig != nil && r.Service.NSXConfig.NsxConfig != nil {
+		lbsSize = r.Service.NSXConfig.NsxConfig.GetNSXLBSize()
+	}
+	return getVPCCreationFailureCondition(err, lbsSize)
+}
+
 func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	startTime := time.Now()
 	defer func() {
@@ -367,8 +375,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	createdVpc, err := r.Service.CreateOrUpdateVPC(ctx, networkInfoCR, nc, lbProvider, serviceClusterReady, r.restoreMode)
 	if err != nil {
-		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update VPC", setNetworkInfoVPCStatusWithError, nil)
-		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
+		cond := r.getVPCCreationFailureCondition(err)
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, cond.Message, setNetworkInfoVPCStatusWithError, nil)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, cond)
 		return common.ResultRequeueAfter10sec, err
 	}
 

@@ -57,25 +57,34 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 			if *result.State == model.GenericPolicyRealizedResource_STATE_ERROR {
 				log.Error(nil, "Found realized state with error", "result", result)
 				var errMsg []string
+				errorCode := 0
+				var relatedCodes []int
 				for _, alarm := range result.Alarms {
 					if alarm.Message != nil {
 						errMsg = append(errMsg, *alarm.Message)
 					}
 					if alarm.ErrorDetails != nil {
+						if alarm.ErrorDetails.ErrorCode != nil && errorCode == 0 {
+							errorCode = int(*alarm.ErrorDetails.ErrorCode)
+						}
 						for _, relatedErr := range alarm.ErrorDetails.RelatedErrors {
 							if relatedErr.ErrorMessage != nil {
-								errMsg = append(errMsg, *relatedErr.ErrorMessage)
+								if relatedErr.ErrorCode != nil {
+									errMsg = append(errMsg, fmt.Sprintf("[error code: %d, message: %s]", *relatedErr.ErrorCode, *relatedErr.ErrorMessage))
+								} else {
+									errMsg = append(errMsg, *relatedErr.ErrorMessage)
+								}
+							}
+							if relatedErr.ErrorCode != nil {
+								relatedCodes = append(relatedCodes, int(*relatedErr.ErrorCode))
 							}
 						}
 					}
 					if nsxutil.IsRetryRealizeError(alarm) {
 						return nsxutil.NewRetryRealizeError(fmt.Sprintf("%s not realized with errors: %s", intentPath, errMsg))
 					}
-					if nsxutil.IsIPAllocationError(alarm) {
-						return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), int(*alarm.ErrorDetails.ErrorCode))
-					}
 				}
-				return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), 0)
+				return nsxutil.NewRealizeStateError(fmt.Sprintf("%s realized with errors: %s", intentPath, errMsg), errorCode, relatedCodes...)
 			}
 		}
 		// extraIdsRealized can be greater than extraIds length as id is not unique in result list.
