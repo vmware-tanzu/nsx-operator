@@ -46,10 +46,11 @@ func TestZonePathForHostnameFromMap_table(t *testing.T) {
 			wantPath:   "/z",
 		},
 		{
-			name:     "apex_hostname_rejected_even_with_trailing_dot_and_mixed_case",
-			zones:    map[string]string{"/z": "example.com"},
-			hostname: "EXAMPLE.COM.",
-			errSub:   "must not equal to the allowed DNS domain",
+			name:       "apex_hostname_allowed_with_trailing_dot_and_mixed_case",
+			zones:      map[string]string{"/z": "example.com"},
+			hostname:   "EXAMPLE.COM.",
+			wantRecord: "@",
+			wantPath:   "/z",
 		},
 		{
 			name:     "leading_dot_only_zone_suffix_rejected_normalized_equals_suffix",
@@ -121,6 +122,22 @@ func TestParseDnsZonePath_table(t *testing.T) {
 			wantProj:   "project-1",
 			wantDNSSvc: "dns-svc-1",
 			wantZone:   "zone-1",
+		},
+		{
+			name:       "valid project dns forwarder zone path",
+			path:       "/orgs/default/projects/project-quality/infra/dns-forwarder-zones/default-dns-service",
+			wantOrg:    "default",
+			wantProj:   "project-quality",
+			wantDNSSvc: "infra",
+			wantZone:   "default-dns-service",
+		},
+		{
+			name:       "valid infra dns forwarder zone path",
+			path:       "/infra/dns-forwarder-zones/example-zone",
+			wantOrg:    "default",
+			wantProj:   "default",
+			wantDNSSvc: "infra",
+			wantZone:   "example-zone",
 		},
 		{
 			name:    "wrong segment (vpcs instead of dns-services)",

@@ -122,6 +122,7 @@ const (
 	AnnotationDNSHostnameKey                      string = "external-dns.alpha.kubernetes.io/hostname"
 	AnnotationDNSHostnameSourceKey                string = "external-dns.alpha.kubernetes.io/gateway-hostname-source"
 	AnnotationsDNSSkip                            string = "dns.nsx.vmware.com/skip"
+	TagValueDNSRecordForDNSRecord                 string = "dnsrecord"
 
 	// TagScopePodIndex is the NSX tag scope for Pod label apps.kubernetes.io/pod-index when synced onto the port (not set in BuildBasicTags).
 	TagScopePodIndex   string = "apps.kubernetes.io/pod-index"
@@ -150,6 +151,7 @@ const (
 	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
 	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
+	DNSRecordFinalizerName         = "dnsrecord.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetPath          = "IndexKeySubnetPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
