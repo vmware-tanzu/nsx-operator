@@ -24,6 +24,7 @@ const (
 )
 
 // RuleDirection specifies the direction of traffic.
+// +kubebuilder:validation:MaxLength=7
 type RuleDirection string
 
 const (
@@ -51,6 +52,8 @@ type SecurityPolicySpec struct {
 }
 
 // SecurityPolicyRule defines a rule of SecurityPolicy.
+// +kubebuilder:validation:XValidation:rule="!(has(self.direction) && self.direction.lowerAscii() in ['in', 'ingress']) || (!has(self.to) && !has(self.destinations))",message="to or destinations cannot be set for ingress rules"
+// +kubebuilder:validation:XValidation:rule="!(has(self.direction) && self.direction.lowerAscii() in ['out', 'egress']) || (!has(self.from) && !has(self.sources))",message="from or sources cannot be set for egress rules"
 type SecurityPolicyRule struct {
 	// Action specifies the action to be applied on the rule.
 	Action *RuleAction `json:"action"`
