@@ -201,10 +201,13 @@ func (service *SubnetService) buildSubnet(obj client.Object, tags []model.Tag, i
 		if len(o.Spec.AdvancedConfig.GatewayAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.GatewayAddresses = o.Spec.AdvancedConfig.GatewayAddresses
 		}
-		// Support custom DHCP server addresses whenever DHCP mode is DHCPServer,
+		// Support custom DHCP server addresses whenever DHCP mode is DHCPServer or DHCPServerStateless,
 		// regardless of staticIPAllocation. In mixed mode (Static + DHCPServer),
 		// the operator still needs to forward user-provided DHCP server IPs.
-		if (string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer || string(o.Spec.SubnetDHCPv6Config.Mode) == string(v1alpha1.DHCPv6ConfigModeServer)) && len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
+		if (string(o.Spec.SubnetDHCPConfig.Mode) == v1alpha1.DHCPConfigModeServer ||
+			string(o.Spec.SubnetDHCPv6Config.Mode) == string(v1alpha1.DHCPv6ConfigModeServer) ||
+			string(o.Spec.SubnetDHCPv6Config.Mode) == string(v1alpha1.DHCPv6ConfigModeServerStateless)) &&
+			len(o.Spec.AdvancedConfig.DHCPServerAddresses) > 0 {
 			nsxSubnet.AdvancedConfig.DhcpServerAddresses = o.Spec.AdvancedConfig.DHCPServerAddresses
 		}
 		nsxSubnet.Description = String(o.Spec.Description)

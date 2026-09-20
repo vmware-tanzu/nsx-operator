@@ -186,6 +186,23 @@ spec:
             - message: DHCPRelay or DHCPServerStateless is not supported in SubnetSet
               rule: '!has(self.subnetDHCPv6Config) || !has(self.subnetDHCPv6Config.mode)
                 || self.subnetDHCPv6Config.mode!=''DHCPRelay'' && self.subnetDHCPv6Config.mode!=''DHCPServerStateless'''
+            - message: ipv4SubnetSize cannot be set when ipAddressType is IPv6
+              rule: '!(has(self.ipAddressType) && self.ipAddressType==''IPv6'') ||
+                (!has(self.ipv4SubnetSize) || self.ipv4SubnetSize == 0)'
+            - message: ipv6PrefixLength cannot be set when ipAddressType is empty
+                or IPv4
+              rule: (has(self.ipAddressType) && self.ipAddressType!='IPv4') || (!has(self.ipv6PrefixLength)
+                || self.ipv6PrefixLength == 0)
+            - message: subnetDHCPConfig cannot be set when ipAddressType is IPv6
+              rule: '!(has(self.ipAddressType) && self.ipAddressType == ''IPv6'' &&
+                has(self.subnetDHCPConfig) && has(self.subnetDHCPConfig.mode) && size(self.subnetDHCPConfig.mode)
+                > 0 && self.subnetDHCPConfig.mode != ''DHCPDeactivated'')'
+            - message: subnetDHCPv6Config cannot be set when ipAddressType is empty
+                or IPv4
+              rule: '!((!has(self.ipAddressType) || self.ipAddressType == ''IPv4'')
+                && has(self.subnetDHCPv6Config) && has(self.subnetDHCPv6Config.mode)
+                && size(self.subnetDHCPv6Config.mode) > 0 && self.subnetDHCPv6Config.mode
+                != ''DHCPDeactivated'')'
           status:
             description: SubnetSetStatus defines the observed state of SubnetSet.
             properties:
