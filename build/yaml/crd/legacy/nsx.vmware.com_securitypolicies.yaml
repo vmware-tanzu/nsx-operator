@@ -429,6 +429,7 @@ spec:
                     direction:
                       description: Direction is the direction of the rule, including
                         'In' or 'Ingress', 'Out' or 'Egress'.
+                      maxLength: 7
                       type: string
                     from:
                       description: |-
@@ -961,6 +962,13 @@ spec:
                   - action
                   - direction
                   type: object
+                  x-kubernetes-validations:
+                  - message: to or destinations cannot be set for ingress rules
+                    rule: '!(has(self.direction) && self.direction.lowerAscii() in
+                      [''in'', ''ingress'']) || (!has(self.to) && !has(self.destinations))'
+                  - message: from or sources cannot be set for egress rules
+                    rule: '!(has(self.direction) && self.direction.lowerAscii() in
+                      [''out'', ''egress'']) || (!has(self.from) && !has(self.sources))'
                 type: array
             type: object
           status:
