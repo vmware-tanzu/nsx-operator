@@ -234,10 +234,9 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						},
 					},
 				}))
-				cluster := &nsx.Cluster{}
-				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
-					nsxVersion := &nsx.NsxVersion{ProductVersion: "4.0.1"}
-					return nsxVersion, nil
+				// Service accounts are supported, but restoring realized accounts is not.
+				patches = gomonkey.ApplyMethod(r.Service.NSXClient, "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return feature == nsx.ServiceAccount
 				})
 				patches.ApplyMethodSeq(r.Service, "UpdateProxyEndpointsIfNeeded", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
@@ -279,10 +278,9 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 						Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
 					},
 				}))
-				cluster := &nsx.Cluster{}
-				patches = gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *nsx.Cluster) (*nsx.NsxVersion, error) {
-					nsxVersion := &nsx.NsxVersion{ProductVersion: "4.1.2"}
-					return nsxVersion, nil
+				// Both service accounts and their restoration are supported.
+				patches = gomonkey.ApplyMethod(r.Service.NSXClient, "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+					return feature == nsx.ServiceAccount || feature == nsx.ServiceAccountRestore
 				})
 				patches.ApplyMethodSeq(r.Service, "RestoreRealizedNSXServiceAccount", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{fmt.Errorf("mock error")},
