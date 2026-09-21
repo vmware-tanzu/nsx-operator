@@ -713,6 +713,107 @@ func TestSubnetService_createOrUpdateSubnet(t *testing.T) {
 	}
 }
 
+func TestSubnetService_createOrUpdateSubnet_RestoreMode(t *testing.T) {
+	scheme := clientgoscheme.Scheme
+	_ = v1alpha1.AddToScheme(scheme)
+
+	subnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-subnetset",
+			Namespace: "test-ns",
+			UID:       "test-subnetset-uid",
+		},
+		Status: v1alpha1.SubnetSetStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:   v1alpha1.SubnetCreationFailed,
+					Status: corev1.ConditionTrue,
+					Reason: "SubnetCreationFailed",
+				},
+				{
+					Type:   v1alpha1.Ready,
+					Status: corev1.ConditionFalse,
+					Reason: "SubnetCreationFailed",
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.SubnetSet{}).WithObjects(subnetSet).Build()
+
+	fakeSubnet := model.VpcSubnet{
+		Id:          common.String("subnet-1"),
+		Path:        common.String("/orgs/default/projects/default/vpcs/default/subnets/subnet-1"),
+		DisplayName: common.String("subnet-1"),
+		ParentPath:  common.String("/orgs/default/projects/default/vpcs/default"),
+	}
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: fakeClient,
+			NSXClient: &nsx.Client{
+				SubnetsClient:      &fakeSubnetsClient{},
+				SubnetStatusClient: &fakeSubnetStatusClient{},
+			},
+		},
+		SubnetStore: buildSubnetStore(),
+	}
+
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Get",
+		func(_ *fakeSubnetsClient, _, _, _, _ string) (model.VpcSubnet, error) {
+			return fakeSubnet, nil
+		})
+	patches.ApplyMethod(reflect.TypeOf(&fakeSubnetsClient{}), "Patch",
+		func(_ *fakeSubnetsClient, _, _, _, _ string, _ model.VpcSubnet) error {
+			return nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(service), "checkSubnetRealizeState",
+		func(_ *SubnetService, _ *model.VpcSubnet) error {
+			return nil
+		})
+
+	vpcInfo := &common.VPCResourceInfo{OrgID: "default", ProjectID: "default", VPCID: "default"}
+
+	// 1. In restoreMode = true: SubnetCreationFailed condition MUST NOT be removed
+	_, err := service.createOrUpdateSubnet(subnetSet, &fakeSubnet, vpcInfo, true)
+	assert.NoError(t, err)
+
+	updatedSubnetSet := &v1alpha1.SubnetSet{}
+	err = fakeClient.Get(context.TODO(), client.ObjectKeyFromObject(subnetSet), updatedSubnetSet)
+	assert.NoError(t, err)
+
+	hasCondition := false
+	for _, cond := range updatedSubnetSet.Status.Conditions {
+		if cond.Type == v1alpha1.SubnetCreationFailed {
+			hasCondition = true
+			break
+		}
+	}
+	assert.True(t, hasCondition, "SubnetCreationFailed condition should remain intact in restore mode")
+
+	// 2. In restoreMode = false: SubnetCreationFailed condition MUST be removed
+	patches.ApplyMethod(reflect.TypeOf(service), "UpdateSubnetSetStatus",
+		func(_ *SubnetService, _ *v1alpha1.SubnetSet) error {
+			return nil
+		})
+	_, err = service.createOrUpdateSubnet(subnetSet, &fakeSubnet, vpcInfo, false)
+	assert.NoError(t, err)
+
+	err = fakeClient.Get(context.TODO(), client.ObjectKeyFromObject(subnetSet), updatedSubnetSet)
+	assert.NoError(t, err)
+
+	hasCondition = false
+	for _, cond := range updatedSubnetSet.Status.Conditions {
+		if cond.Type == v1alpha1.SubnetCreationFailed {
+			hasCondition = true
+			break
+		}
+	}
+	assert.False(t, hasCondition, "SubnetCreationFailed condition should be removed when not in restore mode")
+}
+
 func TestSubnetService_DeleteSubnet(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)
