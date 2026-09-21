@@ -133,8 +133,8 @@ func ShouldRegenerate(err error) bool {
 }
 
 // InitErrorFromResponse returns error based on http.Response
-func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
-	detail, err := extractHTTPDetailFromBody(host, statusCode, body)
+func InitErrorFromResponse(host string, statusCode int, body []byte, log logger.CustomLogger) NsxError {
+	detail, err := extractHTTPDetailFromBody(host, statusCode, body, log)
 	if err != nil {
 		return CreateGeneralManagerError(host, "decode body", err.Error())
 	}
@@ -144,7 +144,7 @@ func InitErrorFromResponse(host string, statusCode int, body []byte) NsxError {
 	return httpErrortoNSXError(&detail)
 }
 
-func dumpResponseBody(body []byte, statusCode int) {
+func dumpResponseBody(body []byte, statusCode int, log logger.CustomLogger) {
 	var parsedBody interface{}
 	if err := json.Unmarshal(body, &parsedBody); err == nil {
 		log.Debug("HTTP resp", "status code", statusCode, "body", parsedBody)
@@ -153,7 +153,7 @@ func dumpResponseBody(body []byte, statusCode int) {
 	}
 }
 
-func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorDetail, error) {
+func extractHTTPDetailFromBody(host string, statusCode int, body []byte, log logger.CustomLogger) (ErrorDetail, error) {
 	ec := ErrorDetail{StatusCode: statusCode}
 	if len(body) == 0 {
 		return ec, nil
@@ -163,7 +163,7 @@ func extractHTTPDetailFromBody(host string, statusCode int, body []byte) (ErrorD
 		log.Error(err, "Failed to decode response body for extracting HTTP detail")
 		return ec, CreateGeneralManagerError(host, "decode body", err.Error())
 	}
-	dumpResponseBody(body, statusCode)
+	dumpResponseBody(body, statusCode, log)
 	ec.ErrorCode = res.ErrorCode
 	msg := []string{res.ErrorMsg}
 	for _, a := range res.RelatedErr {
@@ -263,10 +263,10 @@ func httpErrortoNSXError(detail *ErrorDetail) NsxError {
 	return CreateGeneralManagerError("", "", detail.Error())
 }
 
-func HandleHTTPResponse(response *http.Response, result interface{}, debug bool) (error, []byte) { //nolint:staticcheck // ST1008: exported before convention; changing signature would break callers
+func HandleHTTPResponse(response *http.Response, result interface{}, debug bool, log logger.CustomLogger) (error, []byte) { //nolint:staticcheck // ST1008: exported before convention; changing signature would break callers
 	body, err := io.ReadAll(response.Body)
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusCreated {
+	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusAccepted && response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusNoContent {
 		err := HttpCommonError
 		if response.StatusCode == http.StatusNotFound {
 			err = HttpNotFoundError
@@ -277,7 +277,7 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		log.Error(err, "HTTP resp", "status", response.StatusCode, "request URL", response.Request.URL, "response body", string(body))
 		return err, nil
 	}
-	if err != nil || body == nil {
+	if err != nil || body == nil || response.StatusCode == http.StatusNoContent {
 		return err, body
 	}
 	if result == nil {
@@ -289,7 +289,7 @@ func HandleHTTPResponse(response *http.Response, result interface{}, debug bool)
 		return err, body
 	}
 	if debug {
-		dumpResponseBody(body, response.StatusCode)
+		dumpResponseBody(body, response.StatusCode, log)
 	}
 	return nil, body
 }
@@ -325,7 +325,7 @@ func sanitizeHeaders(headers http.Header) http.Header {
 	return safeHeaders
 }
 
-func DumpHttpRequest(request *http.Request) {
+func DumpHttpRequest(request *http.Request, log logger.CustomLogger) {
 	var body []byte
 	var err error
 	if request == nil {

@@ -8,16 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
 
@@ -119,7 +116,7 @@ func TestCreateAuthSession(t *testing.T) {
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)
-	ep, err := NewEndpoint("10.0.0.1", client, noBClient, rl, nil)
+	ep, err := NewEndpoint("10.0.0.1", client, noBClient, rl, nil, cluster.getLogger())
 	assert.Nil(err, fmt.Sprintf("Endpoint create failed due to %v", err))
 
 	certProvider := createNcpPovider()
@@ -158,6 +155,16 @@ func TestCreateAuthSession(t *testing.T) {
 
 }
 
+type mockFailingTokenProvider struct{}
+
+func (m *mockFailingTokenProvider) GetToken(refreshToken bool) (string, error) {
+	return "", errors.New("The account of the user trying to authenticate is locked. :: User account locked")
+}
+
+func (m *mockFailingTokenProvider) HeaderValue(token string) string {
+	return ""
+}
+
 func TestKeepAlive(t *testing.T) {
 	assert := assert.New(t)
 	//mock http server
@@ -176,7 +183,7 @@ func TestKeepAlive(t *testing.T) {
 	client := cluster.createHTTPClient(tr, 30)
 	noBClient := cluster.createNoBalancerClient(90, 90)
 	rl := ratelimiter.NewFixRateLimiter(10)
-	ep, err := NewEndpoint(ts.URL[len("http://"):], client, noBClient, rl, nil)
+	ep, err := NewEndpoint(ts.URL[len("http://"):], client, noBClient, rl, nil, cluster.getLogger())
 
 	assert.Nil(err, fmt.Sprintf("Endpoint create failed due to %v", err))
 	ep.setStatus(UP)
@@ -204,17 +211,84 @@ func TestKeepAlive(t *testing.T) {
 		time.Sleep(2 * time.Second)
 		close(ep.stop)
 	}()
+	ep.wg.Add(1)
 	ep.KeepAlive()
 	waitTime := time.Since(start)
 	assert.True(waitTime/time.Second <= 2, "keepalive should stop within 2 seconds")
 
 	// ep.KeepAlive will break after 10 times retry
-	ep.tokenProvider = &jwt.JWTTokenProvider{}
+	ep.tokenProvider = &mockFailingTokenProvider{}
 	ep.lockWait = time.Millisecond * 300
-	patch := gomonkey.ApplyMethod(reflect.TypeOf(ep.tokenProvider), "GetToken", func(_ *jwt.JWTTokenProvider, refreshToken bool) (string, error) {
-		return "", errors.New("The account of the user trying to authenticate is locked. :: User account locked")
-	})
-	defer patch.Reset()
+	ep.wg.Add(1)
 	ep.KeepAlive()
 	assert.Equal(ep.Status(), DOWN)
+}
+
+func TestNextInterval(t *testing.T) {
+	ep := &Endpoint{keepaliveperiod: 33}
+	assert.Equal(t, 33, ep.nextInterval())
+
+	ep.setAliveTime(time.Now().Add(-10 * time.Second))
+	assert.Equal(t, 23, ep.nextInterval())
+
+	ep.setAliveTime(time.Now().Add(-40 * time.Second))
+	assert.Equal(t, 33, ep.nextInterval())
+}
+
+type mockRetryTokenProvider struct {
+	attempts     int
+	failAttempts int
+}
+
+func (m *mockRetryTokenProvider) GetToken(refreshToken bool) (string, error) {
+	m.attempts++
+	if m.attempts <= m.failAttempts {
+		return "", errors.New("temporary token error")
+	}
+	return "valid-token", nil
+}
+
+func (m *mockRetryTokenProvider) HeaderValue(token string) string {
+	return "Bearer " + token
+}
+
+func TestUpdateHttpRequestAuth(t *testing.T) {
+	assert := assert.New(t)
+
+	// Case 1: Succeeds on 2nd attempt
+	provider := &mockRetryTokenProvider{failAttempts: 1}
+	ep := &Endpoint{
+		tokenProvider: provider,
+		lockWait:      time.Millisecond * 10,
+	}
+	req, err := http.NewRequest("GET", "http://localhost", nil)
+	assert.NoError(err)
+	err = ep.UpdateHttpRequestAuth(req)
+	assert.NoError(err)
+	assert.Equal(2, provider.attempts, "Should retry and succeed on 2nd attempt")
+	assert.Equal("Bearer valid-token", req.Header.Get("Authorization"))
+
+	// Case 2: Fails all 3 attempts
+	failingProvider := &mockRetryTokenProvider{failAttempts: 5}
+	ep2 := &Endpoint{
+		tokenProvider: failingProvider,
+		lockWait:      time.Millisecond * 10,
+	}
+	req2, err := http.NewRequest("GET", "http://localhost", nil)
+	assert.NoError(err)
+	err = ep2.UpdateHttpRequestAuth(req2)
+	assert.Error(err)
+	assert.Equal(3, failingProvider.attempts, "Should stop after 3 attempts")
+
+	// Case 3: XSRF token fallback
+	ep3 := &Endpoint{
+		client:   &http.Client{Jar: NewJar()},
+		provider: &address{host: "localhost"},
+	}
+	ep3.setXSRFToken("sample-xsrf-token")
+	req3, err := http.NewRequest("GET", "http://localhost", nil)
+	assert.NoError(err)
+	err = ep3.UpdateHttpRequestAuth(req3)
+	assert.NoError(err)
+	assert.Equal("sample-xsrf-token", req3.Header.Get("X-Xsrf-Token"))
 }

@@ -69,9 +69,10 @@ func (c *CleanupService) retriable(err error) bool {
 func (c *CleanupService) cleanupBeforeVPCDeletion(ctx context.Context) error {
 	cleanersCount := len(c.vpcPreCleaners)
 	if cleanersCount > 0 {
-		wgForPreVPCCleaners := sync.WaitGroup{}
+		var wgForPreVPCCleaners sync.WaitGroup
+		var mu sync.Mutex
+		var allErrs []error
 		wgForPreVPCCleaners.Add(cleanersCount)
-		errorChans := make(chan error, cleanersCount)
 		for idx := range c.vpcPreCleaners {
 			cleaner := c.vpcPreCleaners[idx]
 			go func() {
@@ -80,14 +81,15 @@ func (c *CleanupService) cleanupBeforeVPCDeletion(ctx context.Context) error {
 					return cleaner.CleanupBeforeVPCDeletion(ctx)
 				})
 				if err != nil {
-					errorChans <- err
+					mu.Lock()
+					allErrs = append(allErrs, err)
+					mu.Unlock()
 				}
 			}()
 		}
 		wgForPreVPCCleaners.Wait()
-		if len(errorChans) > 0 {
-			err := <-errorChans
-			return err
+		if len(allErrs) > 0 {
+			return errors.Join(allErrs...)
 		}
 	}
 	return nil
@@ -107,10 +109,10 @@ func (c *CleanupService) cleanupVPCResourcesByVPCPath(ctx context.Context, vpcPa
 	}
 
 	cleanersCount := len(c.vpcChildrenCleaners)
-	cleanErrs := make(chan error, len(c.vpcChildrenCleaners))
-	defer close(cleanErrs)
+	var wgForChildrenCleaners sync.WaitGroup
+	var mu sync.Mutex
+	var allErrs []error
 
-	wgForChildrenCleaners := sync.WaitGroup{}
 	wgForChildrenCleaners.Add(cleanersCount)
 	for idx := range c.vpcChildrenCleaners {
 		cleaner := c.vpcChildrenCleaners[idx]
@@ -118,13 +120,15 @@ func (c *CleanupService) cleanupVPCResourcesByVPCPath(ctx context.Context, vpcPa
 			defer wgForChildrenCleaners.Done()
 			err := cleaner.CleanupVPCChildResources(ctx, vpcPath)
 			if err != nil {
-				cleanErrs <- err
+				mu.Lock()
+				allErrs = append(allErrs, err)
+				mu.Unlock()
 			}
 		}()
 	}
 	wgForChildrenCleaners.Wait()
-	if len(cleanErrs) > 0 {
-		return <-cleanErrs
+	if len(allErrs) > 0 {
+		return errors.Join(allErrs...)
 	}
 	return nil
 }
@@ -242,8 +246,9 @@ func (c *CleanupService) cleanupVPCResources(ctx context.Context) error {
 func (c *CleanupService) cleanupInfraResources(ctx context.Context) error {
 	if err := retry.OnError(Backoff, c.retriable, func() error {
 		cleanersCount := len(c.infraCleaners)
-		cleanErrs := make([]error, 0)
-		wgForInfraCleaners := sync.WaitGroup{}
+		var wgForInfraCleaners sync.WaitGroup
+		var mu sync.Mutex
+		var allErrs []error
 		wgForInfraCleaners.Add(cleanersCount)
 
 		for idx := range c.infraCleaners {
@@ -252,16 +257,17 @@ func (c *CleanupService) cleanupInfraResources(ctx context.Context) error {
 				defer wgForInfraCleaners.Done()
 				err := cleaner.CleanupInfraResources(ctx)
 				if err != nil {
-					cleanErrs = append(cleanErrs, err)
+					mu.Lock()
+					allErrs = append(allErrs, err)
+					mu.Unlock()
 				}
 			}()
 		}
 
 		wgForInfraCleaners.Wait()
-		if len(cleanErrs) > 0 {
-			return cleanErrs[0]
+		if len(allErrs) > 0 {
+			return errors.Join(allErrs...)
 		}
-
 		return nil
 	}); err != nil {
 		return err
@@ -272,8 +278,9 @@ func (c *CleanupService) cleanupInfraResources(ctx context.Context) error {
 func (c *CleanupService) cleanupHealthResources(ctx context.Context) error {
 	if err := retry.OnError(Backoff, c.retriable, func() error {
 		cleanersCount := len(c.healthCleaners)
-		cleanErrs := make([]error, 0)
-		wgForHealthCleaners := sync.WaitGroup{}
+		var wgForHealthCleaners sync.WaitGroup
+		var mu sync.Mutex
+		var allErrs []error
 		wgForHealthCleaners.Add(cleanersCount)
 
 		for idx := range c.healthCleaners {
@@ -282,14 +289,16 @@ func (c *CleanupService) cleanupHealthResources(ctx context.Context) error {
 				defer wgForHealthCleaners.Done()
 				err := cleaner.CleanupHealthResources(ctx)
 				if err != nil {
-					cleanErrs = append(cleanErrs, err)
+					mu.Lock()
+					allErrs = append(allErrs, err)
+					mu.Unlock()
 				}
 			}()
 		}
 
 		wgForHealthCleaners.Wait()
-		if len(cleanErrs) > 0 {
-			return cleanErrs[0]
+		if len(allErrs) > 0 {
+			return errors.Join(allErrs...)
 		}
 
 		return nil
