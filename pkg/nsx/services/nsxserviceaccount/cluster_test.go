@@ -33,6 +33,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -2524,4 +2525,89 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateOrUpdateNSXServiceAccount_MarksBackoffOnCCPConnectionCapacityFull(t *testing.T) {
+	t.Cleanup(ClearCCPConnectionCapacityFull)
+	ClearCCPConnectionCapacityFull()
+
+	ctx := context.TODO()
+	commonService := newFakeCommonService()
+	s := &NSXServiceAccountService{Service: commonService}
+	s.SetUpStore()
+
+	obj := &v1alpha1.NSXServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "name610139",
+			Namespace: "ns1",
+			UID:       "00000000-0000-0000-0000-000000000099",
+		},
+		Spec: v1alpha1.NSXServiceAccountSpec{
+			VPCName: "vpc1",
+		},
+	}
+
+	normalizedClusterName := "k8scl-one_test-ns1-name610139"
+	vpcPath := "/orgs/default/projects/k8scl-one:test/vpcs/vpc1"
+	piID := "Id610139"
+	uid := string(obj.UID)
+
+	code610139 := int64(nsxutil.CCPConnectionCapacityFullErrorCode)
+	em := "capacity"
+	apiErr := &model.ApiError{ErrorCode: &code610139, ErrorMessage: &em}
+	et := vapierrors.ErrorTypeEnum("INVALID_REQUEST")
+	ccpErr := nsxutil.NewNSXApiError(apiErr, et)
+
+	require.NoError(t, s.Client.Create(ctx, obj))
+
+	patches := gomonkey.ApplyMethodSeq(s.NSXClient.WithCertificateClient, "Create", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+			IsProtected: &isProtectedTrue,
+			Name:        &normalizedClusterName,
+			NodeId:      &normalizedClusterName,
+			Role:        nil,
+			RolesForPaths: []mpmodel.RolesForPath{{
+				Path: &readerPath,
+				Roles: []mpmodel.Role{{
+					Role: &readerRole,
+				}},
+			}, {
+				Path: &vpcPath,
+				Roles: []mpmodel.Role{{
+					Role: &vpcRole,
+				}},
+			}},
+			Id: &piID,
+			Tags: []mpmodel.Tag{{
+				Scope: &tagScopeCluster,
+				Tag:   &s.NSXConfig.CoeConfig.Cluster,
+			}, {
+				Scope: &tagScopeNamespace,
+				Tag:   &obj.Namespace,
+			}, {
+				Scope: &tagScopeNSXServiceAccountCRName,
+				Tag:   &obj.Name,
+			}, {
+				Scope: &tagScopeNSXServiceAccountCRUID,
+				Tag:   &uid,
+			}},
+		}, nil},
+		Times: 1,
+	}})
+	patches.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.ClusterControlPlane{}, ccpErr},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{true},
+		Times:  1,
+	}})
+	defer patches.Reset()
+
+	err := s.CreateOrUpdateNSXServiceAccount(ctx, obj)
+	require.Error(t, err)
+
+	d, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now())
+	assert.True(t, skip)
+	assert.Greater(t, d, time.Duration(0))
 }

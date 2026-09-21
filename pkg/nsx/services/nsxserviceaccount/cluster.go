@@ -296,8 +296,12 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		})
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
+			if nsxutil.IsCCPConnectionCapacityFullError(err) {
+				MarkCCPConnectionCapacityFull()
+			}
 			return "", err
 		}
+		ClearCCPConnectionCapacityFull()
 		s.ClusterControlPlaneStore.Add(&ccp)
 		clusterId = *ccp.NodeId
 	} else if !hasCCP != (ccpObj == nil) {
@@ -495,8 +499,12 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 	ccp.Certificate = &cert
 	if ccp2, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, *ccp); err != nil {
 		err = nsxutil.TransNSXApiError(err)
+		if nsxutil.IsCCPConnectionCapacityFullError(err) {
+			MarkCCPConnectionCapacityFull()
+		}
 		return err
 	} else {
+		ClearCCPConnectionCapacityFull()
 		ccp = &ccp2
 		s.ClusterControlPlaneStore.Add(ccp)
 	}
