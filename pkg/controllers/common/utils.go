@@ -887,6 +887,28 @@ func GetPodNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) string {
 	return ""
 }
 
+// GetPodForSubnetPort resolves the owner by UID as well as name. A replacement Pod
+// with the same name must not inherit an orphaned SubnetPort's reconciliation.
+func GetPodForSubnetPort(ctx context.Context, reader k8sclient.Reader, subnetPort *v1alpha1.SubnetPort) (*v1.Pod, error) {
+	if subnetPort == nil {
+		return nil, nil
+	}
+	for _, ref := range subnetPort.OwnerReferences {
+		if ref.Kind != "Pod" {
+			continue
+		}
+		pod := &v1.Pod{}
+		if err := reader.Get(ctx, types.NamespacedName{Namespace: subnetPort.Namespace, Name: ref.Name}, pod); err != nil {
+			return nil, err
+		}
+		if pod.UID != ref.UID {
+			return nil, fmt.Errorf("SubnetPort %s/%s owner Pod %s UID changed from %s to %s", subnetPort.Namespace, subnetPort.Name, ref.Name, ref.UID, pod.UID)
+		}
+		return pod, nil
+	}
+	return nil, nil
+}
+
 // GetSubnetPortForPod searches for the SubnetPort CR associated with the given Pod via ownerReferences.
 func GetSubnetPortForPod(ctx context.Context, c k8sclient.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
 	if pod == nil {
@@ -944,6 +966,10 @@ func GetNodeByName(nodeServiceReader servicecommon.NodeServiceReader, nodeName s
 	if len(nodes) > 1 {
 		var nodeIDs []string
 		for _, node := range nodes {
+			if node == nil || node.UniqueId == nil {
+				nodeIDs = append(nodeIDs, "<nil>")
+				continue
+			}
 			nodeIDs = append(nodeIDs, *node.UniqueId)
 		}
 		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)

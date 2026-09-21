@@ -46,21 +46,16 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			stsName = ref.Name
 		}
 	} else if sp, ok := obj.(*v1alpha1.SubnetPort); ok {
-		for _, ref := range sp.GetOwnerReferences() {
-			if ref.Kind == "Pod" {
-				appId = string(ref.UID)
-				podName = ref.Name
-				if service != nil && service.Client != nil {
-					pod := &corev1.Pod{}
-					if err := service.Client.Get(context.Background(), types.NamespacedName{Namespace: sp.Namespace, Name: ref.Name}, pod); err == nil {
-						stsUID = GetStatefulSetUID(pod)
-						stsKind := appsv1.SchemeGroupVersion.WithKind("StatefulSet").Kind
-						if stsRef := metav1.GetControllerOf(pod); stsRef != nil && stsRef.Kind == stsKind {
-							stsName = stsRef.Name
-						}
-					}
-				}
-				break
+		pod, err := controllercommon.GetPodForSubnetPort(context.Background(), service.Client, sp)
+		if err != nil {
+			return nil, err
+		}
+		if pod != nil {
+			appId = string(pod.UID)
+			podName = pod.Name
+			stsUID = GetStatefulSetUID(pod)
+			if ref := metav1.GetControllerOf(pod); ref != nil && ref.Kind == "StatefulSet" {
+				stsName = ref.Name
 			}
 		}
 	}
@@ -117,12 +112,13 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		staticIpAllocationType = controllercommon.ConvertCRStaticIPAddressTypeToNSX(o.Spec.StaticIPAllocationType)
 	case *corev1.Pod:
 		if restoreMode && len(o.Status.PodIPs) > 0 {
+			restoreStatus := GetPodRestoreStatus(o)
 			addressBindings = []model.PortAddressBindingEntry{}
-			for _, ip := range o.Status.PodIPs {
-				addressBindings = append(addressBindings, model.PortAddressBindingEntry{IpAddress: &ip.IP})
+			for _, ip := range restoreStatus.NetworkInterfaceConfig.IPAddresses {
+				addressBindings = append(addressBindings, model.PortAddressBindingEntry{IpAddress: &ip.IPAddress})
 			}
-			mac, ok := o.GetAnnotations()[common.AnnotationPodMAC]
-			if ok && mac != "" {
+			mac := restoreStatus.NetworkInterfaceConfig.MACAddress
+			if mac != "" {
 				for i := range addressBindings {
 					addressBindings[i].MacAddress = &mac
 				}
@@ -184,8 +180,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
 
 	// Filter tags based on the type of subnet port (VM or Pod).
-	// For VM subnet ports, we need to filter out tags with scope VMNamespaceUID and VMNamespace.
-	// For Pod subnet ports, we need to filter out tags with scope NamespaceUID and Namespace.
+	// VM ports retain VMNamespace/VMNamespaceUID; Pod ports retain Namespace/NamespaceUID.
 	var tagsFiltered []model.Tag
 	for _, tag := range tags {
 		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespaceUID {
@@ -204,6 +199,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 
 	if _, ok := obj.(*v1alpha1.SubnetPort); ok && !isVmSubnetPort {
+		// BuildBasicTags already supplies Namespace and NamespaceUID.
 		if podName != "" {
 			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopePodName), Tag: common.String(podName)})
 		}
@@ -256,6 +252,24 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		nsxSubnetPort.AddressBindings = addressBindings
 	}
 	return nsxSubnetPort, nil
+}
+
+// GetPodRestoreStatus translates the network state persisted on a realized Pod.
+// It deliberately does not set Ready; only a successful NSX restore can do that.
+func GetPodRestoreStatus(pod *corev1.Pod) v1alpha1.SubnetPortStatus {
+	status := v1alpha1.SubnetPortStatus{
+		Attachment: v1alpha1.PortAttachment{ID: pod.Annotations[common.AnnotationAttachment]},
+		NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+			MACAddress: pod.Annotations[common.AnnotationPodMAC],
+		},
+	}
+	for _, ip := range pod.Status.PodIPs {
+		status.NetworkInterfaceConfig.IPAddresses = append(status.NetworkInterfaceConfig.IPAddresses, v1alpha1.NetworkInterfaceIPAddress{IPAddress: ip.IP})
+	}
+	if len(status.NetworkInterfaceConfig.IPAddresses) == 0 && pod.Status.PodIP != "" {
+		status.NetworkInterfaceConfig.IPAddresses = []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: pod.Status.PodIP}}
+	}
+	return status
 }
 
 // GetStatefulSetUID returns the StatefulSet UID if the pod's controller

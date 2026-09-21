@@ -138,11 +138,6 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 		return common.ResultNormal, nil
 	}
 
-	if r.restoreMode {
-		log.Info("In restore mode, falling back to legacy NSX subnet port restore", "Namespace", pod.Namespace, "Name", pod.Name)
-		return r.reconcileLegacy(ctx, req, pod)
-	}
-
 	subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.Client, pod.Namespace, servicecommon.DefaultPodNetwork)
 	if err != nil {
 		log.Error(err, "Failed to get default SubnetSet for namespace", "Namespace", pod.Namespace)
@@ -152,15 +147,21 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 
 	var interfaceIPType v1alpha1.IPAddressType
 	if subnetSet.Spec.IPAddressType != "" {
-		interfaceIPType = subnetport.GetDefaultInterfaceIPType(subnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType)
+		interfaceIPType, err = subnetport.GetDefaultInterfaceIPType(subnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+			return common.ResultNormal, err
+		}
 	} else {
 		err = fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
 		r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 		return common.ResultNormal, err
 	}
 
+	// Bound name collision retries per reconcile; the controller retries on error.
+	const maxCreateAttempts = 3
 	var createErr error
-	for attempt := 0; ; attempt++ {
+	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
 		spName := common.GenerateSubnetPortName(pod, attempt)
 		subnetPort = &v1alpha1.SubnetPort{
 			ObjectMeta: metav1.ObjectMeta{
@@ -170,8 +171,8 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 			Spec: v1alpha1.SubnetPortSpec{
 				SubnetSet:       subnetSet.Name,
 				InterfaceIPType: interfaceIPType,
-				// Currently we only support pod on static subnet, need to revisit this StaticIPAllocationType when dhcp subnet is supported for pod
-				StaticIPAllocationType: v1alpha1.StaticIPAllocationType(interfaceIPType),
+				// Resolve static allocation from the selected NSX Subnet. A pre-created
+				// SubnetSet does not carry its member Subnets' DHCP/static configuration.
 			},
 		}
 
@@ -191,9 +192,24 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 			r.StatusUpdater.UpdateFail(ctx, pod, createErr, "", nil)
 			return common.ResultNormal, createErr
 		}
-		log.Warn("SubnetPort CR already exists, retrying with fallback name", "attempt", attempt, "SubnetPortName", spName, "Namespace", pod.Namespace, "PodName", pod.Name)
+		// Create writes to the API server before the informer necessarily observes
+		// it. Check the live object before treating AlreadyExists as a name collision.
+		reader := r.APIReader
+		if reader == nil {
+			reader = r.Client
+		}
+		existing := &v1alpha1.SubnetPort{}
+		if err := reader.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: spName}, existing); err != nil {
+			return common.ResultNormal, err
+		}
+		if metav1.IsControlledBy(existing, pod) {
+			r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
+			return common.ResultNormal, nil
+		}
+		log.Warn("SubnetPort CR name is owned by another object", "attempt", attempt, "SubnetPortName", spName, "Namespace", pod.Namespace, "PodName", pod.Name)
 	}
 	if createErr != nil {
+		createErr = fmt.Errorf("failed to create SubnetPort CR after %d name collisions: %w", maxCreateAttempts, createErr)
 		log.Error(createErr, "Failed to create SubnetPort CR after retries", "Namespace", pod.Namespace, "PodName", pod.Name)
 		r.StatusUpdater.UpdateFail(ctx, pod, createErr, "", nil)
 		return common.ResultNormal, createErr

@@ -261,8 +261,9 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			staticroutecontroller.NewStaticRouteReconciler(reconcilerMgr, staticRouteService),
 			// SubnetPort may use IPAddressAllocation for AddressBinding, reconcile IPAddressAllocation first
 			ipaddressallocation.NewIPAddressAllocationReconciler(reconcilerMgr, ipAddressAllocationService, vpcService),
-			subnetport.NewSubnetPortReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService, nodeService),
+			// Pod V2 restore creates missing SubnetPort CRs before their NSX ports are restored.
 			pod.NewPodReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, nodeService),
+			subnetport.NewSubnetPortReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService, nodeService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(reconcilerMgr, commonService, vpcService),
 			gateway.NewGatewayReconciler(reconcilerMgr, dnsRecordService),
 			subnetbindingcontroller.NewReconciler(reconcilerMgr, subnetService, subnetBindingService),

@@ -27,6 +27,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -212,6 +213,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				pod := obj.(*corev1.Pod)
 				pod.Name = "pod1"
 				pod.Namespace = "dummy"
+				pod.UID = "pod-uid-123"
 				pod.Labels = map[string]string{"k1": "v1"}
 				return nil
 			})
@@ -296,6 +298,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				pod := obj.(*corev1.Pod)
 				pod.Name = "pod1"
 				pod.Namespace = "dummy"
+				pod.UID = "pod-uid-123"
 				pod.Spec.NodeName = "fallback-node"
 				return nil
 			})
@@ -4831,4 +4834,57 @@ func TestSubnetPortReconciler_updateSubnetPortStatusConditions(t *testing.T) {
 			updateSubnetPortStatusConditions(k8sClient, context.TODO(), tt.subnetPort, tt.newConditions)
 		})
 	}
+}
+
+func TestPodPredicate(t *testing.T) {
+	podOld := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "pod-1",
+			Labels: map[string]string{"k1": "v1"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "",
+		},
+	}
+
+	podNodeChanged := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "pod-1",
+			Labels: map[string]string{"k1": "v1"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "esx-host-1",
+		},
+	}
+
+	podLabelChanged := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "pod-1",
+			Labels: map[string]string{"k1": "v2"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "",
+		},
+	}
+
+	podUnchanged := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "pod-1",
+			Labels: map[string]string{"k1": "v1"},
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "",
+		},
+	}
+
+	// Update events
+	assert.True(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podNodeChanged}), "NodeName change should trigger reconcile")
+	assert.True(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podLabelChanged}), "Label change should trigger reconcile")
+	assert.False(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podUnchanged}), "Unchanged pod should not trigger reconcile")
+	assert.False(t, podPredicate.Update(event.UpdateEvent{ObjectOld: nil, ObjectNew: podOld}), "Nil old object should return false")
+
+	// Create and Delete events
+	assert.True(t, podPredicate.Create(event.CreateEvent{Object: podOld}))
+	assert.True(t, podPredicate.Delete(event.DeleteEvent{Object: podOld}))
+	assert.False(t, podPredicate.Generic(event.GenericEvent{Object: podOld}))
 }
