@@ -245,10 +245,9 @@ func (service *SubnetService) createOrUpdateSubnet(obj client.Object, nsxSubnet 
 		return nil, err
 	}
 
-	service.removeSubnetSetConditionOnSuccess(obj)
-
 	// No need to update the SubnetSet status in restore mode
 	if !restoreMode {
+		service.removeSubnetSetConditionOnSuccess(obj)
 		if subnetSet, ok := obj.(*v1alpha1.SubnetSet); ok {
 			if err = service.UpdateSubnetSetStatus(subnetSet); err != nil {
 				return nil, err
