@@ -220,11 +220,14 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Check if SubnetSet has SubnetCreationFailed condition
+	var subnetCreationFailed bool
 	for _, cond := range subnetsetCR.Status.Conditions {
 		if cond.Type == v1alpha1.SubnetCreationFailed && cond.Status == v1.ConditionTrue {
 			err := fmt.Errorf("%s", cond.Message)
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to create/update Subnet", setSubnetSetReadyStatusFalse, cond.Message, cond.Reason)
-			return ResultNormal, nil
+			// Instead of returning here, use subnetCreationFailed to track if the SubnetSet status can be update to success.
+			// This allows update on exisiting Subnet and restore task can be proceeded.
+			subnetCreationFailed = true
 		}
 	}
 
@@ -252,7 +255,9 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to restore SubnetSet", setSubnetSetReadyStatusFalse)
 				return ResultNormal, err
 			}
-			r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
+			if !subnetCreationFailed {
+				r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
+			}
 			return ResultNormal, nil
 		}
 		if err := r.SubnetService.UpdateSubnetSet(subnetsetCR.Namespace, nsxSubnets, tags, string(subnetsetCR.Spec.SubnetDHCPConfig.Mode)); err != nil {
@@ -260,7 +265,9 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ResultNormal, err
 		}
 	}
-	r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
+	if !subnetCreationFailed {
+		r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
+	}
 
 	return ResultNormal, nil
 }
