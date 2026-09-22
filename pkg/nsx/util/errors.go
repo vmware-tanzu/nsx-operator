@@ -715,15 +715,6 @@ func IsRetryRealizeError(alarm model.PolicyAlarmResource) bool {
 	return false
 }
 
-func IsIPAllocationError(alarm model.PolicyAlarmResource) bool {
-	// The IPAllocationErrorCode or IPPoolExhaustedErrorCode error indicates there is no valid IP in Subnet.
-	if alarm.ErrorDetails != nil && alarm.ErrorDetails.ErrorCode != nil {
-		code := *alarm.ErrorDetails.ErrorCode
-		return code == IPAllocationErrorCode || code == IPPoolExhaustedErrorCode
-	}
-	return false
-}
-
 var (
 	// LBSEdgeCapacityErrorCodes contains all NSX error codes that signify edge node/cluster capacity
 	// or sizing constraints for Load Balancer Services, ordered by priority (most specific first).

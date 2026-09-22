@@ -30,9 +30,23 @@ func InitializeRealizeState(service common.Service) *RealizeStateService {
 
 // CheckRealizeState allows the caller to check realize status of intentPath with retries.
 // Backoff defines the maximum retries and the wait interval between two retries.
-// Check all the entities, all entities should be in the REALIZED state to be treated as REALIZED
+// All entities must be in the REALIZED state to be treated as successfully realized.
+//
+// Realization Error Handling Strategy:
+//  1. Retry Handling:
+//     Transient errors matching IsRetryRealizeError (e.g., ProviderNotReadyErrorCode 500042)
+//     return a RetryRealizeError so that the backoff loop continues to retry.
+//  2. Error Code Extraction:
+//     When an entity is in the ERROR state, all alarms and their error details are inspected.
+//     - The error code of the first alarm that specifies one is recorded as the primary code (errorCode).
+//     - Any error codes from subsequent alarms, as well as nested error codes from ErrorDetails.RelatedErrors,
+//     are preserved in relatedCodes. This ensures no error code from any alarm is dropped even when
+//     multiple alarms are present.
+//     - Callers should use helper functions such as nsxutil.HasAnyErrorCode, nsxutil.ExtractAllErrorCodes,
+//     or nsxutil.GetFirstMatchingErrorCode to inspect error codes across both the primary code and
+//     related codes, rather than checking only the primary code.
 func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, intentPath string, extraIds []string) error {
-	// TODO， ask NSX if there were multiple realize states could we check only the latest one?
+	// TODO, ask NSX if there were multiple realize states could we check only the latest one?
 	return retry.OnError(backoff, func(err error) bool {
 		// Won't retry when realized state is `ERROR`.
 		return !nsxutil.IsRealizeStateError(err)
@@ -64,8 +78,13 @@ func (service *RealizeStateService) CheckRealizeState(backoff wait.Backoff, inte
 						errMsg = append(errMsg, *alarm.Message)
 					}
 					if alarm.ErrorDetails != nil {
-						if alarm.ErrorDetails.ErrorCode != nil && errorCode == 0 {
-							errorCode = int(*alarm.ErrorDetails.ErrorCode)
+						if alarm.ErrorDetails.ErrorCode != nil {
+							code := int(*alarm.ErrorDetails.ErrorCode)
+							if errorCode == 0 {
+								errorCode = code
+							} else {
+								relatedCodes = append(relatedCodes, code)
+							}
 						}
 						for _, relatedErr := range alarm.ErrorDetails.RelatedErrors {
 							if relatedErr.ErrorMessage != nil {
