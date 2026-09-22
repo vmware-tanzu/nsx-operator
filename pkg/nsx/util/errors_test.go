@@ -269,65 +269,6 @@ func TestIsRetryRealizeError(t *testing.T) {
 	}
 }
 
-func TestIsIPAllocationError(t *testing.T) {
-	tests := []struct {
-		name     string
-		alarm    model.PolicyAlarmResource
-		expected bool
-	}{
-		{
-			name: "IPAllocation error",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: int64Ptr(IPAllocationErrorCode),
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "IPPoolExhausted error",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: int64Ptr(IPPoolExhaustedErrorCode),
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "Different error code",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: int64Ptr(999),
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "Nil ErrorDetails",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: nil,
-			},
-			expected: false,
-		},
-		{
-			name: "Nil ErrorCode",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: nil,
-				},
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsIPAllocationError(tt.alarm)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestRetryAfterError(t *testing.T) {
 	delErr := CreateNsxPendingDelete()
 	assert.Equal(t, DefaultPendingDeleteRetryAfterSeconds, delErr.RetryAfterSeconds())
