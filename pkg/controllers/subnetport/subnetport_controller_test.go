@@ -37,6 +37,7 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
@@ -148,6 +149,245 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	defer patchesUpdateSubnetPortIPType.Reset()
 
 	attachmentID := "attachment-id"
+
+	// Pod-owned SubnetPort CR success
+	t.Run("Pod-owned SubnetPort CR success", func(t *testing.T) {
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+
+		patchesGetByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+			func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+				return &model.VpcSubnetPort{
+					Id:         servicecommon.String("port1"),
+					ParentPath: servicecommon.String("/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1"),
+				}, nil
+			})
+		defer patchesGetByUID.Reset()
+
+		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(_ *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labels *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				assert.False(t, isVmSubnetPort)
+				assert.Equal(t, "v1", (*labels)["k1"])
+				state := &model.SegmentPortState{
+					Attachment: &model.SegmentPortAttachmentState{
+						Id: servicecommon.String("attachment-id-123"),
+					},
+				}
+				return state, nil
+			})
+		defer patchesCreateOrUpdateSubnetPort.Reset()
+
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+
+		// 1st Get: Fetch SubnetPort CR in Reconcile
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Name = "pod-port"
+				v1sp.Namespace = "dummy"
+				v1sp.Spec.Subnet = "subnet1"
+				v1sp.OwnerReferences = []metav1.OwnerReference{
+					{
+						Kind: "Pod",
+						Name: "pod1",
+						UID:  "pod-uid-123",
+					},
+				}
+				return nil
+			})
+
+		// 2nd Get: Fetch the owner Pod to get its labels
+		k8sClient.EXPECT().Get(ctx, types.NamespacedName{Namespace: "dummy", Name: "pod1"}, gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				pod := obj.(*corev1.Pod)
+				pod.Name = "pod1"
+				pod.Namespace = "dummy"
+				pod.Labels = map[string]string{"k1": "v1"}
+				return nil
+			})
+
+		// 3rd Get: Fetch inside updateSubnetPortStatusConditions (if updated)
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil)
+
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		res, ret := r.Reconcile(ctx, req)
+		assert.Nil(t, ret)
+		assert.Equal(t, common.ResultNormal, res)
+	})
+
+	// Pod-owned SubnetPort with ESX 9.2 annotation
+	t.Run("Pod-owned SubnetPort with ESX 9.2 annotation", func(t *testing.T) {
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+
+		patchesGetByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+			func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+				return &model.VpcSubnetPort{
+					Id:         servicecommon.String("port1"),
+					ParentPath: servicecommon.String("/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1"),
+				}, nil
+			})
+		defer patchesGetByUID.Reset()
+
+		var capturedContextID string
+		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(_ *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labels *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				capturedContextID = contextID
+				state := &model.SegmentPortState{
+					Attachment: &model.SegmentPortAttachmentState{
+						Id: servicecommon.String("attachment-id-123"),
+					},
+				}
+				return state, nil
+			})
+		defer patchesCreateOrUpdateSubnetPort.Reset()
+
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+
+		patchesGetNodeByName := gomonkey.ApplyFunc(common.GetNodeByName,
+			func(nodeServiceReader servicecommon.NodeServiceReader, nodeName string) (*model.HostTransportNode, error) {
+				assert.Equal(t, "esx-host-1.domain.com", nodeName)
+				return &model.HostTransportNode{
+					UniqueId: servicecommon.String("esx-node-uuid-1"),
+				}, nil
+			})
+		defer patchesGetNodeByName.Reset()
+
+		// 1st Get: Fetch SubnetPort CR with annotation
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Name = "pod-port"
+				v1sp.Namespace = "dummy"
+				v1sp.Spec.Subnet = "subnet1"
+				v1sp.Annotations = map[string]string{
+					servicecommon.AnnotationESXHostName: "esx-host-1.domain.com",
+				}
+				v1sp.OwnerReferences = []metav1.OwnerReference{
+					{
+						Kind: "Pod",
+						Name: "pod1",
+						UID:  "pod-uid-123",
+					},
+				}
+				return nil
+			})
+
+		// 2nd Get: Fetch the owner Pod
+		k8sClient.EXPECT().Get(ctx, types.NamespacedName{Namespace: "dummy", Name: "pod1"}, gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				pod := obj.(*corev1.Pod)
+				pod.Name = "pod1"
+				pod.Namespace = "dummy"
+				pod.Spec.NodeName = "fallback-node"
+				return nil
+			})
+
+		// 3rd Get: Fetch inside updateSubnetPortStatusConditions (if updated)
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil)
+
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		res, ret := r.Reconcile(ctx, req)
+		assert.Nil(t, ret)
+		assert.Equal(t, common.ResultNormal, res)
+		assert.Equal(t, "esx-node-uuid-1", capturedContextID)
+	})
+
+	// Pod-owned SubnetPort owner Pod not found fails reconciliation
+	t.Run("Pod-owned SubnetPort owner Pod not found fails reconciliation", func(t *testing.T) {
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+
+		patchesGetByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+			func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+				return nil, nil
+			})
+		defer patchesGetByUID.Reset()
+
+		// 1st Get: Fetch SubnetPort CR
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Name = "pod-port"
+				v1sp.Namespace = "dummy"
+				v1sp.Spec.Subnet = "subnet1"
+				v1sp.OwnerReferences = []metav1.OwnerReference{
+					{
+						Kind: "Pod",
+						Name: "pod1",
+						UID:  "pod-uid-123",
+					},
+				}
+				return nil
+			})
+
+		// 2nd Get: Fetch owner Pod returns not found
+		errNotFound := apierrors.NewNotFound(corev1.Resource("pod"), "pod1")
+		k8sClient.EXPECT().Get(ctx, types.NamespacedName{Namespace: "dummy", Name: "pod1"}, gomock.Any()).Return(errNotFound)
+
+		// 3rd Get: Inside updateSubnetPortStatusConditions in UpdateFail
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil)
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		res, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, errNotFound, ret)
+		assert.Equal(t, common.ResultNormal, res)
+	})
+
+	// StatefulSet SubnetPort deletion skipped
+	t.Run("StatefulSet SubnetPort CR deletion skips NSX deletion", func(t *testing.T) {
+		patchesSTS := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+			func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+				return true
+			})
+		defer patchesSTS.Reset()
+
+		patchesGetByUID := gomonkey.ApplyFunc((*subnetport.SubnetPortStore).GetVpcSubnetPortByUID,
+			func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+				return &model.VpcSubnetPort{
+					Id:          servicecommon.String("port1"),
+					DisplayName: servicecommon.String("sts-pod-0"),
+					Tags: []model.Tag{
+						{
+							Scope: servicecommon.String(servicecommon.TagScopeStatefulSetUID),
+							Tag:   servicecommon.String("sts-uid-123"),
+						},
+					},
+				}, nil
+			})
+		defer patchesGetByUID.Reset()
+
+		now := metav1.Now()
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Name = "pod-port"
+				v1sp.Namespace = "dummy"
+				v1sp.DeletionTimestamp = &now
+				return nil
+			})
+
+		res, ret := r.Reconcile(ctx, req)
+		assert.Nil(t, ret)
+		assert.Equal(t, common.ResultNormal, res)
+	})
 
 	// fail to get
 	t.Run("failed to get SubnetPort CR", func(t *testing.T) {
@@ -1382,6 +1622,92 @@ func TestSubnetPortReconciler_subnetPortNamespaceVMIndexFunc(t *testing.T) {
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}
+}
+
+func TestSubnetPortReconciler_subnetPortNamespacePodIndexFunc(t *testing.T) {
+	tests := []struct {
+		name           string
+		expectedResult []string
+		obj            client.Object
+	}{
+		{
+			name:           "Success",
+			expectedResult: []string{"ns1/pod1"},
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind: "Pod",
+							Name: "pod1",
+						},
+					},
+				},
+			},
+		},
+		{
+			name:           "NoPodOwner",
+			expectedResult: []string{},
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+				},
+			},
+		},
+		{
+			name:           "InvalidObj",
+			expectedResult: []string{},
+			obj:            &v1alpha1.Subnet{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := subnetPortNamespacePodIndexFunc(tt.obj)
+			assert.Equal(t, tt.expectedResult, result)
+		})
+	}
+}
+
+func TestSubnetPortReconciler_podMapFunc(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &subnetport.SubnetPortService{}
+	r := &SubnetPortReconciler{
+		Client:            k8sClient,
+		SubnetPortService: service,
+	}
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	k8sClient.EXPECT().List(gomock.Any(), subnetPortList, client.MatchingFields{pkgutil.SubnetPortNamespacePodIndexKey: "ns/pod1"}).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		a := list.(*v1alpha1.SubnetPortList)
+		a.Items = append(a.Items, v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "ns",
+				Name:      "subentport-1",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						Kind: "Pod",
+						Name: "pod1",
+					},
+				},
+			},
+		})
+		return nil
+	})
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "pod1",
+			Namespace: "ns",
+		},
+	}
+	requests := r.podMapFunc(context.TODO(), pod)
+	assert.Equal(t, 1, len(requests))
+	assert.Equal(t, reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      "subentport-1",
+			Namespace: "ns",
+		},
+	}, requests[0])
 }
 
 func TestSubnetPortReconciler_addressBindingNamespaceVMIndexFunc(t *testing.T) {
@@ -3365,7 +3691,7 @@ func TestSubnetPortReconciler_StartController(t *testing.T) {
 		return nil
 	})
 	defer patches.Reset()
-	r := NewSubnetPortReconciler(mockMgr, subnetPortService, subnetService, vpcService, &mockIPAddressAllocationService)
+	r := NewSubnetPortReconciler(mockMgr, subnetPortService, subnetService, vpcService, &mockIPAddressAllocationService, &node.NodeService{})
 	err := r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
 }
