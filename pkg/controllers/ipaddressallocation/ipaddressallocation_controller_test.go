@@ -246,7 +246,7 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService,
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService, _ context.Context,
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
 		return false, errors.New("create failed")
 	})
@@ -262,7 +262,7 @@ func TestIPAddressAllocationReconciler_Reconcile(t *testing.T) {
 		return nil
 	})
 
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService,
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "CreateOrUpdateIPAddressAllocation", func(_ *ipaddressallocation.IPAddressAllocationService, _ context.Context,
 		obj *v1alpha1.IPAddressAllocation) (bool, error) {
 		return true, nil
 	})
@@ -523,7 +523,7 @@ func TestIPAddressAllocationReconciler_handleUpdate(t *testing.T) {
 			}
 
 			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateIPAddressAllocation",
-				func(_ *ipaddressallocation.IPAddressAllocationService, _ *v1alpha1.IPAddressAllocation, _ bool) (bool, error) {
+				func(_ *ipaddressallocation.IPAddressAllocationService, _ context.Context, _ *v1alpha1.IPAddressAllocation, _ bool) (bool, error) {
 					return tt.updated, tt.updateErr
 				})
 			defer patches.Reset()

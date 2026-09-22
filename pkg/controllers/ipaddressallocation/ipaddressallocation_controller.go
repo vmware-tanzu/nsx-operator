@@ -144,7 +144,7 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseUpdateTotal()
-	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj, r.restoreMode)
+	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(ctx, obj, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, obj, err, "", setReadyStatusFalse)
 		return resultRequeue, err
