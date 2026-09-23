@@ -3,6 +3,7 @@ package subnetport
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -158,7 +159,9 @@ type CountInfo struct {
 	// totalDhcpIPv6 is only populated on NSX versions that expose DHCPv6 pool statistics
 	// via dhcp-server-config-stats (see checkIPv6Capacity); on older versions the
 	// DHCPv6-sourced capacity check is skipped and this field stays unused.
-	totalDhcpIPv6      int
+	// Since DHCPv6 pools (e.g. /64) can exceed int64, big.Int is used.
+	totalDhcpIPv6 *big.Int
+	// TODO: revisit when NSX supports static IP pool size larger than int64.
 	totalStaticIPv6    int
 	exhaustedCheckTime time.Time
 }

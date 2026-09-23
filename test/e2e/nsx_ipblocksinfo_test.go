@@ -51,7 +51,7 @@ func TestIPBlocksInfo(t *testing.T) {
 func getDefaultVPCProfileID(t *testing.T) {
 	// Use sync.Once to ensure thread-safe initialization when running tests in parallel
 	defaultVPCProfileOnce.Do(func() {
-		result, err := testData.nsxClient.VPCConnectivityProfilesClient.List(defaultOrg, defaultProject, nil, common.Bool(false), nil, nil, nil, nil)
+		result, err := testData.nsxClient.VPCConnectivityProfilesClient.List(defaultOrg, defaultProject, nil, nil, common.Bool(false), nil, nil, nil, nil)
 		if err != nil {
 			defaultVPCProfileErr = err
 			return

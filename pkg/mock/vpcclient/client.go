@@ -64,18 +64,18 @@ func (mr *MockVpcsClientMockRecorder) Get(arg0, arg1, arg2 interface{}) *gomock.
 }
 
 // List mocks base method.
-func (m *MockVpcsClient) List(arg0, arg1 string, arg2 *string, arg3 *bool, arg4 *string, arg5 *int64, arg6 *bool, arg7 *string) (model.VpcListResult, error) {
+func (m *MockVpcsClient) List(arg0, arg1 string, arg2 *string, arg3 *bool, arg4 *bool, arg5 *string, arg6 *int64, arg7 *bool, arg8 *string) (model.VpcListResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
 	ret0, _ := ret[0].(model.VpcListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockVpcsClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7 interface{}) *gomock.Call {
+func (mr *MockVpcsClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockVpcsClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockVpcsClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
 }
 
 // Patch mocks base method.

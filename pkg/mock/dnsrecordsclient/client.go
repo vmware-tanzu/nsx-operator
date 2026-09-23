@@ -64,18 +64,18 @@ func (mr *MockDnsRecordsClientMockRecorder) Get(arg0, arg1, arg2 interface{}) *g
 }
 
 // List mocks base method.
-func (m *MockDnsRecordsClient) List(arg0, arg1 string, arg2 *string, arg3 *bool, arg4 *string, arg5 *int64, arg6 *bool, arg7, arg8 *string) (model.DnsRecordListResult, error) {
+func (m *MockDnsRecordsClient) List(arg0, arg1 string, arg2 *string, arg3 *bool, arg4 *bool, arg5 *string, arg6 *int64, arg7 *bool, arg8, arg9 *string) (model.DnsRecordListResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 	ret0, _ := ret[0].(model.DnsRecordListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockDnsRecordsClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 interface{}) *gomock.Call {
+func (mr *MockDnsRecordsClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockDnsRecordsClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockDnsRecordsClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 }
 
 // Patch mocks base method.
