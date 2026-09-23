@@ -151,7 +151,7 @@ func (r *SubnetReconciler) updateSubnetIfNeeded(ctx context.Context, subnetCR *v
 	statusChanged := r.hasStatusChanged(originalStatus, &subnetCR.Status)
 
 	// Update the CR if either spec or status has changed
-	if specChanged {
+	if specChanged && !r.restoreMode {
 		// Update the CR spec if there are changes
 		if err := r.Client.Update(ctx, subnetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update shared Subnet spec", setSubnetReadyStatusFalse)

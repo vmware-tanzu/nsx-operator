@@ -79,7 +79,8 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 		specChanged = true
 	}
 
-	if specChanged {
+	// In restore mode, skip writing updated spec back to the CR to avoid webhook calls before the webhook server is started.
+	if specChanged && !r.restoreMode {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
@@ -150,27 +151,31 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultNormal, nil
 	}
 
-	bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
-	if len(bindingCRs) > 0 {
-		if !controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
-			controllerutil.AddFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
-			if err := r.Client.Update(ctx, subnetsetCR); err != nil {
-				log.Error(err, "Failed to add the finalizer", "SubnetSet", req.NamespacedName)
-				msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
-				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to add the finalizer on SubnetSet used by SubnetConnectionBindingMap",
-					setSubnetSetReadyStatusFalse, msgFailAddFinalizer)
-				return ResultRequeue, err
+	// In restore mode, skip finalizer management as updating the CR would invoke the validating webhook
+	// which is not running during restore phase and would cause CrashLoopBackOff.
+	if !r.restoreMode {
+		bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
+		if len(bindingCRs) > 0 {
+			if !controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
+				controllerutil.AddFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
+				if err := r.Client.Update(ctx, subnetsetCR); err != nil {
+					log.Error(err, "Failed to add the finalizer", "SubnetSet", req.NamespacedName)
+					msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
+					r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to add the finalizer on SubnetSet used by SubnetConnectionBindingMap",
+						setSubnetSetReadyStatusFalse, msgFailAddFinalizer)
+					return ResultRequeue, err
+				}
 			}
-		}
-	} else {
-		if controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
-			controllerutil.RemoveFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
-			if err := r.Client.Update(ctx, subnetsetCR); err != nil {
-				log.Error(err, "Failed to delete the finalizer", "SubnetSet", req.NamespacedName)
-				msgFailDelFinalizer := "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps"
-				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to remove the finalizer from SubnetSet",
-					setSubnetSetReadyStatusFalse, fmt.Sprint(msgFailDelFinalizer))
-				return ResultRequeue, err
+		} else {
+			if controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
+				controllerutil.RemoveFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
+				if err := r.Client.Update(ctx, subnetsetCR); err != nil {
+					log.Error(err, "Failed to delete the finalizer", "SubnetSet", req.NamespacedName)
+					msgFailDelFinalizer := "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps"
+					r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to remove the finalizer from SubnetSet",
+						setSubnetSetReadyStatusFalse, fmt.Sprint(msgFailDelFinalizer))
+					return ResultRequeue, err
+				}
 			}
 		}
 	}
@@ -241,8 +246,9 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultNormal, err
 	}
 
+	// In restore mode, skip writing spec/metadata defaults back to the CR to avoid webhook calls before the webhook server is started.
 	metadataChanged := updateLabels(subnetsetCR, isSystemNs)
-	if specChanged || metadataChanged {
+	if (specChanged || metadataChanged) && !r.restoreMode {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
@@ -533,10 +539,21 @@ func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, s
 	return nil
 }
 
+// deleteSubnetForSubnetSet deletes NSX Subnets belonging to a SubnetSet.
+// - ignoreStaleSubnetPort indicates the caller's operation:
+//   - true: called during auto scale-down / GC. Empty NSX Subnets without ports can be scaled in,
+//     and any existing stale ports on active subnets are ignored without failing the GC loop.
+//   - false: called during SubnetSet CR deletion. All SubnetPorts must be deleted first,
+//     and the presence of any stale port will return an error to block CR deletion.
 func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
 	subnetSetLock := common.WLockSubnetSet(subnetSet.GetUID())
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 
+	// deleteBindingMaps captures the caller's intent (true for GC/scale-down, false for CR deletion).
+	// In restore mode below, ignoreStaleSubnetPort is reset to false to enforce strict port safety
+	// checks, but deleteBindingMaps must retain the caller's value so that stale NSX Subnets can
+	// have their binding maps unlinked and deleted properly on NSX.
+	deleteBindingMaps := ignoreStaleSubnetPort
 	// For restore mode, we use SubnetSet CR status as source of the truth to sync the NSX Subnet
 	// For non-restore mode, we scale down the SubnetSet by deleting NSX Subnet without ports
 	if r.restoreMode {
@@ -558,7 +575,7 @@ func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.Subnet
 	// corresponding NSX Subnet. This happens in the GC case to scale-in the NSX Subnet if no SubnetPort exists.
 	// For SubnetSet CR deletion event, we don't delete the existing SubnetConnectionBindingMaps but let the
 	// SubnetConnectionBindingMap controller do it after the binding CR is removed.
-	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, ignoreStaleSubnetPort)
+	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, deleteBindingMaps)
 	common.WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	// Skip SubnetSet status update for restore case, as we need the stale status to restore the NSX Subnet
 	if updateStatus && !r.restoreMode {

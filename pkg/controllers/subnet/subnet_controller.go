@@ -55,6 +55,7 @@ type SubnetReconciler struct {
 	Recorder          record.EventRecorder
 	StatusUpdater     common.StatusUpdater
 	queue             workqueue.TypedRateLimitingInterface[reconcile.Request]
+	restoreMode       bool
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -79,25 +80,29 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ResultRequeue, err
 	}
 
-	bindingCRs := r.getSubnetBindingCRsBySubnet(ctx, subnetCR)
-	if len(bindingCRs) > 0 {
-		if !controllerutil.ContainsFinalizer(subnetCR, servicecommon.SubnetFinalizerName) {
-			controllerutil.AddFinalizer(subnetCR, servicecommon.SubnetFinalizerName)
-			if err := r.Client.Update(ctx, subnetCR); err != nil {
-				log.Error(err, "Failed to add the finalizer", "Subnet", req.NamespacedName)
-				msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on a Subnet for the reference by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
-				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to add the finalizer on Subnet used by SubnetConnectionBindingMaps", setSubnetReadyStatusFalse, msgFailAddFinalizer)
-				return ResultRequeue, err
+	// In restore mode, skip finalizer management as updating the CR would invoke the validating webhook
+	// which is not running during restore phase and would cause CrashLoopBackOff.
+	if !r.restoreMode {
+		bindingCRs := r.getSubnetBindingCRsBySubnet(ctx, subnetCR)
+		if len(bindingCRs) > 0 {
+			if !controllerutil.ContainsFinalizer(subnetCR, servicecommon.SubnetFinalizerName) {
+				controllerutil.AddFinalizer(subnetCR, servicecommon.SubnetFinalizerName)
+				if err := r.Client.Update(ctx, subnetCR); err != nil {
+					log.Error(err, "Failed to add the finalizer", "Subnet", req.NamespacedName)
+					msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on a Subnet for the reference by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
+					r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to add the finalizer on Subnet used by SubnetConnectionBindingMaps", setSubnetReadyStatusFalse, msgFailAddFinalizer)
+					return ResultRequeue, err
+				}
 			}
-		}
-	} else {
-		if controllerutil.ContainsFinalizer(subnetCR, servicecommon.SubnetFinalizerName) {
-			controllerutil.RemoveFinalizer(subnetCR, servicecommon.SubnetFinalizerName)
-			if err := r.Client.Update(ctx, subnetCR); err != nil {
-				log.Error(err, "Failed to delete the finalizer", "Subnet", req.NamespacedName)
-				msgFailDelFinalizer := "Failed to remove the finalizer on a Subnet when there is no reference by SubnetConnectionBindingMaps"
-				r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to delete the finalizer from Subnet", setSubnetReadyStatusFalse, msgFailDelFinalizer)
-				return ResultRequeue, err
+		} else {
+			if controllerutil.ContainsFinalizer(subnetCR, servicecommon.SubnetFinalizerName) {
+				controllerutil.RemoveFinalizer(subnetCR, servicecommon.SubnetFinalizerName)
+				if err := r.Client.Update(ctx, subnetCR); err != nil {
+					log.Error(err, "Failed to delete the finalizer", "Subnet", req.NamespacedName)
+					msgFailDelFinalizer := "Failed to remove the finalizer on a Subnet when there is no reference by SubnetConnectionBindingMaps"
+					r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to delete the finalizer from Subnet", setSubnetReadyStatusFalse, msgFailDelFinalizer)
+					return ResultRequeue, err
+				}
 			}
 		}
 	}
@@ -182,7 +187,8 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		specChanged = true
 	}
 
-	if specChanged {
+	// In restore mode, skip writing spec defaults back to the CR to avoid webhook calls before the webhook server is started.
+	if specChanged && !r.restoreMode {
 		if err := r.Client.Update(ctx, subnetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet", setSubnetReadyStatusFalse)
 			return ResultRequeue, err
@@ -492,6 +498,7 @@ func (r *SubnetReconciler) RestoreReconcile() error {
 		return err
 	}
 	var errorList []error
+	r.restoreMode = true
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
 		if err != nil || common.IsReconcileResultRequeue(result) {

@@ -2913,3 +2913,133 @@ type mockDNSZoneSyncer struct {
 func (s *mockDNSZoneSyncer) SyncDNSZonesByVpcNetworkConfig(_ *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
 	return s.dnsZoneConfigurations, s.syncErr
 }
+
+func TestNetworkInfoReconciler_RestoreMode(t *testing.T) {
+	r := createNetworkInfoReconciler(nil)
+	assert.False(t, r.restoreMode)
+	r.restoreMode = true
+	assert.True(t, r.restoreMode)
+}
+
+func TestNetworkInfoReconciler_Reconcile_RestoreMode_SkipDefaultSubnetSet(t *testing.T) {
+	ctx := context.Background()
+	req := controllerruntime.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "test-ns",
+			Name:      "test-ni",
+		},
+	}
+	r := createNetworkInfoReconciler([]client.Object{
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-ns",
+			},
+		},
+		&v1alpha1.NetworkInfo{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "test-ns",
+				Name:      "test-ni",
+			},
+		},
+		&v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "default-nc",
+			},
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				VPCConnectivityProfile: "/orgs/default/projects/default/vpc-connectivity-profiles/default",
+				NSXProject:             "/orgs/default/projects/default",
+			},
+		},
+		&v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "system",
+			},
+			Status: v1alpha1.VPCNetworkConfigurationStatus{
+				Conditions: []v1alpha1.Condition{
+					{
+						Type:   v1alpha1.GatewayConnectionReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+	})
+	r.restoreMode = true
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, _ context.Context, _ string) (string, error) {
+		return "default-nc", nil
+	})
+	defer patches.Reset()
+
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+		return &v1alpha1.VPCNetworkConfiguration{
+			ObjectMeta: metav1.ObjectMeta{Name: "default-nc"},
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				VPCConnectivityProfile: "/orgs/default/projects/default/vpc-connectivity-profiles/default",
+				NSXProject:             "/orgs/default/projects/default",
+			},
+		}, true, nil
+	})
+
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "ValidateConnectionStatus", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration, _ string) (*servicecommon.VPCConnectionStatus, error) {
+		return &servicecommon.VPCConnectionStatus{
+			GatewayConnectionReady: true,
+			ServiceClusterReady:    true,
+		}, nil
+	})
+
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateVPC", func(_ *vpc.VPCService, _ context.Context, _ *v1alpha1.NetworkInfo, _ *v1alpha1.VPCNetworkConfiguration, _ vpc.LBProvider, _ bool, restoreMode bool) (*model.Vpc, error) {
+		assert.True(t, restoreMode)
+		return &model.Vpc{
+			DisplayName: servicecommon.String("vpc-name"),
+			Path:        servicecommon.String("/orgs/default/projects/default/vpcs/vpc-1"),
+			Id:          servicecommon.String("vpc-1"),
+			PrivateIps:  []string{"10.0.0.0/16"},
+		}, nil
+	})
+
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "IsSharedVPCNamespaceByNS", func(_ *vpc.VPCService, _ context.Context, _ string) (bool, error) {
+		return false, nil
+	})
+
+	patches.ApplyMethodSeq(reflect.TypeOf(r.Service.Service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.VpcConnectivityProfile{
+			ExternalIpBlocks: []string{"fake-ip-block"},
+			ServiceGateway: &model.VpcServiceGatewayConfig{
+				EdgeClusterPaths: []string{"fake-edge-cluster-path"},
+			},
+		}, nil},
+		Times: 2,
+	}})
+
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "GetDefaultSNATIP", func(_ *vpc.VPCService, _ model.Vpc) (string, error) {
+		return "100.64.0.1", nil
+	})
+
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "GetLBProvider", func(_ *vpc.VPCService) (vpc.LBProvider, error) {
+		return vpc.NoneLB, nil
+	})
+
+	patches.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
+		return v1alpha1.FullStackVPC, nil
+	})
+
+	patches.ApplyFunc(r.StatusUpdater.UpdateSuccess,
+		func(_ context.Context, _ client.Object, _ common.UpdateSuccessStatusFn, _ ...interface{}) {
+		})
+
+	patches.ApplyFunc(setNSNetworkReadyCondition,
+		func(_ context.Context, _ client.Client, _ string, _ *corev1.NamespaceCondition) {
+		})
+
+	// Fail if updateDefaultSubnetSet is called
+	patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateDefaultSubnetSet",
+		func(_ *NetworkInfoReconciler, _ context.Context, _ string, _ string, _ *v1alpha1.VPCNetworkConfiguration, _ bool, _ v1alpha1.IPAddressType) error {
+			require.Fail(t, "updateDefaultSubnetSet must not be called when restoreMode is true")
+			return nil
+		})
+
+	res, err := r.Reconcile(ctx, req)
+	assert.NoError(t, err)
+	assert.Equal(t, common.ResultNormal, res)
+}

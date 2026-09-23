@@ -455,6 +455,7 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 		name                string
 		originalStatus      *v1alpha1.SubnetStatus
 		originalSpec        *v1alpha1.SubnetSpec
+		restoreMode         bool
 		updateSubnetErr     error
 		statusChanged       bool
 		specChanged         bool
@@ -566,6 +567,24 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 			specChanged:     false,
 			updateClientErr: nil,
 		},
+		{
+			name: "Restore mode skips spec update",
+			originalStatus: &v1alpha1.SubnetStatus{
+				NetworkAddresses: []string{"10.0.0.0/24"},
+				GatewayAddresses: []string{"10.0.0.1"},
+				Shared:           true,
+			},
+			originalSpec: &v1alpha1.SubnetSpec{
+				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+					ConnectivityState: v1alpha1.ConnectivityStateConnected,
+				},
+			},
+			restoreMode:     true,
+			updateSubnetErr: nil,
+			statusChanged:   false,
+			specChanged:     true,
+			updateClientErr: fmt.Errorf("should not be called in restore mode"),
+		},
 	}
 
 	for _, tt := range tests {
@@ -583,6 +602,7 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 			}
 
 			r := createFakeSubnetReconciler([]client.Object{subnetCR})
+			r.restoreMode = tt.restoreMode
 
 			nsxSubnet := &model.VpcSubnet{
 				Id:   common.String("subnet-id"),

@@ -1636,6 +1636,95 @@ func TestSubnetSetReconciler_RestoreReconcile(t *testing.T) {
 	err = r.RestoreReconcile()
 	assert.Contains(t, err.Error(), "failed to restore SubnetSet ns-1/subnetset-1")
 }
+
+func TestSubnetSetReconciler_Reconcile_RestoreMode_SkipUpdate(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	cf := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}
+	r := &SubnetSetReconciler{
+		Client:      k8sClient,
+		restoreMode: true,
+		SubnetService: &subnet.SubnetService{
+			Service:     common.Service{NSXConfig: cf},
+			SubnetStore: &subnet.SubnetStore{ResourceStore: common.ResourceStore{Indexer: cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})}},
+		},
+		VPCService:    &vpc.VPCService{},
+		StatusUpdater: ctlcommon.NewStatusUpdater(k8sClient, cf, &fakeRecorder{}, MetricResTypeSubnetSet, "SubnetSet", "SubnetSet"),
+	}
+
+	subnetsetCR := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "subnetset-restore",
+			Namespace:  "default",
+			UID:        "subnetset-restore-uid",
+			Finalizers: []string{common.SubnetSetFinalizerName},
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			AccessMode: "", // Will trigger spec default calculation
+		},
+	}
+
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ types.NamespacedName, obj *v1alpha1.SubnetSet, _ ...client.GetOption) error {
+			*obj = *subnetsetCR.DeepCopy()
+			return nil
+		},
+	)
+
+	// In restoreMode, Client.Update must NEVER be called (would trigger webhook and fail)
+
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getSubnetBindingCRsBySubnetSet",
+		func(_ *SubnetSetReconciler, _ context.Context, _ *v1alpha1.SubnetSet) []v1alpha1.SubnetConnectionBindingMap {
+			return nil // No bindings, so finalizer should be removed in normal mode
+		})
+	defer patches.Reset()
+
+	patches.ApplyFunc(ctlcommon.GetDefaultAccessMode,
+		func(_ common.VPCServiceProvider, _ string) (v1alpha1.AccessMode, *v1alpha1.VPCNetworkConfiguration, error) {
+			return v1alpha1.AccessMode(v1alpha1.AccessModePrivate), nil, nil
+		})
+
+	patches.ApplyFunc(ctlcommon.GetVpcNetworkConfig,
+		func(_ common.VPCServiceProvider, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+			return &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					DefaultSubnetSize: 24,
+				},
+			}, nil
+		})
+
+	patches.ApplyFunc(util.IsVPCSystemNamespace,
+		func(_ client.Client, _ string, _ *v12.Namespace) (bool, error) {
+			return false, nil
+		})
+
+	patches.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo",
+		func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{{OrgID: "default", ProjectID: "default", VPCID: "vpc-1"}}
+		})
+
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags",
+		func(_ *subnet.SubnetService, _ client.Object) []model.Tag {
+			return []model.Tag{}
+		})
+
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "RestoreSubnetSet",
+		func(_ *subnet.SubnetService, _ *v1alpha1.SubnetSet, _ common.VPCResourceInfo, _ []model.Tag) error {
+			return nil
+		})
+
+	patches.ApplyFunc((*ctlcommon.StatusUpdater).UpdateSuccess,
+		func(_ *ctlcommon.StatusUpdater, _ context.Context, _ client.Object, _ ctlcommon.UpdateSuccessStatusFn, _ ...interface{}) {
+		})
+
+	res, err := r.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{Namespace: "default", Name: "subnetset-restore"},
+	})
+	assert.Nil(t, err)
+	assert.Equal(t, ctrl.Result{}, res)
+}
 func TestUpdateLabels(t *testing.T) {
 	// nil labels should not change anything
 	t.Run("nil labels", func(t *testing.T) {

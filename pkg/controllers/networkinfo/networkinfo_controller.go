@@ -472,7 +472,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
-	if namespaceType == common.NormalNs {
+	// In restore mode, skip default SubnetSet creation/deletion as all SubnetSets CR operations
+	// would be blocked by webhooks no running.
+	if namespaceType == common.NormalNs && !r.restoreMode {
 		// Check private cidr to determine if create default SubnetSet for VM
 		hasPrivateCidr := len(privateIPs) > 0
 		var hasIPv6Blocks bool
