@@ -533,10 +533,21 @@ func (r *SubnetSetReconciler) deleteSubnetBySubnetSetName(ctx context.Context, s
 	return nil
 }
 
+// deleteSubnetForSubnetSet deletes NSX Subnets belonging to a SubnetSet.
+// - ignoreStaleSubnetPort indicates the caller's operation:
+//   - true: called during auto scale-down / GC. Empty NSX Subnets without ports can be scaled in,
+//     and any existing stale ports on active subnets are ignored without failing the GC loop.
+//   - false: called during SubnetSet CR deletion. All SubnetPorts must be deleted first,
+//     and the presence of any stale port will return an error to block CR deletion.
 func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.SubnetSet, updateStatus, ignoreStaleSubnetPort bool) error {
 	subnetSetLock := common.WLockSubnetSet(subnetSet.GetUID())
 	nsxSubnets := r.SubnetService.SubnetStore.GetByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
 
+	// deleteBindingMaps captures the caller's intent (true for GC/scale-down, false for CR deletion).
+	// In restore mode below, ignoreStaleSubnetPort is reset to false to enforce strict port safety
+	// checks, but deleteBindingMaps must retain the caller's value so that stale NSX Subnets can
+	// have their binding maps unlinked and deleted properly on NSX.
+	deleteBindingMaps := ignoreStaleSubnetPort
 	// For restore mode, we use SubnetSet CR status as source of the truth to sync the NSX Subnet
 	// For non-restore mode, we scale down the SubnetSet by deleting NSX Subnet without ports
 	if r.restoreMode {
@@ -558,7 +569,7 @@ func (r *SubnetSetReconciler) deleteSubnetForSubnetSet(subnetSet v1alpha1.Subnet
 	// corresponding NSX Subnet. This happens in the GC case to scale-in the NSX Subnet if no SubnetPort exists.
 	// For SubnetSet CR deletion event, we don't delete the existing SubnetConnectionBindingMaps but let the
 	// SubnetConnectionBindingMap controller do it after the binding CR is removed.
-	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, ignoreStaleSubnetPort)
+	hasStaleSubnetPort, deleteErr := r.deleteSubnets(nsxSubnets, deleteBindingMaps)
 	common.WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	// Skip SubnetSet status update for restore case, as we need the stale status to restore the NSX Subnet
 	if updateStatus && !r.restoreMode {
