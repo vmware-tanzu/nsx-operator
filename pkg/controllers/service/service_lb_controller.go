@@ -5,7 +5,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"time"
 
@@ -66,7 +65,7 @@ func updateSuccess(r *ServiceLbReconciler, c context.Context, lbService *v1.Serv
 func (r *ServiceLbReconciler) deleteDNSForService(ctx context.Context, namespace, name string, op string) error {
 	if _, err := r.DNS.DeleteRecordByOwnerNN(ctx, dns.ResourceKindService, namespace, name); err != nil {
 		log.Error(err, "Failed to delete DNS records for Service", "Namespace", namespace, "Name", name, "Operation", op)
-		return fmt.Errorf("deleting DNS records for %s: %w", op, err)
+		return err
 	}
 	return nil
 }
@@ -82,7 +81,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if apierrors.IsNotFound(err) {
 			log.Info("Not found LB service", "req", req.NamespacedName)
 			if err := r.deleteDNSForService(ctx, req.Namespace, req.Name, "deleted Service"); err != nil {
-				return common.ResultRequeueAfter10sec, nil
+				return common.RequeueResultFromReconcileError(err), nil
 			}
 			return ResultNormal, nil
 		}
@@ -93,7 +92,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if service.Spec.Type != v1.ServiceTypeLoadBalancer || !service.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Try to delete DNS records for Service when it is not a LoadBalancer or is marked for deletion
 		if err := r.clearDNSAndConditionForService(ctx, req.NamespacedName, "non-LB or terminating Service"); err != nil {
-			return common.ResultRequeueAfter10sec, nil
+			return common.RequeueResultFromReconcileError(err), nil
 		}
 		return ResultNormal, nil
 	}
@@ -105,7 +104,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	var dnsErr error
 	if err := r.reconcileLoadBalancerServiceDNS(ctx, service); err != nil {
 		log.Error(err, "Failed to reconcile DNS for LoadBalancer Service", "Name", service.Name, "Namespace", service.Namespace)
-		dnsErr = fmt.Errorf("reconciling DNS: %w", err)
+		dnsErr = err
 	}
 
 	metrics.CounterInc(r.Service.NSXConfig, metrics.ControllerUpdateTotal, MetricResType)
@@ -118,7 +117,7 @@ func (r *ServiceLbReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if dnsErr != nil {
-		return common.ResultRequeueAfter10sec, nil
+		return common.RequeueResultFromReconcileError(dnsErr), nil
 	}
 
 	return ResultNormal, nil

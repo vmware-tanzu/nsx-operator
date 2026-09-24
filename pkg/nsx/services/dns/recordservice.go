@@ -661,13 +661,3 @@ func parseDnsRecordPolicyPath(path string) (orgID, projectID, recordID string, e
 	}
 	return orgID, projectID, recordID, nil
 }
-
-func (s *DNSRecordService) deleteDnsRecordOnNSX(live *model.DnsRecord) error {
-	orgID, projectID, recordID, err := parseDnsRecordPolicyPath(*live.Path)
-	if err != nil {
-		return err
-	}
-	log.Info("Deleting DnsRecord from NSX", "Id", recordID)
-	err = s.NSXClient.DnsRecordsClient.Delete(orgID, projectID, recordID)
-	return nsxutil.TransNSXApiError(err)
-}

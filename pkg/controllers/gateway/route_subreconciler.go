@@ -109,7 +109,7 @@ func (r *genericRouteReconciler[PT, T, PI]) Reconcile(ctx context.Context, req c
 		if apierrors.IsNotFound(err) { // Route gone: drop DNS owner rows
 			if _, derr := r.dns.DeleteRecordByOwnerNN(ctx, r.kind, req.Namespace, req.Name); derr != nil {
 				log.Error(derr, "failed to delete DNS records for route", "route", routeKey)
-				return common.ResultRequeueAfter10sec, nil
+				return common.RequeueResultFromReconcileError(derr), nil
 			}
 			return common.ResultNormal, nil
 		}
@@ -135,12 +135,12 @@ func (r *genericRouteReconciler[PT, T, PI]) Reconcile(ctx context.Context, req c
 			if batch != nil && len(batch.Rows) > 0 {
 				if _, uErr := r.dns.CreateOrUpdateRecords(ctx, batch); uErr != nil {
 					log.Error(uErr, "Unable to apply valid records despite validation errors", "Route", req.NamespacedName.String())
-					return common.ResultRequeueAfter10sec, nil
+					return common.RequeueResultFromReconcileError(uErr), nil
 				}
 			} else {
 				if _, derr := r.dns.DeleteRecordByOwnerNN(ctx, r.kind, req.Namespace, req.Name); derr != nil {
 					log.Error(derr, "Unable to delete the existing disallowed records", "Route", req.NamespacedName.String())
-					return common.ResultRequeueAfter10sec, nil
+					return common.RequeueResultFromReconcileError(derr), nil
 				}
 			}
 			return common.ResultNormal, nil
@@ -159,7 +159,7 @@ func (r *genericRouteReconciler[PT, T, PI]) Reconcile(ctx context.Context, req c
 		_, derr := r.dns.DeleteRecordByOwnerNN(ctx, r.kind, req.Namespace, req.Name)
 		if derr != nil {
 			log.Error(derr, "failed to clean up DNS records for route", "route", routeKey)
-			return common.ResultRequeueAfter10sec, nil
+			return common.RequeueResultFromReconcileError(derr), nil
 		}
 		// Route no longer requires DNS — remove the nsx-operator parent status entry entirely.
 		if statusErr := r.removeRouteNSXOperatorParentStatus(ctx, req.NamespacedName); statusErr != nil {
@@ -172,13 +172,12 @@ func (r *genericRouteReconciler[PT, T, PI]) Reconcile(ctx context.Context, req c
 	_, opErr := r.dns.CreateOrUpdateRecords(ctx, batch)
 	if opErr != nil {
 		r.statusUpdater.UpdateFail(ctx, route, opErr, "DNS record reconcile failed", nil)
-		statusErr := r.updateRouteParentConditions(ctx, req.NamespacedName, opErr)
-		if statusErr != nil {
+		if statusErr := r.updateRouteParentConditions(ctx, req.NamespacedName, opErr); statusErr != nil {
 			log.Error(statusErr, "failed to update Route with DNSRecordReady condition", "route", routeKey)
 			return common.ResultRequeueAfter10sec, nil
 		}
 		log.Error(opErr, "DNS record reconcile failed", "route", routeKey)
-		return common.ResultRequeueAfter10sec, nil
+		return common.RequeueResultFromReconcileError(opErr), nil
 	}
 
 	// Call updateRouteParentConditions even when cacheChanged=false.

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 const (
@@ -51,6 +53,19 @@ var (
 	ResultRequeueAfter5mins     = ctrl.Result{RequeueAfter: 5 * time.Minute}
 	AnnotationNamespaceVPCError = "nsx.vmware.com/vpc_error"
 )
+
+// RequeueResultFromReconcileError returns a ctrl.Result based on whether the error is or can be converted to a RetryAfterError.
+// If err is nil, it returns ResultNormal.
+// If retriable, it requeues after the specified RetryAfterSeconds; otherwise it returns ResultRequeueAfter10sec.
+func RequeueResultFromReconcileError(err error) ctrl.Result {
+	if err == nil {
+		return ResultNormal
+	}
+	if retryAfterErr, ok := nsxutil.ConvertToRetryAfterError(err); ok {
+		return ctrl.Result{RequeueAfter: time.Duration(retryAfterErr.RetryAfterSeconds()) * time.Second}
+	}
+	return ResultRequeueAfter10sec
+}
 
 const (
 	ReasonSuccessfulDelete = "SuccessfulDelete"

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	machineryversion "k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
@@ -37,6 +38,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	mockdns "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnsrecordprovider"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	ctrlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -425,6 +427,25 @@ func TestServiceLbReconciler_Reconcile_table(t *testing.T) {
 				require.NotNil(t, svc.Status.LoadBalancer.Ingress[0].IPMode)
 				assert.Equal(t, v1.LoadBalancerIPModeProxy, *svc.Status.LoadBalancer.Ingress[0].IPMode)
 			},
+		},
+		{
+			name: "retriable_dns_error_requeues_with_retry_after",
+			objs: []client.Object{&v1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns", Name: "lb-retriable-err", ResourceVersion: "1",
+					Annotations: map[string]string{common.AnnotationDNSHostnameKey: "a.com"},
+				},
+				Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
+				Status: v1.ServiceStatus{
+					LoadBalancer: v1.LoadBalancerStatus{Ingress: []v1.LoadBalancerIngress{{IP: "192.168.28.1"}}},
+				},
+			}},
+			setupMock: func(m *mockdns.MockDNSRecordProvider) {
+				retriableErr := nsxutil.CreateNsxPendingDelete()
+				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil, retriableErr).Times(1)
+			},
+			req:     types.NamespacedName{Namespace: "ns", Name: "lb-retriable-err"},
+			wantRes: &ctrl.Result{RequeueAfter: time.Duration(nsxutil.DefaultPendingDeleteRetryAfterSeconds) * time.Second},
 		},
 	}
 

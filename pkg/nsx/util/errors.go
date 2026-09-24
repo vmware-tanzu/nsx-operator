@@ -4,6 +4,7 @@
 package util
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -12,6 +13,7 @@ import (
 const (
 	InvalidLicenseErrorCode                   = 505
 	ProviderNotReadyErrorCode                 = 500042
+	PendingDeleteErrorCode                    = 500045
 	IPAllocationErrorCode                     = 8212
 	IPPoolExhaustedErrorCode                  = 520054
 	ReservedIPRangesOverlappedErrorCode       = 508134
@@ -458,6 +460,28 @@ func CreateNsxSearchOutOfSync() *NsxSearchOutOfSync {
 	return nsxErr
 }
 
+// RetryAfterError is an error interface for errors that specify a retry delay in seconds.
+type RetryAfterError interface {
+	error
+	RetryAfterSeconds() int
+}
+
+// AsRetryAfterError checks if err or any error in its chain implements RetryAfterError.
+func AsRetryAfterError(err error) (RetryAfterError, bool) {
+	var retryAfterErr RetryAfterError
+	if errors.As(err, &retryAfterErr) {
+		return retryAfterErr, true
+	}
+	return nil, false
+}
+
+// DefaultPendingDeleteRetryAfterSeconds defines the retry delay (5 minutes = 300s) for PendingDeleteErrorCode (500045).
+// Per NSX Policy Framework error definition:
+// "An object with the same path=[{0}] is marked for deletion. Either use another path or wait for the purge cycle
+// (which runs every 5 minutes) for permanent removal of the object."
+// Source: https://github-vcf.devops.broadcom.net/vcf/nsx/blob/nsx-main/mp/policy/policy-framework-api/src/main/resources/META-INF/messages/PolicyFrameworkErrorMessages.properties (errorcode.500045)
+const DefaultPendingDeleteRetryAfterSeconds = 300
+
 type NsxPendingDelete struct {
 	nsxErrorImpl
 }
@@ -466,6 +490,10 @@ func CreateNsxPendingDelete() *NsxPendingDelete {
 	nsxErr := &NsxPendingDelete{}
 	nsxErr.msg = "An object with the same name is marked for deletion. Either use another path or wait for the purge cycle to permanently remove the deleted object"
 	return nsxErr
+}
+
+func (e *NsxPendingDelete) RetryAfterSeconds() int {
+	return DefaultPendingDeleteRetryAfterSeconds
 }
 
 type NsxSegmentWithVM struct {

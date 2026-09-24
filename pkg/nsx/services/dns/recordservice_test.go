@@ -688,13 +688,6 @@ func TestDedupeRecordsByPath(t *testing.T) {
 	require.Equal(t, "a", *out3[0].Id)
 }
 
-func TestDeleteDnsRecordOnNSX(t *testing.T) {
-	env := newTestDNSRecordService(t, BuildDNSRecordStore())
-	p := "/orgs/org1/projects/proj1/dns-records/rec1"
-	err := env.deleteDnsRecordOnNSX(&model.DnsRecord{Path: &p})
-	require.NoError(t, err)
-}
-
 func TestAppendRecordOwnershipTags_table(t *testing.T) {
 	clusterTag := modelTag(servicecommon.TagScopeCluster, "cls")
 	baseTags := []model.Tag{clusterTag}
