@@ -575,6 +575,161 @@ func TestValidateDependency(t *testing.T) {
 			},
 			expSubnet:        "/orgs/default/projects/default/vpcs/vpc-a/subnets/parent-subnet",
 			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/vpc-b/subnets/child-subnet"},
+		}, {
+			name: "incompatible IPAddressType: Parent IPv4 and Child IPv6 (Trunk mode)",
+			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:        "v6-subnet",
+					TargetSubnetName:  "v4-subnet",
+					SubnetAssociation: v1alpha1.SubnetAssociationTrunk,
+				},
+			},
+			objects: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "v4-subnet", Namespace: namespace, UID: "v4-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "v6-subnet", Namespace: namespace, UID: "v6-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv6},
+				},
+			},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "v4-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/v4-subnet")}}
+					}
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/v6-subnet")}}
+				})
+				return patches
+			},
+			expErr: "incompatible IPAddressType: Subnet IPAddressType IPv6 targetSubnet IPAddressType IPv4, isBranch mode:false",
+			expMsg: "Incompatible IPAddressType: Subnet IPAddressType IPv6 targetSubnet IPAddressType IPv4, isBranch mode:false",
+		}, {
+			name: "incompatible IPAddressType: Parent IPv4 and Child Dual-Stack (Trunk mode)",
+			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:        "dualstack-subnet",
+					TargetSubnetName:  "v4-subnet",
+					SubnetAssociation: v1alpha1.SubnetAssociationTrunk,
+				},
+			},
+			objects: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "v4-subnet", Namespace: namespace, UID: "v4-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "dualstack-subnet", Namespace: namespace, UID: "dual-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6},
+				},
+			},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "v4-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/v4-subnet")}}
+					}
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/dualstack-subnet")}}
+				})
+				return patches
+			},
+			expErr: "incompatible IPAddressType: Subnet IPAddressType IPv4IPv6 targetSubnet IPAddressType IPv4, isBranch mode:false",
+			expMsg: "Incompatible IPAddressType: Subnet IPAddressType IPv4IPv6 targetSubnet IPAddressType IPv4, isBranch mode:false",
+		}, {
+			name: "incompatible IPAddressType: Parent IPv6 and Child Dual-Stack (Branch mode)",
+			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:        "v6-subnet",
+					TargetSubnetName:  "dualstack-subnet",
+					SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+				},
+			},
+			objects: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "v6-subnet", Namespace: namespace, UID: "v6-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv6},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "dualstack-subnet", Namespace: namespace, UID: "dual-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6},
+				},
+			},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "v6-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/v6-subnet")}}
+					}
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/dualstack-subnet")}}
+				})
+				return patches
+			},
+			expErr: "incompatible IPAddressType: Subnet IPAddressType IPv6 targetSubnet IPAddressType IPv4IPv6, isBranch mode:true",
+			expMsg: "Incompatible IPAddressType: Subnet IPAddressType IPv6 targetSubnet IPAddressType IPv4IPv6, isBranch mode:true",
+		}, {
+			name: "compatible IPAddressType: Parent Dual-Stack and Child IPv6 (Trunk mode)",
+			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:        "v6-subnet",
+					TargetSubnetName:  "dualstack-subnet",
+					SubnetAssociation: v1alpha1.SubnetAssociationTrunk,
+				},
+			},
+			objects: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "dualstack-subnet", Namespace: namespace, UID: "dual-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "v6-subnet", Namespace: namespace, UID: "v6-uuid"},
+					Spec:       v1alpha1.SubnetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv6},
+				},
+			},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "v6-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/v6-subnet")}}
+					}
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/dualstack-subnet")}}
+				})
+				return patches
+			},
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/v6-subnet",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/dualstack-subnet"},
+		}, {
+			name: "compatible IPAddressType: Unset IPAddressType defaults to IPv4 for both Parent and Child",
+			bindingMap: &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+					SubnetName:        "unset-child",
+					TargetSubnetName:  "unset-parent",
+					SubnetAssociation: v1alpha1.SubnetAssociationTrunk,
+				},
+			},
+			objects: []client.Object{
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "unset-parent", Namespace: namespace, UID: "parent-uuid"},
+					Spec:       v1alpha1.SubnetSpec{},
+				},
+				&v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "unset-child", Namespace: namespace, UID: "child-uuid"},
+					Spec:       v1alpha1.SubnetSpec{},
+				},
+			},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "child-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/unset-child")}}
+					}
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/unset-parent")}}
+				})
+				return patches
+			},
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/unset-child",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/unset-parent"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -789,7 +944,7 @@ func TestValidateVpcSubnetsBySubnetCR(t *testing.T) {
 			patches := tc.patches(t, r)
 			defer patches.Reset()
 
-			paths, err := r.validateVpcSubnetsBySubnetCR(ctx, subnetNamespace, subnetName, tc.isParent)
+			paths, _, err := r.validateVpcSubnetsBySubnetCR(ctx, subnetNamespace, subnetName, tc.isParent)
 			if tc.expErr != "" {
 				require.NotNil(t, err)
 				require.EqualError(t, err.error, tc.expErr)
@@ -893,7 +1048,7 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 				defer patches.Reset()
 			}
 
-			paths, err := r.validateVpcSubnetsBySubnetSetCR(ctx, namespace, name)
+			paths, _, err := r.validateVpcSubnetsBySubnetSetCR(ctx, namespace, name)
 			if tc.expErr != "" {
 				require.NotNil(t, err)
 				require.EqualError(t, err.error, tc.expErr)
