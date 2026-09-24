@@ -1148,8 +1148,6 @@ func TestSubnetSetReconciler_CollectGarbage(t *testing.T) {
 }
 
 func TestSubnetSetReconciler_deleteSubnetForSubnetSet(t *testing.T) {
-	r := createFakeSubnetSetReconciler(nil)
-	r.EnableRestoreMode()
 	subnetSet := v1alpha1.SubnetSet{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:       "fake-subnetset-uid",
@@ -1178,20 +1176,47 @@ func TestSubnetSetReconciler_deleteSubnetForSubnetSet(t *testing.T) {
 		IpAddresses: []string{"10.0.0.0/28"},
 	}
 
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
-		return []*model.VpcSubnet{
-			vpcSubnet1,
-			vpcSubnet2,
-		}
+	t.Run("Restore mode CR deletion passes deleteBindingMaps=false", func(t *testing.T) {
+		r := createFakeSubnetSetReconciler(nil)
+		r.EnableRestoreMode()
+
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+			return []*model.VpcSubnet{
+				vpcSubnet1,
+				vpcSubnet2,
+			}
+		})
+		defer patches.Reset()
+		patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteSubnets", func(_ *SubnetSetReconciler, nsxSubnets []*model.VpcSubnet, deleteBindingMaps bool) (hasStalePort bool, err error) {
+			assert.Equal(t, 1, len(nsxSubnets))
+			assert.Equal(t, vpcSubnet1, nsxSubnets[0])
+			assert.False(t, deleteBindingMaps)
+			return false, nil
+		})
+		err := r.deleteSubnetForSubnetSet(subnetSet, true, false)
+		assert.Nil(t, err)
 	})
-	defer patches.Reset()
-	patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteSubnets", func(_ *SubnetSetReconciler, nsxSubnets []*model.VpcSubnet, deleteBindingMaps bool) (hasStalePort bool, err error) {
-		assert.Equal(t, vpcSubnet1, nsxSubnets[0])
-		assert.Equal(t, false, deleteBindingMaps)
-		return false, nil
+
+	t.Run("Restore mode GC passes deleteBindingMaps=true", func(t *testing.T) {
+		r := createFakeSubnetSetReconciler(nil)
+		r.EnableRestoreMode()
+
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+			return []*model.VpcSubnet{
+				vpcSubnet1,
+				vpcSubnet2,
+			}
+		})
+		defer patches.Reset()
+		patches.ApplyPrivateMethod(reflect.TypeOf(r), "deleteSubnets", func(_ *SubnetSetReconciler, nsxSubnets []*model.VpcSubnet, deleteBindingMaps bool) (hasStalePort bool, err error) {
+			assert.Equal(t, 1, len(nsxSubnets))
+			assert.Equal(t, vpcSubnet1, nsxSubnets[0])
+			assert.True(t, deleteBindingMaps)
+			return false, nil
+		})
+		err := r.deleteSubnetForSubnetSet(subnetSet, true, true)
+		assert.Nil(t, err)
 	})
-	err := r.deleteSubnetForSubnetSet(subnetSet, true, false)
-	assert.Nil(t, err)
 }
 
 type MockManager struct {
@@ -1590,6 +1615,7 @@ func TestSubnetSetReconciler_RestoreReconcile(t *testing.T) {
 	err = r.RestoreReconcile()
 	assert.Contains(t, err.Error(), "failed to restore SubnetSet ns-1/subnetset-1")
 }
+
 func TestUpdateLabels(t *testing.T) {
 	// nil labels should not change anything
 	t.Run("nil labels", func(t *testing.T) {
