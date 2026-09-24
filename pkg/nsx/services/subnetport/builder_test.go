@@ -25,6 +25,7 @@ import (
 	mock_client "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestBuildSubnetPort(t *testing.T) {
@@ -1385,7 +1386,8 @@ func TestBuildSubnetPortIdAndName_existingPortByUID(t *testing.T) {
 	defer patchesStsFeat.Reset()
 
 	objMeta := &metav1.ObjectMeta{Name: "test-pod", UID: "pod-uid-123"}
-	id, name := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "")
+	id, name, err := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "")
+	assert.NoError(t, err)
 	assert.Equal(t, "existing-port-id", id)
 	assert.Equal(t, "existing-port-name", name)
 }
@@ -1433,7 +1435,8 @@ func TestBuildSubnetPortIdAndName_reuseSTSPortByUIDAndPodName(t *testing.T) {
 	defer patchesStsFeat.Reset()
 
 	objMeta := &metav1.ObjectMeta{Name: "test-pod", UID: "pod-uid-123"}
-	id, name := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "sts-uid-123")
+	id, name, err := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "sts-uid-123")
+	assert.NoError(t, err)
 	assert.Equal(t, "sts-port-id", id)
 	assert.Equal(t, "test-pod", name)
 }
@@ -1805,4 +1808,295 @@ func TestGetExistingSubnetPortForStatefulSetPod(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildSubnetPortIdAndName_reusePortAnnotation(t *testing.T) {
+	nsxClient := &nsx.Client{}
+	store := setupStore()
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: nsxClient,
+		},
+		SubnetPortStore: store,
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(store), "GetVpcSubnetPortByUID",
+		func(s *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	patches.ApplyMethod(reflect.TypeOf(service), "ListVMSubnetPortByName",
+		func(s *SubnetPortService, ns, name string) []*model.VpcSubnetPort {
+			if ns == "kube-system" && name == "vm-44" {
+				portID := "reused-port-id"
+				portName := "reused-port-name"
+				return []*model.VpcSubnetPort{
+					{
+						Id:          &portID,
+						DisplayName: &portName,
+					},
+				}
+			}
+			return nil
+		})
+
+	// Test successful reuse
+	objMeta := &metav1.ObjectMeta{
+		Name:      "new-vm-44",
+		Namespace: "user-ns",
+		UID:       "new-uid-123",
+		Labels: map[string]string{
+			common.LabelCPVM: "true",
+		},
+		Annotations: map[string]string{
+			common.AnnotationReusePort: "kube-system/vm-44",
+		},
+	}
+
+	id, name, err := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "")
+	assert.NoError(t, err)
+	assert.Equal(t, "reused-port-id", id)
+	assert.Equal(t, "new-vm-44", name)
+
+	// Test reuse-port annotation ignored for non-cpVM
+	objMetaNonCPVM := &metav1.ObjectMeta{
+		Name:      "non-cpvm",
+		Namespace: "user-ns",
+		UID:       "non-cpvm-uid",
+		Annotations: map[string]string{
+			common.AnnotationReusePort: "kube-system/vm-44",
+		},
+	}
+	id, name, err = service.BuildSubnetPortIdAndName(objMetaNonCPVM, types.UID("ns-uid-456"), "")
+	assert.NoError(t, err)
+	assert.NotEqual(t, "reused-port-id", id)
+	assert.Equal(t, "non-cpvm", name)
+
+	// Test reuse port with whitespace in annotation
+	objMetaWhitespace := &metav1.ObjectMeta{
+		Name:      "new-vm-44-ws",
+		Namespace: "user-ns",
+		UID:       "new-uid-123-ws",
+		Labels: map[string]string{
+			common.LabelCPVM: "true",
+		},
+		Annotations: map[string]string{
+			common.AnnotationReusePort: "  kube-system  /  vm-44  ",
+		},
+	}
+	id, name, err = service.BuildSubnetPortIdAndName(objMetaWhitespace, types.UID("ns-uid-456"), "")
+	assert.NoError(t, err)
+	assert.Equal(t, "reused-port-id", id)
+	assert.Equal(t, "new-vm-44-ws", name)
+
+	// Test reuse port with empty/nil port ID
+	objMetaNilID := &metav1.ObjectMeta{
+		Name:      "new-vm-nil",
+		Namespace: "user-ns",
+		UID:       "new-uid-nil",
+		Labels: map[string]string{
+			common.LabelCPVM: "true",
+		},
+		Annotations: map[string]string{
+			common.AnnotationReusePort: "kube-system/vm-nil-id",
+		},
+	}
+	patches.ApplyMethod(reflect.TypeOf(service), "ListVMSubnetPortByName",
+		func(s *SubnetPortService, ns, name string) []*model.VpcSubnetPort {
+			if ns == "kube-system" && name == "vm-44" {
+				portID := "reused-port-id"
+				portName := "reused-port-name"
+				return []*model.VpcSubnetPort{
+					{
+						Id:          &portID,
+						DisplayName: &portName,
+					},
+				}
+			}
+			if ns == "kube-system" && name == "vm-nil-id" {
+				return []*model.VpcSubnetPort{
+					{
+						Id: nil,
+					},
+				}
+			}
+			return nil
+		})
+	id, name, err = service.BuildSubnetPortIdAndName(objMetaNilID, types.UID("ns-uid-456"), "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "has empty port ID")
+	assert.Equal(t, "", id)
+	assert.Equal(t, "", name)
+
+	// Test reuse port not found
+	objMetaNotFound := &metav1.ObjectMeta{
+		Name:      "new-vm-45",
+		Namespace: "user-ns",
+		UID:       "new-uid-124",
+		Labels: map[string]string{
+			common.LabelCPVM: "true",
+		},
+		Annotations: map[string]string{
+			common.AnnotationReusePort: "kube-system/vm-45",
+		},
+	}
+	id, name, err = service.BuildSubnetPortIdAndName(objMetaNotFound, types.UID("ns-uid-456"), "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "reused port kube-system/vm-45 not found")
+	assert.Equal(t, "", id)
+	assert.Equal(t, "", name)
+
+	// Test CRD without reuse-port annotation (should fall back to standard ID generation and not error)
+	objMetaNoAnnotation := &metav1.ObjectMeta{
+		Name:      "normal-vm",
+		Namespace: "user-ns",
+		UID:       "normal-uid-125",
+	}
+	id, name, err = service.BuildSubnetPortIdAndName(objMetaNoAnnotation, types.UID("ns-uid-456"), "")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, id)
+	assert.Equal(t, "normal-vm", name)
+
+	// Test CRD with empty reuse-port annotation (should report error)
+	objMetaEmptyAnnotation := &metav1.ObjectMeta{
+		Name:      "empty-anno-vm",
+		Namespace: "user-ns",
+		UID:       "empty-uid-126",
+		Labels: map[string]string{
+			common.LabelCPVM: "true",
+		},
+		Annotations: map[string]string{
+			common.AnnotationReusePort: "",
+		},
+	}
+	id, name, err = service.BuildSubnetPortIdAndName(objMetaEmptyAnnotation, types.UID("ns-uid-456"), "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "reused port cannot be empty")
+	assert.Equal(t, "", id)
+	assert.Equal(t, "", name)
+
+	// Test CRD with invalid reuse-port annotation format (should report error)
+	objMetaInvalidAnnotation := &metav1.ObjectMeta{
+		Name:      "invalid-anno-vm",
+		Namespace: "user-ns",
+		UID:       "invalid-uid-127",
+		Labels: map[string]string{
+			common.LabelCPVM: "true",
+		},
+		Annotations: map[string]string{
+			common.AnnotationReusePort: "invalid-format",
+		},
+	}
+	id, name, err = service.BuildSubnetPortIdAndName(objMetaInvalidAnnotation, types.UID("ns-uid-456"), "")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid reuse-port annotation value")
+	assert.Equal(t, "", id)
+	assert.Equal(t, "", name)
+}
+
+func TestBuildSubnetPort_reusePortTags(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	nsxClient := &nsx.Client{}
+	store := setupStore()
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client:    k8sClient,
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "test-cluster",
+				},
+			},
+		},
+		SubnetPortStore: store,
+	}
+
+	// Mock k8sClient.Get to return namespace with UID
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.AssignableToTypeOf(&corev1.Namespace{})).DoAndReturn(
+		func(ctx context.Context, key types.NamespacedName, obj *corev1.Namespace, opts ...client.GetOption) error {
+			obj.Name = key.Name
+			obj.UID = types.UID("user-ns-uid-789")
+			return nil
+		}).AnyTimes()
+
+	// Mock ListSubnetPortByName to return existing port
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(store), "GetVpcSubnetPortByUID",
+		func(s *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	patches.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool {
+			return true
+		})
+
+	patches.ApplyMethod(reflect.TypeOf(service), "ListVMSubnetPortByName",
+		func(s *SubnetPortService, ns, name string) []*model.VpcSubnetPort {
+			if ns == "kube-system" && name == "vm-44" {
+				portID := "existing-port-id"
+				portName := "old-vm-44"
+				return []*model.VpcSubnetPort{
+					{
+						Id:          &portID,
+						DisplayName: &portName,
+					},
+				}
+			}
+			return nil
+		})
+
+	newSubnetPort := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "new-vm-44",
+			Namespace: "user-ns",
+			UID:       types.UID("2ccec3b9-7546-4fd2-812a-1e3a4afd7acc"),
+			Labels: map[string]string{
+				common.LabelCPVM: "true",
+			},
+			Annotations: map[string]string{
+				common.AnnotationReusePort: "kube-system/vm-44",
+			},
+		},
+	}
+
+	subnetPath := "/infra/subnets/test-subnet"
+	nsxSubnet := &model.VpcSubnet{
+		Path: &subnetPath,
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{
+				Enabled: common.Bool(false),
+			},
+		},
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_DEACTIVATED"),
+		},
+	}
+
+	observedPort, err := service.buildSubnetPort(newSubnetPort, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+	assert.NoError(t, err)
+	assert.NotNil(t, observedPort)
+	assert.Equal(t, "existing-port-id", *observedPort.Id)
+	assert.Equal(t, "new-vm-44", *observedPort.DisplayName)
+
+	// Verify that the tags on the reused NSX SubnetPort are updated to the new SubnetPort CR's metadata:
+	// namespace, namespace UID, CR name, and CR UID
+	vmNsTag := nsxutil.FindTag(observedPort.Tags, common.TagScopeVMNamespace)
+	assert.Equal(t, "user-ns", vmNsTag)
+
+	vmNsUIDTag := nsxutil.FindTag(observedPort.Tags, common.TagScopeVMNamespaceUID)
+	assert.Equal(t, "user-ns-uid-789", vmNsUIDTag)
+
+	crNameTag := nsxutil.FindTag(observedPort.Tags, common.TagScopeSubnetPortCRName)
+	assert.Equal(t, "new-vm-44", crNameTag)
+
+	crUIDTag := nsxutil.FindTag(observedPort.Tags, common.TagScopeSubnetPortCRUID)
+	assert.Equal(t, "2ccec3b9-7546-4fd2-812a-1e3a4afd7acc", crUIDTag)
+
+	// Verify Pod namespace tags are filtered out for VM SubnetPort
+	podNsTag := nsxutil.FindTag(observedPort.Tags, common.TagScopeNamespace)
+	assert.Equal(t, "", podNsTag)
+	podNsUIDTag := nsxutil.FindTag(observedPort.Tags, common.TagScopeNamespaceUID)
+	assert.Equal(t, "", podNsUIDTag)
 }

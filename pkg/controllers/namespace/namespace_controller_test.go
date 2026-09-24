@@ -366,6 +366,22 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 		setupMocks              func(r *NamespaceReconciler) *gomonkey.Patches
 	}{
 		{
+			name:                  "Success case - create default SubnetSet for kube-system",
+			namespace:             "kube-system",
+			defaultSubnetSize:     8,
+			existingResources:     []client.Object{},
+			expectedError:         false,
+			expectedSubnetSets:    1, // VM
+			networkStack:          v1alpha1.FullStackVPC,
+			nameSpaceType:         ctlcommon.SystemNs,
+			expectedIPAddressType: v1alpha1.IPAddressTypeIPv4,
+			setupMocks: func(r *NamespaceReconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+					return true
+				})
+			},
+		},
+		{
 			name:              "Skip case - not create SubnetSet for NormalNs",
 			namespace:         "test-ns",
 			defaultSubnetSize: 24,
