@@ -19,6 +19,8 @@ import (
 	"github.com/vmware/govmomi/sts"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 func TestVCClient_NewVCClient(t *testing.T) {
@@ -47,12 +49,12 @@ func TestVCClient_NewVCClient(t *testing.T) {
 	password := "admin"
 	ssoDomain := "vsphere.local"
 
+	soapClient := soap.NewClient(&url.URL{}, false)
 	patch := gomonkey.ApplyFunc(vim25.NewClient, func(ctx context.Context, rt soap.RoundTripper) (*vim25.Client, error) {
-		client := &vim25.Client{}
+		client := &vim25.Client{Client: soapClient}
 		return client, nil
 	})
 	defer patch.Reset()
-	soapClient := soap.NewClient(&url.URL{}, false)
 	patch.ApplyMethod(reflect.TypeOf(soapClient), "NewServiceClient", func(_ *soap.Client, path string, namespace string) *soap.Client {
 		return soapClient
 	})
@@ -61,7 +63,7 @@ func TestVCClient_NewVCClient(t *testing.T) {
 		singer := &sts.Signer{}
 		return singer, nil
 	})
-	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
+	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https", logger.Log)
 	assert.Equal(t, err, nil)
 	assert.NotEqual(t, vcClient, nil)
 
@@ -70,18 +72,18 @@ func TestVCClient_NewVCClient(t *testing.T) {
 
 	// bad session data
 	offset += 1
-	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
+	_, err = NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https", logger.Log)
 	assert.Equal(t, err, nil)
 
 }
 
 func TestVCClient_createHttpClient(t *testing.T) {
 	// no cert
-	client := createHttpClient(false, []byte{})
+	client := createHttpClient(false, []byte{}, logger.Log)
 	assert.NotEqual(t, client, nil)
 
 	// invalid cert
-	client = createHttpClient(false, []byte{1, 2})
+	client = createHttpClient(false, []byte{1, 2}, logger.Log)
 	assert.NotEqual(t, client, nil)
 }
 
@@ -101,7 +103,7 @@ func TestVCClient_getorRenewVAPISession(t *testing.T) {
 	userName := "admin"
 	password := "admin"
 	ssoDomain := "vsphere.local"
-	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
+	vcClient, err := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https", logger.Log)
 	assert.Equal(t, err, nil)
 	assert.NotEqual(t, vcClient, nil)
 
@@ -126,12 +128,12 @@ func TestVCClient_reloadUsernamePass(t *testing.T) {
 	password := "admin"
 	ssoDomain := "vsphere.local"
 	// reload == false
-	vcClient, _ := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https")
+	vcClient, _ := NewVCClient(host, port, ssoDomain, userName, password, nil, true, "https", logger.Log)
 	err := vcClient.reloadUsernamePass()
 	assert.Nil(t, err)
 
 	// reload == true
-	vcClient, _ = NewVCClient(host, port, ssoDomain, "", "", nil, true, "https")
+	vcClient, _ = NewVCClient(host, port, ssoDomain, "", "", nil, true, "https", logger.Log)
 	patch := gomonkey.ApplyFunc(os.ReadFile, func(filename string) ([]byte, error) {
 		return []byte{}, nil
 	})
