@@ -1037,6 +1037,7 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 	tests := []struct {
 		name          string
 		sp            *v1alpha1.SubnetPort
+		nsxSubnet     *model.VpcSubnet
 		restoreMode   bool
 		preFunc       func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) *gomonkey.Patches
 		expectedAb    *model.ExternalAddressBinding
@@ -1258,6 +1259,43 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 			},
 			expectedError: nil,
 		},
+		{
+			name: "ipv6-subnetport-with-address-binding",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					InterfaceIPType: v1alpha1.IPAddressTypeIPv6,
+				},
+			},
+			restoreMode: false,
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) *gomonkey.Patches {
+				return nil
+			},
+			expectedAb:    nil,
+			expectedError: nil,
+		},
+		{
+			name: "public-subnet-with-address-binding",
+			sp: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"nsx.vmware.com/attachment_ref": "VirtualMachine/vm/port"},
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					InterfaceIPType: v1alpha1.IPAddressTypeIPv4,
+				},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode: common.String(model.VpcSubnet_ACCESS_MODE_PUBLIC),
+			},
+			restoreMode: false,
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) *gomonkey.Patches {
+				return nil
+			},
+			expectedAb:    nil,
+			expectedError: nil,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1265,7 +1303,7 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			actualAb, _ := service.buildExternalAddressBinding(tt.sp, tt.restoreMode)
+			actualAb, _ := service.buildExternalAddressBinding(tt.sp, tt.nsxSubnet, tt.restoreMode)
 			assert.Equal(t, tt.expectedAb, actualAb)
 		})
 	}
