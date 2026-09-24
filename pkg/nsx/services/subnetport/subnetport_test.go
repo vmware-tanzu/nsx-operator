@@ -2620,3 +2620,79 @@ func TestSubnetPortService_CheckSubnetPortState_IPPoolExhausted(t *testing.T) {
 	info := infoObj.(*CountInfo)
 	assert.False(t, info.exhaustedCheckTime.IsZero())
 }
+
+func TestSubnetPortService_CheckSubnetPortState_IPAllocationInRelatedCodes(t *testing.T) {
+	fakeEntitiesClient := &fakeRealizedEntitiesClient{}
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{}, nsxutil.NewRealizeStateError("realized state error", 500000, nsxutil.IPAllocationErrorCode)
+	}
+
+	nsxClient := &nsx.Client{
+		RealizedEntitiesClient: fakeEntitiesClient,
+		PortClient:             &fakePortClient{},
+		NsxConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+	}
+
+	// Initialize store
+	service.SubnetPortStore = &SubnetPortStore{
+		ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+				common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
+				common.TagScopePodUID:          subnetPortIndexByPodUID,
+			}),
+			BindingType: model.VpcSubnetPortBindingType(),
+		},
+	}
+
+	uid := "test-uid-related"
+	portID := "test-port-id-related"
+	nsxSubnetPath := "/orgs/default/projects/default/vpcs/vpc-1/subnets/subnet-1"
+	portPath := nsxSubnetPath + "/ports/test-port-id-related"
+	nsxSubnetPort := &model.VpcSubnetPort{
+		Id:   &portID,
+		Path: &portPath,
+		Tags: []model.Tag{
+			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: &uid},
+		},
+	}
+	service.SubnetPortStore.Add(nsxSubnetPort)
+
+	originalRetry := util.NSXTRealizeRetry
+	util.NSXTRealizeRetry = wait.Backoff{
+		Steps:    1,
+		Duration: 10 * time.Millisecond,
+	}
+	defer func() { util.NSXTRealizeRetry = originalRetry }()
+
+	subnetPortCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			UID: types.UID(uid),
+		},
+	}
+
+	service.SubnetPortStore.PortCountInfo.Store(nsxSubnetPath, &CountInfo{})
+
+	_, err := service.CheckSubnetPortState(subnetPortCR, nsxSubnetPath)
+	assert.Error(t, err)
+
+	// Verify that the subnet was marked as exhausted even when IPAllocationErrorCode is in related codes
+	infoObj, ok := service.SubnetPortStore.PortCountInfo.Load(nsxSubnetPath)
+	assert.True(t, ok)
+	info := infoObj.(*CountInfo)
+	assert.False(t, info.exhaustedCheckTime.IsZero())
+}

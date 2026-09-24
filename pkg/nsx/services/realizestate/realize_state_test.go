@@ -340,6 +340,47 @@ func TestRealizeStateService_CheckRealizeState(t *testing.T) {
 	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
 	assert.True(t, ok)
 	assert.Equal(t, "/orgs/default/projects/project-quality/vpcs/vpc realized with errors: [Found errors in the request. Please refer to the related errors for details. related error 1 related error 2]", realizeStateError.Error())
+
+	// for multiple alarms, ensure error codes across subsequent alarms and related errors are preserved
+	fakeEntitiesClient.listFn = func(intentPathParam string, sitePathParam *string) (model.GenericPolicyRealizedResourceListResult, error) {
+		return model.GenericPolicyRealizedResourceListResult{
+			Results: []model.GenericPolicyRealizedResource{
+				{
+					State: common.String(model.GenericPolicyRealizedResource_STATE_ERROR),
+					Alarms: []model.PolicyAlarmResource{
+						{
+							Message: common.String("First alarm general error"),
+							ErrorDetails: &model.PolicyApiError{
+								ErrorCode: common.Int64(500000),
+							},
+						},
+						{
+							Message: common.String("Second alarm IP allocation error"),
+							ErrorDetails: &model.PolicyApiError{
+								ErrorCode: common.Int64(nsxutil.IPAllocationErrorCode),
+								RelatedErrors: []model.PolicyRelatedApiError{
+									{
+										ErrorCode:    common.Int64(10087),
+										ErrorMessage: common.String("Edge cluster capacity constraint"),
+									},
+								},
+							},
+						},
+					},
+					EntityType: common.String("GenericPolicyRealizedResource"),
+				},
+			},
+		}, nil
+	}
+	err = s.CheckRealizeState(backoff, "/orgs/default/projects/project-quality/vpcs/vpc/subnets/subnet/ports/port", []string{})
+	assert.NotNil(t, err)
+	realizeStateError, ok = err.(*nsxutil.RealizeStateError)
+	assert.True(t, ok)
+	assert.Equal(t, 500000, realizeStateError.GetCode())
+	assert.Equal(t, []int{nsxutil.IPAllocationErrorCode, 10087}, realizeStateError.GetRelatedCodes())
+	assert.True(t, nsxutil.HasAnyErrorCode(err, nsxutil.IPAllocationErrorCode))
+	assert.True(t, nsxutil.HasAnyErrorCode(err, 10087))
+	assert.Equal(t, []int64{500000, nsxutil.IPAllocationErrorCode, 10087}, nsxutil.ExtractAllErrorCodes(err))
 }
 
 func TestGetPolicyInterfaceIPs(t *testing.T) {
