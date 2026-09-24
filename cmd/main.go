@@ -136,13 +136,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		health.Start(nsxClient, cf, mgr.GetClient())
 	}
 
-	//  Embed the common commonService to sub-services.
-	commonService := common.Service{
-		Client:    mgr.GetClient(),
-		NSXClient: nsxClient,
-		NSXConfig: cf,
-	}
-
 	checkLicense(nsxClient, cf.LicenseValidationInterval)
 
 	if cf.K8sConfig.EnableRestore && config.HasVPCNamespaces() {
@@ -154,6 +147,18 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 	} else {
 		restoreMode = false
+	}
+
+	reconcilerMgr := mgr
+	if restoreMode {
+		reconcilerMgr = pkgutil.NewRestoreManager(mgr)
+	}
+
+	//  Embed the common commonService to sub-services.
+	commonService := common.Service{
+		Client:    reconcilerMgr.GetClient(),
+		NSXClient: nsxClient,
+		NSXConfig: cf,
 	}
 
 	var reconcilerList []pkgutil.ReconcilerProvider
@@ -245,52 +250,52 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 
 		// Create controllers which only supports VPC
-		subnetSetReconcile = subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService)
+		subnetSetReconcile = subnetset.NewSubnetSetReconciler(reconcilerMgr, subnetService, subnetPortService, vpcService, subnetBindingService)
 		reconcilerList = append(
 			reconcilerList,
-			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService, dnsRecordService),
-			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService, subnetService, subnetPortService),
-			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
+			networkinfocontroller.NewNetworkInfoReconciler(reconcilerMgr, vpcService, ipblocksInfoService, dnsRecordService),
+			namespacecontroller.NewNamespaceReconciler(reconcilerMgr, cf, vpcService, subnetService, subnetPortService),
+			subnet.NewSubnetReconciler(reconcilerMgr, subnetService, subnetPortService, vpcService, subnetBindingService),
 			subnetSetReconcile,
-			node.NewNodeReconciler(mgr, nodeService),
-			staticroutecontroller.NewStaticRouteReconciler(mgr, staticRouteService),
+			node.NewNodeReconciler(reconcilerMgr, nodeService),
+			staticroutecontroller.NewStaticRouteReconciler(reconcilerMgr, staticRouteService),
 			// SubnetPort may use IPAddressAllocation for AddressBinding, reconcile IPAddressAllocation first
-			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService),
-			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
-			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
-			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
-			gateway.NewGatewayReconciler(mgr, dnsRecordService),
-			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
-			subnetipreservationcontroller.NewReconciler(mgr, subnetIPReservationService, subnetService),
+			ipaddressallocation.NewIPAddressAllocationReconciler(reconcilerMgr, ipAddressAllocationService, vpcService),
+			subnetport.NewSubnetPortReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
+			pod.NewPodReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, nodeService),
+			networkpolicycontroller.NewNetworkPolicyReconciler(reconcilerMgr, commonService, vpcService),
+			gateway.NewGatewayReconciler(reconcilerMgr, dnsRecordService),
+			subnetbindingcontroller.NewReconciler(reconcilerMgr, subnetService, subnetBindingService),
+			subnetipreservationcontroller.NewReconciler(reconcilerMgr, subnetIPReservationService, subnetService),
 		)
-		if lbReconciler := service.NewServiceLbReconciler(mgr, commonService, dnsRecordService); lbReconciler != nil {
+		if lbReconciler := service.NewServiceLbReconciler(reconcilerMgr, commonService, dnsRecordService); lbReconciler != nil {
 			reconcilerList = append(reconcilerList, lbReconciler)
 		}
 		// StatefulSet controller is always registered so that after NSX upgrades
 		// replica/GC logic can run without restarting the operator. Reconcile and CollectGarbage
 		// no-op until NSX version supports STS pods and vpc_wcp_enhance=true in config; delete cleanup still runs.
-		reconcilerList = append(reconcilerList, statefulsetcontroller.NewStatefulSetReconciler(mgr, subnetPortService))
+		reconcilerList = append(reconcilerList, statefulsetcontroller.NewStatefulSetReconciler(reconcilerMgr, subnetPortService))
 		if nsx.StatefulSetPodSubnetPortFeatureEnabled(commonService.NSXClient, commonService.NSXConfig) {
 			log.Info("NSX version and config allow StatefulSet Pod feature; StatefulSet controller will run replica/GC work")
 		} else {
 			log.Info("StatefulSet Pod feature gated (NSX version and/or vpc_wcp_enhance!=true); StatefulSet controller registered but replica/GC no-op until enabled")
 		}
 		if cf.EnableInventory {
-			reconcilerList = append(reconcilerList, inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf))
+			reconcilerList = append(reconcilerList, inventory.NewInventoryController(reconcilerMgr.GetClient(), inventoryService, cf))
 		}
 	}
 
 	// Add controllers which can run in non-VPC mode
 	if config.HasT1Namespaces() {
-		reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(mgr, commonService, vpcService, false))
+		reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(reconcilerMgr, commonService, vpcService, false))
 	}
 	if config.HasVPCNamespaces() {
-		reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(mgr, commonService, vpcService, true))
+		reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(reconcilerMgr, commonService, vpcService, true))
 	}
 
 	// Add the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
-		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(mgr, commonService))
+		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(reconcilerMgr, commonService))
 	}
 
 	if restoreMode {

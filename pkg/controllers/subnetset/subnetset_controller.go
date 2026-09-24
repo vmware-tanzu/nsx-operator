@@ -79,8 +79,7 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 		specChanged = true
 	}
 
-	// In restore mode, skip writing updated spec back to the CR to avoid webhook calls before the webhook server is started.
-	if specChanged && !r.restoreMode {
+	if specChanged {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
@@ -151,31 +150,27 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultNormal, nil
 	}
 
-	// In restore mode, skip finalizer management as updating the CR would invoke the validating webhook
-	// which is not running during restore phase and would cause CrashLoopBackOff.
-	if !r.restoreMode {
-		bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
-		if len(bindingCRs) > 0 {
-			if !controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
-				controllerutil.AddFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
-				if err := r.Client.Update(ctx, subnetsetCR); err != nil {
-					log.Error(err, "Failed to add the finalizer", "SubnetSet", req.NamespacedName)
-					msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
-					r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to add the finalizer on SubnetSet used by SubnetConnectionBindingMap",
-						setSubnetSetReadyStatusFalse, msgFailAddFinalizer)
-					return ResultRequeue, err
-				}
+	bindingCRs := r.getSubnetBindingCRsBySubnetSet(ctx, subnetsetCR)
+	if len(bindingCRs) > 0 {
+		if !controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
+			controllerutil.AddFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
+			if err := r.Client.Update(ctx, subnetsetCR); err != nil {
+				log.Error(err, "Failed to add the finalizer", "SubnetSet", req.NamespacedName)
+				msgFailAddFinalizer := fmt.Sprintf("Failed to add the finalizer on SubnetSet for the dependency by SubnetConnectionBindingMap %s", bindingCRs[0].Name)
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to add the finalizer on SubnetSet used by SubnetConnectionBindingMap",
+					setSubnetSetReadyStatusFalse, msgFailAddFinalizer)
+				return ResultRequeue, err
 			}
-		} else {
-			if controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
-				controllerutil.RemoveFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
-				if err := r.Client.Update(ctx, subnetsetCR); err != nil {
-					log.Error(err, "Failed to delete the finalizer", "SubnetSet", req.NamespacedName)
-					msgFailDelFinalizer := "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps"
-					r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to remove the finalizer from SubnetSet",
-						setSubnetSetReadyStatusFalse, fmt.Sprint(msgFailDelFinalizer))
-					return ResultRequeue, err
-				}
+		}
+	} else {
+		if controllerutil.ContainsFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName) {
+			controllerutil.RemoveFinalizer(subnetsetCR, servicecommon.SubnetSetFinalizerName)
+			if err := r.Client.Update(ctx, subnetsetCR); err != nil {
+				log.Error(err, "Failed to delete the finalizer", "SubnetSet", req.NamespacedName)
+				msgFailDelFinalizer := "Failed to remove the finalizer on SubnetSet when there is no reference by SubnetConnectionBindingMaps"
+				r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Unable to remove the finalizer from SubnetSet",
+					setSubnetSetReadyStatusFalse, fmt.Sprint(msgFailDelFinalizer))
+				return ResultRequeue, err
 			}
 		}
 	}
@@ -246,9 +241,8 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultNormal, err
 	}
 
-	// In restore mode, skip writing spec/metadata defaults back to the CR to avoid webhook calls before the webhook server is started.
 	metadataChanged := updateLabels(subnetsetCR, isSystemNs)
-	if (specChanged || metadataChanged) && !r.restoreMode {
+	if specChanged || metadataChanged {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
