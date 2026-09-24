@@ -131,13 +131,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		health.Start(nsxClient, cf, mgr.GetClient())
 	}
 
-	//  Embed the common commonService to sub-services.
-	commonService := common.Service{
-		Client:    mgr.GetClient(),
-		NSXClient: nsxClient,
-		NSXConfig: cf,
-	}
-
 	checkLicense(nsxClient, cf.LicenseValidationInterval)
 
 	if cf.K8sConfig.EnableRestore && cf.CoeConfig.EnableVPCNetwork {
@@ -149,6 +142,18 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 	} else {
 		restoreMode = false
+	}
+
+	reconcilerMgr := mgr
+	if restoreMode {
+		reconcilerMgr = pkgutil.NewRestoreManager(mgr)
+	}
+
+	//  Embed the common commonService to sub-services.
+	commonService := common.Service{
+		Client:    reconcilerMgr.GetClient(),
+		NSXClient: nsxClient,
+		NSXConfig: cf,
 	}
 
 	var reconcilerList []pkgutil.ReconcilerProvider
@@ -235,30 +240,30 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 
 		// Create controllers which only supports VPC
-		subnetSetReconcile = subnetset.NewSubnetSetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService)
+		subnetSetReconcile = subnetset.NewSubnetSetReconciler(reconcilerMgr, subnetService, subnetPortService, vpcService, subnetBindingService)
 		reconcilerList = append(
 			reconcilerList,
-			networkinfocontroller.NewNetworkInfoReconciler(mgr, vpcService, ipblocksInfoService),
-			namespacecontroller.NewNamespaceReconciler(mgr, cf, vpcService, subnetService, subnetPortService),
-			subnet.NewSubnetReconciler(mgr, subnetService, subnetPortService, vpcService, subnetBindingService),
+			networkinfocontroller.NewNetworkInfoReconciler(reconcilerMgr, vpcService, ipblocksInfoService),
+			namespacecontroller.NewNamespaceReconciler(reconcilerMgr, cf, vpcService, subnetService, subnetPortService),
+			subnet.NewSubnetReconciler(reconcilerMgr, subnetService, subnetPortService, vpcService, subnetBindingService),
 			subnetSetReconcile,
-			node.NewNodeReconciler(mgr, nodeService),
-			staticroutecontroller.NewStaticRouteReconciler(mgr, staticRouteService),
+			node.NewNodeReconciler(reconcilerMgr, nodeService),
+			staticroutecontroller.NewStaticRouteReconciler(reconcilerMgr, staticRouteService),
 			// SubnetPort may use IPAddressAllocation for AddressBinding, reconcile IPAddressAllocation first
-			ipaddressallocation.NewIPAddressAllocationReconciler(mgr, ipAddressAllocationService, vpcService),
-			subnetport.NewSubnetPortReconciler(mgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
-			pod.NewPodReconciler(mgr, subnetPortService, subnetService, vpcService, nodeService),
-			networkpolicycontroller.NewNetworkPolicyReconciler(mgr, commonService, vpcService),
-			subnetbindingcontroller.NewReconciler(mgr, subnetService, subnetBindingService),
-			subnetipreservationcontroller.NewReconciler(mgr, subnetIPReservationService, subnetService),
+			ipaddressallocation.NewIPAddressAllocationReconciler(reconcilerMgr, ipAddressAllocationService, vpcService),
+			subnetport.NewSubnetPortReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService),
+			pod.NewPodReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, nodeService),
+			networkpolicycontroller.NewNetworkPolicyReconciler(reconcilerMgr, commonService, vpcService),
+			subnetbindingcontroller.NewReconciler(reconcilerMgr, subnetService, subnetBindingService),
+			subnetipreservationcontroller.NewReconciler(reconcilerMgr, subnetIPReservationService, subnetService),
 		)
-		if lbReconciler := service.NewServiceLbReconciler(mgr, commonService); lbReconciler != nil {
+		if lbReconciler := service.NewServiceLbReconciler(reconcilerMgr, commonService); lbReconciler != nil {
 			reconcilerList = append(reconcilerList, lbReconciler)
 		}
 		// StatefulSet controller is always registered so that after NSX upgrades
 		// replica/GC logic can run without restarting the operator. Reconcile and CollectGarbage
 		// no-op until NSX version supports STS pods.
-		reconcilerList = append(reconcilerList, statefulsetcontroller.NewStatefulSetReconciler(mgr, subnetPortService))
+		reconcilerList = append(reconcilerList, statefulsetcontroller.NewStatefulSetReconciler(reconcilerMgr, subnetPortService))
 		if nsx.StatefulSetPodSubnetPortFeatureEnabled(commonService.NSXClient) {
 			log.Info("NSX version allows StatefulSet Pod feature; StatefulSet controller will run replica/GC work")
 		} else {
@@ -266,16 +271,16 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 
 		if cf.EnableInventory {
-			reconcilerList = append(reconcilerList, inventory.NewInventoryController(mgr.GetClient(), inventoryService, cf))
+			reconcilerList = append(reconcilerList, inventory.NewInventoryController(reconcilerMgr.GetClient(), inventoryService, cf))
 		}
 	}
 
 	// Add controllers which can run in non-VPC mode
-	reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(mgr, commonService, vpcService))
+	reconcilerList = append(reconcilerList, securitypolicycontroller.NewSecurityPolicyReconciler(reconcilerMgr, commonService, vpcService))
 
 	// Add the NSXServiceAccount controller.
 	if cf.EnableAntreaNSXInterworking {
-		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(mgr, commonService))
+		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(reconcilerMgr, commonService))
 	}
 
 	if restoreMode {
