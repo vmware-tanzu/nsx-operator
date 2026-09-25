@@ -53,17 +53,27 @@ func (m *MockCache) List(ctx context.Context, list client.ObjectList, opts ...cl
 }
 func (m *MockCache) GetInformer(ctx context.Context, obj client.Object, opts ...cache.InformerGetOption) (cache.Informer, error) {
 	args := m.Called(ctx, obj)
-	return &MockInformer{}, args.Error(1)
+	informer, _ := args.Get(0).(cache.Informer)
+	return informer, args.Error(1)
 }
 
 type MockInformer struct {
 	mock.Mock
-	handlers toolscache.ResourceEventHandlerFuncs
+	handlers          toolscache.ResourceEventHandlerFuncs
+	registeredHandler toolscache.ResourceEventHandler
+	addHandlerErr     error
 	cache.Informer
 }
 
 func (m *MockInformer) AddEventHandler(handler toolscache.ResourceEventHandler) (toolscache.ResourceEventHandlerRegistration, error) {
-	if m != nil && m.handlers.AddFunc != nil {
+	if m == nil {
+		return nil, nil
+	}
+	if m.addHandlerErr != nil {
+		return nil, m.addHandlerErr
+	}
+	m.registeredHandler = handler
+	if m.handlers.AddFunc != nil {
 		m.handlers.AddFunc(handler)
 	}
 	return m, nil

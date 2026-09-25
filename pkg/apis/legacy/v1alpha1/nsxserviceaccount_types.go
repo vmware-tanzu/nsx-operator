@@ -66,14 +66,15 @@ type NSXServiceAccountStatus struct {
 	Reason string                 `json:"reason,omitempty"`
 	// Represents the realization status of a NSXServiceAccount's current state.
 	// Known .status.conditions.type is: "Realized"
-	Conditions       []metav1.Condition `json:"conditions,omitempty"`
-	VPCPath          string             `json:"vpcPath,omitempty"`
-	NSXManagers      []string           `json:"nsxManagers,omitempty"`
-	ProxyEndpoints   NSXProxyEndpoint   `json:"proxyEndpoints,omitempty"`
-	ClusterID        string             `json:"clusterID,omitempty"`
-	ClusterName      string             `json:"clusterName,omitempty"`
-	Secrets          []NSXSecret        `json:"secrets,omitempty"`
-	NSXRestoreStatus *NSXRestoreStatus  `json:"nsxRestoreStatus,omitempty"`
+	Conditions            []metav1.Condition `json:"conditions,omitempty"`
+	VPCPath               string             `json:"vpcPath,omitempty"`
+	NSXManagers           []string           `json:"nsxManagers,omitempty"`
+	ProxyEndpoints        NSXProxyEndpoint   `json:"proxyEndpoints,omitempty"`
+	ClusterID             string             `json:"clusterID,omitempty"`
+	ClusterName           string             `json:"clusterName,omitempty"`
+	SupervisorClusterName string             `json:"supervisorClusterName,omitempty"`
+	Secrets               []NSXSecret        `json:"secrets,omitempty"`
+	NSXRestoreStatus      *NSXRestoreStatus  `json:"nsxRestoreStatus,omitempty"`
 }
 
 // +genclient
