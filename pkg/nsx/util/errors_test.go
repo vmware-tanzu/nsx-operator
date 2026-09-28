@@ -269,65 +269,6 @@ func TestIsRetryRealizeError(t *testing.T) {
 	}
 }
 
-func TestIsIPAllocationError(t *testing.T) {
-	tests := []struct {
-		name     string
-		alarm    model.PolicyAlarmResource
-		expected bool
-	}{
-		{
-			name: "IPAllocation error",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: int64Ptr(IPAllocationErrorCode),
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "IPPoolExhausted error",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: int64Ptr(IPPoolExhaustedErrorCode),
-				},
-			},
-			expected: true,
-		},
-		{
-			name: "Different error code",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: int64Ptr(999),
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "Nil ErrorDetails",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: nil,
-			},
-			expected: false,
-		},
-		{
-			name: "Nil ErrorCode",
-			alarm: model.PolicyAlarmResource{
-				ErrorDetails: &model.PolicyApiError{
-					ErrorCode: nil,
-				},
-			},
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := IsIPAllocationError(tt.alarm)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestRetryAfterError(t *testing.T) {
 	delErr := CreateNsxPendingDelete()
 	assert.Equal(t, DefaultPendingDeleteRetryAfterSeconds, delErr.RetryAfterSeconds())
@@ -421,4 +362,154 @@ func TestConvertToRetryAfterError(t *testing.T) {
 // Helper function
 func int64Ptr(i int64) *int64 {
 	return &i
+}
+
+func TestExtractAllErrorCodes(t *testing.T) {
+	t.Run("nil error", func(t *testing.T) {
+		assert.Nil(t, ExtractAllErrorCodes(nil))
+	})
+
+	t.Run("from NSXApiError with related errors", func(t *testing.T) {
+		mainCode := int64(502001)
+		relCode1 := int64(502103)
+		relCode2 := int64(10087)
+		apiErr := &NSXApiError{
+			ApiError: &model.ApiError{
+				ErrorCode: &mainCode,
+				RelatedErrors: []model.RelatedApiError{
+					{ErrorCode: &relCode1},
+					{ErrorCode: &relCode2},
+				},
+			},
+		}
+		codes := ExtractAllErrorCodes(apiErr)
+		assert.Equal(t, []int64{502001, 502103, 10087}, codes)
+
+		// Test wrapped error with fmt.Errorf %w
+		wrappedErr := fmt.Errorf("wrapped context: %w", apiErr)
+		assert.Equal(t, []int64{502001, 502103, 10087}, ExtractAllErrorCodes(wrappedErr))
+	})
+
+	t.Run("from NSXApiError with nil ApiError", func(t *testing.T) {
+		apiErr := &NSXApiError{
+			ApiError: nil,
+		}
+		codes := ExtractAllErrorCodes(apiErr)
+		assert.Nil(t, codes)
+	})
+
+	t.Run("from RealizeStateError", func(t *testing.T) {
+		realizeErr := NewRealizeStateError("alarm occurred", 10087, 502103)
+		codes := ExtractAllErrorCodes(realizeErr)
+		assert.Equal(t, []int64{10087, 502103}, codes)
+
+		// Test wrapped error with fmt.Errorf %w
+		wrappedRealizeErr := fmt.Errorf("controller failed: %w", realizeErr)
+		assert.Equal(t, []int64{10087, 502103}, ExtractAllErrorCodes(wrappedRealizeErr))
+	})
+
+	t.Run("from GeneralNsxError", func(t *testing.T) {
+		generalErr := &GeneralNsxError{
+			nsxErrorImpl: nsxErrorImpl{
+				ErrorDetail: ErrorDetail{
+					ErrorCode:         502001,
+					RelatedErrorCodes: []int{502103, 10087},
+				},
+			},
+		}
+		codes := ExtractAllErrorCodes(generalErr)
+		assert.Equal(t, []int64{502001, 502103, 10087}, codes)
+
+		// Test wrapped error with fmt.Errorf %w
+		wrappedGeneralErr := fmt.Errorf("operation failed: %w", generalErr)
+		assert.Equal(t, []int64{502001, 502103, 10087}, ExtractAllErrorCodes(wrappedGeneralErr))
+	})
+
+	t.Run("unstructured error returns nil", func(t *testing.T) {
+		err := fmt.Errorf("generic connection error")
+		assert.Nil(t, ExtractAllErrorCodes(err))
+	})
+
+	t.Run("priority order matching in GetFirstMatchingErrorCode", func(t *testing.T) {
+		// RealizeStateError has 10087 as main code, and 502105 in related codes.
+		// When targetCodes defines 502105 before 10087, 502105 must be returned!
+		realizeErr := NewRealizeStateError("alarm occurred", 10087, 502105)
+		matched := GetFirstMatchingErrorCode(realizeErr, 502105, 10087)
+		assert.Equal(t, int64(502105), matched)
+
+		// When targetCodes defines 10087 before 502105, 10087 must be returned.
+		matchedReverse := GetFirstMatchingErrorCode(realizeErr, 10087, 502105)
+		assert.Equal(t, int64(10087), matchedReverse)
+	})
+}
+
+func TestIsLBSEdgeCapacityError(t *testing.T) {
+	tests := []struct {
+		name         string
+		err          error
+		expected     bool
+		expectedCode int64
+	}{
+		{
+			name:         "nil error",
+			err:          nil,
+			expected:     false,
+			expectedCode: 0,
+		},
+		{
+			name: "NSXApiError with 502103 in related errors",
+			err: func() error {
+				mainCode := int64(502001)
+				relCode := int64(LBSEdgeNodeNoCapacityForSizeErrorCode)
+				return &NSXApiError{
+					ApiError: &model.ApiError{
+						ErrorCode: &mainCode,
+						RelatedErrors: []model.RelatedApiError{
+							{ErrorCode: &relCode},
+						},
+					},
+				}
+			}(),
+			expected:     true,
+			expectedCode: LBSEdgeNodeNoCapacityForSizeErrorCode,
+		},
+		{
+			name: "502105 size not supported on edge node",
+			err: func() error {
+				code := int64(LBSEdgeNodeSizeNotSupportedErrorCode)
+				return &NSXApiError{
+					ApiError: &model.ApiError{
+						ErrorCode: &code,
+					},
+				}
+			}(),
+			expected:     true,
+			expectedCode: LBSEdgeNodeSizeNotSupportedErrorCode,
+		},
+		{
+			name:         "10087 routing allocation insufficient resources",
+			err:          NewRealizeStateError("failed", int(EdgeClusterInsufficientResourcesErrorCode)),
+			expected:     true,
+			expectedCode: EdgeClusterInsufficientResourcesErrorCode,
+		},
+		{
+			name:         "10145 no member capacity pool",
+			err:          NewRealizeStateError("no capacity pool", int(EdgeClusterNoCapacityPoolErrorCode)),
+			expected:     true,
+			expectedCode: EdgeClusterNoCapacityPoolErrorCode,
+		},
+		{
+			name:         "unrelated error code",
+			err:          NewRealizeStateError("provider not ready", 500042),
+			expected:     false,
+			expectedCode: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsLBSEdgeCapacityError(tt.err))
+			assert.Equal(t, tt.expectedCode, GetLBSEdgeCapacityErrorCode(tt.err))
+		})
+	}
 }
