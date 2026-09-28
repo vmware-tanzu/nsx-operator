@@ -109,6 +109,7 @@ type IPBlock struct {
 }
 
 // SecurityPolicyPort describes protocol and ports for traffic.
+// +kubebuilder:validation:XValidation:rule="!has(self.endPort) || self.endPort >= (has(self.port) ? self.port : 0)",message="endPort must be greater than or equal to port"
 type SecurityPolicyPort struct {
 	// Protocol(TCP, UDP) is the protocol to match traffic.
 	// It is TCP by default.
