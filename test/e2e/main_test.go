@@ -259,6 +259,11 @@ func testMain(m *testing.M) int {
 	logger.Log = log
 	// Set the controller-runtime logger to prevent the warning about log.SetLogger(...) never being called
 	logf.SetLogger(log.Logger)
+	// This branch defaults to the isolated Pod v2 suite. It has its own bounded
+	// setup/cleanup and does not provision namespaces for unrelated tests.
+	if *podV2Only {
+		return podV2Main(m)
+	}
 
 	if err := initProvider(); err != nil {
 		log.Error(err, "Error when initializing provider")
@@ -337,6 +342,12 @@ func testMain(m *testing.M) int {
 }
 
 func TestMain(m *testing.M) {
+	// Local tests exercise the new recovery code against fake clients only.
+	if os.Getenv("PODV2_LOCAL_TESTS") == "true" {
+		flag.Parse()
+		_ = flag.Set("test.run", "^TestPodV2Local")
+		os.Exit(m.Run())
+	}
 	if os.Getenv("e2e") == "true" {
 		os.Exit(testMain(m))
 	}
