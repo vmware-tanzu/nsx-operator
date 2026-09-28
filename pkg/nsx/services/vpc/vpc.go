@@ -7,11 +7,14 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
@@ -1141,40 +1144,126 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 
 	// NSX LB can work when Service gateway is enabled
 	serviceGatewayEnable := IsServiceGatewayEnabled(vpcConnectivityProfile)
-	globalLbProvider = s.getLBProvider(serviceGatewayEnable)
+	provider, err := s.getLBProvider(serviceGatewayEnable)
+	if err != nil {
+		log.Error(err, "Failed to resolve LB provider, will requeue reconcile")
+		return NoneLB, err
+	}
+	globalLbProvider = provider
 	log.Info("Get LB provider", "provider", globalLbProvider)
 	return globalLbProvider, nil
 }
 
-func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
-	// if no Alb endpoint found, return nsx-lb
-	// if found, and nsx lbs found, return nsx-lb
-	// else return avi
+func (s *VPCService) checkALBEndpoint() (bool, error) {
+	if s.NSXClient == nil || s.NSXClient.Cluster == nil {
+		return false, fmt.Errorf("NSX client or cluster is not initialized")
+	}
+
+	probeErr := GetAlbEndpoint(s.NSXClient.Cluster)
+	if probeErr == nil {
+		return true, nil
+	}
+
+	// HTTP 404 reliably proves the ALB endpoint is absent.
+	if errors.Is(probeErr, nsxutil.HttpNotFoundError) {
+		return false, nil
+	}
+
+	// All other errors (TCP timeouts, TLS handshakes, HTTP 5xx, connection resets)
+	// are treated as transient failures. Return error to trigger controller requeue.
+	return false, probeErr
+}
+
+func (s *VPCService) getLBProvider(edgeEnable bool) (LBProvider, error) {
 	log.Info("Checking lb provider")
-	if s.Service.NSXConfig.UseAVILoadBalancer {
-		albEndpointFound := false
-		if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
-			if err == nil {
-				return false
+	aviPreviouslyUsed := s.isAviPreviouslyUsed()
+	if s.Service.NSXConfig.UseAVILoadBalancer || aviPreviouslyUsed {
+		if len(s.LbsStore.List()) > 0 && !aviPreviouslyUsed {
+			log.Info("Native NSX LB service found and Avi was not previously in use, returning NSX LB")
+			if edgeEnable {
+				return NSXLB, nil
 			}
-			if errors.Is(err, nsxutil.HttpCommonError) {
-				return true
-			} else {
-				return false
-			}
-		}, func() error {
-			return GetAlbEndpoint(s.NSXClient.Cluster)
-		}); err == nil {
-			albEndpointFound = true
+			return NoneLB, nil
 		}
-		if albEndpointFound && len(s.LbsStore.List()) == 0 {
-			return AVILB
+
+		albEndpointFound, err := s.checkALBEndpoint()
+		if err != nil {
+			log.Warn("Transient error probing ALB endpoint on NSX. Requeuing...", "err", err)
+			return NoneLB, err
 		}
+
+		if !albEndpointFound {
+			log.Warn("ALB endpoint not found on NSX, but Avi LB is configured or was previously in use. Continuing with Avi LB provider; missing endpoint will be handled asynchronously")
+		}
+		return AVILB, nil
 	}
 	if edgeEnable {
-		return NSXLB
+		return NSXLB, nil
 	}
-	return NoneLB
+	return NoneLB, nil
+}
+
+func (s *VPCService) isAviPreviouslyUsed() bool {
+	// 1. Check existing system VPCNetworkConfiguration CR status for AVISESubnetPath
+	if s.checkVPCNetworkConfigAviSubnet() {
+		return true
+	}
+
+	// 2. Check Kubernetes AKO validation CRD (AviLoadBalancerConfig)
+	if s.checkAKOConfigCRD() {
+		return true
+	}
+
+	return false
+}
+
+func (s *VPCService) checkVPCNetworkConfigAviSubnet() bool {
+	if s.Client == nil {
+		return false
+	}
+	nc, found, err := s.GetVPCNetworkConfig(common.SystemVPCNetworkConfigurationName)
+	if err != nil {
+		log.Debug("Unable to get system VPCNetworkConfiguration for Avi check", "err", err)
+		return false
+	}
+	if !found || nc == nil {
+		return false
+	}
+	for _, vpcInfo := range nc.Status.VPCs {
+		if vpcInfo.AVISESubnetPath != "" {
+			log.Info("Found existing system VPCNetworkConfiguration with AVI SE subnet path", "path", vpcInfo.AVISESubnetPath)
+			return true
+		}
+	}
+	return false
+}
+
+func (s *VPCService) checkAKOConfigCRD() bool {
+	if s.Client == nil {
+		return false
+	}
+	akoList := &unstructured.UnstructuredList{}
+	akoList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "netoperator.vmware.com",
+		Version: "v1alpha1",
+		Kind:    "AviLoadBalancerConfigList",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err := s.Client.List(ctx, akoList)
+	cancel()
+	if err != nil {
+		log.Debug("Unable to list AKO CRD", "group", "netoperator.vmware.com", "err", err)
+		return false
+	}
+	for _, item := range akoList.Items {
+		server, foundServer, _ := unstructured.NestedString(item.Object, "spec", "server")
+		status, foundStatus, _ := unstructured.NestedMap(item.Object, "status")
+		if (foundServer && server != "") || (foundStatus && len(status) > 0) {
+			log.Info("Found active AKO validation CRD for Avi", "name", item.GetName())
+			return true
+		}
+	}
+	return false
 }
 
 func (s *VPCService) GetNetworkStackFromVPCPath(vpcPath string) (v1alpha1.NetworkStackType, error) {
