@@ -1424,14 +1424,6 @@ func TestSubnetPortReconciler_GarbageCollector(t *testing.T) {
 		a.Items[0].Name = "subnetPort1"
 		return nil
 	})
-	k8sClient.EXPECT().List(gomock.Any(), subnetPortList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		a := list.(*v1alpha1.SubnetPortList)
-		a.Items = append(a.Items, v1alpha1.SubnetPort{})
-		a.Items[0].ObjectMeta = metav1.ObjectMeta{}
-		a.Items[0].UID = "sp1234"
-		a.Items[0].Name = "subnetPort1"
-		return nil
-	})
 	addressBindingList := &v1alpha1.AddressBindingList{}
 	k8sClient.EXPECT().List(gomock.Any(), addressBindingList).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
 		a := list.(*v1alpha1.AddressBindingList)
@@ -3978,4 +3970,574 @@ func TestSubnetPortReconciler_updateSubnetPortStatusConditions(t *testing.T) {
 			updateSubnetPortStatusConditions(k8sClient, context.TODO(), tt.subnetPort, tt.newConditions)
 		})
 	}
+}
+
+func TestSubnetPortReconciler_isPortReused(t *testing.T) {
+	r := &SubnetPortReconciler{}
+
+	// nil SubnetPort
+	assert.False(t, r.isPortReused(nil))
+
+	// SubnetPort with empty attachment ID
+	sp := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-1",
+			Namespace: "ns-1",
+			UID:       types.UID("uid-1"),
+			Labels: map[string]string{
+				servicecommon.LabelCPVM: "true",
+			},
+		},
+		Status: v1alpha1.SubnetPortStatus{},
+	}
+	assert.False(t, r.isPortReused(sp))
+
+	sp.Status.Attachment.ID = "attach-1"
+
+	// Non-cpVM SubnetPort should return false even if attachment ID is set
+	nonCpvmSP := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-1",
+			Namespace: "ns-1",
+			UID:       types.UID("uid-1"),
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Attachment: v1alpha1.PortAttachment{
+				ID: "attach-1",
+			},
+		},
+	}
+	assert.False(t, r.isPortReused(nonCpvmSP))
+
+	// SubnetPortService is nil
+	assert.False(t, r.isPortReused(sp))
+
+	// SubnetPortStore is nil
+	r.SubnetPortService = &subnetport.SubnetPortService{}
+	assert.False(t, r.isPortReused(sp))
+
+	// Port not in store
+	r.SubnetPortService.SubnetPortStore = &subnetport.SubnetPortStore{}
+	var portToReturn *model.VpcSubnetPort
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetSubnetPortByAttachmentID",
+		func(_ *subnetport.SubnetPortService, attachID string) *model.VpcSubnetPort {
+			return portToReturn
+		})
+	defer patches.Reset()
+	assert.False(t, r.isPortReused(sp))
+
+	// Port in store with matching UID, Name, Namespace
+	portID := "port-1"
+	parentPath := "/subnets/subnet-1"
+	matchingPort := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRUID), Tag: ptr.To("uid-1")},
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("sp-1")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("ns-1")},
+		},
+	}
+	portToReturn = matchingPort
+	assert.False(t, r.isPortReused(sp))
+
+	spWithCPVM := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-1",
+			Namespace: "ns-1",
+			UID:       types.UID("uid-1"),
+			Labels: map[string]string{
+				servicecommon.LabelCPVM: "true",
+			},
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Attachment: v1alpha1.PortAttachment{
+				ID: "attach-1",
+			},
+		},
+	}
+
+	// Port in store with DIFFERENT CR UID -> reused!
+	reusedPortDiffUID := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRUID), Tag: ptr.To("new-uid-2")},
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("new-sp-2")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("new-ns-2")},
+		},
+	}
+	portToReturn = reusedPortDiffUID
+	assert.True(t, r.isPortReused(spWithCPVM))
+
+	// Port in store with same UID but DIFFERENT Name -> reused!
+	reusedPortDiffName := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("new-sp-2")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("ns-1")},
+		},
+	}
+	portToReturn = reusedPortDiffName
+	assert.True(t, r.isPortReused(spWithCPVM))
+
+	// Port in store with TagScopeVMNamespace and different NS -> reused!
+	reusedPortDiffNS := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("sp-1")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("diff-ns")},
+		},
+	}
+	portToReturn = reusedPortDiffNS
+	assert.True(t, r.isPortReused(spWithCPVM))
+}
+
+func TestSubnetPortReconciler_Reconcile_SkipWhenPortReused(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	nsxConfig := &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{
+			EnforcementPoint: "vmc-enforcementpoint",
+		},
+	}
+	r := &SubnetPortReconciler{
+		Client:        k8sClient,
+		StatusUpdater: common.NewStatusUpdater(k8sClient, nsxConfig, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort"),
+		SubnetPortService: &subnetport.SubnetPortService{
+			SubnetPortStore: &subnetport.SubnetPortStore{},
+		},
+	}
+
+	sp := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sp-1",
+			Namespace: "ns-1",
+			UID:       types.UID("old-uid"),
+			Labels: map[string]string{
+				servicecommon.LabelCPVM: "true",
+			},
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Attachment: v1alpha1.PortAttachment{
+				ID: "attach-1",
+			},
+		},
+	}
+
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ client.ObjectKey, obj *v1alpha1.SubnetPort, _ ...client.GetOption) error {
+			*obj = *sp
+			return nil
+		})
+
+	portID := "port-1"
+	parentPath := "/subnets/subnet-1"
+	reusedPort := &model.VpcSubnetPort{
+		Id:         &portID,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRUID), Tag: ptr.To("new-uid")},
+		},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetSubnetPortByAttachmentID",
+		func(_ *subnetport.SubnetPortService, attachID string) *model.VpcSubnetPort {
+			return reusedPort
+		})
+	defer patches.Reset()
+
+	req := controllerruntime.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "ns-1",
+			Name:      "sp-1",
+		},
+	}
+
+	res, err := r.Reconcile(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, common.ResultNormal, res)
+}
+
+func TestSubnetPortReconciler_isPortReferencedByReusePort(t *testing.T) {
+	r := &SubnetPortReconciler{}
+
+	// nil port
+	assert.False(t, r.isPortReferencedByReusePort(nil, nil))
+
+	portID := "port-1"
+	port := &model.VpcSubnetPort{
+		Id: &portID,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("old-vm")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("kube-system")},
+		},
+	}
+
+	// Port without LabelCPVM tag (upgrade case) but referenced by active cpVM CR via reuse-port
+	activeCRList := []v1alpha1.SubnetPort{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "new-vm",
+				Namespace: "user-ns",
+				Labels: map[string]string{
+					servicecommon.LabelCPVM: "true",
+				},
+				Annotations: map[string]string{
+					servicecommon.AnnotationReusePort: "kube-system/old-vm",
+				},
+			},
+		},
+	}
+	assert.True(t, r.isPortReferencedByReusePort(port, activeCRList))
+
+	// Referenced by attachment ID
+	portWithAttach := &model.VpcSubnetPort{
+		Id: &portID,
+		Attachment: &model.PortAttachment{
+			Id: ptr.To("attach-123"),
+		},
+	}
+	activeCRWithAttach := []v1alpha1.SubnetPort{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "new-vm",
+				Namespace: "user-ns",
+				Labels: map[string]string{
+					servicecommon.LabelCPVM: "true",
+				},
+			},
+			Status: v1alpha1.SubnetPortStatus{
+				Attachment: v1alpha1.PortAttachment{
+					ID: "attach-123",
+				},
+			},
+		},
+	}
+	assert.True(t, r.isPortReferencedByReusePort(portWithAttach, activeCRWithAttach))
+
+	// Active CR has reuse-port but is NOT a cpVM -> should return false
+	nonCPVMList := []v1alpha1.SubnetPort{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "regular-vm",
+				Namespace: "user-ns",
+				Annotations: map[string]string{
+					servicecommon.AnnotationReusePort: "kube-system/old-vm",
+				},
+			},
+		},
+	}
+	assert.False(t, r.isPortReferencedByReusePort(port, nonCPVMList))
+}
+
+func TestSubnetPortReconciler_CollectGarbage_PreservesReusedPort(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	nsxConfig := &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{
+			EnforcementPoint: "vmc-enforcementpoint",
+		},
+	}
+	mockIPAlloc := &mock.MockIPAddressAllocationProvider{}
+	r := &SubnetPortReconciler{
+		Client:                     k8sClient,
+		StatusUpdater:              common.NewStatusUpdater(k8sClient, nsxConfig, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort"),
+		IpAddressAllocationService: mockIPAlloc,
+		SubnetPortService: &subnetport.SubnetPortService{
+			SubnetPortStore: &subnetport.SubnetPortStore{},
+		},
+	}
+
+	// Mock ListNSXSubnetPortIDForCR to return an orphan port in NSX (old cpVM port from kube-system)
+	orphanPortID := "old-port-1"
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "ListNSXSubnetPortIDForCR",
+		func(_ *subnetport.SubnetPortService) sets.Set[string] {
+			return sets.New[string](orphanPortID)
+		})
+	defer patches.Reset()
+
+	// Mock ListSubnetPortIDsFromSubnetPorts to return empty set (old CR was deleted from K8s)
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "ListSubnetPortIDsFromSubnetPorts",
+		func(_ *subnetport.SubnetPortService, _ []v1alpha1.SubnetPort) sets.Set[string] {
+			return sets.New[string]()
+		})
+
+	patches.ApplyMethod(reflect.TypeOf(mockIPAlloc), "ListIPAddressAllocationWithAddressBinding",
+		func(_ *mock.MockIPAddressAllocationProvider) []*model.VpcIpAddressAllocation {
+			return nil
+		})
+
+	// The orphan port has no LabelCPVM tag (created by old operator version - upgrade case)
+	orphanPort := &model.VpcSubnetPort{
+		Id: &orphanPortID,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("old-vm-44")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("kube-system")},
+		},
+	}
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetSubnetPortByID",
+		func(_ *subnetport.SubnetPortService, id string) *model.VpcSubnetPort {
+			if id == orphanPortID {
+				return orphanPort
+			}
+			return nil
+		})
+
+	// An active cpVM CR in a user namespace references the old port via reuse-port annotation
+	activeCRList := &v1alpha1.SubnetPortList{
+		Items: []v1alpha1.SubnetPort{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-vm-44",
+					Namespace: "user-ns",
+					Labels: map[string]string{
+						servicecommon.LabelCPVM: "true",
+					},
+					Annotations: map[string]string{
+						servicecommon.AnnotationReusePort: "kube-system/old-vm-44",
+					},
+				},
+			},
+		},
+	}
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+			if spList, ok := list.(*v1alpha1.SubnetPortList); ok {
+				*spList = *activeCRList
+			}
+			return nil
+		}).AnyTimes()
+
+	// DeleteSubnetPortById should NOT be called because the port is preserved
+	deleteCalled := false
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeleteSubnetPortById",
+		func(_ *subnetport.SubnetPortService, id string) error {
+			deleteCalled = true
+			return nil
+		})
+
+	patchesCollectAB := gomonkey.ApplyPrivateMethod(r, "collectAddressBindingGarbage", func(r *SubnetPortReconciler, _ context.Context) {})
+	defer patchesCollectAB.Reset()
+
+	err := r.CollectGarbage(context.Background())
+	assert.NoError(t, err)
+	assert.False(t, deleteCalled, "Orphan cpVM SubnetPort should be preserved during GC when referenced by reuse-port")
+}
+
+func TestSubnetPortReconciler_deleteSubnetPortByName_PreservesReusedPort(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	r := &SubnetPortReconciler{
+		Client: k8sClient,
+		SubnetPortService: &subnetport.SubnetPortService{
+			SubnetPortStore: &subnetport.SubnetPortStore{},
+		},
+	}
+
+	portID := "old-port-1"
+	oldPort := &model.VpcSubnetPort{
+		Id: &portID,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("old-vm-44")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("kube-system")},
+		},
+	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "ListSubnetPortByName",
+		func(_ *subnetport.SubnetPortService, ns, name string) []*model.VpcSubnetPort {
+			if ns == "kube-system" && name == "old-vm-44" {
+				return []*model.VpcSubnetPort{oldPort}
+			}
+			return nil
+		})
+	defer patches.Reset()
+
+	activeCRList := &v1alpha1.SubnetPortList{
+		Items: []v1alpha1.SubnetPort{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-vm-44",
+					Namespace: "user-ns",
+					Labels: map[string]string{
+						servicecommon.LabelCPVM: "true",
+					},
+					Annotations: map[string]string{
+						servicecommon.AnnotationReusePort: "kube-system/old-vm-44",
+					},
+				},
+			},
+		},
+	}
+	k8sClient.EXPECT().List(gomock.Any(), gomock.AssignableToTypeOf(&v1alpha1.SubnetPortList{})).DoAndReturn(
+		func(_ context.Context, list *v1alpha1.SubnetPortList, _ ...client.ListOption) error {
+			*list = *activeCRList
+			return nil
+		})
+
+	deleteCalled := false
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeleteSubnetPort",
+		func(_ *subnetport.SubnetPortService, port *model.VpcSubnetPort) error {
+			deleteCalled = true
+			return nil
+		})
+
+	err := r.deleteSubnetPortByName(context.Background(), "kube-system", "old-vm-44")
+	assert.NoError(t, err)
+	assert.False(t, deleteCalled, "Port should be preserved during deleteSubnetPortByName when referenced by reuse-port")
+}
+
+func TestSubnetPortReconciler_Reconcile_ReuseSubnetPort(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+
+	nsxConfig := &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{
+			EnforcementPoint: "vmc-enforcementpoint",
+		},
+	}
+	mockSubnet := &mock.MockSubnetServiceProvider{}
+	mockVpc := &mock.MockVPCServiceProvider{}
+	mockIPAlloc := &mock.MockIPAddressAllocationProvider{}
+	r := &SubnetPortReconciler{
+		Client:                     k8sClient,
+		StatusUpdater:              common.NewStatusUpdater(k8sClient, nsxConfig, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort"),
+		SubnetService:              mockSubnet,
+		VPCService:                 mockVpc,
+		IpAddressAllocationService: mockIPAlloc,
+		SubnetPortService: &subnetport.SubnetPortService{
+			SubnetPortStore: &subnetport.SubnetPortStore{},
+		},
+	}
+
+	newSP := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "new-vm-44",
+			Namespace: "user-ns",
+			UID:       types.UID("new-uid-123"),
+			Labels: map[string]string{
+				servicecommon.LabelCPVM: "true",
+			},
+			Annotations: map[string]string{
+				servicecommon.AnnotationReusePort: "kube-system/old-vm-44",
+			},
+		},
+	}
+
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ client.ObjectKey, obj *v1alpha1.SubnetPort, _ ...client.GetOption) error {
+			*obj = *newSP
+			return nil
+		}).Times(2)
+
+	patchesStore := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.SubnetPortStore), "GetVpcSubnetPortByUID",
+		func(_ *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			return nil, nil
+		})
+	defer patchesStore.Reset()
+
+	oldPortID := "old-port-1"
+	parentPath := "/subnets/subnet-1"
+	oldPort := &model.VpcSubnetPort{
+		Id:         &oldPortID,
+		ParentPath: &parentPath,
+		Tags: []model.Tag{
+			{Scope: ptr.To(servicecommon.TagScopeSubnetPortCRName), Tag: ptr.To("old-vm-44")},
+			{Scope: ptr.To(servicecommon.TagScopeVMNamespace), Tag: ptr.To("kube-system")},
+		},
+	}
+	patchesListVM := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "ListVMSubnetPortByName",
+		func(_ *subnetport.SubnetPortService, ns, name string) []*model.VpcSubnetPort {
+			if ns == "kube-system" && name == "old-vm-44" {
+				return []*model.VpcSubnetPort{oldPort}
+			}
+			return nil
+		})
+	defer patchesListVM.Reset()
+
+	ipType := "IPV4"
+	nsxSubnet := &model.VpcSubnet{
+		Path:          &parentPath,
+		IpAddressType: &ipType,
+	}
+	patchesSubnet := gomonkey.ApplyMethod(reflect.TypeOf(mockSubnet), "GetSubnetByPath",
+		func(_ *mock.MockSubnetServiceProvider, path string, shared bool) (*model.VpcSubnet, error) {
+			return nsxSubnet, nil
+		})
+	defer patchesSubnet.Reset()
+
+	patchesShared := gomonkey.ApplyFunc(common.IsSharedSubnetPath,
+		func(_ context.Context, _ client.Client, _ string, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patchesShared.Reset()
+
+	patchesIsRADeactivated := gomonkey.ApplyMethod(reflect.TypeOf(mockVpc), "IsRADeactivatedByVPCPath",
+		func(_ *mock.MockVPCServiceProvider, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patchesIsRADeactivated.Reset()
+
+	portState := &model.SegmentPortState{
+		Attachment: &model.SegmentPortAttachmentState{
+			Id: ptr.To("attach-123"),
+		},
+	}
+	reuseSubnetPortCalled := false
+	patchesReuse := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "ReuseSubnetPort",
+		func(_ *subnetport.SubnetPortService, sp *v1alpha1.SubnetPort, p *model.VpcSubnetPort, s *model.VpcSubnet) (*model.SegmentPortState, error) {
+			reuseSubnetPortCalled = true
+			return portState, nil
+		})
+	defer patchesReuse.Reset()
+
+	patchesUpdateIPType := gomonkey.ApplyPrivateMethod(r, "updateSubnetPortIPType",
+		func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort, _ v1alpha1.IPAddressType, _ *model.VpcSubnet) error {
+			return nil
+		})
+	defer patchesUpdateIPType.Reset()
+
+	patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyPrivateMethod(r, "updateSubnetStatusOnSubnetPort",
+		func(_ *SubnetPortReconciler, _ *v1alpha1.SubnetPort, _ *model.VpcSubnet) error {
+			return nil
+		})
+	defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+
+	patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+		func(_ client.Client, _ context.Context, _ *v1alpha1.SubnetPort, _ *subnetport.SubnetPortService) {
+		})
+	defer patchesSetAddressBindingStatus.Reset()
+
+	patchesCreateIPAlloc := gomonkey.ApplyMethod(reflect.TypeOf(mockIPAlloc), "CreateIPAddressAllocationForAddressBinding",
+		func(_ *mock.MockIPAddressAllocationProvider, _ *v1alpha1.AddressBinding, _ *v1alpha1.SubnetPort, _ bool) error {
+			return nil
+		})
+	defer patchesCreateIPAlloc.Reset()
+	patchesDeleteIPAlloc := gomonkey.ApplyMethod(reflect.TypeOf(mockIPAlloc), "DeleteIPAddressAllocationForAddressBinding",
+		func(_ *mock.MockIPAddressAllocationProvider, _ metav1.Object) error {
+			return nil
+		})
+	defer patchesDeleteIPAlloc.Reset()
+
+	k8sClient.EXPECT().Status().Return(fakeStatusWriter{t: t})
+
+	req := controllerruntime.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "user-ns",
+			Name:      "new-vm-44",
+		},
+	}
+
+	res, err := r.Reconcile(context.TODO(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, common.ResultNormal, res)
+	assert.True(t, reuseSubnetPortCalled, "ReuseSubnetPort should have been called in Reconcile")
 }
