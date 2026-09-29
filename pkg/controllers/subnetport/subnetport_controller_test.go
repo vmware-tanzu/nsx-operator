@@ -125,7 +125,11 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 	patchesGetSubnetCR := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetCR,
 		func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
-			return &v1alpha1.Subnet{}, false, nil
+			return &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+				},
+			}, false, nil
 		})
 	defer patchesGetSubnetCR.Reset()
 
@@ -536,13 +540,21 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesIsSharedSubnetPath.Reset()
 
-		ipTypeIPv6 := "IPV6"
+		pGetSubnetCR := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetCR,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
+				return &v1alpha1.Subnet{
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv6,
+					},
+				}, false, nil
+			})
+		defer pGetSubnetCR.Reset()
+
 		pGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
 			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
 				nsxSubnet := &model.VpcSubnet{
 					Id:            ptr.To("subnet-1"),
 					RealizationId: ptr.To("realization-1"),
-					IpAddressType: &ipTypeIPv6,
 				}
 				return nsxSubnet, nil
 			})
@@ -580,24 +592,46 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, capturedIPTypeInUpdate)
 		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, capturedIPTypeInCreate)
 
-		// Test IPv4_IPV6 defaulting
+		// Test IPv4_IPV6 defaulting to IPv4
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 				v1sp := obj.(*v1alpha1.SubnetPort)
 				v1sp.Spec.Subnet = "subnet1"
 				return nil
 			}).Times(2)
-		ipTypeDual := "IPV4_IPV6"
-		pGetSubnetByPathDual := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
-			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
-				nsxSubnet := &model.VpcSubnet{
-					Id:            ptr.To("subnet-1"),
-					RealizationId: ptr.To("realization-1"),
-					IpAddressType: &ipTypeDual,
-				}
-				return nsxSubnet, nil
+		pGetSubnetCRDual := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetCR,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
+				return &v1alpha1.Subnet{
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+					},
+				}, false, nil
 			})
-		defer pGetSubnetByPathDual.Reset()
+		defer pGetSubnetCRDual.Reset()
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		_, ret = r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, capturedIPTypeInUpdate)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, capturedIPTypeInCreate)
+
+		// Test IPv4 Subnet parent CR
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Spec.Subnet = "subnet1"
+				v1sp.Spec.InterfaceIPType = v1alpha1.IPAddressTypeIPv4
+				return nil
+			}).Times(2)
+		pGetSubnetCRIPv4 := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetCR,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
+				return &v1alpha1.Subnet{
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					},
+				}, false, nil
+			})
+		defer pGetSubnetCRIPv4.Reset()
 		k8sClient.EXPECT().Status().Return(fakewriter)
 
 		_, ret = r.Reconcile(ctx, req)
@@ -1148,12 +1182,23 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
-				v1sp := obj.(*v1alpha1.SubnetPort)
-				v1sp.Spec.Subnet = "subnet1"
-				v1sp.Spec.InterfaceIPType = v1alpha1.IPAddressTypeIPv6
+				if v1sp, ok := obj.(*v1alpha1.SubnetPort); ok {
+					v1sp.Spec.Subnet = "subnet1"
+					v1sp.Spec.InterfaceIPType = v1alpha1.IPAddressTypeIPv6
+				}
 				return nil
 			}).Times(2)
 		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		pGetSubnetCRDual := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetCR,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
+				return &v1alpha1.Subnet{
+					Spec: v1alpha1.SubnetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+					},
+				}, false, nil
+			})
+		defer pGetSubnetCRDual.Reset()
 
 		portStateLocal := &model.SegmentPortState{
 			Attachment: &model.SegmentPortAttachmentState{
@@ -1210,6 +1255,211 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, passedInterfaceIPType)
 		assert.False(t, ipAllocCreateCalled, "CreateIPAddressAllocationForAddressBinding should not be called for IPv6 interface")
+	})
+
+	t.Run("Preserve IPv6 InterfaceIPType on dual-stack SubnetSet where NSX Subnet is IPv4 during reconcile", func(t *testing.T) {
+		r.restoreMode = false
+
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, key client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				if v1sp, ok := obj.(*v1alpha1.SubnetPort); ok {
+					v1sp.Spec.SubnetSet = "subnetset1"
+					v1sp.Spec.InterfaceIPType = v1alpha1.IPAddressTypeIPv6
+					return nil
+				}
+				if ss, ok := obj.(*v1alpha1.SubnetSet); ok {
+					ss.Name = "subnetset1"
+					ss.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4IPv6
+					return nil
+				}
+				return nil
+			}).Times(3)
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		portStateLocal := &model.SegmentPortState{
+			Attachment: &model.SegmentPortAttachmentState{
+				Id: &attachmentID,
+			},
+		}
+
+		var passedInterfaceIPType v1alpha1.IPAddressType
+		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				passedInterfaceIPType = ifType
+				return portStateLocal, nil
+			})
+		defer patches.Reset()
+
+		// NSX Subnet only has IPV4 (or nil) in this allocated subnet
+		patches4 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath", func(_ *mock.MockSubnetServiceProvider, _ string, _ bool) (*model.VpcSubnet, error) {
+			return &model.VpcSubnet{
+				IpAddressType: ptr.To("IPV4"),
+			}, nil
+		})
+		defer patches4.Reset()
+
+		// Simulate existing port where CheckAndGetSubnetPathForSubnetPort returns empty interfaceIPType
+		patches6 := gomonkey.ApplyMethod(reflect.TypeOf(r), "CheckAndGetSubnetPathForSubnetPort", func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+			return true, false, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1", nil, nil, "", "", nil
+		})
+		defer patches6.Reset()
+
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+
+		patchesUpdateSubnetStatus := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatus.Reset()
+
+		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
+			})
+		defer patchesSetAddressBindingStatus.Reset()
+
+		_, err := r.Reconcile(ctx, req)
+		assert.NoError(t, err)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv6, passedInterfaceIPType)
+	})
+
+	t.Run("Reconcile existing IPv4 SubnetPort on Subnet with nil IpAddressType", func(t *testing.T) {
+		r.restoreMode = false
+
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				if v1sp, ok := obj.(*v1alpha1.SubnetPort); ok {
+					v1sp.Spec.Subnet = "subnet1"
+					v1sp.Spec.InterfaceIPType = v1alpha1.IPAddressTypeIPv4
+				}
+				return nil
+			}).Times(2)
+		k8sClient.EXPECT().Status().Return(fakewriter)
+
+		portStateLocal := &model.SegmentPortState{
+			Attachment: &model.SegmentPortAttachmentState{
+				Id: &attachmentID,
+			},
+		}
+
+		var passedInterfaceIPType v1alpha1.IPAddressType
+		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				passedInterfaceIPType = ifType
+				return portStateLocal, nil
+			})
+		defer patches.Reset()
+
+		patches4 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath", func(_ *mock.MockSubnetServiceProvider, _ string, _ bool) (*model.VpcSubnet, error) {
+			return &model.VpcSubnet{
+				IpAddressType: nil,
+			}, nil
+		})
+		defer patches4.Reset()
+
+		// Simulate existing port where CheckAndGetSubnetPathForSubnetPort returns empty interfaceIPType
+		patches6 := gomonkey.ApplyMethod(reflect.TypeOf(r), "CheckAndGetSubnetPathForSubnetPort", func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+			return true, false, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1", nil, nil, "", "", nil
+		})
+		defer patches6.Reset()
+
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+
+		patchesUpdateSubnetStatus := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatus.Reset()
+
+		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
+			})
+		defer patchesSetAddressBindingStatus.Reset()
+
+		_, err := r.Reconcile(ctx, req)
+		assert.NoError(t, err)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, passedInterfaceIPType)
+	})
+
+	t.Run("Preserve IPv4 InterfaceIPType on default SubnetSet during reconcile", func(t *testing.T) {
+		r.restoreMode = false
+
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				if v1sp, ok := obj.(*v1alpha1.SubnetPort); ok {
+					v1sp.Spec.Subnet = ""
+					v1sp.Spec.SubnetSet = ""
+					v1sp.Spec.InterfaceIPType = v1alpha1.IPAddressTypeIPv4
+				}
+				return nil
+			}).Times(2)
+		k8sClient.EXPECT().Status().Return(fakewriter).Times(1)
+
+		patchesDefaultSubnetSet := gomonkey.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+			func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+				return &v1alpha1.SubnetSet{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "default-vm-network",
+						Namespace: namespace,
+					},
+					Spec: v1alpha1.SubnetSetSpec{
+						IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
+					},
+				}, nil
+			})
+		defer patchesDefaultSubnetSet.Reset()
+
+		portStateLocal := &model.SegmentPortState{
+			Attachment: &model.SegmentPortAttachmentState{
+				Id: &attachmentID,
+			},
+		}
+
+		var passedInterfaceIPType v1alpha1.IPAddressType
+		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				passedInterfaceIPType = ifType
+				return portStateLocal, nil
+			})
+		defer patches.Reset()
+
+		patches4 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath", func(_ *mock.MockSubnetServiceProvider, _ string, _ bool) (*model.VpcSubnet, error) {
+			return &model.VpcSubnet{
+				IpAddressType: ptr.To("IPV4"),
+			}, nil
+		})
+		defer patches4.Reset()
+
+		// Simulate existing port where CheckAndGetSubnetPathForSubnetPort returns empty interfaceIPType
+		patches6 := gomonkey.ApplyMethod(reflect.TypeOf(r), "CheckAndGetSubnetPathForSubnetPort", func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+			return true, false, "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-1", nil, nil, "", "", nil
+		})
+		defer patches6.Reset()
+
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+
+		patchesUpdateSubnetStatus := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatus.Reset()
+
+		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, e error) {
+			})
+		defer patchesSetAddressBindingStatus.Reset()
+
+		_, err := r.Reconcile(ctx, req)
+		assert.NoError(t, err)
+		assert.Equal(t, v1alpha1.IPAddressTypeIPv4, passedInterfaceIPType)
 	})
 }
 
@@ -1810,6 +2060,283 @@ func TestSubnetPortReconciler_getSubnetCR(t *testing.T) {
 	}
 }
 
+func TestSubnetPortReconciler_getParentIPAddressTypeFromCR(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	service := &subnetport.SubnetPortService{}
+	r := &SubnetPortReconciler{
+		Client:            k8sClient,
+		SubnetPortService: service,
+	}
+	tests := []struct {
+		name           string
+		subnetPort     *v1alpha1.SubnetPort
+		preparedFunc   func() *gomonkey.Patches
+		expectedResult v1alpha1.IPAddressType
+		expectedErr    string
+	}{
+		{
+			name: "PortOnSubnet_IPv4",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+				},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					subnetCR := obj.(*v1alpha1.Subnet)
+					subnetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4
+					return nil
+				})
+				return nil
+			},
+			expectedResult: v1alpha1.IPAddressTypeIPv4,
+		},
+		{
+			name: "PortOnSubnet_IPv6",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+				},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					subnetCR := obj.(*v1alpha1.Subnet)
+					subnetCR.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv6
+					return nil
+				})
+				return nil
+			},
+			expectedResult: v1alpha1.IPAddressTypeIPv6,
+		},
+		{
+			name: "PortOnSubnet_GetError",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					Subnet: "subnet-1",
+				},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("subnet get error"))
+				return nil
+			},
+			expectedErr: "subnet get error",
+		},
+		{
+			name: "PortOnSubnetSet_DualStack",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					SubnetSet: "subnetset-1",
+				},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					ss := obj.(*v1alpha1.SubnetSet)
+					ss.Name = "subnetset-1"
+					ss.Namespace = "ns-1"
+					ss.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4IPv6
+					return nil
+				})
+				return nil
+			},
+			expectedResult: v1alpha1.IPAddressTypeIPv4IPv6,
+		},
+		{
+			name: "PortOnSubnetSet_GetError",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					SubnetSet: "subnetset-1",
+				},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("subnetset not found"))
+				return nil
+			},
+			expectedErr: "subnetset not found",
+		},
+		{
+			name: "PortOnSubnetSet_PendingCalculation",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					SubnetSet: "subnetset-1",
+				},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					ss := obj.(*v1alpha1.SubnetSet)
+					ss.Name = "subnetset-1"
+					ss.Namespace = "ns-1"
+					ss.Spec.IPAddressType = ""
+					return nil
+				})
+				return nil
+			},
+			expectedErr: "waiting for SubnetSet ns-1/subnetset-1 IPAddressType calculation",
+		},
+		{
+			name: "PortOnDefaultSubnetSet",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				return gomonkey.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return &v1alpha1.SubnetSet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "default-vm-network",
+								Namespace: namespace,
+							},
+							Spec: v1alpha1.SubnetSetSpec{
+								IPAddressType: v1alpha1.IPAddressTypeIPv4,
+							},
+						}, nil
+					})
+			},
+			expectedResult: v1alpha1.IPAddressTypeIPv4,
+		},
+		{
+			name: "PortOnDefaultSubnetSet_Error",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				return gomonkey.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return nil, fmt.Errorf("default subnetset not found")
+					})
+			},
+			expectedErr: "default subnetset not found",
+		},
+		{
+			name: "PortOnDefaultSubnetSet_PendingCalculation",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				return gomonkey.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return &v1alpha1.SubnetSet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "default-vm-network",
+								Namespace: namespace,
+							},
+							Spec: v1alpha1.SubnetSetSpec{
+								IPAddressType: "",
+							},
+						}, nil
+					})
+			},
+			expectedErr: "waiting for SubnetSet ns-1/default-vm-network IPAddressType calculation",
+		},
+		{
+			name: "PortOnSubnetSet_RestoreMode_EmptyIPAddressType",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{
+					SubnetSet: "subnetset-1",
+				},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				r.restoreMode = true
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					ss := obj.(*v1alpha1.SubnetSet)
+					ss.Name = "subnetset-1"
+					ss.Namespace = "ns-1"
+					ss.Spec.IPAddressType = ""
+					return nil
+				})
+				return nil
+			},
+			expectedResult: v1alpha1.IPAddressTypeIPv4,
+		},
+		{
+			name: "PortOnDefaultSubnetSet_RestoreMode_EmptyIPAddressType",
+			subnetPort: &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "port-1",
+					Namespace: "ns-1",
+				},
+				Spec: v1alpha1.SubnetPortSpec{},
+			},
+			preparedFunc: func() *gomonkey.Patches {
+				r.restoreMode = true
+				return gomonkey.ApplyFunc(common.GetDefaultSubnetSetByNamespace,
+					func(client client.Client, namespace string, resourceType string) (*v1alpha1.SubnetSet, error) {
+						return &v1alpha1.SubnetSet{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "default-vm-network",
+								Namespace: namespace,
+							},
+							Spec: v1alpha1.SubnetSetSpec{
+								IPAddressType: "",
+							},
+						}, nil
+					})
+			},
+			expectedResult: v1alpha1.IPAddressTypeIPv4,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r.restoreMode = false
+			if tc.preparedFunc != nil {
+				patches := tc.preparedFunc()
+				if patches != nil {
+					defer patches.Reset()
+				}
+			}
+			ipType, err := r.getParentIPAddressTypeFromCR(context.Background(), tc.subnetPort)
+			if tc.expectedErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErr)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedResult, ipType)
+			}
+		})
+	}
+}
+
 func TestSubnetPortReconciler_deleteSubnetPortByName(t *testing.T) {
 	subnetportId1 := "subnetport-id-1"
 	subnetportId2 := "subnetport-id-2"
@@ -2089,7 +2616,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 				})
 				return patches
 			},
-			expectedErr: "Waiting for SubnetSet ns-1/subnetset-1 IPAddressType calculation",
+			expectedErr: "waiting for SubnetSet ns-1/subnetset-1 IPAddressType calculation",
 			subnetport: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "subnetport-1",

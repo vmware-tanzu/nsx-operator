@@ -17,8 +17,6 @@ const (
 )
 
 // +kubebuilder:validation:XValidation:rule="!has(self.subnetSet) || !has(self.subnet)",message="Only one of subnet or subnetSet can be specified or both set to empty in which case default SubnetSet for VM will be used"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.interfaceIPType) || has(self.interfaceIPType)", message="interfaceIPType is required once set"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.staticIPAllocationType) || has(self.staticIPAllocationType)", message="staticIPAllocationType is required once set"
 // SubnetPortSpec defines the desired state of SubnetPort.
 type SubnetPortSpec struct {
 	// Subnet defines the parent Subnet name of the SubnetPort.
