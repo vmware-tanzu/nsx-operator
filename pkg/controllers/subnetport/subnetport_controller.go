@@ -161,11 +161,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		isPublicSubnet := nsxSubnet != nil && nsxSubnet.AccessMode != nil && strings.EqualFold(*nsxSubnet.AccessMode, model.VpcSubnet_ACCESS_MODE_PUBLIC)
 		// If SubnetPort is created before VM creation, VM Operator will update the SubnetPort for owner references
 		// Under certain race conditions, the backfilled InterfaceIPType and StaticIPAllocationType in SubnetPort spec may be overwritten by the VM Operator
-		// If the NSX SubnetPort is created, interfaceIPType here will be empty. The correct interfaceIPType shall be generated based on NSX Subnet IPAddressType
+		// If the NSX SubnetPort is created, interfaceIPType here will be empty. The correct interfaceIPType shall be generated based on parent Subnet/SubnetSet CR IPAddressType
 		if interfaceIPType == "" {
-			var parentIPAddressType v1alpha1.IPAddressType
-			if nsxSubnet != nil && nsxSubnet.IpAddressType != nil {
-				parentIPAddressType = common.ConvertNSXIPAddressTypeToCR(*nsxSubnet.IpAddressType)
+			parentIPAddressType, err := r.getParentIPAddressTypeFromCR(ctx, subnetPort)
+			if err != nil {
+				return common.ResultNormal, err
 			}
 			interfaceIPType, err = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, parentIPAddressType)
 			if err != nil {
@@ -419,6 +419,51 @@ func (r *SubnetPortReconciler) getSubnetCR(ctx context.Context, subnetPort *v1al
 		return subnetCR, false, nil
 	}
 	return nil, false, nil
+}
+
+func (r *SubnetPortReconciler) getParentIPAddressTypeFromCR(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (v1alpha1.IPAddressType, error) {
+	if len(subnetPort.Spec.Subnet) > 0 {
+		subnetCR, _, err := r.getSubnetCR(ctx, subnetPort)
+		if err != nil {
+			return "", err
+		}
+		if subnetCR == nil {
+			return "", fmt.Errorf("failed to get Subnet CR %s/%s", subnetPort.Namespace, subnetPort.Spec.Subnet)
+		}
+		if subnetCR.Spec.IPAddressType == "" {
+			return v1alpha1.IPAddressTypeIPv4, nil
+		}
+		return subnetCR.Spec.IPAddressType, nil
+	} else if len(subnetPort.Spec.SubnetSet) > 0 {
+		subnetSet := &v1alpha1.SubnetSet{}
+		namespacedName := types.NamespacedName{
+			Name:      subnetPort.Spec.SubnetSet,
+			Namespace: subnetPort.Namespace,
+		}
+		if err := r.Client.Get(ctx, namespacedName, subnetSet); err != nil {
+			log.Error(err, "SubnetSet CR not found", "SubnetSet CR", namespacedName)
+			return "", err
+		}
+		if subnetSet.Spec.IPAddressType == "" {
+			if r.restoreMode {
+				return v1alpha1.IPAddressTypeIPv4, nil
+			}
+			return "", fmt.Errorf("waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
+		}
+		return subnetSet.Spec.IPAddressType, nil
+	} else {
+		subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.DefaultVMNetwork)
+		if err != nil {
+			return "", err
+		}
+		if subnetSet.Spec.IPAddressType == "" {
+			if r.restoreMode {
+				return v1alpha1.IPAddressTypeIPv4, nil
+			}
+			return "", fmt.Errorf("waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
+		}
+		return subnetSet.Spec.IPAddressType, nil
+	}
 }
 
 func subnetPortNamespaceVMIndexFunc(obj client.Object) []string {
@@ -1016,7 +1061,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {
-			err = fmt.Errorf("Waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
+			err = fmt.Errorf("waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
 			return
 		}
 		interfaceType, err = subnetport.GetDefaultInterfaceIPType(subnetPort.Spec.InterfaceIPType, subnetSet.Spec.IPAddressType)
@@ -1041,7 +1086,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {
-			err = fmt.Errorf("Waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
+			err = fmt.Errorf("waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
 			return
 		}
 		log.Info("Got default SubnetSet for SubnetPort CR, allocating the NSX Subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
