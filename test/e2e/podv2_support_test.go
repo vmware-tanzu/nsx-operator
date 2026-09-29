@@ -109,6 +109,19 @@ var podV2Suite *p2Suite
 
 var autoCreatedNamespace string
 
+func cleanupAutoCreatedNamespace() {
+	if autoCreatedNamespace != "" && testData != nil && testData.useWCPSetup() {
+		ns := autoCreatedNamespace
+		autoCreatedNamespace = ""
+		fmt.Printf("Cleaning up auto-created VC namespace: %s\n", ns)
+		if err := testData.deleteVCNamespace(ns); err != nil {
+			fmt.Printf("Warning: failed to delete auto-created VC namespace %s: %v\n", ns, err)
+		} else {
+			fmt.Printf("Successfully deleted auto-created VC namespace: %s\n", ns)
+		}
+	}
+}
+
 func autoDiscoverOperator(client kubernetes.Interface) (string, string, string, error) {
 	ctx := context.Background()
 	nsCandidates := []string{"vmware-system-nsx", "nsx-system", "kube-system", "default"}
@@ -186,6 +199,16 @@ func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Int
 			}
 		}
 
+		// Find operator deployment ServiceAccount for RBAC dryRun probe
+		opSA := "default"
+		if *p2OperatorNS != "" && *p2Deployment != "" {
+			if dep, getErr := clientset.AppsV1().Deployments(*p2OperatorNS).Get(ctx, *p2Deployment, metav1.GetOptions{}); getErr == nil && dep != nil {
+				if dep.Spec.Template.Spec.ServiceAccountName != "" {
+					opSA = dep.Spec.Template.Spec.ServiceAccountName
+				}
+			}
+		}
+
 		for nsName, defaultSet := range vpcCandidates {
 			if nsName == "kube-system" || nsName == "vmware-system-nsx" || nsName == "default" {
 				continue
@@ -221,7 +244,7 @@ func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Int
 			delete(probe.Labels, common.LabelDefaultNetwork)
 			impersonated := rest.CopyConfig(testData.kubeConfig)
 			impersonated.Impersonate = rest.ImpersonationConfig{
-				UserName: "system:serviceaccount:" + *p2OperatorNS + ":" + *p2Deployment,
+				UserName: "system:serviceaccount:" + *p2OperatorNS + ":" + opSA,
 			}
 			opCRD, crdErr := versioned.NewForConfig(impersonated)
 			if crdErr == nil {
@@ -238,9 +261,8 @@ func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Int
 
 	// 2. If VC client is configured and useWCPSetup, dynamically create dedicated namespace
 	if testData != nil && testData.useWCPSetup() {
-		testNS := "e2e-nsx-podv2"
+		testNS := "e2e-p2-" + getRandomString()
 		fmt.Printf("No existing idle VPC namespace found; creating dedicated test namespace: %s\n", testNS)
-		_ = testData.deleteVCNamespace(testNS)
 		if err := testData.createVCNamespace(testNS); err != nil {
 			return "", fmt.Errorf("failed to auto-create VC namespace %s: %w", testNS, err)
 		}
@@ -345,6 +367,7 @@ func podV2Main(m *testing.M) int {
 		}
 		*p2Namespace = ns
 	}
+	defer cleanupAutoCreatedNamespace()
 
 	s := &p2Suite{ctx: ctx, cancel: cancel, dynamic: dyn, started: time.Now()}
 	podV2Suite = s
@@ -1094,11 +1117,7 @@ func (s *p2Suite) cleanup() error {
 		return e
 	}
 	s.secret = nil
-	if autoCreatedNamespace != "" && testData != nil && testData.useWCPSetup() {
-		fmt.Printf("Cleaning up auto-created VC namespace: %s\n", autoCreatedNamespace)
-		_ = testData.deleteVCNamespace(autoCreatedNamespace)
-		autoCreatedNamespace = ""
-	}
+	cleanupAutoCreatedNamespace()
 	fmt.Println("CLEANUP PASS: workloads/ports removed; original template, replicas, default SubnetSet label and restore annotations restored.")
 	return nil
 }
