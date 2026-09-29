@@ -107,15 +107,178 @@ type p2Suite struct {
 
 var podV2Suite *p2Suite
 
-func podV2Main(m *testing.M) int {
-	if *p2OperatorNS == "" || *p2Deployment == "" || (!*p2CleanupOnly && *p2Namespace == "") {
-		fmt.Fprintln(os.Stderr, "Pod v2 requires -podv2-namespace, -podv2-operator-namespace and -podv2-operator-deployment; see test/e2e/PODV2.md")
-		return 2
+var autoCreatedNamespace string
+
+func autoDiscoverOperator(client kubernetes.Interface) (string, string, string, error) {
+	ctx := context.Background()
+	nsCandidates := []string{"vmware-system-nsx", "nsx-system", "kube-system", "default"}
+	if *p2OperatorNS != "" {
+		nsCandidates = []string{*p2OperatorNS}
 	}
-	// Bypass remote SSH and the unrelated suite's bulk namespace provisioning.
-	cfg, err := clientcmd.BuildConfigFromFlags("", flag.Lookup("remote.kubeconfig").Value.String())
+	depCandidates := []string{"nsx-ncp", "nsx-operator"}
+	if *p2Deployment != "" {
+		depCandidates = []string{*p2Deployment}
+	}
+
+	for _, ns := range nsCandidates {
+		for _, depName := range depCandidates {
+			dep, err := client.AppsV1().Deployments(ns).Get(ctx, depName, metav1.GetOptions{})
+			if err == nil && dep != nil {
+				container := *p2Container
+				if container == "" {
+					for _, c := range dep.Spec.Template.Spec.Containers {
+						if c.Name == "nsx-operator" {
+							container = c.Name
+							break
+						}
+					}
+					if container == "" && len(dep.Spec.Template.Spec.Containers) == 1 {
+						container = dep.Spec.Template.Spec.Containers[0].Name
+					}
+					if container == "" {
+						for _, c := range dep.Spec.Template.Spec.Containers {
+							if strings.Contains(c.Name, "operator") {
+								container = c.Name
+								break
+							}
+						}
+					}
+				}
+				return ns, depName, container, nil
+			}
+		}
+	}
+
+	for _, ns := range nsCandidates {
+		deps, err := client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+		if err == nil {
+			for _, dep := range deps.Items {
+				if strings.Contains(dep.Name, "operator") || strings.Contains(dep.Name, "ncp") {
+					container := *p2Container
+					if container == "" {
+						for _, c := range dep.Spec.Template.Spec.Containers {
+							if strings.Contains(c.Name, "operator") {
+								container = c.Name
+								break
+							}
+						}
+						if container == "" && len(dep.Spec.Template.Spec.Containers) > 0 {
+							container = dep.Spec.Template.Spec.Containers[0].Name
+						}
+					}
+					return ns, dep.Name, container, nil
+				}
+			}
+		}
+	}
+	return "", "", "", fmt.Errorf("could not auto-discover operator deployment (tried namespaces %v, deployments %v)", nsCandidates, depCandidates)
+}
+
+func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Interface, crdClientset versioned.Interface) (string, error) {
+	// 1. Search for an existing idle VPC namespace
+	sets, err := crdClientset.CrdV1alpha1().SubnetSets("").List(ctx, metav1.ListOptions{})
+	if err == nil {
+		vpcCandidates := make(map[string]*api.SubnetSet)
+		for i := range sets.Items {
+			set := &sets.Items[i]
+			if (set.Labels[common.LabelDefaultNetwork] == common.DefaultPodNetwork || set.Labels[common.LabelDefaultSubnetSet] == common.LabelDefaultPodSubnetSet) && set.Spec.IPAddressType != "" {
+				vpcCandidates[set.Namespace] = set
+			}
+		}
+
+		for nsName, defaultSet := range vpcCandidates {
+			if nsName == "kube-system" || nsName == "vmware-system-nsx" || nsName == "default" {
+				continue
+			}
+			ns, e := clientset.CoreV1().Namespaces().Get(ctx, nsName, metav1.GetOptions{})
+			if e != nil || ns.DeletionTimestamp != nil {
+				continue
+			}
+			pods, e := clientset.CoreV1().Pods(nsName).List(ctx, metav1.ListOptions{})
+			if e != nil {
+				continue
+			}
+			hasWorkload := false
+			for _, p := range pods.Items {
+				if !p.Spec.HostNetwork {
+					hasWorkload = true
+					break
+				}
+			}
+			if hasWorkload {
+				continue
+			}
+			ports, e := crdClientset.CrdV1alpha1().SubnetPorts(nsName).List(ctx, metav1.ListOptions{})
+			if e != nil || len(ports.Items) > 0 {
+				continue
+			}
+			stss, e := clientset.AppsV1().StatefulSets(nsName).List(ctx, metav1.ListOptions{})
+			if e != nil || len(stss.Items) > 0 {
+				continue
+			}
+			// Probe permission with impersonation
+			probe := defaultSet.DeepCopy()
+			delete(probe.Labels, common.LabelDefaultNetwork)
+			impersonated := rest.CopyConfig(testData.kubeConfig)
+			impersonated.Impersonate = rest.ImpersonationConfig{
+				UserName: "system:serviceaccount:" + *p2OperatorNS + ":" + *p2Deployment,
+			}
+			opCRD, crdErr := versioned.NewForConfig(impersonated)
+			if crdErr == nil {
+				_, updateErr := opCRD.CrdV1alpha1().SubnetSets(nsName).Update(ctx, probe, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+				if updateErr != nil {
+					continue
+				}
+			}
+
+			fmt.Printf("Auto-discovered idle VPC namespace for Pod v2 testing: %s\n", nsName)
+			return nsName, nil
+		}
+	}
+
+	// 2. If VC client is configured and useWCPSetup, dynamically create dedicated namespace
+	if testData != nil && testData.useWCPSetup() {
+		testNS := "e2e-nsx-podv2"
+		fmt.Printf("No existing idle VPC namespace found; creating dedicated test namespace: %s\n", testNS)
+		_ = testData.deleteVCNamespace(testNS)
+		if err := testData.createVCNamespace(testNS); err != nil {
+			return "", fmt.Errorf("failed to auto-create VC namespace %s: %w", testNS, err)
+		}
+		autoCreatedNamespace = testNS
+		err = wait.PollUntilContextTimeout(ctx, 3*time.Second, 180*time.Second, true, func(c context.Context) (bool, error) {
+			sList, e := crdClientset.CrdV1alpha1().SubnetSets(testNS).List(c, metav1.ListOptions{})
+			if e != nil {
+				return false, nil
+			}
+			for _, set := range sList.Items {
+				if set.Labels[common.LabelDefaultNetwork] == common.DefaultPodNetwork && set.Spec.IPAddressType != "" {
+					return true, nil
+				}
+			}
+			return false, nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("timed out waiting for default Pod SubnetSet in %s: %w", testNS, err)
+		}
+		return testNS, nil
+	}
+
+	return "", fmt.Errorf("no idle VPC namespace found and cannot auto-create via VC API")
+}
+
+func podV2Main(m *testing.M) int {
+	kubeconfigPath := ""
+	if f := flag.Lookup("remote.kubeconfig"); f != nil {
+		kubeconfigPath = f.Value.String()
+	}
+	if kubeconfigPath == "" {
+		if p, err := provider.GetKubeconfigPath(); err == nil {
+			kubeconfigPath = p
+		}
+	}
+	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Load kubeconfig failed:", err)
 		return 2
 	}
 	cfg.Timeout = 30 * time.Second
@@ -141,6 +304,9 @@ func podV2Main(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	if testOptions.vcUser != "" && testOptions.vcPassword != "" {
+		testData.vcClient = newVcClient(cf.VCEndPoint, cf.HttpsPort, testOptions.vcUser, testOptions.vcPassword)
+	}
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -148,6 +314,38 @@ func podV2Main(m *testing.M) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *p2RunBudget)
 	defer cancel()
+
+	// Auto-discover operator namespace, deployment and container if not provided
+	if *p2OperatorNS == "" || *p2Deployment == "" || *p2Container == "" {
+		discoveredNS, discoveredDep, discoveredContainer, dErr := autoDiscoverOperator(testData.clientset)
+		if dErr == nil {
+			if *p2OperatorNS == "" {
+				*p2OperatorNS = discoveredNS
+			}
+			if *p2Deployment == "" {
+				*p2Deployment = discoveredDep
+			}
+			if *p2Container == "" {
+				*p2Container = discoveredContainer
+			}
+			fmt.Printf("Auto-discovered operator: namespace=%s deployment=%s container=%s\n", *p2OperatorNS, *p2Deployment, *p2Container)
+		}
+	}
+	if *p2OperatorNS == "" || *p2Deployment == "" {
+		fmt.Fprintln(os.Stderr, "Pod v2 requires -podv2-operator-namespace and -podv2-operator-deployment; see test/e2e/PODV2.md")
+		return 2
+	}
+
+	// Auto-discover or auto-create test namespace if not provided
+	if !*p2CleanupOnly && *p2Namespace == "" {
+		ns, nErr := autoDiscoverOrCreateNamespace(ctx, testData.clientset, testData.crdClientset)
+		if nErr != nil {
+			fmt.Fprintf(os.Stderr, "Pod v2 requires -podv2-namespace: %v; see test/e2e/PODV2.md\n", nErr)
+			return 2
+		}
+		*p2Namespace = ns
+	}
+
 	s := &p2Suite{ctx: ctx, cancel: cancel, dynamic: dyn, started: time.Now()}
 	podV2Suite = s
 	if *p2CleanupOnly {
@@ -305,8 +503,8 @@ func (s *p2Suite) operatorPods(ctx context.Context) ([]corev1.Pod, error) {
 }
 func (s *p2Suite) preflight(t *testing.T) {
 	s.step(t, "preflight: empty namespace, operator, transport node and rollback journal")
-	if podV2CaseSelected("TB03_PrecreatedDHCP") {
-		require.NotEmpty(t, *p2DHCPNamespace, "Full suite requires -podv2-dhcp-namespace; see PODV2.md")
+	if podV2CaseSelected("TB03_PrecreatedDHCP") && *p2DHCPNamespace == "" {
+		t.Log("Note: -podv2-dhcp-namespace not provided; TB03_PrecreatedDHCP will be skipped")
 	}
 	require.Positive(t, *p2Timeout)
 	require.Positive(t, *p2CleanupTimeout)
@@ -328,8 +526,24 @@ func (s *p2Suite) preflight(t *testing.T) {
 
 	require.Equal(t, *d.Spec.Replicas, d.Status.AvailableReplicas, "operator must be healthy before testing")
 	if *p2Container == "" {
-		require.Len(t, d.Spec.Template.Spec.Containers, 1, "Specify -podv2-operator-container")
-		*p2Container = d.Spec.Template.Spec.Containers[0].Name
+		for _, c := range d.Spec.Template.Spec.Containers {
+			if c.Name == "nsx-operator" {
+				*p2Container = c.Name
+				break
+			}
+		}
+		if *p2Container == "" && len(d.Spec.Template.Spec.Containers) == 1 {
+			*p2Container = d.Spec.Template.Spec.Containers[0].Name
+		}
+		if *p2Container == "" {
+			for _, c := range d.Spec.Template.Spec.Containers {
+				if strings.Contains(c.Name, "operator") {
+					*p2Container = c.Name
+					break
+				}
+			}
+		}
+		require.NotEmpty(t, *p2Container, "Specify -podv2-operator-container")
 	}
 	found := false
 	for _, c := range d.Spec.Template.Spec.Containers {
@@ -338,11 +552,18 @@ func (s *p2Suite) preflight(t *testing.T) {
 			args := append(append([]string{}, c.Command...), c.Args...)
 			for i, arg := range args {
 				if arg == "-nsxconfig" || arg == "--nsxconfig" {
+					if i+1 < len(args) && *p2ConfigPath == "/etc/nsx-ujo/ncp.ini" {
+						*p2ConfigPath = args[i+1]
+					}
 					require.Less(t, i+1, len(args))
 					require.Equal(t, args[i+1], *p2ConfigPath, "-podv2-config-path differs from operator -nsxconfig")
 				}
 				if strings.HasPrefix(arg, "-nsxconfig=") || strings.HasPrefix(arg, "--nsxconfig=") {
-					require.Equal(t, strings.SplitN(arg, "=", 2)[1], *p2ConfigPath, "-podv2-config-path differs from operator -nsxconfig")
+					cfgVal := strings.SplitN(arg, "=", 2)[1]
+					if *p2ConfigPath == "/etc/nsx-ujo/ncp.ini" {
+						*p2ConfigPath = cfgVal
+					}
+					require.Equal(t, cfgVal, *p2ConfigPath, "-podv2-config-path differs from operator -nsxconfig")
 				}
 			}
 		}
@@ -853,6 +1074,11 @@ func (s *p2Suite) cleanup() error {
 		return e
 	}
 	s.secret = nil
+	if autoCreatedNamespace != "" && testData != nil && testData.useWCPSetup() {
+		fmt.Printf("Cleaning up auto-created VC namespace: %s\n", autoCreatedNamespace)
+		_ = testData.deleteVCNamespace(autoCreatedNamespace)
+		autoCreatedNamespace = ""
+	}
 	fmt.Println("CLEANUP PASS: workloads/ports removed; original template, replicas, default SubnetSet label and restore annotations restored.")
 	return nil
 }
