@@ -29,11 +29,15 @@ func RemoveIPPrefix(ipAddress string) (string, error) {
 // GetIPPrefix get the prefix from an IP address, e.g.
 // "1.2.3.4/24" -> 24
 func GetIPPrefix(ipAddress string) (int, error) {
-	num, err := strconv.Atoi(strings.Split(ipAddress, "/")[1])
+	parts := strings.Split(ipAddress, "/")
+	if len(parts) < 2 {
+		return -1, errors.New("invalid IP address or CIDR format")
+	}
+	num, err := strconv.Atoi(parts[1])
 	if err != nil {
 		return -1, err
 	}
-	return num, err
+	return num, nil
 }
 
 // GetSubnetMask returns the IPv4 dotted-decimal mask for a given prefix length, e.g.

@@ -520,3 +520,105 @@ func TestIPAddressTypeIncludesIPv6(t *testing.T) {
 	assert.True(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv4IPv6)) // dual-stack
 	assert.True(t, IPAddressTypeIncludesIPv6(v1alpha1.IPAddressTypeIPv6))     // IPv6-only
 }
+
+func Test_GetIPPrefix(t *testing.T) {
+	tests := []struct {
+		name      string
+		ipAddress string
+		want      int
+		wantErr   bool
+	}{
+		{
+			name:      "valid IPv4 CIDR",
+			ipAddress: "1.2.3.4/24",
+			want:      24,
+			wantErr:   false,
+		},
+		{
+			name:      "valid IPv6 CIDR",
+			ipAddress: "2001:db8::1/64",
+			want:      64,
+			wantErr:   false,
+		},
+		{
+			name:      "missing prefix separator without slash",
+			ipAddress: "192.168.1.1",
+			want:      -1,
+			wantErr:   true,
+		},
+		{
+			name:      "empty string",
+			ipAddress: "",
+			want:      -1,
+			wantErr:   true,
+		},
+		{
+			name:      "invalid non-integer prefix",
+			ipAddress: "1.2.3.4/abc",
+			want:      -1,
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetIPPrefix(tt.ipAddress)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetIPPrefix(%q) error = %v, wantErr %v", tt.ipAddress, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("GetIPPrefix(%q) = %v, want %v", tt.ipAddress, got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_RemoveIPPrefix(t *testing.T) {
+	tests := []struct {
+		name      string
+		ipAddress string
+		want      string
+		wantErr   bool
+	}{
+		{
+			name:      "valid IPv4 CIDR",
+			ipAddress: "1.2.3.4/24",
+			want:      "1.2.3.4",
+			wantErr:   false,
+		},
+		{
+			name:      "valid IPv6 CIDR",
+			ipAddress: "2001:db8::1/64",
+			want:      "2001:db8::1",
+			wantErr:   false,
+		},
+		{
+			name:      "IPv4 without prefix",
+			ipAddress: "192.168.1.1",
+			want:      "192.168.1.1",
+			wantErr:   false,
+		},
+		{
+			name:      "empty string",
+			ipAddress: "",
+			want:      "",
+			wantErr:   true,
+		},
+		{
+			name:      "invalid IP",
+			ipAddress: "not-an-ip/24",
+			want:      "",
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := RemoveIPPrefix(tt.ipAddress)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RemoveIPPrefix(%q) error = %v, wantErr %v", tt.ipAddress, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("RemoveIPPrefix(%q) = %v, want %v", tt.ipAddress, got, tt.want)
+			}
+		})
+	}
+}

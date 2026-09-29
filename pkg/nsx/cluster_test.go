@@ -206,6 +206,18 @@ func TestCluster_enableFeature(t *testing.T) {
 	assert.True(t, nsxVersion.featureSupported(IPv6))
 	assert.True(t, nsxVersion.featureSupported(SubnetAssociation))
 
+	// Test case for short version strings (less than 3 segments)
+	nsxVersion.ProductVersion = "4.1"
+	assert.False(t, nsxVersion.featureSupported(SecurityPolicy))
+	assert.False(t, nsxVersion.featureSupported(ServiceAccount))
+
+	nsxVersion.ProductVersion = "4"
+	assert.False(t, nsxVersion.featureSupported(SecurityPolicy))
+
+	// Test case for invalid non-integer version
+	nsxVersion.ProductVersion = "4.x"
+	assert.False(t, nsxVersion.featureSupported(SecurityPolicy))
+
 	// Test case for invalid feature
 	feature := 3
 	nsxVersion.ProductVersion = "3.1.3.3.0.18844962"

@@ -583,6 +583,10 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 		// ProductVersion should have at least three sections
 		// each section only have digital value
 		buff := strings.Split(nsxVersion.ProductVersion, ".")
+		if len(buff) < 3 {
+			log.Error(errors.New("invalid version format"), "ProductVersion should have at least three sections", "version", nsxVersion.ProductVersion)
+			return false
+		}
 		sections := make([]int64, len(buff))
 		for i, str := range buff {
 			val, err := strconv.ParseInt(str, 10, 64)
