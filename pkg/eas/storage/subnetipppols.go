@@ -56,7 +56,7 @@ func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) 
 		"projectID", projectID, "vpcID", vpcID)
 
 	subnets, err := s.nsxClient.SubnetsClient.List(orgID, projectID, vpcID,
-		nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		return nil, HandleEASError(err, "subnetippools", name, fmt.Errorf("failed to list subnets from NSX: %w", err))
 	}
@@ -88,7 +88,7 @@ func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) 
 func (s *SubnetIPPoolsStorage) fetchIPPools(namespace, nsxSubnetID, name string, info nsxcommon.VPCResourceInfo) (*easv1alpha1.SubnetIPPools, error) {
 	log := logger.Log
 	nsxPools, err := s.nsxClient.IPPoolClient.List(info.OrgID, info.ProjectID, info.VPCID, nsxSubnetID,
-		nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		return nil, HandleEASError(err, "subnetippools", name, fmt.Errorf("failed to get subnet IP pools from NSX: %w", err))
 	}
