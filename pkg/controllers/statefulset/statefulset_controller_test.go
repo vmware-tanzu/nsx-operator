@@ -233,11 +233,23 @@ func TestPredicateUpdateFunc(t *testing.T) {
 			name:        "new nil replicas",
 			oldReplicas: func() *int32 { r := int32(3); return &r }(),
 			newReplicas: nil,
-			want:        false,
+			want:        true,
 		},
 		{
 			name:        "both nil replicas",
 			oldReplicas: nil,
+			newReplicas: nil,
+			want:        false,
+		},
+		{
+			name:        "old nil replicas shrink to 0",
+			oldReplicas: nil,
+			newReplicas: func() *int32 { r := int32(0); return &r }(),
+			want:        true,
+		},
+		{
+			name:        "old replicas 1 to nil",
+			oldReplicas: func() *int32 { r := int32(1); return &r }(),
 			newReplicas: nil,
 			want:        false,
 		},
@@ -1353,6 +1365,89 @@ func TestReleaseSubnetPortsForStatefulSet_PodUIDMismatchDeletesPort(t *testing.T
 	assert.NoError(t, err)
 	assert.False(t, pending)
 	assert.Equal(t, 1, deleteCalls, "stale subnet port for same pod name but different pod UID should be deleted")
+}
+
+func TestReleaseSubnetPortsForStatefulSet_ClientGetNonNotFoundErrorSkipsDelete(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("apiserver timeout"))
+
+	subnetPortService := &subnetportservice.SubnetPortService{
+		SubnetPortStore: &subnetportservice.SubnetPortStore{},
+	}
+	r := &StatefulSetReconciler{
+		Client:            k8sClient,
+		SubnetPortService: subnetPortService,
+	}
+
+	var deleteCalls int
+	patches := gomonkey.ApplyFunc(
+		(*subnetportservice.SubnetPortService).ListSubnetPortByStsName,
+		func(s *subnetportservice.SubnetPortService, ns string, stsName string) []*model.VpcSubnetPort {
+			podNameScope := "nsx-op/pod_name"
+			return []*model.VpcSubnetPort{
+				{
+					Id:          servicecommon.String("port1"),
+					DisplayName: servicecommon.String("test-sts-0"),
+					Tags: []model.Tag{
+						{Scope: &podNameScope, Tag: servicecommon.String("test-sts-0")},
+					},
+				},
+			}
+		})
+	patches.ApplyFunc(
+		(*subnetportservice.SubnetPortService).DeleteSubnetPort,
+		func(s *subnetportservice.SubnetPortService, port *model.VpcSubnetPort) error {
+			deleteCalls++
+			return nil
+		})
+	defer patches.Reset()
+
+	pending, err := r.releaseSubnetPortsForStatefulSet(context.Background(), "default", "test-sts")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "apiserver timeout")
+	assert.False(t, pending)
+	assert.Equal(t, 0, deleteCalls, "port should not be deleted when pod lookup encounters transient api error")
+}
+
+func TestReleaseSubnetPortsForStatefulSet_ClientGetNotFoundDeletesPort(t *testing.T) {
+	fakeClient := fake.NewClientBuilder().Build()
+	subnetPortService := &subnetportservice.SubnetPortService{
+		SubnetPortStore: &subnetportservice.SubnetPortStore{},
+	}
+	r := &StatefulSetReconciler{
+		Client:            fakeClient,
+		SubnetPortService: subnetPortService,
+	}
+
+	var deleteCalls int
+	patches := gomonkey.ApplyFunc(
+		(*subnetportservice.SubnetPortService).ListSubnetPortByStsName,
+		func(s *subnetportservice.SubnetPortService, ns string, stsName string) []*model.VpcSubnetPort {
+			podNameScope := "nsx-op/pod_name"
+			return []*model.VpcSubnetPort{
+				{
+					Id:          servicecommon.String("port1"),
+					DisplayName: servicecommon.String("test-sts-0"),
+					Tags: []model.Tag{
+						{Scope: &podNameScope, Tag: servicecommon.String("test-sts-0")},
+					},
+				},
+			}
+		})
+	patches.ApplyFunc(
+		(*subnetportservice.SubnetPortService).DeleteSubnetPort,
+		func(s *subnetportservice.SubnetPortService, port *model.VpcSubnetPort) error {
+			deleteCalls++
+			return nil
+		})
+	defer patches.Reset()
+
+	pending, err := r.releaseSubnetPortsForStatefulSet(context.Background(), "default", "test-sts")
+	assert.NoError(t, err)
+	assert.False(t, pending)
+	assert.Equal(t, 1, deleteCalls, "port should be deleted when pod is not found")
 }
 
 func TestReleaseSubnetPortForPod_DeleteError(t *testing.T) {

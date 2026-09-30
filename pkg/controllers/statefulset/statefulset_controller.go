@@ -176,7 +176,13 @@ func (r *StatefulSetReconciler) releaseSubnetPortsForStatefulSet(ctx context.Con
 		podName := util.FindTag(subnetPort.Tags, servicecommon.TagScopePodName)
 		if podName != "" {
 			pod := &corev1.Pod{}
-			if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err == nil {
+			if err := r.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, pod); err != nil {
+				if !apierrors.IsNotFound(err) {
+					log.Error(err, "Failed to get pod for subnet port check", "pod", podName, "namespace", namespace)
+					errList = append(errList, err)
+					continue
+				}
+			} else {
 				podUid := util.FindTag(subnetPort.Tags, servicecommon.TagScopePodUID)
 				if pod.UID != types.UID(podUid) {
 					log.Info("Pod UID mismatch, deleting subnet port ", "pod", podName, "podUID", pod.UID, "subnetPortUID", podUid)
@@ -393,7 +399,7 @@ func isPodTerminatingOrDeleted(pod *corev1.Pod) bool {
 	if pod == nil {
 		return false
 	}
-	return common.PodIsDeleted(pod) || !pod.DeletionTimestamp.IsZero()
+	return common.PodIsDeleted(pod) || pod.DeletionTimestamp != nil
 }
 
 func (r *StatefulSetReconciler) GetOrdinalRange(sts *appsv1.StatefulSet) (int, int) {
@@ -447,15 +453,16 @@ var PredicateFuncsForStatefulSet = predicate.Funcs{
 			newStart = newSts.Spec.Ordinals.Start
 		}
 
-		// If either has nil replicas, don't trigger.
-		if oldSts.Spec.Replicas == nil || newSts.Spec.Replicas == nil {
-			return false
+		oldRepl := int32(1)
+		if oldSts.Spec.Replicas != nil {
+			oldRepl = *oldSts.Spec.Replicas
+		}
+		newRepl := int32(1)
+		if newSts.Spec.Replicas != nil {
+			newRepl = *newSts.Spec.Replicas
 		}
 
-		oldRepl := *oldSts.Spec.Replicas
 		oldEnd := oldStart + oldRepl - 1
-
-		newRepl := *newSts.Spec.Replicas
 		newEnd := newStart + newRepl - 1
 
 		// Shrink of desired ordinal range: dropped lower indices and/or dropped upper indices.
