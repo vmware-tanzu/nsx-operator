@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1205,4 +1206,270 @@ func TestStatefulSetTagScopes(t *testing.T) {
 		},
 	}
 	assert.False(t, reconciler.isStatefulSetSubnetPort(regularPort), "Should not detect regular pod as STS")
+}
+
+func TestPodReconciler_Reconcile_TerminatingPod(t *testing.T) {
+	now := metav1.Now()
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "terminating-pod",
+			Namespace:         "default",
+			UID:               types.UID("pod-uid-terminating"),
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"test-finalizer"},
+		},
+		Spec: v1.PodSpec{
+			NodeName: "node-1",
+		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithObjects(pod).Build()
+	cf := &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{},
+	}
+	r := &PodReconciler{
+		Client:        fakeClient,
+		StatusUpdater: common.NewStatusUpdater(fakeClient, cf, fakeRecorder{}, MetricResTypePod, "SubnetPort", "Pod"),
+	}
+
+	getSubnetPathCalled := false
+	patches := gomonkey.ApplyFunc((*PodReconciler).GetSubnetPathForPod,
+		func(_ *PodReconciler, _ context.Context, _ *v1.Pod) (bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+			getSubnetPathCalled = true
+			return false, "", nil, nil, "", "", nil
+		})
+	defer patches.Reset()
+
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: "default",
+			Name:      "terminating-pod",
+		},
+	}
+	res, err := r.Reconcile(context.TODO(), req)
+	assert.Nil(t, err)
+	assert.Equal(t, common.ResultNormal, res)
+	assert.False(t, getSubnetPathCalled, "GetSubnetPathForPod should not be called for terminating pod")
+}
+
+func TestPodReconciler_shouldSkipStatefulSetSubnetPortDeletion(t *testing.T) {
+	now := metav1.Now()
+	stsName := "web"
+	stsUID := "sts-uid-123"
+	ns := "default"
+
+	buildStsPort := func(name, uid string) *model.VpcSubnetPort {
+		tags := []model.Tag{}
+		if name != "" {
+			tags = append(tags, model.Tag{Scope: servicecommon.String(servicecommon.TagScopeStatefulSetName), Tag: servicecommon.String(name)})
+		}
+		if uid != "" {
+			tags = append(tags, model.Tag{Scope: servicecommon.String(servicecommon.TagScopeStatefulSetUID), Tag: servicecommon.String(uid)})
+		}
+		portID := "port-1"
+		portName := "web-0"
+		return &model.VpcSubnetPort{
+			Id:          &portID,
+			DisplayName: &portName,
+			Tags:        tags,
+		}
+	}
+
+	tests := []struct {
+		name         string
+		featureOn    bool
+		client       client.Client
+		subnetPort   *model.VpcSubnetPort
+		expectedSkip bool
+	}{
+		{
+			name:         "feature disabled",
+			featureOn:    false,
+			subnetPort:   buildStsPort(stsName, stsUID),
+			expectedSkip: false,
+		},
+		{
+			name:         "not statefulset port",
+			featureOn:    true,
+			subnetPort:   &model.VpcSubnetPort{Tags: []model.Tag{}},
+			expectedSkip: false,
+		},
+		{
+			name:         "client is nil",
+			featureOn:    true,
+			client:       nil,
+			subnetPort:   buildStsPort(stsName, stsUID),
+			expectedSkip: true,
+		},
+		{
+			name:         "stsName tag missing",
+			featureOn:    true,
+			client:       fake.NewClientBuilder().WithObjects().Build(),
+			subnetPort:   buildStsPort("", stsUID),
+			expectedSkip: true,
+		},
+		{
+			name:      "owning STS exists and active",
+			featureOn: true,
+			client: fake.NewClientBuilder().WithObjects(&appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: ns,
+					Name:      stsName,
+					UID:       types.UID(stsUID),
+				},
+			}).Build(),
+			subnetPort:   buildStsPort(stsName, stsUID),
+			expectedSkip: true,
+		},
+		{
+			name:         "owning STS not found",
+			featureOn:    true,
+			client:       fake.NewClientBuilder().WithObjects().Build(),
+			subnetPort:   buildStsPort(stsName, stsUID),
+			expectedSkip: false,
+		},
+		{
+			name:      "owning STS UID mismatch",
+			featureOn: true,
+			client: fake.NewClientBuilder().WithObjects(&appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: ns,
+					Name:      stsName,
+					UID:       types.UID("different-uid"),
+				},
+			}).Build(),
+			subnetPort:   buildStsPort(stsName, stsUID),
+			expectedSkip: false,
+		},
+		{
+			name:      "owning STS is terminating",
+			featureOn: true,
+			client: fake.NewClientBuilder().WithObjects(&appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:         ns,
+					Name:              stsName,
+					UID:               types.UID(stsUID),
+					DeletionTimestamp: &now,
+					Finalizers:        []string{"test-finalizer"},
+				},
+			}).Build(),
+			subnetPort:   buildStsPort(stsName, stsUID),
+			expectedSkip: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &PodReconciler{
+				Client: tt.client,
+				SubnetPortService: &subnetport.SubnetPortService{
+					Service: servicecommon.Service{
+						NSXClient: &nsx.Client{},
+						NSXConfig: &config.NSXOperatorConfig{},
+					},
+				},
+			}
+			patches := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+				func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+					return tt.featureOn
+				})
+			defer patches.Reset()
+
+			got := r.shouldSkipStatefulSetSubnetPortDeletion(context.TODO(), ns, tt.subnetPort)
+			assert.Equal(t, tt.expectedSkip, got)
+		})
+	}
+}
+
+func TestPodReconciler_deleteSubnetPortByPodName_StatefulSetHandling(t *testing.T) {
+	ns := "default"
+	podName := "web-0"
+	stsName := "web"
+	stsUID := "sts-uid-123"
+
+	stsPort := &model.VpcSubnetPort{
+		Id:          servicecommon.String("port-1"),
+		DisplayName: servicecommon.String(podName),
+		Tags: []model.Tag{
+			{Scope: servicecommon.String(servicecommon.TagScopeNamespace), Tag: servicecommon.String(ns)},
+			{Scope: servicecommon.String(servicecommon.TagScopePodName), Tag: servicecommon.String(podName)},
+			{Scope: servicecommon.String(servicecommon.TagScopeStatefulSetName), Tag: servicecommon.String(stsName)},
+			{Scope: servicecommon.String(servicecommon.TagScopeStatefulSetUID), Tag: servicecommon.String(stsUID)},
+		},
+	}
+
+	t.Run("owning STS not found: deletes port", func(t *testing.T) {
+		deleted := false
+		r := &PodReconciler{
+			Client: fake.NewClientBuilder().WithObjects().Build(),
+			SubnetPortService: &subnetport.SubnetPortService{
+				Service: servicecommon.Service{
+					NSXClient: &nsx.Client{},
+					NSXConfig: &config.NSXOperatorConfig{},
+				},
+			},
+		}
+		patches := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+			func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+				return true
+			})
+		defer patches.Reset()
+		patchesList := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListSubnetPortByPodName,
+			func(_ *subnetport.SubnetPortService, _ string, _ string) []*model.VpcSubnetPort {
+				return []*model.VpcSubnetPort{stsPort}
+			})
+		defer patchesList.Reset()
+		patchesDelete := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPort,
+			func(_ *subnetport.SubnetPortService, sp *model.VpcSubnetPort) error {
+				deleted = true
+				return nil
+			})
+		defer patchesDelete.Reset()
+
+		err := r.deleteSubnetPortByPodName(context.TODO(), ns, podName)
+		assert.Nil(t, err)
+		assert.True(t, deleted, "Should delete port when owning STS is not found")
+	})
+
+	t.Run("owning STS active: skips port deletion", func(t *testing.T) {
+		deleted := false
+		activeSTS := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns,
+				Name:      stsName,
+				UID:       types.UID(stsUID),
+			},
+		}
+		r := &PodReconciler{
+			Client: fake.NewClientBuilder().WithObjects(activeSTS).Build(),
+			SubnetPortService: &subnetport.SubnetPortService{
+				Service: servicecommon.Service{
+					NSXClient: &nsx.Client{},
+					NSXConfig: &config.NSXOperatorConfig{},
+				},
+			},
+		}
+		patches := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+			func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+				return true
+			})
+		defer patches.Reset()
+		patchesList := gomonkey.ApplyFunc((*subnetport.SubnetPortService).ListSubnetPortByPodName,
+			func(_ *subnetport.SubnetPortService, _ string, _ string) []*model.VpcSubnetPort {
+				return []*model.VpcSubnetPort{stsPort}
+			})
+		defer patchesList.Reset()
+		patchesDelete := gomonkey.ApplyFunc((*subnetport.SubnetPortService).DeleteSubnetPort,
+			func(_ *subnetport.SubnetPortService, sp *model.VpcSubnetPort) error {
+				deleted = true
+				return nil
+			})
+		defer patchesDelete.Reset()
+
+		err := r.deleteSubnetPortByPodName(context.TODO(), ns, podName)
+		assert.Nil(t, err)
+		assert.False(t, deleted, "Should not delete port when owning STS is active")
+	})
 }
