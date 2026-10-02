@@ -31,16 +31,34 @@ var (
 )
 
 func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labelTags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.VpcSubnetPort, error) {
-	var objNamespace, appId, allocateAddresses string
+	var objNamespace, appId, allocateAddresses, podName, stsName, stsUID string
 	objMeta := getObjectMeta(obj)
 	if objMeta == nil {
 		return nil, fmt.Errorf("unsupported object: %v", obj)
 	}
 	objNamespace = objMeta.Namespace
-	if _, ok := obj.(*corev1.Pod); ok {
+	if pod, ok := obj.(*corev1.Pod); ok {
 		appId = string(objMeta.UID)
+		podName = pod.Name
+		stsUID = GetStatefulSetUID(pod)
+		stsKind := appsv1.SchemeGroupVersion.WithKind("StatefulSet").Kind
+		if ref := metav1.GetControllerOf(pod); ref != nil && ref.Kind == stsKind {
+			stsName = ref.Name
+		}
+	} else if sp, ok := obj.(*v1alpha1.SubnetPort); ok {
+		pod, err := controllercommon.GetPodForSubnetPort(context.Background(), service.Client, sp)
+		if err != nil {
+			return nil, err
+		}
+		if pod != nil {
+			appId = string(pod.UID)
+			podName = pod.Name
+			stsUID = GetStatefulSetUID(pod)
+			if ref := metav1.GetControllerOf(pod); ref != nil && ref.Kind == "StatefulSet" {
+				stsName = ref.Name
+			}
+		}
 	}
-	stsUID := GetStatefulSetUID(obj)
 	var externalAddressBinding *model.ExternalAddressBinding
 	var err error
 	var addressBindings []model.PortAddressBindingEntry
@@ -94,12 +112,13 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		staticIpAllocationType = controllercommon.ConvertCRStaticIPAddressTypeToNSX(o.Spec.StaticIPAllocationType)
 	case *corev1.Pod:
 		if restoreMode && len(o.Status.PodIPs) > 0 {
+			restoreStatus := GetPodRestoreStatus(o)
 			addressBindings = []model.PortAddressBindingEntry{}
-			for _, ip := range o.Status.PodIPs {
-				addressBindings = append(addressBindings, model.PortAddressBindingEntry{IpAddress: &ip.IP})
+			for _, ip := range restoreStatus.NetworkInterfaceConfig.IPAddresses {
+				addressBindings = append(addressBindings, model.PortAddressBindingEntry{IpAddress: &ip.IPAddress})
 			}
-			mac, ok := o.GetAnnotations()[common.AnnotationPodMAC]
-			if ok && mac != "" {
+			mac := restoreStatus.NetworkInterfaceConfig.MACAddress
+			if mac != "" {
 				for i := range addressBindings {
 					addressBindings[i].MacAddress = &mac
 				}
@@ -155,14 +174,13 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	namespaceUid := namespace.UID
 
-	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID)
+	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID, podName)
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 
 	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
 
 	// Filter tags based on the type of subnet port (VM or Pod).
-	// For VM subnet ports, we need to filter out tags with scope VMNamespaceUID and VMNamespace.
-	// For Pod subnet ports, we need to filter out tags with scope NamespaceUID and Namespace.
+	// VM ports retain VMNamespace/VMNamespaceUID; Pod ports retain Namespace/NamespaceUID.
 	var tagsFiltered []model.Tag
 	for _, tag := range tags {
 		if isVmSubnetPort && *tag.Scope == common.TagScopeNamespaceUID {
@@ -178,6 +196,22 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			continue
 		}
 		tagsFiltered = append(tagsFiltered, tag)
+	}
+
+	if _, ok := obj.(*v1alpha1.SubnetPort); ok && !isVmSubnetPort {
+		// BuildBasicTags already supplies Namespace and NamespaceUID.
+		if podName != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopePodName), Tag: common.String(podName)})
+		}
+		if appId != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopePodUID), Tag: common.String(appId)})
+		}
+		if stsName != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopeStatefulSetName), Tag: common.String(stsName)})
+		}
+		if stsUID != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{Scope: common.String(common.TagScopeStatefulSetUID), Tag: common.String(stsUID)})
+		}
 	}
 
 	if labelTags != nil {
@@ -220,6 +254,24 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	return nsxSubnetPort, nil
 }
 
+// GetPodRestoreStatus translates the network state persisted on a realized Pod.
+// It deliberately does not set Ready; only a successful NSX restore can do that.
+func GetPodRestoreStatus(pod *corev1.Pod) v1alpha1.SubnetPortStatus {
+	status := v1alpha1.SubnetPortStatus{
+		Attachment: v1alpha1.PortAttachment{ID: pod.Annotations[common.AnnotationAttachment]},
+		NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+			MACAddress: pod.Annotations[common.AnnotationPodMAC],
+		},
+	}
+	for _, ip := range pod.Status.PodIPs {
+		status.NetworkInterfaceConfig.IPAddresses = append(status.NetworkInterfaceConfig.IPAddresses, v1alpha1.NetworkInterfaceIPAddress{IPAddress: ip.IP})
+	}
+	if len(status.NetworkInterfaceConfig.IPAddresses) == 0 && pod.Status.PodIP != "" {
+		status.NetworkInterfaceConfig.IPAddresses = []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: pod.Status.PodIP}}
+	}
+	return status
+}
+
 // GetStatefulSetUID returns the StatefulSet UID if the pod's controller
 // is a StatefulSet (matches real API server behavior: the STS sets controller=true).
 func GetStatefulSetUID(obj interface{}) string {
@@ -248,10 +300,15 @@ func (service *SubnetPortService) GetExistingSubnetPortForStatefulSetPod(podName
 	return nil
 }
 
-func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string) (string, string) {
+func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string, podName ...string) (string, string) {
 	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(obj.GetUID())
 	if err == nil && existingSubnetPort != nil {
 		return *existingSubnetPort.Id, *existingSubnetPort.DisplayName
+	}
+
+	targetPodName := obj.Name
+	if len(podName) > 0 && podName[0] != "" {
+		targetPodName = podName[0]
 	}
 
 	// For StatefulSet pods: check if a SubnetPort with the same StatefulSet UID and pod name exists
@@ -259,9 +316,9 @@ func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMet
 	// Only reuse if StatefulSet pod SubnetPort feature is enabled
 	enableStsFeature := nsx.StatefulSetPodSubnetPortFeatureEnabled(service.NSXClient, service.NSXConfig)
 	if enableStsFeature {
-		if port := service.GetExistingSubnetPortForStatefulSetPod(obj.Name, stsUID); port != nil {
+		if port := service.GetExistingSubnetPortForStatefulSetPod(targetPodName, stsUID); port != nil {
 			log.Info("Reusing existing SubnetPort for StatefulSet pod",
-				"podName", obj.Name, "stsUID", stsUID, "portID", *port.Id)
+				"podName", targetPodName, "stsUID", stsUID, "portID", *port.Id)
 			return *port.Id, *port.DisplayName
 		}
 	}
