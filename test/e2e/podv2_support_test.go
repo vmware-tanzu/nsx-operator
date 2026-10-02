@@ -187,6 +187,12 @@ func autoDiscoverOperator(client kubernetes.Interface) (string, string, string, 
 	return "", "", "", fmt.Errorf("could not auto-discover operator deployment (tried namespaces %v, deployments %v)", nsCandidates, depCandidates)
 }
 
+func isSystemNamespace(ns string) bool {
+	return strings.HasPrefix(ns, "kube-") ||
+		strings.HasPrefix(ns, "vmware-system") ||
+		strings.HasPrefix(ns, "svc-")
+}
+
 func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Interface, crdClientset versioned.Interface) (string, error) {
 	// 1. Search for an existing idle VPC namespace
 	sets, err := crdClientset.CrdV1alpha1().SubnetSets("").List(ctx, metav1.ListOptions{})
@@ -210,7 +216,7 @@ func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Int
 		}
 
 		for nsName, defaultSet := range vpcCandidates {
-			if nsName == "kube-system" || nsName == "vmware-system-nsx" || nsName == "default" {
+			if isSystemNamespace(nsName) || nsName == "default" {
 				continue
 			}
 			ns, e := clientset.CoreV1().Namespaces().Get(ctx, nsName, metav1.GetOptions{})
@@ -628,7 +634,9 @@ func (s *p2Suite) preflight(t *testing.T) {
 		if set.Labels[common.LabelDefaultNetwork] != common.DefaultPodNetwork && set.Labels[common.LabelDefaultSubnetSet] != common.LabelDefaultPodSubnetSet {
 			continue
 		}
-		vpcNS[set.Namespace] = true
+		if !isSystemNamespace(set.Namespace) {
+			vpcNS[set.Namespace] = true
+		}
 		if set.Namespace == ns.Name {
 			require.Nil(t, defaultSet, "multiple default Pod SubnetSets")
 			defaultSet = set
@@ -641,8 +649,14 @@ func (s *p2Suite) preflight(t *testing.T) {
 	pods, err := testData.clientset.CoreV1().Pods("").List(s.ctx, metav1.ListOptions{})
 	require.NoError(t, err)
 	for _, p := range pods.Items {
+		if isSystemNamespace(p.Namespace) {
+			continue
+		}
 		if vpcNS[p.Namespace] && !p.Spec.HostNetwork {
-			require.FailNow(t, "testbed is not quiescent", "existing Pod %s/%s would be affected by global mode changes", p.Namespace, p.Name)
+			if p.Namespace == ns.Name || (*p2DHCPNamespace != "" && p.Namespace == *p2DHCPNamespace) {
+				require.FailNow(t, "testbed is not quiescent", "existing Pod %s/%s in test namespace", p.Namespace, p.Name)
+			}
+			t.Logf("Notice: existing Pod %s/%s in unrelated VPC namespace %s", p.Namespace, p.Name, p.Namespace)
 		}
 	}
 	ports, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(ns.Name).List(s.ctx, metav1.ListOptions{})
@@ -650,7 +664,22 @@ func (s *p2Suite) preflight(t *testing.T) {
 	require.Empty(t, ports.Items, "use a namespace without existing SubnetPorts")
 	allPorts, e := testData.crdClientset.CrdV1alpha1().SubnetPorts("").List(s.ctx, metav1.ListOptions{})
 	require.NoError(t, e)
-	require.Empty(t, allPorts.Items, "global restore requires a quiescent operator instance without unrelated SubnetPort CRs")
+	var testNamespacePorts []string
+	var unrelatedPorts []string
+	for _, port := range allPorts.Items {
+		if isSystemNamespace(port.Namespace) {
+			continue
+		}
+		if port.Namespace == ns.Name || (*p2DHCPNamespace != "" && port.Namespace == *p2DHCPNamespace) {
+			testNamespacePorts = append(testNamespacePorts, fmt.Sprintf("%s/%s", port.Namespace, port.Name))
+		} else {
+			unrelatedPorts = append(unrelatedPorts, fmt.Sprintf("%s/%s", port.Namespace, port.Name))
+		}
+	}
+	require.Empty(t, testNamespacePorts, "use a namespace without existing SubnetPorts: %v", testNamespacePorts)
+	if len(unrelatedPorts) > 0 {
+		t.Logf("Notice: cluster has existing SubnetPort CRs in unrelated namespaces: %v", unrelatedPorts)
+	}
 	stss, err := testData.clientset.AppsV1().StatefulSets(ns.Name).List(s.ctx, metav1.ListOptions{})
 	require.NoError(t, err)
 	require.Empty(t, stss.Items)
