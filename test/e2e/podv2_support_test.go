@@ -67,6 +67,8 @@ var p2DHCPNamespace = flag.String("podv2-dhcp-namespace", "", "Second empty VPC 
 
 const p2Label = "e2e.nsx.vmware.com/podv2-run"
 const p2Volume = "podv2-e2e-config"
+const p2ConfigMountDir = "/etc/nsx-p2-config"
+const p2ConfigMountFile = "/etc/nsx-p2-config/ncp.ini"
 
 var p2NCP = schema.GroupVersionResource{Group: "nsx.vmware.com", Version: "v1", Resource: "ncpconfigs"}
 
@@ -738,7 +740,15 @@ func (s *p2Suite) preflight(t *testing.T) {
 	}
 	b, err := json.Marshal(s.journal)
 	require.NoError(t, err)
-	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: s.journalName(), Namespace: *p2OperatorNS, Labels: map[string]string{p2Label: s.journal.Run}}, Data: map[string][]byte{"journal.json": b, "original.ini": []byte(original), "active.ini": []byte(original)}}
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: s.journalName(), Namespace: *p2OperatorNS, Labels: map[string]string{p2Label: s.journal.Run}},
+		Data: map[string][]byte{
+			"journal.json": b,
+			"original.ini": []byte(original),
+			"active.ini":   []byte(original),
+			"ncp.ini":      []byte(original),
+		},
+	}
 	s.secret, err = testData.clientset.CoreV1().Secrets(*p2OperatorNS).Create(s.ctx, sec, metav1.CreateOptions{})
 	require.NoError(t, err, "acquire exclusive run journal")
 	t.Logf("RUN %s: namespace=%s; recovery: same invocation with -podv2-cleanup", s.journal.Run, ns.Name)
@@ -777,7 +787,28 @@ func (s *p2Suite) normal(ctx context.Context) error {
 			return false, "get Deployment", e
 		}
 		if d.Status.ObservedGeneration < d.Generation || d.Status.AvailableReplicas < 1 {
-			return false, fmt.Sprintf("generation=%d observed=%d available=%d", d.Generation, d.Status.ObservedGeneration, d.Status.AvailableReplicas), nil
+			diag := fmt.Sprintf("generation=%d observed=%d available=%d", d.Generation, d.Status.ObservedGeneration, d.Status.AvailableReplicas)
+			if pods, listErr := s.operatorPods(c); listErr == nil && len(pods) > 0 {
+				var podStates []string
+				for _, p := range pods {
+					st := fmt.Sprintf("%s(phase=%s", p.Name, p.Status.Phase)
+					for _, cs := range p.Status.ContainerStatuses {
+						if cs.State.Waiting != nil {
+							msg := cs.State.Waiting.Message
+							if len(msg) > 60 {
+								msg = msg[:60] + "..."
+							}
+							st += fmt.Sprintf(",%s:waiting[%s]:%s", cs.Name, cs.State.Waiting.Reason, msg)
+						} else if cs.State.Terminated != nil {
+							st += fmt.Sprintf(",%s:terminated[%s]", cs.Name, cs.State.Terminated.Reason)
+						}
+					}
+					st += ")"
+					podStates = append(podStates, st)
+				}
+				diag += fmt.Sprintf(" pods=[%s]", strings.Join(podStates, "; "))
+			}
+			return false, diag, nil
 		}
 		logs, e := s.operatorLogs(c, false)
 		if e != nil || !strings.Contains(logs, "Enter normal mode") {
@@ -792,7 +823,7 @@ func (s *p2Suite) normal(ctx context.Context) error {
 				continue
 			}
 			readCtx, cancel := context.WithTimeout(c, 20*time.Second)
-			actual, execErr := s.exec(readCtx, p.Namespace, p.Name, s.journal.Container, []string{"cat", s.journal.ConfigPath})
+			actual, execErr := s.exec(readCtx, p.Namespace, p.Name, s.journal.Container, []string{"cat", p2ConfigMountFile})
 			cancel()
 			if execErr != nil {
 				return false, "read mounted test configuration", execErr
@@ -839,6 +870,7 @@ func (s *p2Suite) configure(ctx context.Context, v2, enhance, restore, vif bool)
 			return fmt.Errorf("journal replaced")
 		}
 		sec.Data["active.ini"] = b
+		sec.Data["ncp.ini"] = b
 		updated, e := testData.clientset.CoreV1().Secrets(*p2OperatorNS).Update(ctx, sec, metav1.UpdateOptions{})
 		if e == nil {
 			s.secret = updated
@@ -855,19 +887,35 @@ func (s *p2Suite) configure(ctx context.Context, v2, enhance, restore, vif bool)
 			d.Spec.Template.Annotations = map[string]string{}
 		}
 		d.Spec.Template.Annotations[p2Label] = s.journal.Run
-		d.Spec.Template.Spec.Volumes = append(d.Spec.Template.Spec.Volumes, corev1.Volume{Name: p2Volume, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: s.journalName(), Items: []corev1.KeyToPath{{Key: "active.ini", Path: "ncp.ini"}}}}})
+		d.Spec.Template.Spec.Volumes = append(d.Spec.Template.Spec.Volumes, corev1.Volume{Name: p2Volume, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: s.journalName()}}})
 		for i := range d.Spec.Template.Spec.Containers {
 			c := &d.Spec.Template.Spec.Containers[i]
 			if c.Name != s.journal.Container {
 				continue
 			}
-			var mounts []corev1.VolumeMount
-			for _, m := range c.VolumeMounts {
-				if m.MountPath != s.journal.ConfigPath {
-					mounts = append(mounts, m)
+			// Mount our test config secret at a dedicated, non-overlapping directory
+			// to avoid conflicting with existing read-only volume mounts (e.g. /etc/nsx-ujo).
+			c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{Name: p2Volume, MountPath: p2ConfigMountDir, ReadOnly: true})
+			// Update -nsxconfig argument to point to the dedicated mounted config.
+			replaceCfg := func(args []string) []string {
+				if len(args) == 0 {
+					return args
 				}
+				newArgs := make([]string, len(args))
+				copy(newArgs, args)
+				for idx, arg := range newArgs {
+					if (arg == "-nsxconfig" || arg == "--nsxconfig") && idx+1 < len(newArgs) {
+						newArgs[idx+1] = p2ConfigMountFile
+					} else if strings.HasPrefix(arg, "-nsxconfig=") {
+						newArgs[idx] = "-nsxconfig=" + p2ConfigMountFile
+					} else if strings.HasPrefix(arg, "--nsxconfig=") {
+						newArgs[idx] = "--nsxconfig=" + p2ConfigMountFile
+					}
+				}
+				return newArgs
 			}
-			c.VolumeMounts = append(mounts, corev1.VolumeMount{Name: p2Volume, MountPath: s.journal.ConfigPath, SubPath: "ncp.ini", ReadOnly: true})
+			c.Command = replaceCfg(c.Command)
+			c.Args = replaceCfg(c.Args)
 		}
 	})
 }
@@ -1055,13 +1103,33 @@ func (s *p2Suite) diagnostics(t *testing.T) {
 	if e == nil {
 		write("events.json", events)
 	}
+	opEvents, e := testData.clientset.CoreV1().Events(*p2OperatorNS).List(ctx, metav1.ListOptions{})
+	if e == nil {
+		write("operator-events.json", opEvents)
+		for _, ev := range opEvents.Items {
+			if ev.Type == corev1.EventTypeWarning {
+				t.Logf("Operator NS Warning Event: %s %s: %s", ev.InvolvedObject.Kind, ev.InvolvedObject.Name, ev.Message)
+			}
+		}
+	}
 	for _, previous := range []bool{false, true} {
 		logs, e := s.operatorLogs(ctx, previous)
 		if e == nil {
 			e = os.WriteFile(fmt.Sprintf("%s/operator-previous-%t.log", dir, previous), []byte(logs), 0600)
 		}
 		if e != nil {
+			// In case the target container (e.g. nsx-operator) is not ready, also attempt to dump logs from all containers
 			t.Logf("operator log capture: %v", e)
+			if pods, listErr := s.operatorPods(ctx); listErr == nil {
+				for _, p := range pods {
+					for _, c := range p.Spec.Containers {
+						cLogs, cErr := testData.clientset.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{Container: c.Name, Previous: previous, LimitBytes: ptr.To[int64](64 * 1024)}).DoRaw(ctx)
+						if cErr == nil && len(cLogs) > 0 {
+							_ = os.WriteFile(fmt.Sprintf("%s/%s-%s-prev-%t.log", dir, p.Name, c.Name, previous), cLogs, 0600)
+						}
+					}
+				}
+			}
 		}
 	}
 	t.Logf("Diagnostics: %s", dir)
@@ -1093,9 +1161,15 @@ func (s *p2Suite) cleanup() error {
 	oldCtx := s.ctx
 	s.ctx = ctx
 	defer func() { s.ctx = oldCtx }()
-	add(s.configure(ctx, true, false, false, false))
-	add(s.start(ctx))
-	add(s.normal(ctx))
+	if cfgErr := s.configure(ctx, true, false, false, false); cfgErr == nil {
+		if startErr := s.start(ctx); startErr == nil {
+			add(s.normal(ctx))
+		} else {
+			add(startErr)
+		}
+	} else {
+		add(cfgErr)
+	}
 	for _, namespace := range []string{s.journal.Namespace, s.journal.DHCPNamespace} {
 		if namespace == "" {
 			continue
@@ -1142,7 +1216,7 @@ func (s *p2Suite) cleanup() error {
 	}
 	// Deleting the journal also removes the only temporary configuration Secret.
 	e := testData.clientset.CoreV1().Secrets(*p2OperatorNS).Delete(ctx, s.journalName(), metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &s.secret.UID}})
-	if e != nil {
+	if e != nil && !apierrors.IsNotFound(e) {
 		return e
 	}
 	s.secret = nil
@@ -1227,6 +1301,9 @@ func podV2CaseSelected(name string) bool {
 
 func (s *p2Suite) checkNamespace(ctx context.Context) error {
 	n, e := testData.clientset.CoreV1().Namespaces().Get(ctx, s.namespace(), metav1.GetOptions{})
+	if apierrors.IsNotFound(e) {
+		return nil
+	}
 	if e != nil {
 		return e
 	}
@@ -1271,11 +1348,13 @@ func (s *p2Suite) verifyOriginalState(ctx context.Context) error {
 		return err
 	}
 	set, e := testData.crdClientset.CrdV1alpha1().SubnetSets(s.journal.Namespace).Get(ctx, s.journal.DefaultSet.Name, metav1.GetOptions{})
-	if e != nil {
+	if e != nil && !apierrors.IsNotFound(e) {
 		return e
 	}
-	if set.UID != s.journal.DefaultSet.UID || !reflect.DeepEqual(set.Spec, s.journal.DefaultSet.Spec) || set.Labels[common.LabelDefaultNetwork] != s.journal.DefaultSet.Labels[common.LabelDefaultNetwork] {
-		return fmt.Errorf("original default SubnetSet identity/spec/label was not restored")
+	if e == nil {
+		if set.UID != s.journal.DefaultSet.UID || !reflect.DeepEqual(set.Spec, s.journal.DefaultSet.Spec) || set.Labels[common.LabelDefaultNetwork] != s.journal.DefaultSet.Labels[common.LabelDefaultNetwork] {
+			return fmt.Errorf("original default SubnetSet identity/spec/label was not restored")
+		}
 	}
 	n, e := s.dynamic.Resource(p2NCP).Get(ctx, restoreutil.NSXRestoreStatus, metav1.GetOptions{})
 	if !s.journal.NCPExists {
