@@ -911,7 +911,7 @@ func (s *p2Suite) operatorLogs(ctx context.Context, previous bool) (string, erro
 	var out strings.Builder
 	var failures []error
 	for _, p := range pods {
-		b, e := testData.clientset.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{Container: s.journal.Container, Previous: previous, LimitBytes: ptr.To[int64](128 * 1024)}).DoRaw(ctx)
+		b, e := testData.clientset.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{Container: s.journal.Container, Previous: previous, LimitBytes: ptr.To[int64](10 * 1024 * 1024)}).DoRaw(ctx)
 		if e != nil {
 			failures = append(failures, e)
 			continue
@@ -1194,7 +1194,7 @@ func (s *p2Suite) diagnostics(t *testing.T) {
 			if pods, listErr := s.operatorPods(ctx); listErr == nil {
 				for _, p := range pods {
 					for _, c := range p.Spec.Containers {
-						cLogs, cErr := testData.clientset.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{Container: c.Name, Previous: previous, LimitBytes: ptr.To[int64](64 * 1024)}).DoRaw(ctx)
+						cLogs, cErr := testData.clientset.CoreV1().Pods(p.Namespace).GetLogs(p.Name, &corev1.PodLogOptions{Container: c.Name, Previous: previous, LimitBytes: ptr.To[int64](10 * 1024 * 1024)}).DoRaw(ctx)
 						if cErr == nil && len(cLogs) > 0 {
 							_ = os.WriteFile(fmt.Sprintf("%s/%s-%s-prev-%t.log", dir, p.Name, c.Name, previous), cLogs, 0600)
 						}
