@@ -89,6 +89,15 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	// Create the Subnet CR object with spec populated from NSX subnet
 	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName, nsxSubnet)
 
+	if nsxSubnet != nil {
+		if tagVal := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeWCPSegmentTrackingSubnet); tagVal != "" {
+			if subnetCR.Labels == nil {
+				subnetCR.Labels = make(map[string]string)
+			}
+			subnetCR.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet] = tagVal
+		}
+	}
+
 	// Create the Subnet CR in Kubernetes
 	err = r.createSubnetCRInK8s(ctx, subnetCR)
 	if err != nil {
@@ -341,6 +350,27 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 				Name:      existingSubnet.Name,
 			}
 			r.SubnetService.AddSharedSubnetToResourceMap(associatedResource, namespacedName)
+
+			if r.SubnetService.NSXClient != nil {
+				nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource, false)
+				if err == nil && nsxSubnet != nil {
+					if tagVal := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeWCPSegmentTrackingSubnet); tagVal != "" {
+						needUpdate := false
+						if existingSubnet.Labels == nil {
+							existingSubnet.Labels = make(map[string]string)
+						}
+						if existingSubnet.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet] != tagVal {
+							existingSubnet.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet] = tagVal
+							needUpdate = true
+						}
+						if needUpdate {
+							if err := r.Client.Update(ctx, existingSubnet); err != nil {
+								log.Error(err, "Failed to update existing shared Subnet CR for WCP_SEGMENT_TRACKING_SUBNET", "Subnet", existingSubnet.Name)
+							}
+						}
+					}
+				}
+			}
 		}
 		processedSubnets[associatedResource] = true
 	}
