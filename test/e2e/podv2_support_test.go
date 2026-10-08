@@ -400,8 +400,10 @@ func podV2Main(m *testing.M) int {
 		return 0
 	}
 	filter := flag.Lookup("test.run").Value.String()
-	if filter == "" {
+	if filter == "" || filter == "TestPodV2" || filter == "^TestPodV2$" {
 		_ = flag.Set("test.run", "^TestPodV2$")
+	} else if strings.HasPrefix(filter, "TestPodV2/") {
+		_ = flag.Set("test.run", "^TestPodV2$/"+strings.TrimPrefix(filter, "TestPodV2/"))
 	} else if !strings.HasPrefix(filter, "^TestPodV2$") {
 		fmt.Fprintln(os.Stderr, "Use -run '^TestPodV2$/TB02' to select a case; unrelated tests are disabled on this branch")
 		return 2
