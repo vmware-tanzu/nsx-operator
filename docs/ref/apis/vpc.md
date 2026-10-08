@@ -349,7 +349,7 @@ _Appears in:_
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified.<br />Supported starting with VCF 9.2.0. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
-| `usedFor` _string_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set to LB_FRONTEND, IP is allocated from LoadBalancerVPC if configured. |  | Enum: [LB_FRONTEND] <br /> |
+| `usedFor` _string_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set to LB_FRONTEND, IP must be allocated from LoadBalancerVPC configured in VPCNetworkConfiguration. |  | Enum: [LB_FRONTEND] <br /> |
 | `ipBlock` _string_ | IPBlock specifies the name or ID of the IPBlock to allocate IP addresses.<br />Can be an infra IPBlock ID or '<project ID>:<ipBlockID>' for project-scoped IPBlock. |  |  |
 
 

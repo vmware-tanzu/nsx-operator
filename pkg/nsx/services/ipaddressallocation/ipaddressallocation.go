@@ -26,6 +26,7 @@ type IPAddressAllocationService struct {
 	ipAddressAllocationStore *IPAddressAllocationStore
 	VPCService               common.VPCServiceProvider
 	builder                  *common.PolicyTreeBuilder[*model.VpcIpAddressAllocation]
+	allocationLocks          [64]sync.RWMutex
 }
 
 func InitializeIPAddressAllocation(service common.Service, vpcService common.VPCServiceProvider, includeNCP bool) (*IPAddressAllocationService,
@@ -65,6 +66,9 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 }
 
 func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj *v1alpha1.IPAddressAllocation, restoreMode bool) (bool, error) {
+	unlock := service.lockAllocationUIDs(obj.UID)
+	defer unlock()
+
 	nsxIPAddressAllocation, vpcInfo, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
 	if err != nil {
 		return false, err
@@ -75,6 +79,18 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		return false, err
 	}
 	log.Debug("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
+	if existingIPAddressAllocation == nil && service.isLBAllocation(obj) && obj.Status.AllocationIPs != "" {
+		// A source CR may still be queued after its allocation has been adopted.
+		// Recreating its reservation would allocate a second VIP before source cleanup.
+		for _, item := range service.ipAddressAllocationStore.List() {
+			allocation := item.(*model.VpcIpAddressAllocation)
+			if allocation.AllocationIps != nil && *allocation.AllocationIps == obj.Status.AllocationIPs &&
+				allocation.ParentPath != nil && *allocation.ParentPath == vpcInfo[0].GetVPCPath() &&
+				nsxutil.FindTag(allocation.Tags, common.TagScopeIPAddressAllocationCRUID) != string(obj.UID) {
+				return false, fmt.Errorf("LB VIP %s is owned by another IPAddressAllocation; refusing to recreate source %s", obj.Status.AllocationIPs, obj.UID)
+			}
+		}
+	}
 
 	if existingIPAddressAllocation != nil {
 		if existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
@@ -194,6 +210,16 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocationForAddressBi
 }
 
 func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
+	owner := nsxutil.FindTag(nsxIPAddressAllocation.Tags, common.TagScopeIPAddressAllocationCRUID)
+	unlock := service.lockAllocationUIDs(types.UID(owner))
+	defer unlock()
+	if owner != "" {
+		current := service.ipAddressAllocationStore.GetByKey(*nsxIPAddressAllocation.Id)
+		if current == nil || nsxutil.FindTag(current.(*model.VpcIpAddressAllocation).Tags, common.TagScopeIPAddressAllocationCRUID) != owner {
+			// A deletion queued before handoff must not release the new owner's VIP.
+			return nil
+		}
+	}
 	vpcResourceInfo, err := common.ParseVPCResourcePath(*nsxIPAddressAllocation.Path)
 	if err != nil {
 		return err
@@ -355,6 +381,8 @@ func (service *IPAddressAllocationService) GetIPAddressAllocationUID(nsxIPAddres
 
 // GetIPAddressAllocationByOwner gets the NSX IPAddressAllocation via SubnetPort UID or external AddrssBinding UID
 func (service *IPAddressAllocationService) GetIPAddressAllocationByOwner(owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
+	unlock := service.readAllocationUID(owner.GetUID())
+	defer unlock()
 	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(owner.GetUID())
 	return existingIPAddressAllocation, err
 }

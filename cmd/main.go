@@ -30,6 +30,7 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
+	migrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/gateway"
@@ -38,6 +39,7 @@ import (
 	namespacecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/namespace"
 	networkinfocontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkinfo"
 	networkpolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkpolicy"
+	networkresourcetransitioncontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/networkresourcetransition"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/node"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
@@ -89,6 +91,7 @@ func init() {
 	utilruntime.Must(crdv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(vmv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(migrationv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(gatewayv1.Install(scheme))
 	config.AddFlags()
 
@@ -267,6 +270,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			gateway.NewGatewayReconciler(reconcilerMgr, dnsRecordService),
 			subnetbindingcontroller.NewReconciler(reconcilerMgr, subnetService, subnetBindingService),
 			subnetipreservationcontroller.NewReconciler(reconcilerMgr, subnetIPReservationService, subnetService),
+			networkresourcetransitioncontroller.NewNetworkResourceTransitionReconciler(reconcilerMgr, ipAddressAllocationService, vpcService),
 		)
 		if lbReconciler := service.NewServiceLbReconciler(reconcilerMgr, commonService, dnsRecordService); lbReconciler != nil {
 			reconcilerList = append(reconcilerList, lbReconciler)
