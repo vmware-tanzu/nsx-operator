@@ -110,7 +110,8 @@ func (s *p2Suite) legacy(t *testing.T) {
 	s.updatePod(t, server, func(p *corev1.Pod) { p.Labels["podv2-e2e-role"] = "server" })
 	svc, e := testData.clientset.CoreV1().Services(s.namespace()).Create(s.ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: s.journal.Run + "-http", Labels: s.labels()}, Spec: corev1.ServiceSpec{Selector: map[string]string{p2Label: s.journal.Run, "podv2-e2e-role": "server"}, Ports: []corev1.ServicePort{{Port: 8080, TargetPort: intstr.FromInt32(8080)}}}}, metav1.CreateOptions{})
 	require.NoError(t, e)
-	for _, command := range [][]string{{"nslookup", svc.Name}, {"wget", "-T", "10", "-qO-", hostURL(server.Status.PodIP)}, {"wget", "-T", "10", "-qO-", fmt.Sprintf("http://%s:8080/", svc.Name)}} {
+	fqdn := fmt.Sprintf("%s.%s.svc.cluster.local", svc.Name, s.namespace())
+	for _, command := range [][]string{{"wget", "-T", "10", "-qO-", hostURL(server.Status.PodIP)}, {"wget", "-T", "10", "-qO-", fmt.Sprintf("http://%s:8080/", fqdn)}} {
 		s.wait(t, "legacy connectivity: "+strings.Join(command, " "), func(ctx context.Context) (bool, string, error) {
 			c, cancel := context.WithTimeout(ctx, 20*time.Second)
 			defer cancel()

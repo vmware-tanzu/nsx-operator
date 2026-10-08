@@ -720,8 +720,12 @@ func (s *p2Suite) preflight(t *testing.T) {
 	require.NoError(t, s.initOperatorCRD())
 	probe := defaultSet.DeepCopy()
 	delete(probe.Labels, common.LabelDefaultNetwork)
+	delete(probe.Labels, common.LabelDefaultSubnetSet)
 	_, err = s.operatorCRD.CrdV1alpha1().SubnetSets(ns.Name).Update(s.ctx, probe, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
 	require.NoError(t, err, "preflight: need permission to impersonate operator service account for default SubnetSet label changes")
+	probeRestore := defaultSet.DeepCopy()
+	_, err = s.operatorCRD.CrdV1alpha1().SubnetSets(ns.Name).Update(s.ctx, probeRestore, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+	require.NoError(t, err, "preflight: need permission to restore default SubnetSet labels")
 	if *p2DHCPNamespace != "" {
 		require.NotEqual(t, ns.Name, *p2DHCPNamespace, "DHCP fixture must use a separate namespace")
 		dhcpNS, e := testData.clientset.CoreV1().Namespaces().Get(s.ctx, *p2DHCPNamespace, metav1.GetOptions{})
@@ -1372,7 +1376,7 @@ func (s *p2Suite) verifyOriginalState(ctx context.Context) error {
 		return e
 	}
 	if e == nil {
-		if set.UID != s.journal.DefaultSet.UID || !reflect.DeepEqual(set.Spec, s.journal.DefaultSet.Spec) || set.Labels[common.LabelDefaultNetwork] != s.journal.DefaultSet.Labels[common.LabelDefaultNetwork] {
+		if set.UID != s.journal.DefaultSet.UID || !reflect.DeepEqual(set.Spec, s.journal.DefaultSet.Spec) || set.Labels[common.LabelDefaultNetwork] != s.journal.DefaultSet.Labels[common.LabelDefaultNetwork] || set.Labels[common.LabelDefaultSubnetSet] != s.journal.DefaultSet.Labels[common.LabelDefaultSubnetSet] {
 			return fmt.Errorf("original default SubnetSet identity/spec/label was not restored")
 		}
 	}

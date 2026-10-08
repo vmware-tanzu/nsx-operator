@@ -272,8 +272,18 @@ func (s *p2Suite) defaultLabel(ctx context.Context, name string, on bool) error 
 		}
 		if on {
 			c.Labels[common.LabelDefaultNetwork] = common.DefaultPodNetwork
+			if name == s.journal.DefaultSet.Name {
+				if oldVal, ok := s.journal.DefaultSet.Labels[common.LabelDefaultSubnetSet]; ok {
+					c.Labels[common.LabelDefaultSubnetSet] = oldVal
+				} else {
+					c.Labels[common.LabelDefaultSubnetSet] = common.LabelDefaultPodSubnetSet
+				}
+			} else {
+				c.Labels[common.LabelDefaultSubnetSet] = common.LabelDefaultPodSubnetSet
+			}
 		} else {
 			delete(c.Labels, common.LabelDefaultNetwork)
+			delete(c.Labels, common.LabelDefaultSubnetSet)
 		}
 		_, e = s.operatorCRD.CrdV1alpha1().SubnetSets(c.Namespace).Update(ctx, c, metav1.UpdateOptions{})
 		return e
@@ -308,7 +318,7 @@ func (s *p2Suite) staticDefault(t *testing.T) {
 		require.NoError(t, e)
 	}
 	require.NoError(t, s.defaultLabel(s.ctx, s.journal.DefaultSet.Name, false))
-	sets, e := testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).List(s.ctx, s.options())
+	sets, e := testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).List(s.ctx, metav1.ListOptions{})
 	require.NoError(t, e)
 	for _, set := range sets.Items {
 		if set.Name != name {
@@ -318,7 +328,7 @@ func (s *p2Suite) staticDefault(t *testing.T) {
 	require.NoError(t, s.defaultLabel(s.ctx, name, true))
 }
 func (s *p2Suite) restoreDefault(ctx context.Context) error {
-	sets, e := testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).List(ctx, s.options())
+	sets, e := testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).List(ctx, metav1.ListOptions{})
 	if e != nil {
 		return e
 	}
