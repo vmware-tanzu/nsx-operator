@@ -193,6 +193,7 @@ func (s *p2Suite) verify(t *testing.T, p *corev1.Pod, c *api.SubnetPort, port *m
 		if strings.TrimSuffix(*port.Path, "/ports/"+parts[4]) != c.Status.NetworkInterfaceConfig.SubnetID {
 			return false, "CR SubnetID differs from NSX parent", nil
 		}
+		*port = fresh
 		return true, "identity, attachment, IP and MAC agree", nil
 	})
 }
