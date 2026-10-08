@@ -1442,6 +1442,9 @@ func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.Ad
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
 	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
+	if nsxSubnet.Path != nil {
+		subnetPort.Status.NetworkInterfaceConfig.SubnetID = *nsxSubnet.Path
+	}
 	// Get all gateways from the subnet (may be IPv4, IPv6, or both for dual-stack)
 	gatewaysWithPrefixes, err := r.SubnetService.GetAllGatewayPrefixesOfSubnet(nsxSubnet)
 	if err != nil {

@@ -137,6 +137,12 @@ func (s *p2Suite) verify(t *testing.T, p *corev1.Pod, c *api.SubnetPort, port *m
 	parts, e := p2.PortPath(ptr.Deref(port.Path, ""))
 	require.NoError(t, e)
 	s.wait(t, "CR identity and network status match NSX realization", func(ctx context.Context) (bool, string, error) {
+		// Re-fetch SubnetPort CR so assertions test its converged status, not just initial state.
+		latestCR, e := testData.crdClientset.CrdV1alpha1().SubnetPorts(c.Namespace).Get(ctx, c.Name, metav1.GetOptions{})
+		if e != nil {
+			return false, "GET SubnetPort CR", e
+		}
+		c = latestCR
 		// Search locates the port; direct GET avoids stale search-index fields.
 		fresh, e := testData.nsxClient.PortClient.Get(parts[0], parts[1], parts[2], parts[3], parts[4])
 		if e != nil {
