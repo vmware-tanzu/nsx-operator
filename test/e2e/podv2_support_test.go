@@ -830,7 +830,25 @@ func (s *p2Suite) normal(ctx context.Context) error {
 			if execErr != nil {
 				return false, "read mounted test configuration", execErr
 			}
-			return actual == string(s.secret.Data["active.ini"]), "operator runtime config must match the selected test settings (contents omitted)", nil
+			if actual != string(s.secret.Data["active.ini"]) {
+				return false, "operator runtime config must match the selected test settings (contents omitted)", nil
+			}
+			probeSet := &api.SubnetSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "webhook-probe",
+					Namespace: "default",
+				},
+				Spec: api.SubnetSetSpec{
+					IPAddressType: api.IPAddressTypeIPv4,
+					IPv4SubnetSize: 32,
+					AccessMode:    api.AccessMode(api.AccessModePrivate),
+				},
+			}
+			_, probeErr := testData.crdClientset.CrdV1alpha1().SubnetSets("default").Create(c, probeSet, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
+			if probeErr != nil && (strings.Contains(probeErr.Error(), "failed calling webhook") || strings.Contains(probeErr.Error(), "connection refused")) {
+				return false, fmt.Sprintf("waiting for operator validating webhook (%v)", probeErr), nil
+			}
+			return true, "", nil
 		}
 		return false, "no running operator Pod", nil
 	})

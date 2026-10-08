@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -15,6 +16,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 
@@ -289,9 +291,22 @@ func (s *p2Suite) staticDefault(t *testing.T) {
 		if spec.IPAddressType != api.IPAddressTypeIPv4 {
 			spec.IPv6PrefixLength = 64
 		}
-		_, e = testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).Create(s.ctx, &api.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.namespace(), Labels: s.labels()}, Spec: spec}, metav1.CreateOptions{})
+		var lastErr error
+		pollErr := wait.PollUntilContextTimeout(s.ctx, 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
+			_, e = testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).Create(ctx, &api.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: s.namespace(), Labels: s.labels()}, Spec: spec}, metav1.CreateOptions{})
+			if e == nil || apierrors.IsAlreadyExists(e) {
+				return true, nil
+			}
+			lastErr = e
+			if strings.Contains(e.Error(), "failed calling webhook") || strings.Contains(e.Error(), "connection refused") {
+				return false, nil
+			}
+			return false, e
+		})
+		require.NoError(t, pollErr, "failed creating static default SubnetSet: %v", lastErr)
+	} else {
+		require.NoError(t, e)
 	}
-	require.NoError(t, e)
 	require.NoError(t, s.defaultLabel(s.ctx, s.journal.DefaultSet.Name, false))
 	sets, e := testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).List(s.ctx, s.options())
 	require.NoError(t, e)
