@@ -482,12 +482,24 @@ func TestIPAddressAllocationReconciler_handleUpdate(t *testing.T) {
 
 	tests := []struct {
 		name         string
+		annotations  map[string]string
 		updated      bool
 		updateErr    error
 		initialConds []v1alpha1.Condition
 		expectConds  bool
 		expectErr    bool
+		expectSkip   bool
 	}{
+		{
+			name:         "transition target awaiting adoption, skip reconciliation",
+			annotations:  map[string]string{common.AnnotationTransitionTarget: "true"},
+			updated:      false,
+			updateErr:    nil,
+			initialConds: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v1.ConditionTrue}},
+			expectConds:  true,
+			expectErr:    false,
+			expectSkip:   true,
+		},
 		{
 			name:         "update true, clear conditions",
 			updated:      true,
@@ -517,13 +529,18 @@ func TestIPAddressAllocationReconciler_handleUpdate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			obj := &v1alpha1.IPAddressAllocation{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: tt.annotations,
+				},
 				Status: v1alpha1.IPAddressAllocationStatus{
 					Conditions: tt.initialConds,
 				},
 			}
 
+			called := false
 			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "CreateOrUpdateIPAddressAllocation",
 				func(_ *ipaddressallocation.IPAddressAllocationService, _ *v1alpha1.IPAddressAllocation, _ bool) (bool, error) {
+					called = true
 					return tt.updated, tt.updateErr
 				})
 			defer patches.Reset()
@@ -543,6 +560,9 @@ func TestIPAddressAllocationReconciler_handleUpdate(t *testing.T) {
 			defer patches4.Reset()
 
 			_, err := r.handleUpdate(ctx, obj)
+			if tt.expectSkip {
+				assert.False(t, called)
+			}
 			if tt.expectErr {
 				assert.NotNil(t, err)
 			} else {
