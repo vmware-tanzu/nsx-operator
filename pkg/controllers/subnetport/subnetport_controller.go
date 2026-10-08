@@ -216,16 +216,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
 			if isSubnetNotFound(err, inSharedSubnet) {
-				vpcSubnetPort, searchErr := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
-				if searchErr != nil {
-					log.Error(searchErr, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
-					err = errors.Join(err, searchErr)
-				} else if vpcSubnetPort != nil {
-					log.Info("Previous NSX Subnet is not found, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "nsxSubnetPath", nsxSubnetPath)
-					if e := r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); e != nil {
-						log.Error(e, "Failed to delete the stale SubnetPort", "subnetPort.UID", subnetPort.UID)
-						err = errors.Join(err, e)
-					}
+				log.Info("Previous NSX Subnet is not found, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "nsxSubnetPath", nsxSubnetPath)
+				if e := r.SubnetPortService.DeletePortByUID(subnetPort.GetUID()); e != nil {
+					log.Error(e, "Failed to delete the stale SubnetPort", "subnetPort.UID", subnetPort.UID)
+					err = errors.Join(err, e)
 				}
 			} else {
 				log.Warn("Failed to get Subnet by path due to an error other than not found, skipping deleting SubnetPort", "path", nsxSubnetPath, "err", err)
@@ -263,158 +257,8 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultNormal, err
 		}
 
-		var ab *v1alpha1.AddressBinding
-		if interfaceIPType != v1alpha1.IPAddressTypeIPv6 && !isPublicSubnet {
-			ab = r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
-			err = r.IpAddressAllocationService.CreateIPAddressAllocationForAddressBinding(ab, subnetPort, r.restoreMode)
-			if err != nil {
-				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
-				return common.ResultRequeue, err
-			}
-		}
-		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, contextID, labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
-		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
-			if nsxutil.IsRealizeStateError(err) {
-				return common.ResultRequeueAfter60sec, nil
-			}
-			return common.ResultRequeue, err
-		}
-		if nsxSubnetPortState != nil {
-			if nsxSubnetPortState.ExternalAddressBinding == nil && ab == nil {
-				err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
-				if err != nil {
-					log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
-					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
-					return common.ResultRequeue, err
-				}
-			}
-			// In restore mode, we do not update the SubnetPort status to retian the status, so no need to check the realized bindings
-			// Check StaticIPAllocationType as mixed mode Subnet also have static ip allocation enabled but SubnetPort may be created in dhcp pool
-			// Use subnetPort.Spec.StaticIPAllocationType, not the value resolved above: that one is empty on
-			// reconciles of an already-realized port, while updateSubnetPortIPType keeps Spec backfilled.
-			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
-				// Wait until every requested static family is realized, not just any binding,
-				// since mixed-mode Subnets can realize the DHCP family first.
-				if !realizedBindingsCoverStaticFamilies(nsxSubnetPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType) {
-					err = errors.New("IP and MAC are missing for SubnetPort")
-					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
-					return common.ResultNormal, err
-				}
-			}
-			subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
-			// Placeholder sizing until RealizedBindings arrives below and replaces it outright.
-			preSeedCount := 1
-			if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
-				preSeedCount = 2
-			}
-			if len(subnetPort.Spec.AddressBindings) > preSeedCount {
-				preSeedCount = len(subnetPort.Spec.AddressBindings)
-			}
-			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
-				IPAddresses:               make([]v1alpha1.NetworkInterfaceIPAddress, preSeedCount),
-				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
-				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
-				RADeactivated:             raDeactivated,
-			}
-			if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
-				if len(nsxSubnetPortState.RealizedBindings) > 0 {
-					// A family is shown in status if it's either statically allocated or
-					// explicitly requested via addressBindings; otherwise it's an incidental
-					// DHCP lease and gets dropped. Checked per family, so a dual-stack port
-					// with an explicit binding for only one family still hides the other.
-					explicitIPv4Count, explicitIPv6Count := util.CountAddressBindingsByFamily(subnetPort.Spec.AddressBindings)
-					realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxSubnetPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType, explicitIPv4Count > 0, explicitIPv6Count > 0)
-					if len(realizedIPAddresses) > 0 {
-						subnetPort.Status.NetworkInterfaceConfig.IPAddresses = realizedIPAddresses
-					}
-					subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
-				} else if subnetPort.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone && len(subnetPort.Spec.AddressBindings) > 0 {
-					// StaticIPAllocation disabled: propagate MAC from spec since there's no realized binding yet.
-					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
-				}
-			}
-			// For SubnetPort under DHCP Subnet or no ip Subnet, we should keep the MACAddress in the status for restore.
-			// when no replacement is provided from realized bindings or spec, avoiding clearing MAC upon port updates (e.g. tag update).
-			// There's a corner case that for SubnetPort under Subnet with StaticIPAllocation enabled,
-			// the SubnetPort state may be empty and it will be updated after some time.
-			// In normal mode, we should also preserve the existing MACAddress (e.g. discovered by VIF polling)
-			if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
-				subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
-			}
-			if r.restoreMode {
-				// We should not change the IP on SubnetPort in restore mode
-				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = old_status.NetworkInterfaceConfig.IPAddresses
-			}
-			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
-			if err != nil {
-				log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
-			}
-		}
-		if reflect.DeepEqual(*old_status, subnetPort.Status) {
-			log.Info("Status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
-		} else {
-			// If the SubnetPort CR's status changed, let's clean the conditions, to ensure the r.Client.Status().Update in the following updateSuccess will be invoked at any time.
-			subnetPort.Status.Conditions = nil
-		}
-		r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService, isPublicSubnet)
-		if r.restoreMode && pod != nil {
-			// Status updates log errors internally. Do not finish restore until the
-			// CR durably describes the port, including when restore_vif is enabled.
-			if err := r.checkRestoreStatusPersisted(ctx, reader, req.NamespacedName, &subnetPort.Status); err != nil {
-				return common.ResultNormal, err
-			}
-		}
-		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
-			// UpdateSuccess may fail due to k8s connection or update conflicts.
-			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
-			// Otherwise VM operator will fail to get the new attachment ID.
-			updatedSubnetPort := &v1alpha1.SubnetPort{}
-			// Use reader (APIReader in restore mode) to avoid informer cache lag
-			err := reader.Get(ctx, req.NamespacedName, updatedSubnetPort)
-			if err != nil {
-				return common.ResultNormal, err
-			}
-			if updatedSubnetPort.Status.Attachment.ID != subnetPort.Status.Attachment.ID {
-				log.Error(nil, "SubnetPort attachment ID is not updated, will retry later")
-				return common.ResultNormal, fmt.Errorf("SubnetPort Attachment ID is not updated")
-			}
-			// For restored SubnetPort,
-			// add restore annotation on SubnetPort CR for cpVM;
-			// add restore annotation on VM for VM service VM;
-			// update restore status on Pod to notify Spherelet for NSX version < 9.2 (ESX 9.1).
-			portLabels := subnetPort.GetLabels()
-			cpvmValue, ok := portLabels[servicecommon.LabelCPVM]
-			if ok {
-				isCPVM, err := strconv.ParseBool(cpvmValue)
-				if err != nil {
-					log.Error(err, "Failed to parse cpvm label", "label", cpvmValue)
-				} else if isCPVM {
-					retry.OnError(util.K8sClientRetry, func(err error) bool {
-						log.Error(err, "Failed to update restore annotation on SubnetPort", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
-						return err != nil
-					}, func() error {
-						return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, subnetPort, "cpvm")
-					})
-				}
-			}
-			if vm != nil {
-				retry.OnError(util.K8sClientRetry, func(err error) bool {
-					log.Error(err, "Failed to update restore annotation on VM", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "VM", vm.Name)
-					return err != nil
-				}, func() error {
-					return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, vm, nicName)
-				})
-			}
-			if pod != nil {
-				retry.OnError(util.K8sClientRetry, func(err error) bool {
-					log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
-					return err != nil
-				}, func() error {
-					return common.SetReconfigureNicStatus(r.Client, reader, ctx, pod)
-				})
-			}
-		}
+		segmentPath, isSegmentTracking := r.SubnetPortService.GetSegmentTrackingPath(nsxSubnet)
+		return r.reconcileSubnetPort(ctx, req, subnetPort, old_status, nsxSubnet, nsxSubnetPath, segmentPath, isSegmentTracking, labels, isVmSubnetPort, interfaceIPType, vm, nicName, raDeactivated, isPublicSubnet, contextID, pod, reader)
 	} else {
 		r.StatusUpdater.IncreaseDeleteTotal()
 		vpcSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
@@ -429,11 +273,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					"pod", vpcSubnetPort.DisplayName, "statefulset-uid", common.GetStsUID(vpcSubnetPort))
 				return common.ResultNormal, nil
 			}
-			if err = r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); err != nil {
-				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError, false)
-				return common.ResultRequeue, err
-			}
+		}
+		if err = r.SubnetPortService.DeletePortByUID(subnetPort.GetUID()); err != nil {
+			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
+			setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError, false)
+			return common.ResultRequeue, err
 		}
 
 		ab := r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
@@ -444,6 +288,224 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), vmOrInterfaceNotFoundError, false)
+	}
+	return common.ResultNormal, nil
+}
+
+func (r *SubnetPortReconciler) reconcileSubnetPort(
+	ctx context.Context,
+	req ctrl.Request,
+	subnetPort *v1alpha1.SubnetPort,
+	old_status *v1alpha1.SubnetPortStatus,
+	nsxSubnet *model.VpcSubnet,
+	nsxSubnetPath string,
+	segmentPath string,
+	isSegmentTracking bool,
+	labels *map[string]string,
+	isVmSubnetPort bool,
+	interfaceIPType v1alpha1.IPAddressType,
+	vm *vmv1alpha1.VirtualMachine,
+	nicName string,
+	raDeactivated bool,
+	isPublicSubnet bool,
+	contextID string,
+	pod *v1.Pod,
+	reader client.Reader,
+) (ctrl.Result, error) {
+	var nsxPortState *model.SegmentPortState
+	var err error
+
+	if isSegmentTracking {
+		nsxPortState, err = r.SubnetPortService.CreateOrUpdateSegmentPort(subnetPort, segmentPath, contextID, labels, isVmSubnetPort, r.restoreMode)
+	} else {
+		var ab *v1alpha1.AddressBinding
+		if interfaceIPType != v1alpha1.IPAddressTypeIPv6 && !isPublicSubnet {
+			ab = r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
+			err = r.IpAddressAllocationService.CreateIPAddressAllocationForAddressBinding(ab, subnetPort, r.restoreMode)
+			if err != nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to create NSX IPAddressAllocation for AddressBinding restore", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+				return common.ResultRequeue, err
+			}
+		}
+		nsxPortState, err = r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, contextID, labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
+	}
+
+	if err != nil {
+		r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+		if nsxutil.IsRealizeStateError(err) {
+			return common.ResultRequeueAfter60sec, nil
+		}
+		return common.ResultRequeue, err
+	}
+
+	if nsxPortState != nil {
+		if !isSegmentTracking {
+			ab := r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
+			if nsxPortState.ExternalAddressBinding == nil && ab == nil {
+				err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
+				if err != nil {
+					log.Error(err, "Failed to cleanup possible NSX IPAddressAllocation", "SubnetPort", subnetPort)
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+					return common.ResultRequeue, err
+				}
+			}
+			// In restore mode, we do not update the SubnetPort status to retian the status, so no need to check the realized bindings
+			// Check StaticIPAllocationType as mixed mode Subnet also have static ip allocation enabled but SubnetPort may be created in dhcp pool
+			// Use subnetPort.Spec.StaticIPAllocationType, not the value resolved above: that one is empty on
+			// reconciles of an already-realized port, while updateSubnetPortIPType keeps Spec backfilled.
+			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
+				// Wait until every requested static family is realized, not just any binding,
+				// since mixed-mode Subnets can realize the DHCP family first.
+				if !realizedBindingsCoverStaticFamilies(nsxPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType) {
+					err = errors.New("IP and MAC are missing for SubnetPort")
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+					return common.ResultNormal, err
+				}
+			}
+		}
+
+		if nsxPortState.Attachment != nil && nsxPortState.Attachment.Id != nil {
+			subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxPortState.Attachment.Id}
+		}
+
+		if !isSegmentTracking {
+			r.populateNetworkInterfaceConfig(subnetPort, old_status, nsxSubnet, nsxPortState, raDeactivated)
+		}
+
+		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
+		if err != nil {
+			log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+		}
+	}
+
+	if reflect.DeepEqual(*old_status, subnetPort.Status) {
+		log.Info("Status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
+	} else {
+		// If the SubnetPort CR's status changed, let's clean the conditions, to ensure the r.Client.Status().Update in the following updateSuccess will be invoked at any time.
+		subnetPort.Status.Conditions = nil
+	}
+
+	r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService, isPublicSubnet)
+	return r.handleVMAnnotationsIfInRestoreMode(ctx, req, subnetPort, vm, nicName, pod, reader)
+}
+
+func (r *SubnetPortReconciler) populateNetworkInterfaceConfig(
+	subnetPort *v1alpha1.SubnetPort,
+	old_status *v1alpha1.SubnetPortStatus,
+	nsxSubnet *model.VpcSubnet,
+	nsxPortState *model.SegmentPortState,
+	raDeactivated bool,
+) {
+	// Placeholder sizing until RealizedBindings arrives below and replaces it outright.
+	preSeedCount := 1
+	if subnetPort.Spec.InterfaceIPType == v1alpha1.IPAddressTypeIPv4IPv6 {
+		preSeedCount = 2
+	}
+	if len(subnetPort.Spec.AddressBindings) > preSeedCount {
+		preSeedCount = len(subnetPort.Spec.AddressBindings)
+	}
+	subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
+		IPAddresses:               make([]v1alpha1.NetworkInterfaceIPAddress, preSeedCount),
+		DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
+		DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
+		RADeactivated:             raDeactivated,
+	}
+	if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
+		if len(nsxPortState.RealizedBindings) > 0 {
+			// A family is shown in status if it's either statically allocated or
+			// explicitly requested via addressBindings; otherwise it's an incidental
+			// DHCP lease and gets dropped. Checked per family, so a dual-stack port
+			// with an explicit binding for only one family still hides the other.
+			explicitIPv4Count, explicitIPv6Count := util.CountAddressBindingsByFamily(subnetPort.Spec.AddressBindings)
+			realizedIPAddresses, macAddress := networkInterfaceIPAddressesFromRealizedBindings(nsxPortState.RealizedBindings, subnetPort.Spec.StaticIPAllocationType, explicitIPv4Count > 0, explicitIPv6Count > 0)
+			if len(realizedIPAddresses) > 0 {
+				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = realizedIPAddresses
+			}
+			subnetPort.Status.NetworkInterfaceConfig.MACAddress = macAddress
+		} else if subnetPort.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone && len(subnetPort.Spec.AddressBindings) > 0 {
+			// StaticIPAllocation disabled: propagate MAC from spec since there's no realized binding yet.
+			subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
+		}
+	}
+	// For SubnetPort under DHCP Subnet or no ip Subnet, we should keep the MACAddress in the status for restore.
+	// when no replacement is provided from realized bindings or spec, avoiding clearing MAC upon port updates (e.g. tag update).
+	// There's a corner case that for SubnetPort under Subnet with StaticIPAllocation enabled,
+	// the SubnetPort state may be empty and it will be updated after some time.
+	// In normal mode, we should also preserve the existing MACAddress (e.g. discovered by VIF polling)
+	if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
+		subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
+	}
+	if r.restoreMode {
+		// We should not change the IP on SubnetPort in restore mode
+		subnetPort.Status.NetworkInterfaceConfig.IPAddresses = old_status.NetworkInterfaceConfig.IPAddresses
+	}
+}
+
+func (r *SubnetPortReconciler) handleVMAnnotationsIfInRestoreMode(
+	ctx context.Context,
+	req ctrl.Request,
+	subnetPort *v1alpha1.SubnetPort,
+	vm *vmv1alpha1.VirtualMachine,
+	nicName string,
+	pod *v1.Pod,
+	reader client.Reader,
+) (ctrl.Result, error) {
+	if r.restoreMode && pod != nil {
+		// Status updates log errors internally. Do not finish restore until the
+		// CR durably describes the port, including when restore_vif is enabled.
+		if err := r.checkRestoreStatusPersisted(ctx, reader, req.NamespacedName, &subnetPort.Status); err != nil {
+			return common.ResultNormal, err
+		}
+	}
+	if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+		// UpdateSuccess may fail due to k8s connection or update conflicts.
+		// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
+		// Otherwise VM operator will fail to get the new attachment ID.
+		updatedSubnetPort := &v1alpha1.SubnetPort{}
+		// Use reader (APIReader in restore mode) to avoid informer cache lag
+		err := reader.Get(ctx, req.NamespacedName, updatedSubnetPort)
+		if err != nil {
+			return common.ResultNormal, err
+		}
+		if updatedSubnetPort.Status.Attachment.ID != subnetPort.Status.Attachment.ID {
+			log.Error(nil, "SubnetPort attachment ID is not updated, will retry later")
+			return common.ResultNormal, fmt.Errorf("SubnetPort Attachment ID is not updated")
+		}
+		// For restored SubnetPort,
+		// add restore annotation on SubnetPort CR for cpVM;
+		// add restore annotation on VM for VM service VM;
+		// update restore status on Pod to notify Spherelet for NSX version < 9.2 (ESX 9.1).
+		portLabels := subnetPort.GetLabels()
+		cpvmValue, ok := portLabels[servicecommon.LabelCPVM]
+		if ok {
+			isCPVM, err := strconv.ParseBool(cpvmValue)
+			if err != nil {
+				log.Error(err, "Failed to parse cpvm label", "label", cpvmValue)
+			} else if isCPVM {
+				retry.OnError(util.K8sClientRetry, func(err error) bool {
+					log.Error(err, "Failed to update restore annotation on SubnetPort", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
+					return err != nil
+				}, func() error {
+					return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, subnetPort, "cpvm")
+				})
+			}
+		}
+		if vm != nil {
+			retry.OnError(util.K8sClientRetry, func(err error) bool {
+				log.Error(err, "Failed to update restore annotation on VM", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "VM", vm.Name)
+				return err != nil
+			}, func() error {
+				return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, vm, nicName)
+			})
+		}
+		if pod != nil {
+			retry.OnError(util.K8sClientRetry, func(err error) bool {
+				log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
+				return err != nil
+			}, func() error {
+				return common.SetReconfigureNicStatus(r.Client, reader, ctx, pod)
+			})
+		}
 	}
 	return common.ResultNormal, nil
 }
@@ -1093,7 +1155,7 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 		}
 		log.Debug("GC collected SubnetPort CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		err = r.SubnetPortService.DeleteSubnetPortById(elem)
+		err = r.SubnetPortService.DeletePortById(elem)
 		if err != nil {
 			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()

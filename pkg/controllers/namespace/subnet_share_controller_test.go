@@ -622,6 +622,12 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := createTestNamespaceReconciler(tt.existingSubnets)
 
+			cachePatch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetFromCacheOrAPI",
+				func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) {
+					return nil, nil
+				})
+			defer cachePatch.Reset()
+
 			if tt.setupMocks != nil {
 				patches := tt.setupMocks(r)
 				if patches != nil {
@@ -1867,4 +1873,53 @@ func TestClearSubnetSetFailureCondition(t *testing.T) {
 	clearSubnetSetFailureCondition(ctx, k8sClient, subnetSet)
 	assert.Len(t, subnetSet.Status.Conditions, 1)
 	assert.Equal(t, v1alpha1.ConditionType("OtherCondition"), subnetSet.Status.Conditions[0].Type)
+}
+
+func TestCreateSharedSubnetCR_WCPSegmentTrackingSubnet(t *testing.T) {
+	r := createTestNamespaceReconciler(nil)
+	r.SubnetService = &subnet.SubnetService{}
+	r.SubnetService.SharedSubnetResourceMap = make(map[string]sets.Set[types.NamespacedName])
+
+	patches := gomonkey.ApplyFunc(servicecommon.ExtractSubnetPath, func(path string) (string, string, string, string, error) {
+		return "org-1", "proj-1", "vpc-1", "sub-1", nil
+	})
+	defer patches.Reset()
+
+	patches2 := gomonkey.ApplyFunc(servicecommon.GetVPCFullID, func(orgID, projectID, vpcID string, vpcService servicecommon.VPCServiceProvider) (string, error) {
+		return "vpc-full-id", nil
+	})
+	defer patches2.Reset()
+
+	patches3 := gomonkey.ApplyFunc(servicecommon.ConvertSubnetPathToAssociatedResource, func(path string) (string, error) {
+		return "proj-1:vpc-1:sub-1", nil
+	})
+	defer patches3.Reset()
+
+	segmentPathVal := "/infra/segments/seg-tracking-1"
+	nsxSubnet := &model.VpcSubnet{
+		Id: servicecommon.String("sub-1"),
+		Tags: []model.Tag{
+			{
+				Scope: servicecommon.String(servicecommon.TagScopeWCPSegmentTrackingSubnet),
+				Tag:   servicecommon.String(segmentPathVal),
+			},
+		},
+	}
+
+	patches4 := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) {
+		return nsxSubnet, nil
+	})
+	defer patches4.Reset()
+
+	var createdCR *v1alpha1.Subnet
+	patches5 := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "createSubnetCRInK8s", func(_ *NamespaceReconciler, _ context.Context, cr *v1alpha1.Subnet) error {
+		createdCR = cr
+		return nil
+	})
+	defer patches5.Reset()
+
+	err := r.createSharedSubnetCR(context.Background(), "ns-shared", "/orgs/org-1/projects/proj-1/vpcs/vpc-1/subnets/sub-1", "", map[string]*v1alpha1.Subnet{})
+	assert.NoError(t, err)
+	assert.NotNil(t, createdCR)
+	assert.Equal(t, segmentPathVal, createdCR.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet])
 }
