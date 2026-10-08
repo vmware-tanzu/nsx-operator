@@ -22,6 +22,8 @@ func keyFunc(obj interface{}) (string, error) {
 	switch v := obj.(type) {
 	case *model.VpcSubnetPort:
 		return *v.Id, nil
+	case *model.SegmentPort:
+		return *v.Id, nil
 	case types.UID:
 		return string(v), nil
 	case string:

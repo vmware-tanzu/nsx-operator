@@ -22,6 +22,8 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/trust_management/principal_identities"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	infra_ip_blocks "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/ip_blocks"
+	infra_segments "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/segments"
+	segment_ports "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/segments/ports"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/domains/security_policies"
@@ -107,6 +109,8 @@ type Client struct {
 	VpcGroupClient                    vpcs.GroupsClient
 	PortClient                        subnets.PortsClient
 	PortStateClient                   ports.StateClient
+	SegmentPortsClient                infra_segments.PortsClient
+	SegmentPortStateClient            segment_ports.StateClient
 	IPPoolClient                      subnets.IpPoolsClient
 	IPAllocationClient                ip_pools.IpAllocationsClient
 	DhcpServerConfigStatsClient       dhcp_server_config.StatsClient
@@ -231,6 +235,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	vpcGroupClient := vpcs.NewGroupsClient(connector)
 	portClient := subnets.NewPortsClient(connectorAllowOverwrite)
 	portStateClient := ports.NewStateClient(connector)
+	segmentPortsClient := infra_segments.NewPortsClient(connectorAllowOverwrite)
+	segmentPortStateClient := segment_ports.NewStateClient(connector)
 	ipPoolClient := subnets.NewIpPoolsClient(connector)
 	ipAllocationClient := ip_pools.NewIpAllocationsClient(connector)
 	statsClient := dhcp_server_config.NewStatsClient(connector)
@@ -304,6 +310,8 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		VpcGroupClient:                    vpcGroupClient,
 		PortClient:                        portClient,
 		PortStateClient:                   portStateClient,
+		SegmentPortsClient:                segmentPortsClient,
+		SegmentPortStateClient:            segmentPortStateClient,
 		SubnetStatusClient:                subnetStatusClient,
 		VPCSecurityClient:                 vpcSecurityClient,
 		VPCRuleClient:                     vpcRuleClient,
