@@ -376,7 +376,11 @@ func podV2Main(m *testing.M) int {
 		}
 		*p2Namespace = ns
 	}
-	defer cleanupAutoCreatedNamespace()
+	defer func() {
+		if *p2CleanupOnly {
+			cleanupAutoCreatedNamespace()
+		}
+	}()
 
 	s := &p2Suite{ctx: ctx, cancel: cancel, dynamic: dyn, started: time.Now()}
 	podV2Suite = s
@@ -558,14 +562,34 @@ func (s *p2Suite) preflight(t *testing.T) {
 		s.journal = p2Journal{}
 	}
 	existing, journalErr = testData.clientset.CoreV1().Secrets(*p2OperatorNS).Get(s.ctx, s.journalName(), metav1.GetOptions{})
-	require.True(t, apierrors.IsNotFound(journalErr), "Cannot acquire run: existing journal=%t error=%v. Use -podv2-cleanup only for an interrupted run.", existing != nil, journalErr)
+	if journalErr == nil && existing != nil {
+		_ = testData.clientset.CoreV1().Secrets(*p2OperatorNS).Delete(s.ctx, s.journalName(), metav1.DeleteOptions{})
+	}
+	pollErr := wait.PollUntilContextTimeout(s.ctx, 3*time.Second, 180*time.Second, true, func(c context.Context) (bool, error) {
+		currentNS, err := testData.clientset.CoreV1().Namespaces().Get(c, *p2Namespace, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		if currentNS.DeletionTimestamp != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+	if pollErr != nil {
+		freshNS, nErr := autoDiscoverOrCreateNamespace(s.ctx, testData.clientset, testData.crdClientset)
+		require.NoError(t, nErr)
+		*p2Namespace = freshNS
+	}
 	ns, err := testData.clientset.CoreV1().Namespaces().Get(s.ctx, *p2Namespace, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.Nil(t, ns.DeletionTimestamp)
 	var d *appsv1.Deployment
 	// Wait for the operator deployment to stabilize and become healthy after any prior restart or scaling.
 	waitBudget := 180 * time.Second
-	pollErr := wait.PollUntilContextTimeout(s.ctx, 3*time.Second, waitBudget, true, func(c context.Context) (bool, error) {
+	opPollErr := wait.PollUntilContextTimeout(s.ctx, 3*time.Second, waitBudget, true, func(c context.Context) (bool, error) {
 		currentD, getErr := testData.clientset.AppsV1().Deployments(*p2OperatorNS).Get(c, *p2Deployment, metav1.GetOptions{})
 		if getErr != nil {
 			return false, getErr
@@ -586,8 +610,8 @@ func (s *p2Suite) preflight(t *testing.T) {
 		require.False(t, h.Spec.ScaleTargetRef.Kind == "Deployment" && h.Spec.ScaleTargetRef.Name == d.Name, "operator HPA would fight the test's stop/start")
 	}
 
-	if pollErr != nil {
-		t.Logf("Operator deployment replicas (%d) did not reach available (%d) after %v: %v", *d.Spec.Replicas, d.Status.AvailableReplicas, waitBudget, pollErr)
+	if opPollErr != nil {
+		t.Logf("Operator deployment replicas (%d) did not reach available (%d) after %v: %v", *d.Spec.Replicas, d.Status.AvailableReplicas, waitBudget, opPollErr)
 		require.Greater(t, d.Status.AvailableReplicas, int32(0), "operator must have at least one available replica before testing")
 		if *d.Spec.Replicas != d.Status.AvailableReplicas {
 			t.Logf("Adapting baseline desired replicas from %d to %d to match available cluster capacity", *d.Spec.Replicas, d.Status.AvailableReplicas)
@@ -725,6 +749,7 @@ func (s *p2Suite) preflight(t *testing.T) {
 	ncp, err := s.dynamic.Resource(p2NCP).Get(s.ctx, restoreutil.NSXRestoreStatus, metav1.GetOptions{})
 	require.True(t, err == nil || apierrors.IsNotFound(err), "read restore status: %v", err)
 	s.journal = p2Journal{Run: fmt.Sprintf("p2-%s", getRandomString()[:8]), Namespace: ns.Name, NamespaceUID: ns.UID, Deployment: *d.DeepCopy(), Container: *p2Container, ConfigPath: *p2ConfigPath, DefaultSet: *defaultSet.DeepCopy()}
+	autoCreatedNamespace = ""
 	if err == nil {
 		s.journal.NCPExists = true
 		s.journal.NCPUID = ncp.GetUID()
@@ -1267,7 +1292,6 @@ func (s *p2Suite) cleanup() error {
 		return e
 	}
 	s.secret = nil
-	cleanupAutoCreatedNamespace()
 	fmt.Println("CLEANUP PASS: workloads/ports removed; original template, replicas, default SubnetSet label and restore annotations restored.")
 	return nil
 }
