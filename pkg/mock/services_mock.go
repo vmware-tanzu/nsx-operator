@@ -75,6 +75,11 @@ func (m *MockVPCServiceProvider) IsRADeactivatedByVPCPath(vpcPath string) (bool,
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockVPCServiceProvider) GetLBProvider() (common.LBProvider, error) {
+	args := m.Called()
+	return args.Get(0).(common.LBProvider), args.Error(1)
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }
@@ -195,4 +200,20 @@ func (m *MockIPAddressAllocationProvider) DeleteIPAddressAllocationByNSXResource
 
 func (m *MockIPAddressAllocationProvider) ListIPAddressAllocationWithAddressBinding() []*model.VpcIpAddressAllocation {
 	return []*model.VpcIpAddressAllocation{}
+}
+
+func (m *MockIPAddressAllocationProvider) GetIPAddressAllocationForTransition(uid types.UID, ns, name string) (*model.VpcIpAddressAllocation, error) {
+	args := m.Called(uid, ns, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.VpcIpAddressAllocation), args.Error(1)
+}
+
+func (m *MockIPAddressAllocationProvider) AdoptIPAddressAllocationTags(existingAlloc *model.VpcIpAddressAllocation, targetNs, targetNsUID, targetName string, targetUID types.UID) (*model.VpcIpAddressAllocation, error) {
+	args := m.Called(existingAlloc, targetNs, targetNsUID, targetName, targetUID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.VpcIpAddressAllocation), args.Error(1)
 }

@@ -213,3 +213,17 @@ func (service *IPAddressAllocationService) buildIPAddressAllocationName(obj meta
 func (service *IPAddressAllocationService) buildIPAddressAllocationTags(obj metav1.Object) []model.Tag {
 	return util.BuildBasicTags(service.NSXConfig.Cluster, obj, service.GetNamespaceUID(obj.GetNamespace()))
 }
+
+// buildTransitionTargetTags uses the same base tags as ordinary IPAA creation.
+func (service *IPAddressAllocationService) buildTransitionTargetTags(namespace, namespaceUID, name string, uid types.UID, preserveLB bool) []model.Tag {
+	target := &v1alpha1.IPAddressAllocation{ObjectMeta: metav1.ObjectMeta{
+		Namespace: namespace,
+		Name:      name,
+		UID:       uid,
+	}}
+	tags := util.BuildBasicTags(service.NSXConfig.Cluster, target, types.UID(namespaceUID))
+	if preserveLB {
+		tags = append(tags, model.Tag{Scope: String(common.TagScopeIPAllocLB), Tag: String("true")})
+	}
+	return tags
+}
