@@ -435,6 +435,9 @@ func restoreSubnetPortStatusFromPod(sp *v1alpha1.SubnetPort, pod *v1.Pod) error 
 	if sp.Status.NetworkInterfaceConfig.MACAddress == "" {
 		sp.Status.NetworkInterfaceConfig.MACAddress = restored.NetworkInterfaceConfig.MACAddress
 	}
+
+	// For DHCP ports with gateway-only info, we should preserve the gateway info
+	// and not overwrite it with empty Pod data if the Pod hasn't got an IP yet.
 	hasIP := false
 	for _, address := range sp.Status.NetworkInterfaceConfig.IPAddresses {
 		if address.IPAddress != "" {
@@ -442,13 +445,17 @@ func restoreSubnetPortStatusFromPod(sp *v1alpha1.SubnetPort, pod *v1.Pod) error 
 			break
 		}
 	}
-	if !hasIP {
-		// DHCP ports may have gateway-only placeholders in status. The Pod is
-		// the source of the allocated addresses in that case.
+	if !hasIP && len(restored.NetworkInterfaceConfig.IPAddresses) > 0 {
+		// Only replace with Pod's IPs if the Pod actually has IPs.
 		sp.Status.NetworkInterfaceConfig.IPAddresses = restored.NetworkInterfaceConfig.IPAddresses
 	}
-	if sp.Status.NetworkInterfaceConfig.MACAddress == "" || len(sp.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
-		return fmt.Errorf("Pod %s/%s has no persisted IP/MAC to restore SubnetPort %s", pod.Namespace, pod.Name, sp.Name)
+
+	// Check if this is a DHCP allocation without IP requirement.
+	isDHCP := sp.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone || sp.Spec.StaticIPAllocationType == ""
+	if !isDHCP {
+		if sp.Status.NetworkInterfaceConfig.MACAddress == "" || len(sp.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
+			return fmt.Errorf("Pod %s/%s has no persisted IP/MAC to restore SubnetPort %s", pod.Namespace, pod.Name, sp.Name)
+		}
 	}
 	return nil
 }
@@ -828,17 +835,48 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 		return restoreList, err
 	}
 	for _, subnetport := range subnetPortList.Items {
-		if common.GetPodNameForSubnetPort(&subnetport) != "" &&
-			(!nsxSubnetPortCRIDs.Has(string(subnetport.UID)) || subnetport.Status.Attachment.ID == "" || !common.IsObjectReady(subnetport.Status.Conditions)) {
+		isPodOwned := common.GetPodNameForSubnetPort(&subnetport) != ""
+		if isPodOwned {
 			pod, err := common.GetPodForSubnetPort(context.TODO(), reader, &subnetport)
 			if err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
 				return restoreList, err
 			}
-			if pod.Annotations[servicecommon.AnnotationPodMAC] != "" && !common.PodIsDeleted(pod) {
-				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+			if common.PodIsDeleted(pod) {
 				continue
 			}
+
+			if !nsxSubnetPortCRIDs.Has(string(subnetport.UID)) || subnetport.Status.Attachment.ID == "" || !common.IsObjectReady(subnetport.Status.Conditions) {
+				// We need to restore it.
+				// Allow if legacy MAC annotation exists OR if we're in Pod V2 mode and the CR has saved status we can use.
+				hasLegacyMAC := pod.Annotations[servicecommon.AnnotationPodMAC] != ""
+				// For native Pod V2, we don't have the old MAC annotation, but we should restore if it's not ready or missing backend.
+				// Even if it failed realization previously (Ready=False), it should be retried.
+				if hasLegacyMAC || nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+					hasSavedState := len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 || subnetport.Status.NetworkInterfaceConfig.MACAddress != ""
+					isDHCP := subnetport.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone || subnetport.Spec.StaticIPAllocationType == ""
+					// Issue 7: Do not add completely new static ports (no IP/MAC) to restore list, let normal reconcile handle them
+					if !hasLegacyMAC && !hasSavedState && !isDHCP {
+						log.Debug("Skipping completely new static Pod-owned SubnetPort in restore", "Namespace", subnetport.Namespace, "SubnetPort", subnetport.Name)
+						continue
+					}
+					restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				}
+			} else {
+				// Issue 8: Check Attachment ID consistency even for Ready Pod-owned SubnetPorts
+				existingSubnetPorts := r.SubnetPortService.SubnetPortStore.GetByIndex(servicecommon.TagScopeSubnetPortCRUID, string(subnetport.UID))
+				if len(existingSubnetPorts) > 0 && existingSubnetPorts[0] != nil && existingSubnetPorts[0].Attachment != nil && existingSubnetPorts[0].Attachment.Id != nil &&
+					*existingSubnetPorts[0].Attachment.Id != subnetport.Status.Attachment.ID {
+					log.Debug("Restore Pod-owned SubnetPort as the attachment ID is not updated", "Namespace", subnetport.Namespace, "SubnetPort", subnetport.Name)
+					restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				}
+			}
+			// Skip the general checks for Pod-owned SubnetPorts
+			continue
 		}
+
 		if len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 {
 			// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX SubnetPort in cache
 			if !nsxSubnetPortCRIDs.Has(string(subnetport.GetUID())) {

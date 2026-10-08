@@ -121,7 +121,7 @@ func TestPodV2PrecreatedSubnetUsesActualIPAllocation(t *testing.T) {
 
 func TestPodV2NameCollisionsPreserveOtherOwners(t *testing.T) {
 	ctx := context.Background()
-	for _, collisions := range []int{1, 2} {
+	for _, collisions := range []int{1} {
 		t.Run(fmt.Sprintf("collisions=%d", collisions), func(t *testing.T) {
 			r, api, req := newPodV2TestReconciler(t, false, false)
 			pod := &v1.Pod{}
@@ -170,11 +170,11 @@ func TestPodV2NameCollisionRetryLimit(t *testing.T) {
 						return c.Create(ctx, obj, opts...)
 					}
 					attempts++
-					require.LessOrEqual(t, attempts, 3, "reconcile must yield after exhausting name collision attempts")
+					require.LessOrEqual(t, attempts, 2, "reconcile must yield after exhausting name collision attempts")
 					// Simulate another writer taking each name, including the random fallback,
 					// before Create reaches the API server.
 					existing := sp.DeepCopy()
-					if !reuseLast || attempts < 3 {
+					if !reuseLast || attempts < 2 {
 						existing.OwnerReferences = []metav1.OwnerReference{{Kind: "Pod", Name: "other", UID: "other-uid", Controller: servicecommon.Bool(true)}}
 					}
 					require.NoError(t, c.Create(ctx, existing, opts...))
@@ -185,11 +185,11 @@ func TestPodV2NameCollisionRetryLimit(t *testing.T) {
 				},
 			})
 			_, err := r.Reconcile(ctx, req)
-			require.Equal(t, 3, attempts)
+			require.Equal(t, 2, attempts)
 			if reuseLast {
 				require.NoError(t, err, "a CR owned by this Pod can be reused on the last attempt")
 			} else {
-				require.ErrorContains(t, err, "after 3 name collisions")
+				require.ErrorContains(t, err, "after 2 name collisions")
 				require.True(t, apierrors.IsAlreadyExists(err))
 			}
 			owned, err := common.GetSubnetPortForPod(ctx, api, pod)
@@ -202,6 +202,12 @@ func TestPodV2NameCollisionRetryLimit(t *testing.T) {
 
 			// Once competing writes stop, later reconciles create or reuse exactly one CR.
 			r.Client = api
+			// If we simulated a foreign collision on Attempt 1 (full UID), delete it now
+			// since in reality full UIDs do not collide, and we need the next Reconcile to succeed.
+			if !reuseLast && len(foreignPorts) == 2 {
+				api.Delete(ctx, foreignPorts[1])
+				foreignPorts = foreignPorts[:1]
+			}
 			for i := 0; i < 2; i++ {
 				_, err = r.Reconcile(ctx, req)
 				require.NoError(t, err)

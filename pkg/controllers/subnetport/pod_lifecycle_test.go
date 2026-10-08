@@ -127,11 +127,18 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 	for _, tc := range []struct {
 		name, ownerUID                             string
 		realized, terminal, wantRestore, wantError bool
+		v2mode                                     bool
+		staticAlloc                                bool
+		readyMismatch                              bool
 	}{
 		{name: "realized", ownerUID: "pod-uid", realized: true, wantRestore: true},
 		{name: "not-realized", ownerUID: "pod-uid"},
+		{name: "not-realized-but-v2-dhcp", ownerUID: "pod-uid", v2mode: true, wantRestore: true},
+		{name: "not-realized-but-v2-static", ownerUID: "pod-uid", v2mode: true, wantRestore: false, staticAlloc: true},
 		{name: "terminal", ownerUID: "pod-uid", realized: true, terminal: true},
+		{name: "terminal-v2", ownerUID: "pod-uid", v2mode: true, terminal: true},
 		{name: "replacement-owner", ownerUID: "old-pod", realized: true, wantError: true},
+		{name: "ready-but-attachment-mismatch", ownerUID: "pod-uid", realized: true, wantRestore: true, readyMismatch: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
@@ -147,8 +154,34 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: "ns", UID: "cr-uid", OwnerReferences: []metav1.OwnerReference{
 				{Kind: "Pod", Name: pod.Name, UID: types.UID(tc.ownerUID)},
 			}}}
+			if tc.staticAlloc {
+				sp.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationTypeIPv4
+			}
+			
+			store := newPodRestorePortStore()
+			if tc.readyMismatch {
+				sp.Status.Conditions = []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v1.ConditionTrue}}
+				sp.Status.Attachment.ID = "old-attachment"
+				nsxPort := &model.VpcSubnetPort{
+					Id:         servicecommon.String("nsx-port-1"),
+					Attachment: &model.PortAttachment{Id: servicecommon.String("new-attachment")},
+					ParentPath: servicecommon.String("/infra/vpc/dummy"),
+					Tags: []model.Tag{
+						{Scope: servicecommon.String(servicecommon.TagScopeSubnetPortCRUID), Tag: servicecommon.String("cr-uid")},
+					},
+				}
+				store.Add(nsxPort)
+			}
+			
 			api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, sp).Build()
-			svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api}, SubnetPortStore: newPodRestorePortStore()}
+			svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api}, SubnetPortStore: store}
+			if tc.v2mode {
+				tr := true
+				svc.NSXClient = &nsx.Client{}
+				svc.NSXConfig = &config.NSXOperatorConfig{
+					NsxConfig: &config.NsxConfig{PodV2: &tr},
+				}
+			}
 			r := &SubnetPortReconciler{Client: api, APIReader: api, SubnetPortService: svc}
 			pending, err := r.getRestoreList()
 			if tc.wantError {

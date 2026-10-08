@@ -1935,18 +1935,29 @@ func TestGenerateSubnetPortName(t *testing.T) {
 			UID:  "12345678-abcd-1234-abcd-1234567890ab",
 		},
 	}
-	// Attempt 0: pod-<name[:20]>-<uid[:8]>
+	// Attempt 0: <name[:20]>-<uid[:8]>
 	name0 := GenerateSubnetPortName(pod, 0)
-	assert.Equal(t, "pod-my-long-pod-name-exc-12345678", name0)
+	assert.Equal(t, "my-long-pod-name-exc-12345678", name0)
 
-	// Attempt 1: pod-<name[:20]>-<full_uid>
+	// Attempt 1: <name[:20]>-<full_uid>
 	name1 := GenerateSubnetPortName(pod, 1)
-	assert.Equal(t, "pod-my-long-pod-name-exc-12345678-abcd-1234-abcd-1234567890ab", name1)
+	assert.Equal(t, "my-long-pod-name-exc-12345678-abcd-1234-abcd-1234567890ab", name1)
 
-	// Attempt 2: pod-<name[:20]>-<random_8_char>
+	// Attempt 2: <name[:20]>-<random_8_char>
 	name2 := GenerateSubnetPortName(pod, 2)
-	assert.True(t, strings.HasPrefix(name2, "pod-my-long-pod-name-exc-"))
-	assert.Equal(t, len("pod-my-long-pod-name-exc-")+8, len(name2))
+	assert.True(t, strings.HasPrefix(name2, "my-long-pod-name-exc-"))
+	assert.Equal(t, len("my-long-pod-name-exc-")+8, len(name2))
+
+	podBoundary := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "abcdefghijklmnopqrs.worker",
+			UID:  "87654321-abcd-1234-abcd-1234567890ab",
+		},
+	}
+	// Attempt 0: <name[:20] stripped of '.'>-<uid[:8]>
+	nameBoundary := GenerateSubnetPortName(podBoundary, 0)
+	// Original 20 chars is "abcdefghijklmnopqrs.", the dot should be stripped
+	assert.Equal(t, "abcdefghijklmnopqrs-87654321", nameBoundary)
 }
 
 type fakeNodeServiceReader struct {
