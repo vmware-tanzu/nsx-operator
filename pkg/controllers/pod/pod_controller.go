@@ -159,7 +159,7 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Bound name collision retries per reconcile; the controller retries on error.
-	const maxCreateAttempts = 3
+	const maxCreateAttempts = 2
 	var createErr error
 	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
 		spName := common.GenerateSubnetPortName(pod, attempt)
@@ -395,6 +395,7 @@ func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode
 func (r *PodReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Pod{}).
+		Owns(&v1alpha1.SubnetPort{}).
 		WithEventFilter(PredicateFuncsPod).
 		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(

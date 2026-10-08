@@ -257,9 +257,16 @@ func TestRestoreSubnetPortStatusFromPod(t *testing.T) {
 		require.NoError(t, restoreSubnetPortStatusFromPod(sp, oldPod))
 		require.Equal(t, []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.10"}}, sp.Status.NetworkInterfaceConfig.IPAddresses)
 	})
-	t.Run("missing saved IP stops restore", func(t *testing.T) {
+	t.Run("missing saved IP stops restore for static IPs", func(t *testing.T) {
 		incompletePod := pod.DeepCopy()
 		incompletePod.Status = v1.PodStatus{}
-		require.ErrorContains(t, restoreSubnetPortStatusFromPod(&v1alpha1.SubnetPort{}, incompletePod), "no persisted IP/MAC")
+		sp := &v1alpha1.SubnetPort{Spec: v1alpha1.SubnetPortSpec{StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4}}
+		require.ErrorContains(t, restoreSubnetPortStatusFromPod(sp, incompletePod), "no persisted IP/MAC")
+	})
+	t.Run("DHCP bypasses missing IP/MAC check", func(t *testing.T) {
+		incompletePod := pod.DeepCopy()
+		incompletePod.Status = v1.PodStatus{}
+		sp := &v1alpha1.SubnetPort{Spec: v1alpha1.SubnetPortSpec{StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone}}
+		require.NoError(t, restoreSubnetPortStatusFromPod(sp, incompletePod))
 	})
 }

@@ -931,14 +931,16 @@ func GetSubnetPortForPod(ctx context.Context, c k8sclient.Client, pod *v1.Pod) (
 }
 
 // GenerateSubnetPortName generates a SubnetPort name following the naming convention:
-// Attempt 0: pod-<pod_name[:20]>-<pod_uid[:8]>
-// Attempt 1: pod-<pod_name[:20]>-<pod_uid> (full UID)
-// Attempt >= 2: pod-<pod_name[:20]>-<random_8_char>
+// Attempt 0: <pod_name[:20]>-<pod_uid[:8]>
+// Attempt 1: <pod_name[:20]>-<pod_uid> (full UID)
 func GenerateSubnetPortName(pod *v1.Pod, attempt int) string {
 	podNamePrefix := pod.Name
 	if len(podNamePrefix) > 20 {
 		podNamePrefix = podNamePrefix[:20]
 	}
+	// Trim trailing non-alphanumeric characters (like '.') to ensure valid DNS subdomain
+	podNamePrefix = strings.TrimRight(podNamePrefix, "-.")
+
 	podUID := string(pod.UID)
 	switch attempt {
 	case 0:
@@ -946,11 +948,11 @@ func GenerateSubnetPortName(pod *v1.Pod, attempt int) string {
 		if len(uidShort) > 8 {
 			uidShort = uidShort[:8]
 		}
-		return fmt.Sprintf("pod-%s-%s", podNamePrefix, uidShort)
+		return fmt.Sprintf("%s-%s", podNamePrefix, uidShort)
 	case 1:
-		return fmt.Sprintf("pod-%s-%s", podNamePrefix, podUID)
+		return fmt.Sprintf("%s-%s", podNamePrefix, podUID)
 	default:
-		return fmt.Sprintf("pod-%s-%s", podNamePrefix, rand.String(8))
+		return fmt.Sprintf("%s-%s", podNamePrefix, rand.String(8))
 	}
 }
 
