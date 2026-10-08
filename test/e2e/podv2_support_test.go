@@ -105,6 +105,7 @@ type p2Suite struct {
 	cleanupMu       sync.Mutex
 	stage           string
 	started         time.Time
+	configMounted   bool
 }
 
 var podV2Suite *p2Suite
@@ -542,6 +543,21 @@ func (s *p2Suite) preflight(t *testing.T) {
 	require.Positive(t, *p2Timeout)
 	require.Positive(t, *p2CleanupTimeout)
 	existing, journalErr := testData.clientset.CoreV1().Secrets(*p2OperatorNS).Get(s.ctx, s.journalName(), metav1.GetOptions{})
+	if journalErr == nil && existing != nil {
+		t.Logf("Notice: Cleaning up stale journal %s from previous interrupted run before starting", s.journalName())
+		s.secret = existing
+		if unmarshalErr := json.Unmarshal(existing.Data["journal.json"], &s.journal); unmarshalErr == nil {
+			_ = s.initOperatorCRD()
+			if cleanupErr := s.cleanup(); cleanupErr != nil {
+				t.Logf("Warning: Stale journal cleanup encountered error: %v", cleanupErr)
+			} else {
+				t.Logf("Successfully cleaned up stale journal and resources")
+			}
+		}
+		s.secret = nil
+		s.journal = p2Journal{}
+	}
+	existing, journalErr = testData.clientset.CoreV1().Secrets(*p2OperatorNS).Get(s.ctx, s.journalName(), metav1.GetOptions{})
 	require.True(t, apierrors.IsNotFound(journalErr), "Cannot acquire run: existing journal=%t error=%v. Use -podv2-cleanup only for an interrupted run.", existing != nil, journalErr)
 	ns, err := testData.clientset.CoreV1().Namespaces().Get(s.ctx, *p2Namespace, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -757,6 +773,7 @@ func (s *p2Suite) preflight(t *testing.T) {
 	}
 	s.secret, err = testData.clientset.CoreV1().Secrets(*p2OperatorNS).Create(s.ctx, sec, metav1.CreateOptions{})
 	require.NoError(t, err, "acquire exclusive run journal")
+	s.configMounted = false
 	t.Logf("RUN %s: namespace=%s; recovery: same invocation with -podv2-cleanup", s.journal.Run, ns.Name)
 }
 
@@ -828,8 +845,12 @@ func (s *p2Suite) normal(ctx context.Context) error {
 			if p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning {
 				continue
 			}
+			cfgTarget := p2ConfigMountFile
+			if !s.configMounted {
+				cfgTarget = *p2ConfigPath
+			}
 			readCtx, cancel := context.WithTimeout(c, 20*time.Second)
-			actual, execErr := s.exec(readCtx, p.Namespace, p.Name, s.journal.Container, []string{"cat", p2ConfigMountFile})
+			actual, execErr := s.exec(readCtx, p.Namespace, p.Name, s.journal.Container, []string{"cat", cfgTarget})
 			cancel()
 			if execErr != nil {
 				return false, "read mounted test configuration", execErr
@@ -904,6 +925,7 @@ func (s *p2Suite) configure(ctx context.Context, v2, enhance, restore, vif bool)
 	if err != nil {
 		return err
 	}
+	s.configMounted = true
 	return s.updateDeployment(ctx, func(d *appsv1.Deployment) {
 		// Start from the saved template, so mode changes do not accumulate mounts.
 		d.Spec.Template = *s.journal.Deployment.Spec.Template.DeepCopy()
@@ -1225,6 +1247,7 @@ func (s *p2Suite) cleanup() error {
 		d.Spec.Template = *s.journal.Deployment.Spec.Template.DeepCopy()
 		d.Spec.Replicas = ptr.To(*s.journal.Deployment.Spec.Replicas)
 	}))
+	s.configMounted = false
 	add(s.poll(ctx, "original operator healthy", func(c context.Context) (bool, string, error) {
 		d, e := testData.clientset.AppsV1().Deployments(*p2OperatorNS).Get(c, *p2Deployment, metav1.GetOptions{})
 		if e != nil {
