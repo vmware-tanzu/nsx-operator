@@ -321,14 +321,14 @@ func AddNCPCreatedForTag(query string, createdFor string) string {
 
 func getVPCPathFromParentPath(parentPath *string) ([]string, error) {
 	if parentPath == nil {
-		return []string{}, errors.New("NSX resource does not set ParentPath field")
+		return []string{}, nil
 	}
 	return []string{*parentPath}, nil
 }
 
 func getVPCPathFromResourcePath(path *string) ([]string, error) {
 	if path == nil {
-		return []string{}, errors.New("NSX resource does not set Path field")
+		return []string{}, nil
 	}
 	resInfo, err := ParseVPCResourcePath(*path)
 	if err != nil {

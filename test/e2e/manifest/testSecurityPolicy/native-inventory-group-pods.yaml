@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-inv-srv
+  labels:
+    native-inv-test: server
+spec:
+  restartPolicy: Never
+  containers:
+    - name: native-inv-srv
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-inv-client-allow
+  labels:
+    native-inv-test: client-allow
+    env: prod
+spec:
+  restartPolicy: Never
+  containers:
+    - name: native-inv-client-allow
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: native-inv-client-deny
+  labels:
+    native-inv-test: client-deny
+    env: dev
+spec:
+  restartPolicy: Never
+  containers:
+    - name: native-inv-client-deny
+      image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"

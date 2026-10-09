@@ -1,0 +1,30 @@
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: native-inv-group-policy-1
+spec:
+  priority: 15
+  appliedTo:
+    - podSelector:
+        matchLabels:
+          native-inv-test: server
+  rules:
+    - direction: in
+      action: allow
+      name: sp_native_inv_allow
+      from:
+        - podSelector:
+            matchLabels:
+              native-inv-test: client-allow
+            matchExpressions:
+              - {key: env, operator: In, values: [prod]}
+      ports:
+        - protocol: TCP
+          port: 80
+    - direction: in
+      action: drop
+      name: sp_native_inv_drop
+      from:
+        - podSelector:
+            matchLabels:
+              native-inv-test: client-deny

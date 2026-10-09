@@ -180,6 +180,11 @@ const (
 	// PathSegmentDnsRecords is the NSX Policy URL path segment for project-scoped DNS records
 	// (full path: /orgs/{org}/projects/{project}/dns-records/{id}). Must match PolicyResourceDnsRecord.PathKey.
 	PathSegmentDnsRecords = "dns-records"
+
+	MemberTypeNamespace      = "Namespace"
+	MemberTypeVirtualMachine = "VirtualMachine"
+	VMTypePod                = "POD"
+	VMTypeRegular            = "REGULAR"
 )
 
 var (
