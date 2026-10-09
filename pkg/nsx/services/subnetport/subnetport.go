@@ -94,6 +94,7 @@ func setupStore() *SubnetPortStore {
 					servicecommon.TagScopeStatefulSetUID:  subnetPortIndexByStatefulSetUID,
 					servicecommon.TagScopeStatefulSetName: subnetPortIndexByStatefulSetName,
 					servicecommon.IndexKeyAllStsPorts:     subnetPortIndexBySts,
+					servicecommon.IndexKeyAttachmentID:    subnetPortIndexByAttachmentID,
 				}),
 			BindingType: model.VpcSubnetPortBindingType(),
 		}}
@@ -459,16 +460,9 @@ func (service *SubnetPortService) countExistingIPsForPool(subnetPath string, use
 	return count
 }
 
-func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) (sets.Set[string], error) {
-	subnetPortList := &v1alpha1.SubnetPortList{}
-	err := service.Client.List(ctx, subnetPortList)
-	if err != nil {
-		log.Error(err, "failed to list SubnetPort CR")
-		return nil, err
-	}
-
+func (service *SubnetPortService) ListSubnetPortIDsFromSubnetPorts(subnetPorts []v1alpha1.SubnetPort) sets.Set[string] {
 	crSubnetPortIDsSet := sets.New[string]()
-	for _, subnetPort := range subnetPortList.Items {
+	for _, subnetPort := range subnetPorts {
 		vpcSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.UID)
 		if err != nil {
 			log.Error(err, "Failed to get VpcSubnetPort by SubnetPort CR", "CR UID", subnetPort.UID)
@@ -476,24 +470,178 @@ func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) 
 		}
 		if vpcSubnetPort != nil {
 			crSubnetPortIDsSet.Insert(*vpcSubnetPort.Id)
+		} else if util.IsCPVM(subnetPort.Labels) {
+			if reusePort, ok := subnetPort.Annotations[servicecommon.AnnotationReusePort]; ok && reusePort != "" {
+				if oldNs, oldName, err := util.ParseReusePortAnnotation(reusePort); err == nil {
+					existingPorts := service.ListVMSubnetPortByName(oldNs, oldName)
+					if len(existingPorts) > 0 && existingPorts[0].Id != nil && *existingPorts[0].Id != "" {
+						crSubnetPortIDsSet.Insert(*existingPorts[0].Id)
+					}
+				}
+			}
 		}
 	}
-	return crSubnetPortIDsSet, nil
+	return crSubnetPortIDsSet
 }
 
-func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) []*model.VpcSubnetPort {
+func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) (sets.Set[string], error) {
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	err := service.Client.List(ctx, subnetPortList)
+	if err != nil {
+		log.Error(err, "failed to list SubnetPort CR")
+		return nil, err
+	}
+	return service.ListSubnetPortIDsFromSubnetPorts(subnetPortList.Items), nil
+}
+
+func (service *SubnetPortService) buildReusedSubnetPort(subnetPort *v1alpha1.SubnetPort, existingPort *model.VpcSubnetPort, nsxSubnet *model.VpcSubnet) (*model.VpcSubnetPort, error) {
+	if existingPort == nil || existingPort.Id == nil || existingPort.ParentPath == nil {
+		return nil, errors.New("existing port or port ID/Path is nil")
+	}
+	namespace := &v1.Namespace{}
+	namespacedName := types.NamespacedName{
+		Name: subnetPort.Namespace,
+	}
+	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		return nil, err
+	}
+	namespaceUid := namespace.UID
+
+	nsxSubnetPortID := *existingPort.Id
+	nsxSubnetPortName := service.BuildSubnetPortName(&subnetPort.ObjectMeta)
+	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
+
+	tags := util.BuildBasicTags(getCluster(service), subnetPort, namespaceUid)
+	// For VM subnet ports, we filter out tags with scope NamespaceUID and Namespace.
+	var tagsFiltered []model.Tag
+	for _, tag := range tags {
+		if *tag.Scope == servicecommon.TagScopeNamespaceUID || *tag.Scope == servicecommon.TagScopeNamespace {
+			continue
+		}
+		tagsFiltered = append(tagsFiltered, tag)
+	}
+
+	desiredPort := &model.VpcSubnetPort{
+		Id:              &nsxSubnetPortID,
+		DisplayName:     &nsxSubnetPortName,
+		Path:            &nsxSubnetPortPath,
+		ParentPath:      existingPort.ParentPath,
+		Tags:            tagsFiltered,
+		Attachment:      existingPort.Attachment,
+		AddressBindings: existingPort.AddressBindings,
+	}
+	return desiredPort, nil
+}
+
+// ReuseSubnetPort updates an existing NSX SubnetPort to be associated with a new SubnetPort CR (e.g. cpVM migration).
+func (service *SubnetPortService) ReuseSubnetPort(subnetPort *v1alpha1.SubnetPort, existingPort *model.VpcSubnetPort, nsxSubnet *model.VpcSubnet) (*model.SegmentPortState, error) {
+	desiredPort, err := service.buildReusedSubnetPort(subnetPort, existingPort, nsxSubnet)
+	if err != nil {
+		return nil, err
+	}
+	subnetInfo, err := servicecommon.ParseVPCResourcePath(*nsxSubnet.Path)
+	if err != nil {
+		return nil, err
+	}
+	isChanged := servicecommon.CompareResource(SubnetPortToComparable(existingPort), SubnetPortToComparable(desiredPort))
+	if isChanged {
+		log.Info("Updating reused NSX subnet port", "existingSubnetPort", existingPort, "desiredSubnetPort", desiredPort)
+		err = service.NSXClient.PortClient.Patch(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *desiredPort.Id, *desiredPort)
+		err = nsxutil.TransNSXApiError(err)
+		if err != nil {
+			log.Error(err, "failed to update reused subnet port", "nsxSubnetPort.Id", *desiredPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+			return nil, err
+		}
+		err = service.SubnetPortStore.Apply(desiredPort)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		log.Info("Reused NSX subnet port not changed, skipping update", "nsxSubnetPort.Id", *desiredPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+	}
+	nsxSubnetPortState, err := service.CheckSubnetPortState(subnetPort, *nsxSubnet.Path)
+	if err != nil {
+		if nsxutil.IsRealizeStateError(err) {
+			log.Error(err, "check and update reused NSX subnet port state failed, would retry with delay", "nsxSubnetPort.Id", *desiredPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		} else {
+			log.Error(err, "check and update reused NSX subnet port state failed, would retry exponentially", "nsxSubnetPort.Id", *desiredPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		}
+		return nil, err
+	}
+	createdNSXSubnetPort, err := service.NSXClient.PortClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, *desiredPort.Id)
+	if err != nil {
+		log.Error(err, "check and update reused NSX subnet port failed, would retry exponentially", "nsxSubnetPort.Id", *desiredPort.Id, "nsxSubnetPath", *nsxSubnet.Path)
+		return nil, err
+	}
+	if createdNSXSubnetPort.ParentPath == nil {
+		createdNSXSubnetPort.ParentPath = nsxSubnet.Path
+	}
+	err = service.SubnetPortStore.Apply(&createdNSXSubnetPort)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("Successfully reused subnetport", "nsxSubnetPort.Id", *desiredPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
+	return nsxSubnetPortState, nil
+}
+
+// ListVMSubnetPortByName gets all VM SubnetPorts in the given VM namespace with the specified SubnetPort CR name
+func (service *SubnetPortService) ListVMSubnetPortByName(ns string, name string) []*model.VpcSubnetPort {
 	var result []*model.VpcSubnetPort
-	// Get all the SubnetPorts in the namespace, including VM and Pod(image fetcher) SubnetPorts
+	if service.SubnetPortStore == nil || service.SubnetPortStore.Indexer == nil {
+		return result
+	}
 	vmSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeVMNamespace, ns)
-	podSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeNamespace, ns)
-	subnetPorts := append(vmSubnetPorts, podSubnetPorts...)
-	for _, subnetport := range subnetPorts {
+	for _, subnetport := range vmSubnetPorts {
 		tagName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
 		if tagName == name {
 			result = append(result, subnetport)
 		}
 	}
 	return result
+}
+
+// ListSubnetPortByName gets all SubnetPorts in the namespace with the given SubnetPort CR name,
+// prioritizing VM SubnetPorts and then Pod (image fetcher) SubnetPorts
+func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) []*model.VpcSubnetPort {
+	var result []*model.VpcSubnetPort
+	if service.SubnetPortStore == nil || service.SubnetPortStore.Indexer == nil {
+		return result
+	}
+	result = append(result, service.ListVMSubnetPortByName(ns, name)...)
+
+	podSubnetPorts := service.SubnetPortStore.GetByIndex(servicecommon.TagScopeNamespace, ns)
+	for _, subnetport := range podSubnetPorts {
+		tagName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
+		if tagName == name {
+			found := false
+			for _, p := range result {
+				if p.Id != nil && subnetport.Id != nil && *p.Id == *subnetport.Id {
+					found = true
+					break
+				}
+			}
+			if !found {
+				result = append(result, subnetport)
+			}
+		}
+	}
+	return result
+}
+
+// GetSubnetPortByAttachmentID gets a VpcSubnetPort from the store with the specified attachment ID
+func (service *SubnetPortService) GetSubnetPortByAttachmentID(attachmentID string) *model.VpcSubnetPort {
+	if attachmentID == "" || service == nil || service.SubnetPortStore == nil {
+		return nil
+	}
+	return service.SubnetPortStore.GetVpcSubnetPortByAttachmentID(attachmentID)
+}
+
+// GetSubnetPortByID gets a VpcSubnetPort from the store with the specified port ID
+func (service *SubnetPortService) GetSubnetPortByID(portID string) *model.VpcSubnetPort {
+	if portID == "" || service == nil || service.SubnetPortStore == nil {
+		return nil
+	}
+	return service.SubnetPortStore.GetByKey(portID)
 }
 
 func (service *SubnetPortService) ListSubnetPortByPodName(ns string, name string) []*model.VpcSubnetPort {

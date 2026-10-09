@@ -164,6 +164,33 @@ func ToUpper(obj interface{}) string {
 	return strings.ToUpper(str)
 }
 
+// IsCPVM checks if the labels indicate a Control Plane VM SubnetPort
+func IsCPVM(labels map[string]string) bool {
+	if labels == nil {
+		return false
+	}
+	val, ok := labels[common.LabelCPVM]
+	return ok && strings.EqualFold(val, "true")
+}
+
+// ParseReusePortAnnotation parses a reuse-port annotation value in the format "<namespace>/<name>".
+// Returns the namespace and name, or an error if the format is invalid.
+func ParseReusePortAnnotation(reusePort string) (string, string, error) {
+	if strings.TrimSpace(reusePort) == "" {
+		return "", "", fmt.Errorf("reused port cannot be empty")
+	}
+	parts := strings.Split(reusePort, "/")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid reuse-port annotation value %s, expected format <namespace>/<name>", reusePort)
+	}
+	ns := strings.TrimSpace(parts[0])
+	name := strings.TrimSpace(parts[1])
+	if ns == "" || name == "" {
+		return "", "", fmt.Errorf("invalid reuse-port annotation value %s, namespace and name cannot be empty", reusePort)
+	}
+	return ns, name, nil
+}
+
 func CalculateSubnetSize(mask int) int64 {
 	size := 1 << uint(32-mask)
 	return int64(size)
@@ -172,7 +199,7 @@ func CalculateSubnetSize(mask int) int64 {
 func IsSystemNamespace(c client.Client, ns string, obj *v1.Namespace, vpcMode bool) (bool, error) {
 	// Only check VPC system namespace if VPC mode is enabled
 	if vpcMode {
-		isSysNs, err := IsVPCSystemNamespace(c, ns, obj)
+		isSysNs, err := IsVPCSystemNamespace(context.Background(), c, ns, obj)
 		if err != nil {
 			return false, err
 		}
@@ -205,12 +232,20 @@ func IsT1SystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, e
 	return false, nil
 }
 
-func IsVPCSystemNamespace(c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+func IsVPCSystemNamespace(ctx context.Context, c client.Client, ns string, obj *v1.Namespace) (bool, error) {
+	if ns == "kube-system" || (obj != nil && obj.Name == "kube-system") {
+		return true, nil
+	}
 	nsObj := &v1.Namespace{}
 	if obj != nil {
 		nsObj = obj
-	} else if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: ns}, nsObj); err != nil {
-		return false, client.IgnoreNotFound(err)
+	} else if c != nil {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := c.Get(ctx, types.NamespacedName{Name: ns}, nsObj); err != nil {
+			return false, client.IgnoreNotFound(err)
+		}
 	}
 	if sharedVPCNs, ok := nsObj.Annotations[common.AnnotationSharedVPCNamespace]; ok && sharedVPCNs == "kube-system" {
 		return true, nil
@@ -392,6 +427,9 @@ func BuildBasicTags(cluster string, obj interface{}, namespaceID types.UID) []mo
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeVMNamespaceUID), Tag: String(string(namespaceID))})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRName), Tag: String(i.ObjectMeta.Name)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeSubnetPortCRUID), Tag: String(string(i.UID))})
+		if IsCPVM(i.Labels) {
+			tags = append(tags, model.Tag{Scope: String(common.LabelCPVM), Tag: String("true")})
+		}
 	case *v1.Pod:
 		tags = append(tags, model.Tag{Scope: String(common.TagScopeNamespace), Tag: String(i.ObjectMeta.Namespace)})
 		tags = append(tags, model.Tag{Scope: String(common.TagScopePodName), Tag: String(i.ObjectMeta.Name)})

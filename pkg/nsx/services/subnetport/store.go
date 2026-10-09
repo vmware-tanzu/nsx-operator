@@ -132,6 +132,18 @@ func subnetPortIndexBySts(obj interface{}) ([]string, error) {
 	return nil, nil
 }
 
+func subnetPortIndexByAttachmentID(obj interface{}) ([]string, error) {
+	switch o := obj.(type) {
+	case *model.VpcSubnetPort:
+		if o.Attachment == nil || o.Attachment.Id == nil || *o.Attachment.Id == "" {
+			return []string{}, nil
+		}
+		return []string{*o.Attachment.Id}, nil
+	default:
+		return nil, errors.New("subnetPortIndexByAttachmentID doesn't support unknown type")
+	}
+}
+
 // SubnetPortStore is a store for SubnetPorts
 type SubnetPortStore struct {
 	common.ResourceStore
@@ -195,6 +207,9 @@ func (subnetPortStore *SubnetPortStore) GetByKey(key string) *model.VpcSubnetPor
 
 func (subnetPortStore *SubnetPortStore) GetByIndex(key string, value string) []*model.VpcSubnetPort {
 	subnetPorts := make([]*model.VpcSubnetPort, 0)
+	if subnetPortStore == nil || subnetPortStore.Indexer == nil {
+		return subnetPorts
+	}
 	objs := subnetPortStore.ResourceStore.GetByIndex(key, value)
 	for _, subnetPort := range objs {
 		subnetPorts = append(subnetPorts, subnetPort.(*model.VpcSubnetPort))
@@ -209,6 +224,9 @@ func (subnetPortStore *SubnetPortStore) DeleteMultipleObjects(ports []*model.Vpc
 }
 
 func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*model.VpcSubnetPort, error) {
+	if subnetPortStore == nil || subnetPortStore.Indexer == nil {
+		return nil, nil
+	}
 	subnetPort := &model.VpcSubnetPort{}
 	var indexResults []interface{}
 	for _, index := range []string{common.TagScopeSubnetPortCRUID, common.TagScopePodUID} {
@@ -228,6 +246,17 @@ func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByUID(uid types.UID) (*m
 		return nil, nil
 	}
 	return subnetPort, nil
+}
+
+func (subnetPortStore *SubnetPortStore) GetVpcSubnetPortByAttachmentID(attachmentID string) *model.VpcSubnetPort {
+	if attachmentID == "" || subnetPortStore == nil || subnetPortStore.Indexer == nil {
+		return nil
+	}
+	ports := subnetPortStore.GetByIndex(common.IndexKeyAttachmentID, attachmentID)
+	if len(ports) > 0 {
+		return ports[0]
+	}
+	return nil
 }
 
 type VifStore struct {
