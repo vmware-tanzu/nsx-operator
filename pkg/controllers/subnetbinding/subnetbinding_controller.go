@@ -52,7 +52,39 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) RestoreReconcile() error {
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get SubnetConnectionBindingMap restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if err != nil || common.IsReconcileResultRequeue(result) {
+			errorList = append(errorList, fmt.Errorf("failed to restore SubnetConnectionBindingMap %s, error: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return fmt.Errorf("errors found in SubnetConnectionBindingMap restore: %v", errorList)
+	}
 	return nil
+}
+
+func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
+	bindingMapCRUIDs := r.SubnetBindingService.ListSubnetConnectionBindingMapCRUIDsInStore()
+
+	restoreList := []types.NamespacedName{}
+	bindingMapList := &v1alpha1.SubnetConnectionBindingMapList{}
+	if err := r.Client.List(context.TODO(), bindingMapList); err != nil {
+		return restoreList, err
+	}
+	for _, bindingMap := range bindingMapList.Items {
+		// Restore a SubnetConnectionBindingMap if CR has status updated (or has VLANTrafficTag in status) but no corresponding NSX resource in store
+		if bindingMap.Status.VLANTrafficTag != nil && !bindingMapCRUIDs.Has(string(bindingMap.GetUID())) {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name})
+		}
+	}
+	return restoreList, nil
 }
 
 func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
@@ -303,6 +335,9 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 }
 
 func (r *Reconciler) getPreferredVlan(ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap) int64 {
+	if bindingMap.Status.VLANTrafficTag != nil {
+		return *bindingMap.Status.VLANTrafficTag
+	}
 	preferred := int64(-1)
 	childSubnetName := bindingMap.Spec.SubnetName
 	if bindingMap.Spec.IsBranchAssociation() {
