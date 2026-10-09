@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
@@ -125,6 +126,40 @@ func TestClean_Cleanup(t *testing.T) {
 	assert.True(t, clean.vpcChildrenCleanupCalled)
 	assert.True(t, clean.infraCleanupCalled)
 	assert.ElementsMatch(t, []string{"/orgs/default/projects/p1/vpcs/vpc-1", ""}, clean.cleanedVPCs)
+}
+
+func TestClean_DebugLoggerInitialization(t *testing.T) {
+	ctx := context.Background()
+
+	patches := gomonkey.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
+		return &nsx.Client{}
+	})
+	defer patches.Reset()
+
+	cleanupService := &CleanupService{
+		vpcService: &vpc.VPCService{},
+	}
+	clean := &MockCleanup{}
+	cleanupService.AddCleanupService(func() (interface{}, error) {
+		return clean, nil
+	})
+
+	patches.ApplyFunc(InitializeCleanupService, func(_ *config.NSXOperatorConfig, _ *nsx.Client, _ *logr.Logger) (*CleanupService, error) {
+		return cleanupService, nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(cleanupService.vpcService), "ListAutoCreatedVPCPaths", func(_ *vpc.VPCService) sets.Set[string] {
+		return sets.New[string]()
+	})
+
+	// When log == nil and debug == true, logLevel == 2
+	err := Clean(ctx, cf, nil, true, 2)
+	assert.Nil(t, err)
+	assert.NotNil(t, logger.Log)
+
+	// When log != nil
+	discardLog := logr.Discard()
+	err = Clean(ctx, cf, &discardLog, false, 0)
+	assert.Nil(t, err)
 }
 
 type MockCleanup struct {

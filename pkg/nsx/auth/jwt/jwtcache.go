@@ -10,6 +10,8 @@ import (
 	"time"
 
 	gojwt "github.com/golang-jwt/jwt/v4"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 const (
@@ -23,22 +25,25 @@ type JWTCache struct {
 	jwt           string
 	expire        time.Time
 	freshInterval time.Duration
+	log           logger.CustomLogger
 }
 
 // NewJWTCache ...
-func NewJWTCache(tesClient *TESClient, freshInterval time.Duration) *JWTCache {
+func NewJWTCache(tesClient *TESClient, freshInterval time.Duration, log logger.CustomLogger) *JWTCache {
 	if freshInterval < minFreshInterval {
 		freshInterval = minFreshInterval
 	}
 	return &JWTCache{
 		tesClient:     tesClient,
 		freshInterval: freshInterval,
+		log:           log,
 	}
 }
 
 func (cache *JWTCache) GetJWT(refreshToken bool) (string, error) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
+	log := cache.log.Fallback()
 	if !refreshToken {
 		if cache.jwt != "" && time.Now().Add(cache.freshInterval).Before(cache.expire) {
 			return cache.jwt, nil
@@ -64,6 +69,7 @@ func (cache *JWTCache) GetJWT(refreshToken bool) (string, error) {
 }
 
 func (cache *JWTCache) refreshJWT() (string, error) {
+	log := cache.log.Fallback()
 	if cache.tesClient.signer == nil {
 		if err := cache.tesClient.reloadUsernamePass(); err != nil {
 			log.Error(err, "JWT cache failed to refresh JWT ")

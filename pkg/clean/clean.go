@@ -53,6 +53,8 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 		logg := logger.ZapCustomLogger(debug, logLevel).Logger
 		log = &logg
 	}
+	// Pass the logger to config so that underlying NSX clients can use it instead of the global logger
+	cf.Logger = logger.NewCustomLogger(*log)
 
 	log.Info("Starting NSX cleanup")
 	if err := cf.ValidateConfigFromCmd(); err != nil {
@@ -73,6 +75,11 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 	case <-ctx.Done():
 		return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 	}
+	defer func() {
+		if nsxClient != nil && nsxClient.Cluster != nil {
+			nsxClient.Cluster.StopKeepAlive()
+		}
+	}()
 	// add timeout for initialization
 	errChan := make(chan error)
 	var cleanupService *CleanupService

@@ -27,13 +27,10 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 	host := "1.1.1.1"
 	config := NewConfig(host, "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := NewCluster(config)
+	cluster.StopKeepAlive()
 	req := &http.Request{}
 
 	res := []ClusterHealth{GREEN, RED, ORANGE}
-	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "Health", func(_ *Cluster) ClusterHealth {
-		return RED
-	})
-	patches.Reset()
 	type fields struct {
 		cluster *Cluster
 	}
@@ -50,11 +47,23 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 		{"2", fields{cluster: cluster}, args{req}, true},
 		{"3", fields{cluster: cluster}, args{req}, false},
 	}
+
+	// Add a second endpoint so we can simulate ORANGE (1 UP, 1 DOWN)
+	cluster.endpoints = append(cluster.endpoints, &Endpoint{})
+
 	for idx, tt := range tests {
-		patches.ApplyMethod(reflect.TypeOf(cluster), "Health", func(_ *Cluster) ClusterHealth {
-			return res[idx]
-		})
 		t.Run(tt.name, func(t *testing.T) {
+			switch res[idx] {
+			case GREEN:
+				tt.fields.cluster.endpoints[0].status = UP
+				tt.fields.cluster.endpoints[1].status = UP
+			case RED:
+				tt.fields.cluster.endpoints[0].status = DOWN
+				tt.fields.cluster.endpoints[1].status = DOWN
+			default:
+				tt.fields.cluster.endpoints[0].status = UP
+				tt.fields.cluster.endpoints[1].status = DOWN
+			}
 			ck := &NSXHealthChecker{
 				cluster: tt.fields.cluster,
 			}
@@ -62,15 +71,17 @@ func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 				t.Errorf("NSXHealthChecker.CheckNSXHealth() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
-		patches.Reset()
 	}
 }
 
 func TestGetClient(t *testing.T) {
-	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "1", NsxApiPassword: "1", NsxApiManagers: []string{"10.0.0.1"}, HttpTimeout: 20}}
+	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "1", NsxApiPassword: "1", NsxApiManagers: []string{"10.0.0.1"}, HttpTimeout: 1}}
 	cf.VCConfig = &config.VCConfig{}
 	client := GetClient(&cf)
 	assert.True(t, client != nil)
+	if client != nil && client.Cluster != nil {
+		client.Cluster.StopKeepAlive()
+	}
 
 	cluster := &Cluster{}
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(cluster), "GetVersion", func(_ *Cluster) (*NsxVersion, error) {
@@ -79,6 +90,9 @@ func TestGetClient(t *testing.T) {
 	})
 
 	client = GetClient(&cf)
+	if client != nil && client.Cluster != nil {
+		client.Cluster.StopKeepAlive()
+	}
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported := client.NSXCheckVersion(SecurityPolicy)
@@ -92,6 +106,9 @@ func TestGetClient(t *testing.T) {
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
+	if client != nil && client.Cluster != nil {
+		client.Cluster.StopKeepAlive()
+	}
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
@@ -105,6 +122,9 @@ func TestGetClient(t *testing.T) {
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
+	if client != nil && client.Cluster != nil {
+		client.Cluster.StopKeepAlive()
+	}
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
@@ -118,6 +138,9 @@ func TestGetClient(t *testing.T) {
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
+	if client != nil && client.Cluster != nil {
+		client.Cluster.StopKeepAlive()
+	}
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
@@ -131,6 +154,9 @@ func TestGetClient(t *testing.T) {
 		return nsxVersion, nil
 	})
 	client = GetClient(&cf)
+	if client != nil && client.Cluster != nil {
+		client.Cluster.StopKeepAlive()
+	}
 	patches.Reset()
 	assert.True(t, client != nil)
 	securityPolicySupported = client.NSXCheckVersion(SecurityPolicy)
@@ -157,7 +183,7 @@ func IsInstanceOf(objectPtr, typePtr interface{}) bool {
 
 func TestSRGetClient(t *testing.T) {
 	pkg_log.SetLogger(zap.New(zap.UseDevMode(true)))
-	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.0.0.1"}, HttpTimeout: 20}}
+	cf := config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{NsxApiUser: "admin", NsxApiPassword: "Admin!23Admin", NsxApiManagers: []string{"10.0.0.1"}, HttpTimeout: 1}}
 	cf.VCConfig = &config.VCConfig{}
 
 	cluster := &Cluster{}
@@ -224,6 +250,7 @@ func TestRestConnectorAllowOverwrite(t *testing.T) {
 	a := ts.URL[index+2:]
 	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, _ := NewCluster(config)
+	cluster.StopKeepAlive()
 	nsxVersion, err := cluster.GetVersion()
 	assert.Equal(t, err, nil)
 	assert.Equal(t, nsxVersion.ProductVersion, "3.1.3.3.0.18844959")

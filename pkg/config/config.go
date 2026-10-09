@@ -17,6 +17,7 @@ import (
 	"gopkg.in/ini.v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth/jwt"
 )
@@ -54,6 +55,7 @@ type NSXOperatorConfig struct {
 	*HAConfig
 	configCache configCache
 	LibMode     bool
+	Logger      logger.CustomLogger
 }
 
 func init() {
@@ -274,6 +276,7 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 		&HAConfig{},
 		configCache{},
 		false,
+		logger.CustomLogger{},
 	}
 	return defaultNSXOperatorConfig
 }
@@ -317,11 +320,12 @@ func (operatorConfig *NSXOperatorConfig) createTokenProvider() auth.TokenProvide
 		}
 	}
 	var provider auth.TokenProvider
+	l := operatorConfig.Logger.Fallback()
 	if err = operatorConfig.VCConfig.validate(); err == nil {
 		if operatorConfig.EnvoyPort != 0 {
-			provider, _ = jwt.NewTokenProvider(operatorConfig.EnvoyHost, operatorConfig.EnvoyPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "http")
+			provider, _ = jwt.NewTokenProvider(operatorConfig.EnvoyHost, operatorConfig.EnvoyPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "http", l)
 		} else {
-			provider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "https")
+			provider, _ = jwt.NewTokenProvider(operatorConfig.VCEndPoint, operatorConfig.HttpsPort, operatorConfig.SsoDomain, operatorConfig.VCUser, operatorConfig.VCPassword, vcCaCert, operatorConfig.Insecure, "https", l)
 		}
 	} else {
 		tokenProvider = nil
