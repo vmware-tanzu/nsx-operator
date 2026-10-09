@@ -57,6 +57,18 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			if ref := metav1.GetControllerOf(pod); ref != nil && ref.Kind == "StatefulSet" {
 				stsName = ref.Name
 			}
+		} else {
+			for _, ref := range sp.GetOwnerReferences() {
+				if ref.Kind == "Pod" {
+					if appId == "" {
+						appId = string(ref.UID)
+					}
+					if podName == "" {
+						podName = ref.Name
+					}
+					break
+				}
+			}
 		}
 	}
 	var externalAddressBinding *model.ExternalAddressBinding
@@ -174,7 +186,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	namespaceUid := namespace.UID
 
-	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID, podName)
+	nsxSubnetPortID, nsxSubnetPortName := service.BuildSubnetPortIdAndName(objMeta, namespaceUid, stsUID, podName, appId)
 	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
 
 	tags := util.BuildBasicTags(getCluster(service), obj, namespaceUid)
@@ -300,15 +312,29 @@ func (service *SubnetPortService) GetExistingSubnetPortForStatefulSetPod(podName
 	return nil
 }
 
-func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string, podName ...string) (string, string) {
+func (service *SubnetPortService) BuildSubnetPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID, stsUID string, podInfo ...string) (string, string) {
 	existingSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(obj.GetUID())
 	if err == nil && existingSubnetPort != nil {
 		return *existingSubnetPort.Id, *existingSubnetPort.DisplayName
 	}
 
 	targetPodName := obj.Name
-	if len(podName) > 0 && podName[0] != "" {
-		targetPodName = podName[0]
+	if len(podInfo) > 0 && podInfo[0] != "" {
+		targetPodName = podInfo[0]
+	}
+	var targetPodUID string
+	if len(podInfo) > 1 && podInfo[1] != "" {
+		targetPodUID = podInfo[1]
+	}
+
+	// For Pod-owned SubnetPorts: if an existing NSX port matches the Pod's UID (e.g. from Legacy mode
+	// or migration), reuse that port so that the attachment ID is not duplicated.
+	if targetPodUID != "" {
+		if existingPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(types.UID(targetPodUID)); err == nil && existingPort != nil {
+			log.Info("Reusing existing SubnetPort for Pod",
+				"podName", targetPodName, "podUID", targetPodUID, "portID", *existingPort.Id)
+			return *existingPort.Id, *existingPort.DisplayName
+		}
 	}
 
 	// For StatefulSet pods: check if a SubnetPort with the same StatefulSet UID and pod name exists

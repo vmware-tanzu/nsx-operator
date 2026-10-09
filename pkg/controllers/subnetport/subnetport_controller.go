@@ -1242,6 +1242,17 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		log.Error(err, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
 		return false, false, "", nil, nil, "", "", err
 	}
+	if existingSubnetPort == nil {
+		for _, ref := range subnetPort.GetOwnerReferences() {
+			if ref.Kind == "Pod" && ref.UID != "" {
+				if port, errPort := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(ref.UID); errPort == nil && port != nil {
+					existingSubnetPort = port
+					log.Info("Found existing SubnetPort using owner Pod UID", "podUID", ref.UID, "portID", *port.Id)
+					break
+				}
+			}
+		}
+	}
 	if existingSubnetPort != nil && existingSubnetPort.ParentPath != nil && len(*existingSubnetPort.ParentPath) > 0 {
 		subnetPath = *existingSubnetPort.ParentPath
 		// If there is a SubnetPath in store, there is a subnetport in NSX, the subnetport is not created first time.
