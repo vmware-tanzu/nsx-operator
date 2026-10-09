@@ -159,6 +159,7 @@ spec:
         type: object
     selectableFields:
     - jsonPath: .spec.subnetName
+    - jsonPath: .spec.targetSubnetName
     served: true
     storage: true
     subresources:
