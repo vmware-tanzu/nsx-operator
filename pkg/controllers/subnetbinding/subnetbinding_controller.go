@@ -52,7 +52,61 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) RestoreReconcile() error {
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get SubnetConnectionBindingMap restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if err != nil || common.IsReconcileResultRequeue(result) {
+			errorList = append(errorList, fmt.Errorf("failed to restore SubnetConnectionBindingMap %s, error: %w", key, err))
+		}
+	}
+	if len(errorList) > 0 {
+		return fmt.Errorf("errors found in SubnetConnectionBindingMap restore: %v", errorList)
+	}
 	return nil
+}
+
+func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
+	restoreList := []types.NamespacedName{}
+	bindingMapList := &v1alpha1.SubnetConnectionBindingMapList{}
+	if err := r.Client.List(context.TODO(), bindingMapList); err != nil {
+		return restoreList, err
+	}
+	for _, bindingMap := range bindingMapList.Items {
+		// Only restore SubnetConnectionBindingMaps that have an allocated or configured VLAN tag.
+		if bindingMap.Status.VLANTrafficTag == nil && !bindingMap.Spec.HasVlanTrafficTag() {
+			continue
+		}
+
+		existingBMs := r.SubnetBindingService.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
+		if len(existingBMs) == 0 {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name})
+			continue
+		}
+
+		// Restore if any existing NSX binding has a mismatched VLAN tag with CR status or spec.
+		expectedVLAN := int64(-1)
+		if bindingMap.Spec.HasVlanTrafficTag() {
+			expectedVLAN = *bindingMap.Spec.VLANTrafficTag
+		} else if bindingMap.Status.VLANTrafficTag != nil {
+			expectedVLAN = *bindingMap.Status.VLANTrafficTag
+		}
+		vlanMismatch := false
+		for _, bm := range existingBMs {
+			if bm.VlanTrafficTag == nil || *bm.VlanTrafficTag != expectedVLAN {
+				vlanMismatch = true
+				break
+			}
+		}
+		if vlanMismatch {
+			restoreList = append(restoreList, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name})
+		}
+	}
+	return restoreList, nil
 }
 
 func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
@@ -317,6 +371,9 @@ func (r *Reconciler) getPreferredVlan(ctx context.Context, bindingMap *v1alpha1.
 		} else {
 			log.Error(err, "Failed to get child Subnet for VLAN allocation", "Subnet", childSubnetName)
 		}
+	}
+	if preferred == -1 && bindingMap.Status.VLANTrafficTag != nil {
+		return *bindingMap.Status.VLANTrafficTag
 	}
 	return preferred
 }

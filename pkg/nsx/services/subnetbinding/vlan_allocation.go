@@ -30,6 +30,17 @@ func (s *BindingService) ReconcileVlanTrafficTag(bindingMap *v1alpha1.SubnetConn
 		return vlan, nil
 	}
 
+	// Status survives NSX restore and its VLAN is already used by secondary
+	// NIC configurations. Validate it as a fixed allocation before consulting
+	// the NSX cache, including when retrying against NSX after a conflict.
+	if bindingMap.Status.VLANTrafficTag != nil {
+		vlan := *bindingMap.Status.VLANTrafficTag
+		if err := vlanPoolSvc.ValidateManualVlan(parentSubnetPaths, vlan, string(bindingMap.UID), fromNSX); err != nil {
+			return 0, err
+		}
+		return vlan, nil
+	}
+
 	// Try to reuse already allocated VLAN from cache
 	if !fromNSX {
 		existingBMs := s.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
