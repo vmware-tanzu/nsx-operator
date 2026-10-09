@@ -93,19 +93,27 @@ const (
 	TagValueDLB                        string = "DLB"
 	TagValueSLB                        string = "SLB"
 	TagValueL3InVlanBackedVPCMode      string = "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE"
-	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
-	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
-	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
-	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
-	AnnotationAssociatedResource       string = "nsx.vmware.com/associated-resource"
-	AnnotationReconfigureNic           string = "nsx/reconfigure-nic"
-	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
-	AnnotationAttachment               string = "nsx.vmware.com/attachment"
-	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
-	TagScopePodName                    string = "nsx-op/pod_name"
-	TagScopePodUID                     string = "nsx-op/pod_uid"
-	TagScopeStatefulSetName            string = "nsx-op/sts_name"
-	TagScopeStatefulSetUID             string = "nsx-op/sts_uid"
+	TagScopeIPAllocLB                  string = "nsx-op/lb"
+
+	AnnotationVPCNetworkConfig     string = "nsx.vmware.com/vpc_network_config"
+	AnnotationSharedVPCNamespace   string = "nsx.vmware.com/shared_vpc_namespace"
+	AnnotationDefaultNetworkConfig string = "nsx.vmware.com/default"
+	AnnotationAttachmentRef        string = "nsx.vmware.com/attachment_ref"
+	AnnotationAssociatedResource   string = "nsx.vmware.com/associated-resource"
+	AnnotationReconfigureNic       string = "nsx/reconfigure-nic"
+	AnnotationPodMAC               string = "nsx.vmware.com/mac"
+	AnnotationAttachment           string = "nsx.vmware.com/attachment"
+	// AnnotationTransitionTarget is a transient handshake annotation applied to the target
+	// IPAddressAllocation CR during migration by the NetworkResourceTransition controller.
+	// It signals IPAddressAllocationReconciler to skip reconciliation while the target CR
+	// awaits in-place NSX tag adoption (avoiding duplicate NSX IP allocation).
+	// Once tag adoption completes and Status.AllocationIPs is populated, this annotation is removed.
+	AnnotationTransitionTarget string = "migration.nsx.vmware.com/transition-target"
+	LabelCPVM                  string = "iaas.vmware.com/is-cpvm-subnetport"
+	TagScopePodName            string = "nsx-op/pod_name"
+	TagScopePodUID             string = "nsx-op/pod_uid"
+	TagScopeStatefulSetName    string = "nsx-op/sts_name"
+	TagScopeStatefulSetUID     string = "nsx-op/sts_uid"
 
 	// Tags and annotations for DNS record use case.
 	TagScopeDNSRecordFor                          string = "nsx-op/dns_for" // value: gateway, service, xxroutes
@@ -305,3 +313,11 @@ type GatewayPrefixInfo struct {
 	Gateway string
 	Prefix  int
 }
+
+type LBProvider string
+
+const (
+	NSXLB  LBProvider = "nsx-lb"
+	AVILB  LBProvider = "avi"
+	NoneLB LBProvider = "none"
+)

@@ -92,9 +92,10 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
-              ipBlockName:
-                description: IPBlockName specifies name of the IPBlock to allocate
-                  IP addresses.
+              ipBlock:
+                description: |-
+                  IPBlock specifies the name or ID of the IPBlock to allocate IP addresses.
+                  Can be an infra IPBlock ID or '<project ID>:<ipBlockID>' for project-scoped IPBlock.
                 type: string
                 x-kubernetes-validations:
                 - message: Value is immutable
@@ -110,8 +111,20 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              usedFor:
+                description: |-
+                  UsedFor specifies the intent/use case for the IP allocation.
+                  Only LB_FRONTEND is supported. When set to LB_FRONTEND, IP must be allocated from LoadBalancerVPC configured in VPCNetworkConfiguration.
+                enum:
+                - LB_FRONTEND
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             type: object
             x-kubernetes-validations:
+            - message: spec is immutable
+              rule: self == oldSelf
             - message: Only one of allocationSize or allocationIPs can be specified
               rule: '!has(self.allocationSize) || !has(self.allocationIPs)'
             - message: Only one of ipv6AllocationPrefixLength or allocationIPs can
@@ -123,6 +136,10 @@ spec:
               rule: '!has(oldSelf.allocationIPs) || has(self.allocationIPs)'
             - message: ipv6AllocationPrefixLength is required once set
               rule: '!has(oldSelf.ipv6AllocationPrefixLength) || has(self.ipv6AllocationPrefixLength)'
+            - message: usedFor is required once set
+              rule: '!has(oldSelf.usedFor) || has(self.usedFor)'
+            - message: ipBlock is required once set
+              rule: '!has(oldSelf.ipBlock) || has(self.ipBlock)'
             - message: allocationSize can only be set when ipAddressType is IPv4
               rule: '!has(self.allocationSize) || !has(self.ipAddressType) || self.ipAddressType
                 == ''IPv4'''
