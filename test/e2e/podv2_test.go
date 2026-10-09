@@ -247,6 +247,7 @@ func (s *p2Suite) hostCase(t *testing.T) {
 	p := s.pod(t, "host")
 	c := s.cr(t, p)
 	port := s.port(t, p)
+	s.verify(t, p, c, port)
 	node := s.node(t, p.Spec.NodeName)
 	require.Equal(t, ptr.Deref(node.UniqueId, ""), ptr.Deref(port.Attachment.ContextId, ""))
 	s.hostAnnotation(t, c, p.Spec.NodeName)
