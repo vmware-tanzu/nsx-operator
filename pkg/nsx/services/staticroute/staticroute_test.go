@@ -15,8 +15,10 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -67,8 +69,15 @@ func createService(t *testing.T) (*StaticRouteService, *gomock.Controller, *mock
 
 	staticRouteStore := buildStaticRouteStore()
 
+	scheme := apimachineryruntime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
 	service := &StaticRouteService{
-		VPCService: &vpc.VPCService{},
+		VPCService: &vpc.VPCService{
+			Service: common.Service{
+				Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
+			},
+		},
 		Service: common.Service{
 			NSXClient: &nsx.Client{
 				QueryClient:       &fakeQueryClient{},
