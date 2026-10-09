@@ -1,0 +1,130 @@
+---
+# Sample 1: Workload Cutover (createSubnetPort)
+# Demonstrates migrating workloads from SubnetIPReservations in staging to target SubnetPorts.
+# Shows status reporting with 1 cutover succeeded and 1 cutover failed (overall phase: PartiallyFailed).
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: NetworkResourceTransition
+metadata:
+  name: transition-workloads-sample
+spec:
+  createSubnetPort:
+    # Workload 1: Dual-stack VM (IPv4 + IPv6 reservations in staging cut over to 1 SubnetPort)
+    - subnetIPReservations:
+        - namespace: vmware-system-net-staging
+          name: ipres-vm-webapp-eth0-ipv4
+        - namespace: vmware-system-net-staging
+          name: ipres-vm-webapp-eth0-ipv6
+      subnetPort:
+        namespace: ns-production
+        name: vm-webapp-eth0
+
+    # Workload 2: Single-stack Pod
+    - subnetIPReservations:
+        - namespace: vmware-system-net-staging
+          name: ipres-pod-frontend-0
+      subnetPort:
+        namespace: ns-production
+        name: pod-frontend-0
+
+status:
+  phase: PartiallyFailed
+  totalResources: 2
+  succeededResources: 1
+  failedResources: 1
+
+  # Per-workload cutover status
+  createSubnetPort:
+    # Succeeded cutover: Atomic HAPI transaction deleted reservations and realized SubnetPort
+    - subnetPort:
+        namespace: ns-production
+        name: vm-webapp-eth0
+      subnetIPReservations:
+        - namespace: vmware-system-net-staging
+          name: ipres-vm-webapp-eth0-ipv4
+        - namespace: vmware-system-net-staging
+          name: ipres-vm-webapp-eth0-ipv6
+      phase: Succeeded
+      message: "Atomic HAPI cutover complete: SubnetPort realized with allocate_addresses: IP_POOL, 2 reservations reaped"
+      attachmentID: "502e2a4e-cb8a-2385-861b-d3cca41848c6"
+      ipAddresses:
+        - "192.168.10.25"
+        - "fd00::10:25"
+      macAddress: "00:50:56:a1:b2:c3"
+
+    # Failed cutover: Source reservation missing or subnet port realization failed
+    - subnetPort:
+        namespace: ns-production
+        name: pod-frontend-0
+      subnetIPReservations:
+        - namespace: vmware-system-net-staging
+          name: ipres-pod-frontend-0
+      phase: Failed
+      message: "Failed to cut over SubnetPort: SubnetIPReservation 'ipres-pod-frontend-0' not found in namespace 'vmware-system-net-staging'"
+
+  conditions:
+    - type: Ready
+      status: "False"
+      lastTransitionTime: "2026-09-20T08:30:00Z"
+      reason: TransitionPartiallyFailed
+      message: "1 of 2 SubnetPort cutovers failed"
+
+---
+# Sample 2: Load Balancer VIP Move (moveIPAddressAllocation)
+# Demonstrates transferring pre-reserved LB VIP IPAddressAllocations from staging to tenant namespace.
+# Shows status reporting with 1 VIP move succeeded and 1 VIP move failed (overall phase: PartiallyFailed).
+apiVersion: crd.nsx.vmware.com/v1alpha1
+kind: NetworkResourceTransition
+metadata:
+  name: transition-lb-vips-sample
+spec:
+  moveIPAddressAllocation:
+    # VIP 1: Ingress HTTPS Load Balancer VIP
+    - source:
+        namespace: vmware-system-net-staging
+        name: staging-vip-ingress-https
+      target:
+        namespace: ns-production
+        name: vip-ingress-https
+
+    # VIP 2: Database Service Load Balancer VIP
+    - source:
+        namespace: vmware-system-net-staging
+        name: staging-vip-db-service
+      target:
+        namespace: ns-production
+        name: vip-db-service
+
+status:
+  phase: PartiallyFailed
+  totalResources: 2
+  succeededResources: 1
+  failedResources: 1
+
+  # Per-VIP move status
+  moveIPAddressAllocation:
+    # Succeeded move: In-place NSX tag adoption and ownership rebinding completed
+    - source:
+        namespace: vmware-system-net-staging
+        name: staging-vip-ingress-https
+      target:
+        namespace: ns-production
+        name: vip-ingress-https
+      phase: Succeeded
+      message: "In-place tag adoption complete on loadBalancerVPC: 0 duplicate IP collision"
+
+    # Failed move: Source IPAddressAllocation not found in staging namespace
+    - source:
+        namespace: vmware-system-net-staging
+        name: staging-vip-db-service
+      target:
+        namespace: ns-production
+        name: vip-db-service
+      phase: Failed
+      message: "Failed to move IPAddressAllocation: source 'staging-vip-db-service' not found in namespace 'vmware-system-net-staging'"
+
+  conditions:
+    - type: Ready
+      status: "False"
+      lastTransitionTime: "2026-09-20T08:32:00Z"
+      reason: TransitionPartiallyFailed
+      message: "1 of 2 IPAddressAllocation moves failed"

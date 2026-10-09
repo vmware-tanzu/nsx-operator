@@ -35,6 +35,10 @@ func (c *FakeCrdV1alpha1) NetworkInfos(namespace string) v1alpha1.NetworkInfoInt
 	return newFakeNetworkInfos(c, namespace)
 }
 
+func (c *FakeCrdV1alpha1) NetworkResourceTransitions() v1alpha1.NetworkResourceTransitionInterface {
+	return newFakeNetworkResourceTransitions(c)
+}
+
 func (c *FakeCrdV1alpha1) SecurityPolicies(namespace string) v1alpha1.SecurityPolicyInterface {
 	return newFakeSecurityPolicies(c, namespace)
 }

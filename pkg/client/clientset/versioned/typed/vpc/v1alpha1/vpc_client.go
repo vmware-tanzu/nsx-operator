@@ -20,6 +20,7 @@ type CrdV1alpha1Interface interface {
 	IPAddressAllocationsGetter
 	IPBlocksInfosGetter
 	NetworkInfosGetter
+	NetworkResourceTransitionsGetter
 	SecurityPoliciesGetter
 	ServiceEndpointsGetter
 	StaticRoutesGetter
@@ -56,6 +57,10 @@ func (c *CrdV1alpha1Client) IPBlocksInfos() IPBlocksInfoInterface {
 
 func (c *CrdV1alpha1Client) NetworkInfos(namespace string) NetworkInfoInterface {
 	return newNetworkInfos(c, namespace)
+}
+
+func (c *CrdV1alpha1Client) NetworkResourceTransitions() NetworkResourceTransitionInterface {
+	return newNetworkResourceTransitions(c)
 }
 
 func (c *CrdV1alpha1Client) SecurityPolicies(namespace string) SecurityPolicyInterface {

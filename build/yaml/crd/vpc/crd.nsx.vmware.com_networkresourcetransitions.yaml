@@ -1,0 +1,327 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: networkresourcetransitions.crd.nsx.vmware.com
+spec:
+  group: crd.nsx.vmware.com
+  names:
+    kind: NetworkResourceTransition
+    listKind: NetworkResourceTransitionList
+    plural: networkresourcetransitions
+    shortNames:
+    - nrt
+    - nrts
+    singular: networkresourcetransition
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - description: Migration phase of NetworkResourceTransition
+      jsonPath: .status.phase
+      name: Phase
+      type: string
+    - description: Total resources to migrate
+      jsonPath: .status.totalResources
+      name: Total
+      type: integer
+    - description: Number of successfully migrated resources
+      jsonPath: .status.succeededResources
+      name: Succeeded
+      type: integer
+    - description: Number of failed resources
+      jsonPath: .status.failedResources
+      name: Failed
+      type: integer
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: NetworkResourceTransition is the Schema for the networkresourcetransitions
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NetworkResourceTransitionSpec defines the desired transition
+              of network resources from staging to target namespaces.
+            properties:
+              createSubnetPort:
+                description: CreateSubnetPort specifies workload cutover(s) from SubnetIPReservation(s)
+                  to SubnetPort(s).
+                items:
+                  description: CreateSubnetPortSpec specifies the source SubnetIPReservation(s)
+                    and target SubnetPort to realize.
+                  properties:
+                    subnetIPReservations:
+                      description: |-
+                        SubnetIPReservations specifies the list of source SubnetIPReservations in the staging namespace to cut over.
+                        Supports dual-stack (IPv4 and IPv6) reservations mapped to a single SubnetPort.
+                      items:
+                        description: NamespacedObjectReference contains namespace
+                          and name to uniquely identify a namespaced Kubernetes resource.
+                        properties:
+                          name:
+                            description: Name of the referent.
+                            type: string
+                          namespace:
+                            description: Namespace of the referent.
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      minItems: 1
+                      type: array
+                    subnetPort:
+                      description: SubnetPort specifies the target SubnetPort to create
+                        in the destination workload namespace.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - subnetIPReservations
+                  - subnetPort
+                  type: object
+                type: array
+              moveIPAddressAllocation:
+                description: MoveIPAddressAllocation specifies Load Balancer VIP(s)
+                  to adopt into tenant namespaces.
+                items:
+                  description: MoveIPAddressAllocationSpec specifies the source and
+                    target for transferring an IPAddressAllocation (LB VIP).
+                  properties:
+                    source:
+                      description: Source specifies the existing IPAddressAllocation
+                        in the staging namespace.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                    target:
+                      description: Target specifies the target IPAddressAllocation
+                        in the destination namespace.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - source
+                  - target
+                  type: object
+                type: array
+            type: object
+          status:
+            description: NetworkResourceTransitionStatus defines the observed state
+              of NetworkResourceTransition.
+            properties:
+              conditions:
+                description: Conditions track overall transition conditions.
+                items:
+                  description: Condition defines condition of custom resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        Last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed. If that is not known, then using the time when
+                        the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message shows a human-readable message about condition.
+                      type: string
+                    reason:
+                      description: Reason shows a brief reason of condition.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type defines condition type.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              createSubnetPort:
+                description: CreateSubnetPort mirrors the status for each SubnetPort
+                  cutover.
+                items:
+                  description: CreateSubnetPortStatus records the observed transition
+                    status for a SubnetPort cutover.
+                  properties:
+                    attachmentID:
+                      description: AttachmentID of the realized SubnetPort on NSX.
+                      type: string
+                    ipAddresses:
+                      description: IPAddresses realized on the target SubnetPort.
+                      items:
+                        type: string
+                      type: array
+                    macAddress:
+                      description: MACAddress preserved and programmed on the target
+                        SubnetPort.
+                      type: string
+                    message:
+                      description: Message describes details or error information.
+                      type: string
+                    phase:
+                      description: Phase of this specific cutover operation.
+                      enum:
+                      - Pending
+                      - Migrating
+                      - Succeeded
+                      - Failed
+                      - PartiallyFailed
+                      type: string
+                    subnetIPReservations:
+                      description: SubnetIPReservations mirrors the source SubnetIPReservation
+                        references.
+                      items:
+                        description: NamespacedObjectReference contains namespace
+                          and name to uniquely identify a namespaced Kubernetes resource.
+                        properties:
+                          name:
+                            description: Name of the referent.
+                            type: string
+                          namespace:
+                            description: Namespace of the referent.
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      type: array
+                    subnetPort:
+                      description: SubnetPort mirrors the target SubnetPort reference.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - phase
+                  - subnetPort
+                  type: object
+                type: array
+              failedResources:
+                description: FailedResources is the count of failed resources.
+                type: integer
+              moveIPAddressAllocation:
+                description: MoveIPAddressAllocation mirrors the status for each IPAddressAllocation
+                  move.
+                items:
+                  description: MoveIPAddressAllocationStatus records the observed
+                    transition status for an IPAddressAllocation move.
+                  properties:
+                    message:
+                      description: Message describes details or error information.
+                      type: string
+                    phase:
+                      description: Phase of this specific move operation.
+                      enum:
+                      - Pending
+                      - Migrating
+                      - Succeeded
+                      - Failed
+                      - PartiallyFailed
+                      type: string
+                    source:
+                      description: Source mirrors the source IPAddressAllocation reference.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                    target:
+                      description: Target mirrors the target IPAddressAllocation reference.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - phase
+                  - source
+                  - target
+                  type: object
+                type: array
+              phase:
+                description: Phase defines the overall migration phase.
+                enum:
+                - Pending
+                - Migrating
+                - Succeeded
+                - Failed
+                - PartiallyFailed
+                type: string
+              succeededResources:
+                description: SucceededResources is the count of successfully transitioned
+                  resources.
+                type: integer
+              totalResources:
+                description: TotalResources is the total number of target resources
+                  to migrate.
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
