@@ -93,6 +93,7 @@ const (
 	TagValueDLB                        string = "DLB"
 	TagValueSLB                        string = "SLB"
 	TagValueL3InVlanBackedVPCMode      string = "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE"
+	TagScopeWCPSegmentTrackingSubnet   string = "WCP_SEGMENT_TRACKING_SUBNET" // NSX Tag Scope for tracking subnet
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
@@ -102,6 +103,7 @@ const (
 	AnnotationPodMAC                   string = "nsx.vmware.com/mac"
 	AnnotationAttachment               string = "nsx.vmware.com/attachment"
 	LabelCPVM                          string = "iaas.vmware.com/is-cpvm-subnetport"
+	LabelSegmentTrackingSubnet         string = "nsx.vmware.com/segment-tracking-subnet"
 	TagScopePodName                    string = "nsx-op/pod_name"
 	TagScopePodUID                     string = "nsx-op/pod_uid"
 	TagScopeStatefulSetName            string = "nsx-op/sts_name"
@@ -152,6 +154,7 @@ const (
 	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
 
 	IndexKeySubnetPath          = "IndexKeySubnetPath"
+	IndexKeySegmentPath         = "IndexKeySegmentPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
 	IndexKeyAttachmentID        = "IndexKeyAttachmentID"
 	IndexKeyAllStsPorts         = "IndexKeyAllStsPorts"
@@ -203,6 +206,7 @@ var (
 	ResourceTypeVpc                              = "Vpc"
 	ResourceTypeVpcConnectivityProfile           = "VpcConnectivityProfile"
 	ResourceTypeSubnetPort                       = "VpcSubnetPort"
+	ResourceTypeSegmentPort                      = "SegmentPort"
 	ResourceTypeVirtualMachine                   = "VirtualMachine"
 	ResourceTypeLBService                        = "LBService"
 	ResourceTypeVpcAttachment                    = "VpcAttachment"
