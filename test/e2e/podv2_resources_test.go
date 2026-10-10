@@ -39,7 +39,7 @@ func (s *p2Suite) podObject(name string) *corev1.Pod {
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", "mkdir -p /tmp/www; echo podv2-e2e > /tmp/www/index.html; httpd -f -p 8080 -h /tmp/www"},
 			}},
-			RestartPolicy:                 corev1.RestartPolicyNever,
+			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: ptr.To[int64](1),
 		},
 	}
