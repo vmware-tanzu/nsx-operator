@@ -26,7 +26,23 @@ import (
 )
 
 func (s *p2Suite) podObject(name string) *corev1.Pod {
-	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: s.journal.Run + "-" + name, Namespace: s.namespace(), Labels: s.labels()}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "workload", Image: *p2Image, Command: []string{"sh", "-c", "mkdir -p /tmp/www; echo podv2-e2e > /tmp/www/index.html; httpd -f -p 8080 -h /tmp/www"}}}, TerminationGracePeriodSeconds: ptr.To[int64](1)}}
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      s.journal.Run + "-" + name,
+			Namespace: s.namespace(),
+			Labels:    s.labels(),
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:            "workload",
+				Image:           *p2Image,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", "mkdir -p /tmp/www; echo podv2-e2e > /tmp/www/index.html; httpd -f -p 8080 -h /tmp/www"},
+			}},
+			RestartPolicy:                 corev1.RestartPolicyNever,
+			TerminationGracePeriodSeconds: ptr.To[int64](1),
+		},
+	}
 }
 func (s *p2Suite) pod(t *testing.T, name string) *corev1.Pod {
 	t.Helper()
@@ -45,7 +61,13 @@ func (s *p2Suite) scheduled(t *testing.T, name string) *corev1.Pod {
 		if e != nil {
 			return false, name, e
 		}
-		return p.Spec.NodeName != "", fmt.Sprintf("node=%q phase=%s", p.Spec.NodeName, p.Status.Phase), nil
+		detail := fmt.Sprintf("node=%q phase=%s", p.Spec.NodeName, p.Status.Phase)
+		for _, cond := range p.Status.Conditions {
+			if cond.Type == corev1.PodScheduled && cond.Status != corev1.ConditionTrue {
+				detail += fmt.Sprintf(" scheduled_reason=%s msg=%q", cond.Reason, cond.Message)
+			}
+		}
+		return p.Spec.NodeName != "", detail, nil
 	})
 	require.NoError(t, s.rememberPod(p))
 	return p
