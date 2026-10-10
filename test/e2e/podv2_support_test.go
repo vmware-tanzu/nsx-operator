@@ -91,6 +91,7 @@ type p2Journal struct {
 	PodUIDs          []string
 	PortPaths        []string
 	SubnetUIDs       []string
+	AutoCreated      bool
 }
 
 type p2Suite struct {
@@ -113,14 +114,22 @@ var podV2Suite *p2Suite
 var autoCreatedNamespace string
 
 func cleanupAutoCreatedNamespace() {
-	if autoCreatedNamespace != "" && testData != nil && testData.useWCPSetup() {
+	if autoCreatedNamespace != "" && testData != nil {
 		ns := autoCreatedNamespace
 		autoCreatedNamespace = ""
-		fmt.Printf("Cleaning up auto-created VC namespace: %s\n", ns)
-		if err := testData.deleteVCNamespace(ns); err != nil {
-			fmt.Printf("Warning: failed to delete auto-created VC namespace %s: %v\n", ns, err)
+		fmt.Printf("Cleaning up auto-created namespace: %s\n", ns)
+		if testData.useWCPSetup() {
+			if err := testData.deleteVCNamespace(ns); err != nil {
+				fmt.Printf("Warning: failed to delete auto-created VC namespace %s: %v\n", ns, err)
+			} else {
+				fmt.Printf("Successfully deleted auto-created VC namespace: %s\n", ns)
+			}
 		} else {
-			fmt.Printf("Successfully deleted auto-created VC namespace: %s\n", ns)
+			if err := testData.deleteNamespace(ns, 60*time.Second); err != nil {
+				fmt.Printf("Warning: failed to delete auto-created K8s namespace %s: %v\n", ns, err)
+			} else {
+				fmt.Printf("Successfully deleted auto-created K8s namespace: %s\n", ns)
+			}
 		}
 	}
 }
@@ -197,92 +206,21 @@ func isSystemNamespace(ns string) bool {
 }
 
 func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Interface, crdClientset versioned.Interface) (string, error) {
-	// 1. Search for an existing idle VPC namespace
-	sets, err := crdClientset.CrdV1alpha1().SubnetSets("").List(ctx, metav1.ListOptions{})
-	if err == nil {
-		vpcCandidates := make(map[string]*api.SubnetSet)
-		for i := range sets.Items {
-			set := &sets.Items[i]
-			if (set.Labels[common.LabelDefaultNetwork] == common.DefaultPodNetwork || set.Labels[common.LabelDefaultSubnetSet] == common.LabelDefaultPodSubnetSet) && set.Spec.IPAddressType != "" {
-				vpcCandidates[set.Namespace] = set
-			}
-		}
-
-		// Find operator deployment ServiceAccount for RBAC dryRun probe
-		opSA := "default"
-		if *p2OperatorNS != "" && *p2Deployment != "" {
-			if dep, getErr := clientset.AppsV1().Deployments(*p2OperatorNS).Get(ctx, *p2Deployment, metav1.GetOptions{}); getErr == nil && dep != nil {
-				if dep.Spec.Template.Spec.ServiceAccountName != "" {
-					opSA = dep.Spec.Template.Spec.ServiceAccountName
-				}
-			}
-		}
-
-		for nsName, defaultSet := range vpcCandidates {
-			if isSystemNamespace(nsName) || nsName == "default" {
-				continue
-			}
-			ns, e := clientset.CoreV1().Namespaces().Get(ctx, nsName, metav1.GetOptions{})
-			if e != nil || ns.DeletionTimestamp != nil {
-				continue
-			}
-			pods, e := clientset.CoreV1().Pods(nsName).List(ctx, metav1.ListOptions{})
-			if e != nil {
-				continue
-			}
-			hasWorkload := false
-			for _, p := range pods.Items {
-				if !p.Spec.HostNetwork {
-					hasWorkload = true
-					break
-				}
-			}
-			if hasWorkload {
-				continue
-			}
-			ports, e := crdClientset.CrdV1alpha1().SubnetPorts(nsName).List(ctx, metav1.ListOptions{})
-			if e != nil || len(ports.Items) > 0 {
-				continue
-			}
-			stss, e := clientset.AppsV1().StatefulSets(nsName).List(ctx, metav1.ListOptions{})
-			if e != nil || len(stss.Items) > 0 {
-				continue
-			}
-			// Probe permission with impersonation
-			probe := defaultSet.DeepCopy()
-			delete(probe.Labels, common.LabelDefaultNetwork)
-			impersonated := rest.CopyConfig(testData.kubeConfig)
-			impersonated.Impersonate = rest.ImpersonationConfig{
-				UserName: "system:serviceaccount:" + *p2OperatorNS + ":" + opSA,
-			}
-			opCRD, crdErr := versioned.NewForConfig(impersonated)
-			if crdErr == nil {
-				_, updateErr := opCRD.CrdV1alpha1().SubnetSets(nsName).Update(ctx, probe, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
-				if updateErr != nil && !strings.Contains(updateErr.Error(), "failed calling webhook") && !strings.Contains(updateErr.Error(), "connection refused") {
-					continue
-				}
-			}
-
-			fmt.Printf("Auto-discovered idle VPC namespace for Pod v2 testing: %s\n", nsName)
-			return nsName, nil
-		}
-	}
-
-	// 2. If VC client is configured and useWCPSetup, dynamically create dedicated namespace
+	testNS := "e2e-p2-" + getRandomString()
+	// 1. In WCP/Supervisor environment, create dedicated VC namespace
 	if testData != nil && testData.useWCPSetup() {
-		testNS := "e2e-p2-" + getRandomString()
-		fmt.Printf("No existing idle VPC namespace found; creating dedicated test namespace: %s\n", testNS)
+		fmt.Printf("Creating dedicated VC namespace for Pod v2 testing: %s\n", testNS)
 		if err := testData.createVCNamespace(testNS); err != nil {
 			return "", fmt.Errorf("failed to auto-create VC namespace %s: %w", testNS, err)
 		}
 		autoCreatedNamespace = testNS
-		err = wait.PollUntilContextTimeout(ctx, 3*time.Second, 180*time.Second, true, func(c context.Context) (bool, error) {
+		err := wait.PollUntilContextTimeout(ctx, 3*time.Second, 180*time.Second, true, func(c context.Context) (bool, error) {
 			sList, e := crdClientset.CrdV1alpha1().SubnetSets(testNS).List(c, metav1.ListOptions{})
 			if e != nil {
 				return false, nil
 			}
 			for _, set := range sList.Items {
-				if set.Labels[common.LabelDefaultNetwork] == common.DefaultPodNetwork && set.Spec.IPAddressType != "" {
+				if (set.Labels[common.LabelDefaultNetwork] == common.DefaultPodNetwork || set.Labels[common.LabelDefaultSubnetSet] == common.LabelDefaultPodSubnetSet) && set.Spec.IPAddressType != "" {
 					return true, nil
 				}
 			}
@@ -294,7 +232,13 @@ func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Int
 		return testNS, nil
 	}
 
-	return "", fmt.Errorf("no idle VPC namespace found and cannot auto-create via VC API")
+	// 2. In non-WCP environment, create dedicated K8s namespace
+	fmt.Printf("Creating dedicated K8s namespace for Pod v2 testing: %s\n", testNS)
+	if err := testData.createNamespace(testNS); err != nil {
+		return "", fmt.Errorf("failed to auto-create K8s namespace %s: %w", testNS, err)
+	}
+	autoCreatedNamespace = testNS
+	return testNS, nil
 }
 
 func podV2Main(m *testing.M) int {
@@ -377,9 +321,7 @@ func podV2Main(m *testing.M) int {
 		*p2Namespace = ns
 	}
 	defer func() {
-		if *p2CleanupOnly {
-			cleanupAutoCreatedNamespace()
-		}
+		cleanupAutoCreatedNamespace()
 	}()
 
 	s := &p2Suite{ctx: ctx, cancel: cancel, dynamic: dyn, started: time.Now()}
@@ -748,8 +690,7 @@ func (s *p2Suite) preflight(t *testing.T) {
 	require.NoError(t, err, "runtime config is not valid INI")
 	ncp, err := s.dynamic.Resource(p2NCP).Get(s.ctx, restoreutil.NSXRestoreStatus, metav1.GetOptions{})
 	require.True(t, err == nil || apierrors.IsNotFound(err), "read restore status: %v", err)
-	s.journal = p2Journal{Run: fmt.Sprintf("p2-%s", getRandomString()[:8]), Namespace: ns.Name, NamespaceUID: ns.UID, Deployment: *d.DeepCopy(), Container: *p2Container, ConfigPath: *p2ConfigPath, DefaultSet: *defaultSet.DeepCopy()}
-	autoCreatedNamespace = ""
+	s.journal = p2Journal{Run: fmt.Sprintf("p2-%s", getRandomString()[:8]), Namespace: ns.Name, NamespaceUID: ns.UID, Deployment: *d.DeepCopy(), Container: *p2Container, ConfigPath: *p2ConfigPath, DefaultSet: *defaultSet.DeepCopy(), AutoCreated: ns.Name == autoCreatedNamespace}
 	if err == nil {
 		s.journal.NCPExists = true
 		s.journal.NCPUID = ncp.GetUID()
@@ -1306,6 +1247,19 @@ func (s *p2Suite) cleanup() error {
 		return e
 	}
 	s.secret = nil
+	if s.journal.AutoCreated && testData != nil && s.journal.Namespace != "" {
+		ns := s.journal.Namespace
+		if testData.useWCPSetup() {
+			fmt.Printf("Cleaning up auto-created VC namespace: %s\n", ns)
+			_ = testData.deleteVCNamespace(ns)
+		} else {
+			fmt.Printf("Cleaning up auto-created K8s namespace: %s\n", ns)
+			_ = testData.deleteNamespace(ns, 60*time.Second)
+		}
+		if autoCreatedNamespace == ns {
+			autoCreatedNamespace = ""
+		}
+	}
 	fmt.Println("CLEANUP PASS: workloads/ports removed; original template, replicas, default SubnetSet label and restore annotations restored.")
 	return nil
 }
