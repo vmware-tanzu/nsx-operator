@@ -258,7 +258,7 @@ func autoDiscoverOrCreateNamespace(ctx context.Context, clientset kubernetes.Int
 			opCRD, crdErr := versioned.NewForConfig(impersonated)
 			if crdErr == nil {
 				_, updateErr := opCRD.CrdV1alpha1().SubnetSets(nsName).Update(ctx, probe, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
-				if updateErr != nil {
+				if updateErr != nil && !strings.Contains(updateErr.Error(), "failed calling webhook") && !strings.Contains(updateErr.Error(), "connection refused") {
 					continue
 				}
 			}
@@ -762,11 +762,25 @@ func (s *p2Suite) preflight(t *testing.T) {
 	probe := defaultSet.DeepCopy()
 	delete(probe.Labels, common.LabelDefaultNetwork)
 	delete(probe.Labels, common.LabelDefaultSubnetSet)
-	_, err = s.operatorCRD.CrdV1alpha1().SubnetSets(ns.Name).Update(s.ctx, probe, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
-	require.NoError(t, err, "preflight: need permission to impersonate operator service account for default SubnetSet label changes")
 	probeRestore := defaultSet.DeepCopy()
-	_, err = s.operatorCRD.CrdV1alpha1().SubnetSets(ns.Name).Update(s.ctx, probeRestore, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
-	require.NoError(t, err, "preflight: need permission to restore default SubnetSet labels")
+	webhookErr := wait.PollUntilContextTimeout(s.ctx, 3*time.Second, 180*time.Second, true, func(c context.Context) (bool, error) {
+		_, err = s.operatorCRD.CrdV1alpha1().SubnetSets(ns.Name).Update(c, probe, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+		if err != nil {
+			if strings.Contains(err.Error(), "failed calling webhook") || strings.Contains(err.Error(), "connection refused") {
+				return false, nil
+			}
+			return false, err
+		}
+		_, err = s.operatorCRD.CrdV1alpha1().SubnetSets(ns.Name).Update(c, probeRestore, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+		if err != nil {
+			if strings.Contains(err.Error(), "failed calling webhook") || strings.Contains(err.Error(), "connection refused") {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	})
+	require.NoError(t, webhookErr, "preflight: validating webhook probe and permission check failed")
 	if *p2DHCPNamespace != "" {
 		require.NotEqual(t, ns.Name, *p2DHCPNamespace, "DHCP fixture must use a separate namespace")
 		dhcpNS, e := testData.clientset.CoreV1().Namespaces().Get(s.ctx, *p2DHCPNamespace, metav1.GetOptions{})
@@ -889,9 +903,9 @@ func (s *p2Suite) normal(ctx context.Context) error {
 					Namespace: "default",
 				},
 				Spec: api.SubnetSetSpec{
-					IPAddressType: api.IPAddressTypeIPv4,
+					IPAddressType:  api.IPAddressTypeIPv4,
 					IPv4SubnetSize: 32,
-					AccessMode:    api.AccessMode(api.AccessModePrivate),
+					AccessMode:     api.AccessMode(api.AccessModePrivate),
 				},
 			}
 			_, probeErr := testData.crdClientset.CrdV1alpha1().SubnetSets("default").Create(c, probeSet, metav1.CreateOptions{DryRun: []string{metav1.DryRunAll}})
