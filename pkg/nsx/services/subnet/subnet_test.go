@@ -134,7 +134,7 @@ func (fakeSubnetsClient) Get(_ string, _ string, _ string, _ string) (model.VpcS
 	return model.VpcSubnet{}, nil
 }
 
-func (fakeSubnetsClient) List(_ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
+func (fakeSubnetsClient) List(_ string, _ string, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
 	return model.VpcSubnetListResult{}, nil
 }
 

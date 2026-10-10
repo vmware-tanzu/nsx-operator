@@ -100,7 +100,7 @@ func (f fakeLBAppProfileClient) Get(string) (*data.StructValue, error) {
 	return nil, nil
 }
 
-func (f fakeLBAppProfileClient) List(*string, *bool, *string, *int64, *bool, *string) (model.LBAppProfileListResult, error) {
+func (f fakeLBAppProfileClient) List(*string, *bool, *bool, *string, *int64, *bool, *string) (model.LBAppProfileListResult, error) {
 	return model.LBAppProfileListResult{}, nil
 }
 
@@ -122,7 +122,7 @@ func (f fakeLBMonitorProfileClient) Get(string) (*data.StructValue, error) {
 	return nil, nil
 }
 
-func (f fakeLBMonitorProfileClient) List(*string, *bool, *string, *int64, *bool, *string) (model.LBMonitorProfileListResult, error) {
+func (f fakeLBMonitorProfileClient) List(*string, *bool, *bool, *string, *int64, *bool, *string) (model.LBMonitorProfileListResult, error) {
 	return model.LBMonitorProfileListResult{}, nil
 }
 
@@ -144,7 +144,7 @@ func (f fakeLBPersistenceProfileClient) Get(string) (*data.StructValue, error) {
 	return nil, nil
 }
 
-func (f fakeLBPersistenceProfileClient) List(*string, *bool, *string, *int64, *bool, *string) (model.LBPersistenceProfileListResult, error) {
+func (f fakeLBPersistenceProfileClient) List(*string, *bool, *bool, *string, *int64, *bool, *string) (model.LBPersistenceProfileListResult, error) {
 	return model.LBPersistenceProfileListResult{}, nil
 }
 

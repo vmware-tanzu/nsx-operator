@@ -56,7 +56,7 @@ func (s *SubnetDHCPStatsStorage) Get(ctx context.Context, namespace, name string
 		"projectID", projectID, "vpcID", vpcID)
 
 	subnets, err := s.nsxClient.SubnetsClient.List(orgID, projectID, vpcID,
-		nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		return nil, HandleEASError(err, "subnetdhcpserverstats", name, fmt.Errorf("failed to list subnets from NSX: %w", err))
 	}
@@ -92,7 +92,7 @@ func (s *SubnetDHCPStatsStorage) Get(ctx context.Context, namespace, name string
 func (s *SubnetDHCPStatsStorage) fetchStats(namespace, nsxSubnetID, name string, info nsxcommon.VPCResourceInfo) (*easv1alpha1.SubnetDHCPServerStats, error) {
 	nsxStats, err := s.nsxClient.DhcpServerConfigStatsClient.Get(
 		info.OrgID, info.ProjectID, info.VPCID, nsxSubnetID,
-		nil, nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		return nil, HandleEASError(err, "subnetdhcpserverstats", name, fmt.Errorf("failed to get DHCP server config stats from NSX: %w", err))
 	}

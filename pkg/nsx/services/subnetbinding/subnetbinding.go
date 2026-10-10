@@ -261,7 +261,7 @@ func (s *BindingService) Apply(subnetPath string, bindingMaps []*model.SubnetCon
 		return true
 	}, func() error {
 		for {
-			subnetBindingListResult, listErr := s.NSXClient.SubnetConnectionBindingMapsClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, subnetID, cursor, nil, nil, nil, nil, nil)
+			subnetBindingListResult, listErr := s.NSXClient.SubnetConnectionBindingMapsClient.List(vpcInfo.OrgID, vpcInfo.ProjectID, vpcInfo.VPCID, subnetID, cursor, nil, nil, nil, nil, nil, nil)
 			if listErr != nil {
 				log.Error(listErr, "Failed to list SubnetConnectionBindingMaps from NSX under Subnet", "orgID", vpcInfo.OrgID, "projectID", vpcInfo.ProjectID, "vpcID", vpcInfo.VPCID, "subnetID", subnetID, "subnetConnectionBindingMaps", pendingBindingMaps)
 				return nsxutil.TransNSXApiError(listErr)
