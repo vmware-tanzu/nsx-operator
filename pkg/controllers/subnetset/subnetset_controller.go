@@ -655,6 +655,10 @@ func (r *SubnetSetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 		return restoreList, err
 	}
 	for _, subnetSet := range subnetSetList.Items {
+		// Skip SubnetSet if it is pending deletion
+		if !subnetSet.ObjectMeta.DeletionTimestamp.IsZero() {
+			continue
+		}
 		// Restore a SubnetSet if it has Subnets in status
 		// No need to restore pre-created SubnetSet
 		if subnetSet.Spec.SubnetNames == nil && len(subnetSet.Status.Subnets) > 0 {

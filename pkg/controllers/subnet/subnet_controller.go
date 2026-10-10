@@ -511,6 +511,10 @@ func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 		return restoreList, err
 	}
 	for _, subnetCR := range subnetList.Items {
+		// Skip Subnet if it is pending deletion
+		if !subnetCR.ObjectMeta.DeletionTimestamp.IsZero() {
+			continue
+		}
 		// Not restore a Subnet if it does not have NetworkAddresses
 		if len(subnetCR.Status.NetworkAddresses) == 0 {
 			continue

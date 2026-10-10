@@ -1437,6 +1437,34 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	defer patches.Reset()
 	err = r.RestoreReconcile()
 	assert.ErrorContains(t, err, "mocked get NSX Subnet error")
+
+	// Skip Subnet pending deletion
+	now := metav1.Now()
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetList := list.(*v1alpha1.SubnetList)
+		subnetList.Items = []v1alpha1.Subnet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "subnet-deleting",
+					Namespace:         "ns-1",
+					UID:               "subnet-deleting",
+					DeletionTimestamp: &now,
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"10.0.0.0/28"},
+					GatewayAddresses: []string{"10.0.0.0"},
+				},
+			},
+		}
+		return nil
+	})
+	patches = gomonkey.ApplyFunc((*SubnetReconciler).Reconcile, func(r *SubnetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.FailNow(t, "Should not reconcile Subnet pending deletion")
+		return ResultNormal, nil
+	})
+	defer patches.Reset()
+	err = r.RestoreReconcile()
+	assert.Nil(t, err)
 }
 
 func TestHandleSharedSubnet(t *testing.T) {

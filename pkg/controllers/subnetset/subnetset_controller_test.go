@@ -1660,6 +1660,38 @@ func TestSubnetSetReconciler_RestoreReconcile(t *testing.T) {
 	defer patches.Reset()
 	err = r.RestoreReconcile()
 	assert.Contains(t, err.Error(), "failed to restore SubnetSet ns-1/subnetset-1")
+
+	// Skip SubnetSet pending deletion
+	now := metav1.Now()
+	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+		subnetSetList := list.(*v1alpha1.SubnetSetList)
+		subnetSetList.Items = []v1alpha1.SubnetSet{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "subnetset-deleting",
+					Namespace:         "ns-1",
+					UID:               "subnetset-deleting",
+					DeletionTimestamp: &now,
+				},
+				Status: v1alpha1.SubnetSetStatus{
+					Subnets: []v1alpha1.SubnetInfo{
+						{
+							NetworkAddresses: []string{"10.0.0.0/28"},
+							GatewayAddresses: []string{"10.0.0.0"},
+						},
+					},
+				},
+			},
+		}
+		return nil
+	})
+	patches = gomonkey.ApplyFunc((*SubnetSetReconciler).Reconcile, func(r *SubnetSetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+		assert.FailNow(t, "Should not reconcile SubnetSet pending deletion")
+		return ResultNormal, nil
+	})
+	defer patches.Reset()
+	err = r.RestoreReconcile()
+	assert.Nil(t, err)
 }
 
 func TestUpdateLabels(t *testing.T) {
