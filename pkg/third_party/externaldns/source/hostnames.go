@@ -153,30 +153,30 @@ func isAlphaNum(b byte) bool {
 }
 
 const (
-	GatewayHostnameSourceAnnotationOnly        = "annotation-only"
-	GatewayHostnameSourceDefinedHostsOnlyValue = "defined-hosts-only"
+	gatewayHostnameSourceAnnotationOnly        = "annotation-only"
+	gatewayHostnameSourceDefinedHostsOnlyValue = "defined-hosts-only"
 )
 
-// RouteHostnameWildcardAllowed is true when the Route may emit a leading "*." DNS name: gateway-hostname-source
-// must be explicitly [GatewayHostnameSourceAnnotationOnly] and the hostname annotation (hostnameAnnoKey) must list
-// at least one non-empty hostname (annotation-only DNS hostname policy).
-func RouteHostnameWildcardAllowed(meta *metav1.ObjectMeta, gatewayHostnameSourceAnnoKey, hostnameAnnoKey string) bool {
-	if meta == nil || meta.Annotations == nil {
+// RouteHostnameWildcardAllowed reports whether a route may emit a wildcard ("*.") DNS name,
+// which requires gateway-hostname-source="annotation-only" and a non-empty hostname annotation.
+func RouteHostnameWildcardAllowed(annotations map[string]string) bool {
+	if len(annotations) == 0 {
 		return false
 	}
-	raw, ok := meta.Annotations[gatewayHostnameSourceAnnoKey]
+	annos := extann.ResolveAnnotations(annotations)
+	raw, ok := annos[extann.GatewayHostnameSourceKey]
 	if !ok {
 		return false
 	}
-	if strings.ToLower(strings.TrimSpace(raw)) != GatewayHostnameSourceAnnotationOnly {
+	if strings.ToLower(strings.TrimSpace(raw)) != gatewayHostnameSourceAnnotationOnly {
 		return false
 	}
-	return routeHasExternalDNSHostnameAnnotation(meta, hostnameAnnoKey)
+	return routeHasExternalDNSHostnameAnnotation(annos)
 }
 
 // RouteHostnames resolves the desired hostnames for a route based on annotations and spec hostnames.
 // If ignoreGatewayHostnameSource is false, it respects the annotation-only policy.
-func RouteHostnames(meta *metav1.ObjectMeta, specHostnames []string, gatewayHostnameSourceAnnoKey, hostnameAnnoKey string, ignoreGatewayHostnameSource bool) []string {
+func RouteHostnames(meta *metav1.ObjectMeta, specHostnames []string, ignoreGatewayHostnameSource bool) []string {
 	if meta == nil {
 		return normalizeHostnamesList(specHostnames)
 	}
@@ -184,42 +184,40 @@ func RouteHostnames(meta *metav1.ObjectMeta, specHostnames []string, gatewayHost
 	var hostnames []string
 	hostnames = append(hostnames, specHostnames...)
 
-	hostNameAnnotation, hostNameAnnotationExists := meta.Annotations[gatewayHostnameSourceAnnoKey]
+	annos := extann.ResolveAnnotations(meta.Annotations)
+	hostNameAnnotation, hostNameAnnotationExists := annos[extann.GatewayHostnameSourceKey]
 	if !hostNameAnnotationExists {
 		if len(hostnames) == 0 {
 			hostnames = append(hostnames, "")
 		}
 		if !ignoreGatewayHostnameSource {
-			hostnames = append(hostnames, extann.HostnamesFromAnnotations(meta.Annotations, hostnameAnnoKey)...)
+			hostnames = append(hostnames, extann.HostnamesFromAnnotations(annos)...)
 		}
 		return normalizeHostnamesList(hostnames)
 	}
 
-	switch strings.ToLower(hostNameAnnotation) {
-	case GatewayHostnameSourceAnnotationOnly:
+	switch strings.ToLower(strings.TrimSpace(hostNameAnnotation)) {
+	case gatewayHostnameSourceAnnotationOnly:
 		if ignoreGatewayHostnameSource {
 			return []string{}
 		}
-		return normalizeHostnamesList(extann.HostnamesFromAnnotations(meta.Annotations, hostnameAnnoKey))
-	case GatewayHostnameSourceDefinedHostsOnlyValue:
+		return normalizeHostnamesList(extann.HostnamesFromAnnotations(annos))
+	case gatewayHostnameSourceDefinedHostsOnlyValue:
 		return normalizeHostnamesList(hostnames)
 	default:
-		// Invalid value provided: fall back to default behavior (as if the annotation is absent)
+		// Invalid value falls back to default behavior (as if annotation is absent).
 		if len(hostnames) == 0 {
 			hostnames = append(hostnames, "")
 		}
 		if !ignoreGatewayHostnameSource {
-			hostnames = append(hostnames, extann.HostnamesFromAnnotations(meta.Annotations, hostnameAnnoKey)...)
+			hostnames = append(hostnames, extann.HostnamesFromAnnotations(annos)...)
 		}
 		return normalizeHostnamesList(hostnames)
 	}
 }
 
-func routeHasExternalDNSHostnameAnnotation(meta *metav1.ObjectMeta, hostnameKey string) bool {
-	if meta == nil {
-		return false
-	}
-	for _, h := range extann.HostnamesFromAnnotations(meta.GetAnnotations(), hostnameKey) {
+func routeHasExternalDNSHostnameAnnotation(annos map[string]string) bool {
+	for _, h := range extann.HostnamesFromAnnotations(annos) {
 		if strings.TrimSpace(h) != "" {
 			return true
 		}

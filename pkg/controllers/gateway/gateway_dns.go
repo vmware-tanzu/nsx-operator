@@ -17,17 +17,16 @@ import (
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
 
-// parseDNSHostnamesFromAnnotation returns trimmed unique FQDNs from external-dns.alpha.kubernetes.io/hostname using the same
-// gateway-hostname-source + hostname annotation path as Gateway direct DNS (comma-separated tokens are supported).
+// parseDNSHostnamesFromAnnotation extracts hostnames from the Gateway's hostname annotation,
+// respecting dns.nsx.vmware.com/skip and supporting alpha annotation fallback.
 func parseDNSHostnamesFromAnnotation(annotations map[string]string) []string {
 	if len(annotations) == 0 {
 		return nil
 	}
-
 	if _, ok := annotations[servicecommon.AnnotationsDNSSkip]; ok {
 		return nil
 	}
-	return extannotations.HostnamesFromAnnotations(annotations, servicecommon.AnnotationDNSHostnameKey)
+	return extannotations.HostnamesFromAnnotations(annotations)
 }
 
 // buildGatewayDNSBatch builds owner-scoped DNS rows for a Gateway: annotation hostnames,

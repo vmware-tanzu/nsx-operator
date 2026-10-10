@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	extann "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 )
 
 func TestRouteSpecHostnames(t *testing.T) {
@@ -29,32 +31,64 @@ func TestRouteHasExternalDNSHostnameAnnotation(t *testing.T) {
 		meta *metav1.ObjectMeta
 		want bool
 	}{
-		{"valid", &metav1.ObjectMeta{Annotations: map[string]string{"hostname": "anno.com"}}, true},
-		{"empty", &metav1.ObjectMeta{Annotations: map[string]string{"hostname": "  "}}, false},
+		{"valid", &metav1.ObjectMeta{Annotations: map[string]string{extann.HostnameKey: "anno.com"}}, true},
+		{"empty", &metav1.ObjectMeta{Annotations: map[string]string{extann.HostnameKey: "  "}}, false},
 		{"nil", nil, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, routeHasExternalDNSHostnameAnnotation(tc.meta, "hostname"))
+			var annos map[string]string
+			if tc.meta != nil {
+				annos = tc.meta.Annotations
+			}
+			assert.Equal(t, tc.want, routeHasExternalDNSHostnameAnnotation(annos))
 		})
 	}
 }
 
 func TestRouteHostnameWildcardAllowed(t *testing.T) {
 	tests := []struct {
-		name string
-		meta *metav1.ObjectMeta
-		want bool
+		name  string
+		annos map[string]string
+		want  bool
 	}{
-		{"allowed", &metav1.ObjectMeta{Annotations: map[string]string{"gateway-hostname-source": "annotation-only", "hostname": "anno.com"}}, true},
-		{"wrong-source", &metav1.ObjectMeta{Annotations: map[string]string{"gateway-hostname-source": "defined-hosts-only", "hostname": "anno.com"}}, false},
-		{"missing-hostname", &metav1.ObjectMeta{Annotations: map[string]string{"gateway-hostname-source": "annotation-only"}}, false},
-		{"nil-meta", nil, false},
-		{"empty-annotations", &metav1.ObjectMeta{Annotations: map[string]string{}}, false},
+		{
+			name: "allowed-stable",
+			annos: map[string]string{
+				extann.GatewayHostnameSourceKey: "annotation-only",
+				extann.HostnameKey:              "anno.com",
+			},
+			want: true,
+		},
+		{
+			name: "allowed-alpha-fallback",
+			annos: map[string]string{
+				extann.LegacyGatewayHostnameSourceKey: "annotation-only",
+				extann.LegacyHostnameKey:              "anno.com",
+			},
+			want: true,
+		},
+		{
+			name: "wrong-source",
+			annos: map[string]string{
+				extann.GatewayHostnameSourceKey: "defined-hosts-only",
+				extann.HostnameKey:              "anno.com",
+			},
+			want: false,
+		},
+		{
+			name: "missing-hostname",
+			annos: map[string]string{
+				extann.GatewayHostnameSourceKey: "annotation-only",
+			},
+			want: false,
+		},
+		{name: "nil-annotations", annos: nil, want: false},
+		{name: "empty-annotations", annos: map[string]string{}, want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, RouteHostnameWildcardAllowed(tc.meta, "gateway-hostname-source", "hostname"))
+			assert.Equal(t, tc.want, RouteHostnameWildcardAllowed(tc.annos))
 		})
 	}
 }
@@ -91,38 +125,56 @@ func TestRouteHostnames(t *testing.T) {
 		want                        []string
 	}{
 		{
-			"annotation-only",
-			&metav1.ObjectMeta{Annotations: map[string]string{"gateway-hostname-source": "annotation-only", "hostname": "anno.com"}},
+			"annotation-only-stable",
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.GatewayHostnameSourceKey: "annotation-only",
+				extann.HostnameKey:              "anno.com",
+			}},
 			[]string{"spec.com"}, false, []string{"anno.com"},
 		},
 		{
 			"annotation-only-ignore",
-			&metav1.ObjectMeta{Annotations: map[string]string{"gateway-hostname-source": "annotation-only", "hostname": "anno.com"}},
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.GatewayHostnameSourceKey: "annotation-only",
+				extann.HostnameKey:              "anno.com",
+			}},
 			[]string{"spec.com"}, true, []string{},
 		},
 		{
 			"defined-hosts-only",
-			&metav1.ObjectMeta{Annotations: map[string]string{"gateway-hostname-source": "defined-hosts-only", "hostname": "anno.com"}},
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.GatewayHostnameSourceKey: "defined-hosts-only",
+				extann.HostnameKey:              "anno.com",
+			}},
 			[]string{"spec.com"}, false, []string{"spec.com"},
 		},
 		{
 			"invalid-annotation",
-			&metav1.ObjectMeta{Annotations: map[string]string{"gateway-hostname-source": "invalid", "hostname": "anno.com"}},
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.GatewayHostnameSourceKey: "invalid",
+				extann.HostnameKey:              "anno.com",
+			}},
 			[]string{"spec.com"}, false, []string{"spec.com", "anno.com"},
 		},
 		{
 			"fallback-behavior",
-			&metav1.ObjectMeta{Annotations: map[string]string{"hostname": "anno.com"}},
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.HostnameKey: "anno.com",
+			}},
 			[]string{"spec.com"}, false, []string{"spec.com", "anno.com"},
 		},
 		{
 			"fallback-empty-spec",
-			&metav1.ObjectMeta{Annotations: map[string]string{"hostname": "anno.com"}},
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.HostnameKey: "anno.com",
+			}},
 			[]string{}, false, []string{"anno.com"},
 		},
 		{
 			"fallback-ignore-anno",
-			&metav1.ObjectMeta{Annotations: map[string]string{"hostname": "anno.com"}},
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.HostnameKey: "anno.com",
+			}},
 			[]string{"spec.com"}, true, []string{"spec.com"},
 		},
 		{
@@ -130,10 +182,33 @@ func TestRouteHostnames(t *testing.T) {
 			nil,
 			[]string{"spec.com"}, false, []string{"spec.com"},
 		},
+		{
+			"alpha-hostname-only",
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.LegacyHostnameKey: "alpha.com",
+			}},
+			[]string{}, false, []string{"alpha.com"},
+		},
+		{
+			"both-hostname-stable-wins",
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.HostnameKey:       "stable.com",
+				extann.LegacyHostnameKey: "alpha.com",
+			}},
+			[]string{}, false, []string{"stable.com"},
+		},
+		{
+			"alpha-gateway-hostname-source-annotation-only",
+			&metav1.ObjectMeta{Annotations: map[string]string{
+				extann.LegacyGatewayHostnameSourceKey: "annotation-only",
+				extann.LegacyHostnameKey:              "alpha.com",
+			}},
+			[]string{"spec.com"}, false, []string{"alpha.com"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			res := RouteHostnames(tc.meta, tc.specHostnames, "gateway-hostname-source", "hostname", tc.ignoreGatewayHostnameSource)
+			res := RouteHostnames(tc.meta, tc.specHostnames, tc.ignoreGatewayHostnameSource)
 			assert.Equal(t, tc.want, res)
 		})
 	}

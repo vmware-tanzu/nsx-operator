@@ -1,20 +1,16 @@
-// Package annotations provides a small subset of ExternalDNS source annotation helpers.
-// Upstream: sigs.k8s.io/external-dns/source/annotations (notably processors.go for hostname splitting/list parsing;
-// upstream also defines fixed annotation key constants used by the full Gateway/Ingress sources).
+// Package annotations provides ExternalDNS source annotation helpers and constants.
+// Upstream: sigs.k8s.io/external-dns/source/annotations (annotations.go for prefix management and
+// legacy annotation resolution; processors.go for hostname splitting).
 //
-// # Direct copy from external-dns (same logic; same exported names where applicable)
+// # Exported symbols
 //
-//	SplitHostnameAnnotation — same comma-separated hostname tokenization as upstream processors.
-//	HostnamesFromAnnotations(input, hostnameKey) — same parsing as upstream after resolving the key; upstream
-//	overload reads a package-level hostname key constant.
-//
-// # Modified from external-dns
-//
-//	HostnamesFromAnnotations — returns nil if hostnameKey is "" or input is nil (defensive); upstream resolves
-//	from a fixed key and may not short-circuit the same way.
-//
-// # nsx-operator / subset
-//
-//	This package does **not** vendor upstream annotation **key** constants. Callers (e.g. gateway controller +
-//	source.RouteHostnames) pass key strings—typically from pkg/nsx/services/common—or any compatible key for tests.
+//	DefaultAnnotationPrefix — standard ExternalDNS prefix ("external-dns.kubernetes.io/").
+//	LegacyAnnotationPrefix — legacy alpha prefix ("external-dns.alpha.kubernetes.io/").
+//	HostnameKey — stable hostname annotation key ("external-dns.kubernetes.io/hostname").
+//	GatewayHostnameSourceKey — stable gateway hostname source key ("external-dns.kubernetes.io/gateway-hostname-source").
+//	ResolveAnnotations — copies legacy annotations to the standard prefix; standard wins on conflict.
+//	SplitHostnameAnnotation — tokenizes comma-separated hostname lists.
+//	HostnamesFromAnnotations — extracts hostnames preferring the stable annotation with alpha fallback.
+//	HasHostnameAnnotationChanged — checks for hostname annotation changes in watch events.
+//	HasRouteDNSAnnotationsChanged — checks for route DNS annotation changes in watch events.
 package annotations

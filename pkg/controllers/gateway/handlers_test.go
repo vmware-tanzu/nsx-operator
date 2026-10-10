@@ -17,6 +17,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	mockclient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	extann "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 )
 
 func TestPredicateFuncsRouteDNS(t *testing.T) {
@@ -34,6 +35,23 @@ func TestPredicateFuncsRouteDNS(t *testing.T) {
 		{"update-changed", func(t *testing.T) {
 			assert.True(t, p.Update(event.UpdateEvent{ObjectOld: httpObj1, ObjectNew: httpObj2}))
 		}},
+		{"update-annotation-legacy-to-empty-stable", func(t *testing.T) {
+			rOld := &gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{extann.LegacyHostnameKey: "app.example.com"},
+				},
+			}
+			rNew := &gatewayv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						extann.LegacyHostnameKey: "app.example.com",
+						extann.HostnameKey:       "",
+					},
+				},
+			}
+			assert.True(t, p.Update(event.UpdateEvent{ObjectOld: rOld, ObjectNew: rNew}))
+			assert.True(t, p.Update(event.UpdateEvent{ObjectOld: rNew, ObjectNew: rOld}))
+		}},
 		{"update-unchanged", func(t *testing.T) {
 			assert.False(t, p.Update(event.UpdateEvent{ObjectOld: httpObj1, ObjectNew: httpObj1}))
 		}},
@@ -47,16 +65,28 @@ func TestPredicateFuncsRouteDNS(t *testing.T) {
 func TestPredicateNetworkInfoAllowedDNSDomainsChanged(t *testing.T) {
 	p := predicateNetworkInfoAllowedDNSDomainsChanged()
 
-	ni1 := &v1alpha1.NetworkInfo{VPCs: []v1alpha1.VPCState{}}
-	ni2 := &v1alpha1.NetworkInfo{VPCs: []v1alpha1.VPCState{}}
+	niEmpty := &v1alpha1.NetworkInfo{VPCs: []v1alpha1.VPCState{}}
+	niDomains1 := &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.com"}}
+	niDomains2 := &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.org"}}
 
 	tests := []struct {
 		name string
 		run  func(*testing.T)
 	}{
-		{"create", func(t *testing.T) { assert.False(t, p.Create(event.CreateEvent{Object: ni1})) }},
-		{"update", func(t *testing.T) { assert.False(t, p.Update(event.UpdateEvent{ObjectOld: ni1, ObjectNew: ni2})) }},
-		{"delete", func(t *testing.T) { assert.False(t, p.Delete(event.DeleteEvent{Object: ni1})) }},
+		{"create-empty", func(t *testing.T) { assert.False(t, p.Create(event.CreateEvent{Object: niEmpty})) }},
+		{"create-with-domains", func(t *testing.T) { assert.True(t, p.Create(event.CreateEvent{Object: niDomains1})) }},
+		{"create-invalid-type", func(t *testing.T) { assert.False(t, p.Create(event.CreateEvent{Object: &corev1.Pod{}})) }},
+		{"update-unchanged", func(t *testing.T) {
+			assert.False(t, p.Update(event.UpdateEvent{ObjectOld: niDomains1, ObjectNew: niDomains1}))
+		}},
+		{"update-changed", func(t *testing.T) {
+			assert.True(t, p.Update(event.UpdateEvent{ObjectOld: niDomains1, ObjectNew: niDomains2}))
+		}},
+		{"update-invalid-type", func(t *testing.T) {
+			assert.False(t, p.Update(event.UpdateEvent{ObjectOld: niDomains1, ObjectNew: &corev1.Pod{}}))
+		}},
+		{"delete", func(t *testing.T) { assert.False(t, p.Delete(event.DeleteEvent{Object: niDomains1})) }},
+		{"generic", func(t *testing.T) { assert.False(t, p.Generic(event.GenericEvent{Object: niDomains1})) }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, tc.run)
@@ -83,7 +113,7 @@ func TestNetworkInfoToGatewayDNSRequests(t *testing.T) {
 					Namespace: "ns1",
 					Name:      "gw1",
 					Annotations: map[string]string{
-						servicecommon.AnnotationDNSHostnameKey: "a.com",
+						extann.HostnameKey: "a.com",
 					},
 					Generation: 1,
 				},
@@ -104,14 +134,41 @@ func TestNetworkInfoToGatewayDNSRequests(t *testing.T) {
 					},
 				},
 			},
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "ns1",
+					Name:      "gw2",
+					Annotations: map[string]string{
+						extann.LegacyHostnameKey: "b.com",
+					},
+					Generation: 1,
+				},
+				Spec: gatewayv1.GatewaySpec{GatewayClassName: "avi-lb"},
+				Status: gatewayv1.GatewayStatus{
+					Addresses: []gatewayv1.GatewayStatusAddress{
+						{
+							Type:  ptrGatewayAddressType(gatewayv1.IPAddressType),
+							Value: "1.1.1.2",
+						},
+					},
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayv1.GatewayConditionProgrammed),
+							Status:             metav1.ConditionTrue,
+							ObservedGeneration: 1,
+						},
+					},
+				},
+			},
 		}
 		return nil
 	})
 
 	ni := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1"}}
 	reqs := r.networkInfoToGatewayDNSRequests(ctx, ni)
-	if assert.Len(t, reqs, 1) {
+	if assert.Len(t, reqs, 2) {
 		assert.Equal(t, types.NamespacedName{Namespace: "ns1", Name: "gw1"}, reqs[0].NamespacedName)
+		assert.Equal(t, types.NamespacedName{Namespace: "ns1", Name: "gw2"}, reqs[1].NamespacedName)
 	}
 
 	reqs2 := r.networkInfoToGatewayDNSRequests(ctx, &corev1.Pod{})
@@ -622,8 +679,24 @@ func TestPredicateFuncsGateway(t *testing.T) {
 
 		// Hostname annotation changed:
 		newAnno := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
-		newAnno.Annotations = map[string]string{servicecommon.AnnotationDNSHostnameKey: "foo.example.com"}
+		newAnno.Annotations = map[string]string{extann.HostnameKey: "foo.example.com"}
 		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newAnno}))
+
+		// Alpha Hostname annotation changed:
+		newAlphaAnno := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		newAlphaAnno.Annotations = map[string]string{extann.LegacyHostnameKey: "foo.example.com"}
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: newTrue, ObjectNew: newAlphaAnno}))
+
+		// Hostname update from legacy alpha to empty stable hostname (and vice versa):
+		alphaGW := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		alphaGW.Annotations = map[string]string{extann.LegacyHostnameKey: "app.example.com"}
+		overrideEmptyGW := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)
+		overrideEmptyGW.Annotations = map[string]string{
+			extann.LegacyHostnameKey: "app.example.com",
+			extann.HostnameKey:       "",
+		}
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: alphaGW, ObjectNew: overrideEmptyGW}))
+		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: overrideEmptyGW, ObjectNew: alphaGW}))
 
 		// DNSSkip annotation changed:
 		newSkip := baseProgrammedGW("gw", 1, 1, metav1.ConditionTrue)

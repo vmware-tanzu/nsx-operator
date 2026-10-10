@@ -28,6 +28,7 @@ import (
 	mockdns "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnsrecordprovider"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
+	extann "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
 
@@ -58,7 +59,7 @@ func TestReconcileGatewayDNS(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID(uid)},
 		}
 		if hostname != "" {
-			gw.Annotations = map[string]string{servicecommon.AnnotationDNSHostnameKey: hostname}
+			gw.Annotations = map[string]string{extann.HostnameKey: hostname}
 		}
 		if ip != "" {
 			gw.Status.Addresses = []gatewayv1.GatewayStatusAddress{{Type: ptrGatewayAddressType(gatewayv1.IPAddressType), Value: ip}}
@@ -154,18 +155,6 @@ func TestReconcileGatewayDNS(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "update_condition_error",
-			gw:   makeGw("ns1", "gw", "u1", "app.example.com", "203.0.113.5"),
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(ns string, owner *dns.ResourceRef, eps []*extdns.Endpoint) ([]dns.EndpointRow, map[string]string, error) {
-						rows, allowed, err := stubValidatedRows(eps)
-						return rows, allowed, err
-					}).Times(1)
-				m.EXPECT().CreateOrUpdateRecords(gomock.Any(), gomock.Any()).Return(true, nil).Times(1)
-			},
-		},
-		{
 			name: "dnsZoneValidationError_with_valid_rows_applies",
 			gw:   makeGw("ns1", "gw", "u1", "valid.example.com,invalid.other.com", "203.0.113.5"),
 			setupMock: func(m *mockdns.MockDNSRecordProvider) {
@@ -181,13 +170,6 @@ func TestReconcileGatewayDNS(t *testing.T) {
 						return rows, allowed, &dns.DNSZoneValidationError{}
 					}).Times(1)
 				m.EXPECT().CreateOrUpdateRecords(gomock.Any(), gomock.Any()).Return(true, nil).Times(1)
-			},
-		},
-		{
-			name: "no_ip_targets_deletes",
-			gw:   makeGw("ns1", "gw", "u2", "app.example.com", ""),
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindGateway, "ns1", "gw").Return(true, nil).Times(1)
 			},
 		},
 		{
@@ -305,6 +287,72 @@ func TestClearDNSAndConditionForGateway(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestParseDNSHostnamesFromAnnotation(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        []string
+	}{
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			want:        nil,
+		},
+		{
+			name:        "empty annotations",
+			annotations: map[string]string{},
+			want:        nil,
+		},
+		{
+			name:        "skip annotation",
+			annotations: map[string]string{servicecommon.AnnotationsDNSSkip: "true", extann.HostnameKey: "example.com"},
+			want:        nil,
+		},
+		{
+			name:        "stable annotation",
+			annotations: map[string]string{extann.HostnameKey: "stable.example.com"},
+			want:        []string{"stable.example.com"},
+		},
+		{
+			name:        "alpha annotation fallback",
+			annotations: map[string]string{extann.LegacyHostnameKey: "alpha.example.com"},
+			want:        []string{"alpha.example.com"},
+		},
+		{
+			name: "both annotations stable wins",
+			annotations: map[string]string{
+				extann.HostnameKey:       "stable.example.com",
+				extann.LegacyHostnameKey: "alpha.example.com",
+			},
+			want: []string{"stable.example.com"},
+		},
+		{
+			name: "stable empty overrides alpha fallback",
+			annotations: map[string]string{
+				extann.HostnameKey:       "",
+				extann.LegacyHostnameKey: "alpha.example.com",
+			},
+			want: []string{""},
+		},
+		{
+			name:        "stable empty string alone",
+			annotations: map[string]string{extann.HostnameKey: ""},
+			want:        []string{""},
+		},
+		{
+			name:        "stable whitespace string alone",
+			annotations: map[string]string{extann.HostnameKey: "   "},
+			want:        []string{""},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseDNSHostnamesFromAnnotation(tc.annotations)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

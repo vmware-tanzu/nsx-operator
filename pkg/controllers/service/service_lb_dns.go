@@ -22,30 +22,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	extannotations "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
 
 const (
-	// serviceDNSReadyConditionType is the Service status condition type for LoadBalancer DNS publish state (mirrors Gateway DNSConfig semantics, name per product request).
+	// serviceDNSReadyConditionType indicates LoadBalancer Service DNS publish state (mirrors Gateway DNSConfig semantics).
 	serviceDNSReadyConditionType     = "Ready"
 	reasonServiceDNSRecordConfigured = "DNSRecordConfigured"
 	reasonServiceDNSRecordFailed     = "DNSRecordFailed"
 )
 
-// parseDNSHostnamesFromAnnotation returns trimmed unique FQDNs from external-dns.alpha.kubernetes.io/hostname using the same
-// gateway-hostname-source + hostname annotation path as Gateway direct DNS (comma-separated tokens are supported).
+// parseDNSHostnamesFromAnnotation extracts hostnames from the Service's hostname annotation,
+// supporting alpha annotation fallback.
 func parseDNSHostnamesFromAnnotation(annotations map[string]string) []string {
 	if len(annotations) == 0 {
 		return nil
 	}
-
-	if _, ok := annotations[servicecommon.AnnotationsDNSSkip]; ok {
-		return nil
-	}
-	return extannotations.HostnamesFromAnnotations(annotations, servicecommon.AnnotationDNSHostnameKey)
+	return extannotations.HostnamesFromAnnotations(annotations)
 }
 
 // targetsFromLoadBalancerIngress collects IP and Hostname values from Service.Status.LoadBalancer.Ingress.

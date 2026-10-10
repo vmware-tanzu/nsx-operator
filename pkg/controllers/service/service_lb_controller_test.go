@@ -45,6 +45,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
+	extann "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 )
 
 func emptyDNSRecordService() *dns.DNSRecordService {
@@ -387,20 +388,20 @@ func TestServiceLbReconciler_Reconcile_table(t *testing.T) {
 			wantRes: &ctrlcommon.ResultRequeueAfter10sec,
 		},
 		{
-			name: "skip_annotation_clears_dns",
+			name: "service_without_hostname_clears_dns",
 			objs: []client.Object{&v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace:       "ns",
-					Name:            "lb-skip",
+					Name:            "lb-no-hostname",
 					ResourceVersion: "1",
-					Annotations:     map[string]string{common.AnnotationsDNSSkip: "true", common.AnnotationDNSHostnameKey: "a.com"},
+					Annotations:     map[string]string{},
 				},
 				Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
 			}},
 			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns", "lb-skip").Return(false, nil).Times(1)
+				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns", "lb-no-hostname").Return(false, nil).Times(1)
 			},
-			req:     types.NamespacedName{Namespace: "ns", Name: "lb-skip"},
+			req:     types.NamespacedName{Namespace: "ns", Name: "lb-no-hostname"},
 			wantRes: &ResultNormal,
 		},
 		{
@@ -408,7 +409,7 @@ func TestServiceLbReconciler_Reconcile_table(t *testing.T) {
 			objs: []client.Object{&v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "ns", Name: "lb-dns-err", ResourceVersion: "1",
-					Annotations: map[string]string{common.AnnotationDNSHostnameKey: "a.com"},
+					Annotations: map[string]string{extann.HostnameKey: "a.com"},
 				},
 				Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
 				Status: v1.ServiceStatus{
@@ -433,7 +434,7 @@ func TestServiceLbReconciler_Reconcile_table(t *testing.T) {
 			objs: []client.Object{&v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "ns", Name: "lb-retriable-err", ResourceVersion: "1",
-					Annotations: map[string]string{common.AnnotationDNSHostnameKey: "a.com"},
+					Annotations: map[string]string{extann.HostnameKey: "a.com"},
 				},
 				Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
 				Status: v1.ServiceStatus{
@@ -507,7 +508,7 @@ func TestServiceLbReconciler_CollectGarbage_table(t *testing.T) {
 			objs: []client.Object{&v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "ns", Name: "keep",
-					Annotations: map[string]string{common.AnnotationDNSHostnameKey: "app.example.com"},
+					Annotations: map[string]string{extann.HostnameKey: "app.example.com"},
 				},
 				Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
 			}},
@@ -526,7 +527,7 @@ func TestServiceLbReconciler_CollectGarbage_table(t *testing.T) {
 			objs: []client.Object{&v1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "ns", Name: "keep",
-					Annotations: map[string]string{common.AnnotationDNSHostnameKey: "app.example.com"},
+					Annotations: map[string]string{extann.HostnameKey: "app.example.com"},
 				},
 				Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
 			}},
@@ -649,7 +650,7 @@ func TestGetLoadBalancerServicesWithDNS(t *testing.T) {
 
 	nonLBSvc := &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "non-lb", Annotations: map[string]string{
-			common.AnnotationDNSHostnameKey: "no-lb.example.com",
+			extann.HostnameKey: "no-lb.example.com",
 		}},
 		Spec: v1.ServiceSpec{Type: v1.ServiceTypeClusterIP},
 	}
@@ -663,17 +664,12 @@ func TestGetLoadBalancerServicesWithDNS(t *testing.T) {
 
 	objs := []client.Object{
 		nonLBSvc,
-		makeLbSvc("eligible", map[string]string{common.AnnotationDNSHostnameKey: "a.example.com"}),
-		makeLbSvc("multi-hostnames", map[string]string{common.AnnotationDNSHostnameKey: "a.example.com,b.example.com"}),
-		makeLbSvc("opted-out", map[string]string{
-			common.AnnotationDNSHostnameKey: "c.example.com",
-			common.AnnotationsDNSSkip:       "",
-		}),
+		makeLbSvc("eligible", map[string]string{extann.HostnameKey: "a.example.com"}),
+		makeLbSvc("multi-hostnames", map[string]string{extann.HostnameKey: "a.example.com,b.example.com"}),
 		makeLbSvc("no-annotation", map[string]string{}),
 	}
 	wantNNs := []types.NamespacedName{{Namespace: "ns", Name: "eligible"}, {Namespace: "ns", Name: "multi-hostnames"}}
-	wantMiss := []types.NamespacedName{{Namespace: "ns", Name: "non-lb"}, {Namespace: "ns", Name: "no-annotation"},
-		{Namespace: "ns", Name: "opted-out"}}
+	wantMiss := []types.NamespacedName{{Namespace: "ns", Name: "non-lb"}, {Namespace: "ns", Name: "no-annotation"}}
 
 	c := serviceLbFakeClient(scheme, false, objs...)
 	gotSvcs, err := getLoadBalancerServicesWithDNS(ctx, c)
@@ -690,7 +686,7 @@ func TestGetLoadBalancerServicesWithDNS(t *testing.T) {
 	}
 }
 
-func TestEnqueueLBServiceRequestsFromNetworkInfo_skipAnnotation(t *testing.T) {
+func TestEnqueueLBServiceRequestsFromNetworkInfo(t *testing.T) {
 	ctx := context.Background()
 	scheme := serviceLbTestScheme(t)
 	ni := &v1alpha1.NetworkInfo{}
@@ -702,14 +698,11 @@ func TestEnqueueLBServiceRequestsFromNetworkInfo_skipAnnotation(t *testing.T) {
 		}
 	}
 
-	// "eligible" has a hostname annotation and no skip → should be enqueued.
-	// "skipped" has both annotations → should NOT be enqueued.
+	// "eligible" has a hostname annotation → should be enqueued.
+	// "no-annotation" has no hostname annotation → should NOT be enqueued.
 	c := serviceLbFakeClient(scheme, false,
-		makeLbSvc("eligible", map[string]string{common.AnnotationDNSHostnameKey: "app.example.com"}),
-		makeLbSvc("skipped", map[string]string{
-			common.AnnotationDNSHostnameKey: "app.example.com",
-			common.AnnotationsDNSSkip:       "",
-		}),
+		makeLbSvc("eligible", map[string]string{extann.HostnameKey: "app.example.com"}),
+		makeLbSvc("no-annotation", map[string]string{}),
 	)
 	r := &ServiceLbReconciler{Client: c, DNS: emptyDNSRecordService()}
 	reqs := r.enqueueLBServiceRequestsFromNetworkInfo(ctx, ni)

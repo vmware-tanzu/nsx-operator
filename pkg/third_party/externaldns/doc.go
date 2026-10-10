@@ -13,9 +13,8 @@
 //
 // Subpackages in this repo:
 //
-//   - [github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations]: hostname parsing
-//     aligned with external-dns/source/annotations; **annotation keys are caller-supplied strings**
-//     (nsx-operator uses pkg/nsx/services/common constants at the gateway controller), not fixed upstream key constants.
+//   - [github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations]: prefix resolution and
+//     hostname parsing; supports standard "external-dns.kubernetes.io/" with legacy alpha fallback.
 //   - [github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint]: subset of external-dns/endpoint
 //     (see endpoint/doc.go for omissions vs upstream).
 //   - [github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/source]: stateless helpers and types
