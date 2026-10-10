@@ -1147,7 +1147,11 @@ func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.Ad
 	for _, binding := range realizedBindings {
 		if binding.Binding != nil && binding.Binding.IpAddress != nil {
 			if macAddress == "" && binding.Binding.MacAddress != nil {
-				macAddress = strings.Trim(*binding.Binding.MacAddress, "\"")
+				trimmedMac := strings.Trim(*binding.Binding.MacAddress, "\"")
+				// Ignore placeholder zero MAC so VIF polling can resolve the real VM MAC.
+				if trimmedMac != "" && trimmedMac != "00:00:00:00:00:00" {
+					macAddress = trimmedMac
+				}
 			}
 			ip := net.ParseIP(*binding.Binding.IpAddress)
 			isIPv4 := ip != nil && ip.To4() != nil

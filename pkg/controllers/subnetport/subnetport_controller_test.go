@@ -3131,6 +3131,21 @@ func TestNetworkInterfaceIPAddressesFromRealizedBindings(t *testing.T) {
 			},
 			expectedMAC: "00:11:22:33:44:55",
 		},
+		{
+			name: "Zero MAC 00:00:00:00:00:00 is ignored and not set as macAddress",
+			realizedBindings: []model.AddressBindingEntry{
+				{Binding: &model.PacketAddressClassifier{
+					IpAddress:  servicecommon.String("192.168.0.51"),
+					MacAddress: servicecommon.String("00:00:00:00:00:00"),
+				}},
+			},
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+			hasExplicitIPv4:        true,
+			expectedIPs: []v1alpha1.NetworkInterfaceIPAddress{
+				{IPAddress: "192.168.0.51"},
+			},
+			expectedMAC: "",
+		},
 	}
 
 	for _, tt := range tests {
