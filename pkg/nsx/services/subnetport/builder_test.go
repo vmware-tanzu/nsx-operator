@@ -1428,6 +1428,45 @@ func TestBuildSubnetPortIdAndName_existingPortByUID(t *testing.T) {
 	assert.Equal(t, "existing-port-name", name)
 }
 
+func TestBuildSubnetPortIdAndName_reuseExistingPortByPodUID(t *testing.T) {
+	nsxClient := &nsx.Client{}
+	store := &SubnetPortStore{}
+	service := &SubnetPortService{
+		Service: common.Service{
+			NSXClient: nsxClient,
+		},
+		SubnetPortStore: store,
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(store), "GetVpcSubnetPortByUID",
+		func(s *SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			if uid == "pod-uid-existing" {
+				portID := "legacy-pod-port-id"
+				portName := "legacy-pod-port-name"
+				return &model.VpcSubnetPort{
+					Id:          &portID,
+					DisplayName: &portName,
+				}, nil
+			}
+			return nil, nil
+		})
+	patches.ApplyMethod(reflect.TypeOf(store), "GetByKey",
+		func(s *SubnetPortStore, key string) *model.VpcSubnetPort {
+			return nil
+		})
+	defer patches.Reset()
+	patchesStsFeat := gomonkey.ApplyFunc(nsx.StatefulSetPodSubnetPortFeatureEnabled,
+		func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+			return false
+		})
+	defer patchesStsFeat.Reset()
+
+	// objMeta is SubnetPort CR's metadata (different UID from Pod UID)
+	objMeta := &metav1.ObjectMeta{Name: "test-sp", UID: "sp-uid-999"}
+	id, name := service.BuildSubnetPortIdAndName(objMeta, types.UID("ns-uid-456"), "", "test-pod-name", "pod-uid-existing")
+	assert.Equal(t, "legacy-pod-port-id", id)
+	assert.Equal(t, "legacy-pod-port-name", name)
+}
+
 func TestBuildSubnetPortIdAndName_reuseSTSPortByUIDAndPodName(t *testing.T) {
 	nsxClient := &nsx.Client{}
 	store := &SubnetPortStore{}

@@ -133,6 +133,9 @@ type NsxConfig struct {
 	// VpcWcpEnhance controls StatefulSet pod SubnetPort behavior together with NSX version.
 	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
 	VpcWcpEnhance *bool `ini:"vpc_wcp_enhance"`
+	// PodV2 controls whether Pod 2.0 (decoupled CR-based) path is enabled.
+	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
+	PodV2 *bool `ini:"pod_v2"`
 	// RestoreVif controls whether SubnetPort vif should be restored during restore mode.
 	RestoreVif *bool `ini:"restore_vif"`
 	// TnIdCheckInterval is the interval in seconds to check TN ID for node.
@@ -441,6 +444,15 @@ func (nsxConfig *NsxConfig) VpcWcpEnhanceEnabled() bool {
 		return false
 	}
 	return *nsxConfig.VpcWcpEnhance
+}
+
+// PodV2Enabled reports whether Pod 2.0 is allowed by config.
+// Missing or nil key defaults to false; only an explicit true enables.
+func (nsxConfig *NsxConfig) PodV2Enabled() bool {
+	if nsxConfig == nil || nsxConfig.PodV2 == nil {
+		return false
+	}
+	return *nsxConfig.PodV2
 }
 
 // RestoreVifEnabled reports whether restoring SubnetPort vif is supported by config.
