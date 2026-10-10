@@ -157,7 +157,7 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 			if tc.staticAlloc {
 				sp.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationTypeIPv4
 			}
-			
+
 			store := newPodRestorePortStore()
 			if tc.readyMismatch {
 				sp.Status.Conditions = []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v1.ConditionTrue}}
@@ -172,7 +172,7 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 				}
 				store.Add(nsxPort)
 			}
-			
+
 			api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, sp).Build()
 			svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api}, SubnetPortStore: store}
 			if tc.v2mode {
