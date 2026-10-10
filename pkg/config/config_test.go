@@ -197,6 +197,16 @@ func TestNsxConfig_VpcWcpEnhanceEnabled(t *testing.T) {
 	assert.False(t, (&NsxConfig{VpcWcpEnhance: &f}).VpcWcpEnhanceEnabled())
 }
 
+func TestNsxConfig_PodV2Enabled(t *testing.T) {
+	f := false
+	tr := true
+	assert.False(t, (*NsxConfig)(nil).PodV2Enabled())
+	assert.False(t, (&NsxConfig{}).PodV2Enabled())
+	assert.False(t, (&NsxConfig{PodV2: nil}).PodV2Enabled())
+	assert.True(t, (&NsxConfig{PodV2: &tr}).PodV2Enabled())
+	assert.False(t, (&NsxConfig{PodV2: &f}).PodV2Enabled())
+}
+
 func TestNsxConfig_RestoreVifEnabled(t *testing.T) {
 	f := false
 	tr := true
