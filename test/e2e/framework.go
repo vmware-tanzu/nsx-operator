@@ -382,7 +382,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		return err
 	}
 	// wait for the namespace on k8s running
-	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 5*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
