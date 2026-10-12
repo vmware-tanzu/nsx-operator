@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: egress-named-port-ipblock-np-ns
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db-pod
+  namespace: egress-named-port-ipblock-np-ns
+  labels:
+    app: db
+spec:
+  containers:
+  - name: db-container
+    image: "netfvt-docker-local.packages.vcfd.broadcom.net/humanux/http_https_echo:latest"
+    ports:
+    - containerPort: 6001
+      name: http
+      protocol: TCP
+    - containerPort: 7001
+      name: db
+      protocol: UDP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: test-np-egress-ipblock
+  namespace: egress-named-port-ipblock-np-ns
+spec:
+  podSelector:
+    matchLabels:
+      app: db
+  policyTypes:
+  - Egress
+  egress:
+  - ports:
+    - port: 6000
+      protocol: TCP
+    - port: http
+      protocol: TCP
+    to:
+    - ipBlock:
+        cidr: 40.200.123.123/32
