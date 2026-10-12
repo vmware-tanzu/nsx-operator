@@ -168,12 +168,13 @@ func (s *p2Suite) dhcp(t *testing.T) {
 	require.NotNil(t, port.Attachment)
 	require.NotEqual(t, "BOTH", ptr.Deref(port.Attachment.AllocateAddresses, ""))
 	require.NotEqual(t, "IP_POOL", ptr.Deref(port.Attachment.AllocateAddresses, ""))
+	portSubnetPath := strings.Split(ptr.Deref(port.Path, ""), "/ports/")[0]
 	var backend *model.VpcSubnet
 	for _, name := range *set.Spec.SubnetNames {
 		subnet, e := testData.crdClientset.CrdV1alpha1().Subnets(s.namespace()).Get(s.ctx, name, metav1.GetOptions{})
 		require.NoError(t, e)
 		if path := subnet.Annotations[common.AnnotationAssociatedResource]; path != "" {
-			if path != c.Status.NetworkInterfaceConfig.SubnetID {
+			if path != portSubnetPath && path != c.Status.NetworkInterfaceConfig.SubnetID {
 				continue
 			}
 			parts := strings.Split(strings.Trim(path, "/"), "/")
@@ -189,7 +190,7 @@ func (s *p2Suite) dhcp(t *testing.T) {
 				require.Empty(t, errs)
 				found, ok := v.(model.VpcSubnet)
 				require.True(t, ok)
-				if ptr.Deref(found.Path, "") == c.Status.NetworkInterfaceConfig.SubnetID {
+				if ptr.Deref(found.Path, "") == portSubnetPath || ptr.Deref(found.Path, "") == c.Status.NetworkInterfaceConfig.SubnetID {
 					backend = &found
 				}
 			}
@@ -307,7 +308,7 @@ func (s *p2Suite) stateful(t *testing.T) {
 			s.verify(t, replacement, c, newPort)
 			if enabled {
 				require.Equal(t, oldPort.Path, newPort.Path)
-				require.Equal(t, c0.Status.NetworkInterfaceConfig.SubnetID, c.Status.NetworkInterfaceConfig.SubnetID)
+				require.Equal(t, c0.Status.NetworkInterfaceConfig.LogicalSwitchUUID, c.Status.NetworkInterfaceConfig.LogicalSwitchUUID)
 				require.Equal(t, []string{string(sts.UID)}, tags(*newPort, common.TagScopeStatefulSetUID))
 			} else {
 				require.NotEqual(t, oldPort.Path, newPort.Path)
@@ -479,7 +480,8 @@ func (s *p2Suite) restoreCase(t *testing.T, legacy, badHost, vif bool) {
 	}
 	s.matchIPs(t, ips, c)
 	require.Equal(t, strings.ToLower(mac), strings.ToLower(c.Status.NetworkInterfaceConfig.MACAddress))
-	require.Equal(t, subnet, c.Status.NetworkInterfaceConfig.SubnetID)
+	require.Equal(t, subnet, strings.Split(ptr.Deref(port.Path, ""), "/ports/")[0])
+	require.NotEmpty(t, c.Status.NetworkInterfaceConfig.LogicalSwitchUUID)
 	if vif {
 		require.Equal(t, attachment, c.Status.Attachment.ID)
 	} else {

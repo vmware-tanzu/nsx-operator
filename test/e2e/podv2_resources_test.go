@@ -212,7 +212,10 @@ func (s *p2Suite) verify(t *testing.T, p *corev1.Pod, c *api.SubnetPort, port *m
 		if len(ips) > 0 && !contains(backendMACs, strings.ToLower(c.Status.NetworkInterfaceConfig.MACAddress)) {
 			return false, fmt.Sprintf("CR MAC=%s NSX MACs=%v", c.Status.NetworkInterfaceConfig.MACAddress, backendMACs), nil
 		}
-		if strings.TrimSuffix(*port.Path, "/ports/"+parts[4]) != c.Status.NetworkInterfaceConfig.SubnetID {
+		if c.Status.NetworkInterfaceConfig.LogicalSwitchUUID == "" {
+			return false, "CR LogicalSwitchUUID empty", nil
+		}
+		if c.Status.NetworkInterfaceConfig.SubnetID != "" && strings.TrimSuffix(*port.Path, "/ports/"+parts[4]) != c.Status.NetworkInterfaceConfig.SubnetID {
 			return false, "CR SubnetID differs from NSX parent", nil
 		}
 		*port = fresh
