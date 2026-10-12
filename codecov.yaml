@@ -39,3 +39,5 @@ ignore:
   - "pkg/mock"
   - "**/pkg/client"
   - "**/*.pb.go"
+  - "cmd/**"
+  - "cmd_eas/**"
