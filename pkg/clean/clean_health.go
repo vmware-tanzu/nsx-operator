@@ -2,12 +2,14 @@ package clean
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 // HealthCleaner is responsible for cleaning up health checker resources
@@ -34,6 +36,10 @@ func (h *HealthCleaner) CleanupHealthResources(_ context.Context) error {
 	if h.nsxClient != nil && h.clusterID != "" {
 		url := fmt.Sprintf("api/v1/systemhealth/container-cluster/%s/ncp/status", h.clusterID)
 		if err := h.nsxClient.Cluster.HttpDelete(url); err != nil {
+			if errors.Is(err, nsxutil.HttpNotFoundError) {
+				h.log.Info("Health status resource does not exist on NSX, skip deletion", "clusterID", h.clusterID)
+				return nil
+			}
 			h.log.Error(err, "Failed to delete health status resource from NSX", "clusterID", h.clusterID, "url", url)
 			return err
 		}

@@ -6,6 +6,7 @@ package nsx
 import (
 	"strings"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/auth"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
@@ -57,6 +58,7 @@ type Config struct {
 	ClientCertProvider auth.ClientCertProvider
 	EnvoyHost          string
 	EnvoyPort          int
+	Logger             logger.CustomLogger
 }
 
 // NewConfig creates a nsx configuration. It provides default values for those items not in function parameters.

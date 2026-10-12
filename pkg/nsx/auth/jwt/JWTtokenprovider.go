@@ -16,10 +16,9 @@ const (
 	VC_SVCACCOUNT_PWD_PATH = "/etc/nsx-ujo/vc/password"
 )
 
-var log = logger.Log
-
 type JWTTokenProvider struct {
 	cache *JWTCache
+	log   logger.CustomLogger
 }
 
 func (provider *JWTTokenProvider) GetToken(refreshToken bool) (string, error) {
@@ -30,14 +29,14 @@ func (provider *JWTTokenProvider) HeaderValue(token string) string {
 	return "Bearer " + token
 }
 
-func NewTokenProvider(vcEndpoint string, port int, ssoDomain, user, password string, caCert []byte, insecure bool, scheme string) (auth.TokenProvider, error) {
+func NewTokenProvider(vcEndpoint string, port int, ssoDomain, user, password string, caCert []byte, insecure bool, scheme string, log logger.CustomLogger) (auth.TokenProvider, error) {
 	// not load username/password, not create vapi session, defer them to cache.refreshJWT
-	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, user, password, caCert, insecure, scheme)
+	tesClient, err := NewTESClient(vcEndpoint, port, ssoDomain, user, password, caCert, insecure, scheme, log)
 	if err != nil {
 		log.Error(err, "Failed to create tes client")
 		return nil, err
 	}
 
-	cache := NewJWTCache(tesClient, 60*time.Second)
-	return &JWTTokenProvider{cache: cache}, nil
+	cache := NewJWTCache(tesClient, 60*time.Second, log)
+	return &JWTTokenProvider{cache: cache, log: log}, nil
 }
