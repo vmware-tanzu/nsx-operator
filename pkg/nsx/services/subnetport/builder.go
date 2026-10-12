@@ -69,10 +69,16 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 				addressBinding.IpAddress = &o.Spec.AddressBindings[0].IPAddress
 			}
 			// If StaticIPAllocation is disabled and no IP is specified, we do not specify the MAC in the NSX SubnetPort AddressBinding
-			if (util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(o.Spec.AddressBindings[0].IPAddress) > 0) &&
-				len(o.Spec.AddressBindings[0].MACAddress) > 0 {
-				addressBinding.MacAddress = &o.Spec.AddressBindings[0].MACAddress
-				hasMacSpecified = true
+			if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) || len(o.Spec.AddressBindings[0].IPAddress) > 0 {
+				if len(o.Spec.AddressBindings[0].MACAddress) > 0 {
+					addressBinding.MacAddress = &o.Spec.AddressBindings[0].MACAddress
+					hasMacSpecified = true
+				} else if util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) && addressBinding.IpAddress != nil && o.Status.NetworkInterfaceConfig.MACAddress != "" {
+					// On NSX < 9.2, MAC address needed to be explicitly provided when update the SubnetPort on static subnet,
+					// otherwise, the subnetport update will faill with error "modifying mac address bindings of logicalport is not allowed as they were allocated from the MAC pool"
+					macAddress := o.Status.NetworkInterfaceConfig.MACAddress
+					addressBinding.MacAddress = &macAddress
+				}
 			}
 			if addressBinding.IpAddress != nil || addressBinding.MacAddress != nil {
 				addressBindings = []model.PortAddressBindingEntry{addressBinding}
