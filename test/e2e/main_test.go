@@ -251,6 +251,7 @@ func testMain(m *testing.M) int {
 	flag.BoolVar(&testOptions.logsExportOnSuccess, "logs-export-on-success", false, "Export logs even when a test is successful")
 	flag.StringVar(&testOptions.vcUser, "vc-user", "", "The username used to request vCenter API session")
 	flag.StringVar(&testOptions.vcPassword, "vc-password", "", "The password used by the user when requesting vCenter API session")
+	flag.StringVar(&testOptions.vcRootPassword, "vc-root-password", "", "The root password used for SSH to vCenter")
 	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
 	flag.IntVar(&testOptions.logLevel, "log-level", 0, "")
 	flag.Parse()
