@@ -317,6 +317,18 @@ func waitForNamespaceProviders(ctx context.Context, clientset kubernetes.Interfa
 	}
 }
 
+// InitAntreaNSXOnlyMode initializes the state for Antrea-NSX-Only mode,
+// explicitly disabling VPC, T1, and per-namespace provider support.
+func InitAntreaNSXOnlyMode() {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	hasT1Namespaces = false
+	hasVPCNamespaces = false
+	f := false
+	perNamespaceProvidersSupported = &f
+	stateInitialized = true
+}
+
 // InitMixedMode initializes mixed-mode state by checking Capabilities
 // and scanning Namespaces for T1 and VPC annotations.
 // If per-namespace providers are not activated, falls back to the legacy EnableVPCNetwork flag.
