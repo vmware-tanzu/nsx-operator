@@ -55,6 +55,7 @@ type fakeStatusWriter struct {
 	t           *testing.T
 	validateObj bool
 	expectObj   client.Object
+	updateFn    func(obj client.Object)
 }
 
 func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
@@ -63,6 +64,9 @@ func (writer fakeStatusWriter) Create(ctx context.Context, obj client.Object, su
 func (writer fakeStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 	if writer.validateObj {
 		assert.Equal(writer.t, writer.expectObj, obj)
+	}
+	if writer.updateFn != nil {
+		writer.updateFn(obj)
 	}
 	return nil
 }
@@ -2743,6 +2747,155 @@ func TestSubnetAssociatedResourceIndexFunc(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := subnetAssociatedResourceIndexFunc(tt.obj.(client.Object))
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSubnetPortReconciler_ZeroMACRealizedBindings(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	service := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+		SubnetPortStore: &subnetport.SubnetPortStore{},
+	}
+	subnetService := &mock.MockSubnetServiceProvider{}
+	r := &SubnetPortReconciler{
+		Client:                     k8sClient,
+		APIReader:                  k8sClient,
+		Scheme:                     nil,
+		SubnetPortService:          service,
+		SubnetService:              subnetService,
+		Recorder:                   fakeRecorder{},
+		IpAddressAllocationService: &mock.MockIPAddressAllocationProvider{},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+	ctx := context.Background()
+	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "sp1"}}
+
+	patchesGetAddressBindingBySubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetAddressBindingBySubnetPort, func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+		return nil
+	})
+	defer patchesGetAddressBindingBySubnetPort.Reset()
+
+	patchesCheckAndGetSubnetPath := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+		func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, error) {
+			return true, false, "fake_path", nil, nil, nil
+		})
+	defer patchesCheckAndGetSubnetPath.Reset()
+
+	patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+		return false, nil
+	})
+	defer patchesIsSharedSubnetPath.Reset()
+
+	patchesUpdateSubnetStatus := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+		func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+			return nil
+		})
+	defer patchesUpdateSubnetStatus.Reset()
+
+	patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+		func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+		})
+	defer patchesSetAddressBindingStatus.Reset()
+
+	staticSubnet := &model.VpcSubnet{
+		Id:            ptr.To("subnet-1"),
+		RealizationId: ptr.To("realization-1"),
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{
+				Enabled: servicecommon.Bool(true),
+			},
+		},
+	}
+	patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+		func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+			return staticSubnet, nil
+		})
+	defer patchesGetSubnetByPath.Reset()
+
+	tests := []struct {
+		name        string
+		mac         *string
+		expectedMAC string
+	}{
+		{
+			name:        "Zero MAC 00:00:00:00:00:00 is ignored and not set as macAddress",
+			mac:         servicecommon.String("00:00:00:00:00:00"),
+			expectedMAC: "",
+		},
+		{
+			name:        "Quoted zero MAC is ignored",
+			mac:         servicecommon.String("\"00:00:00:00:00:00\""),
+			expectedMAC: "",
+		},
+		{
+			name:        "Valid MAC is set in status",
+			mac:         servicecommon.String("00:11:22:33:44:55"),
+			expectedMAC: "00:11:22:33:44:55",
+		},
+		{
+			name:        "Nil MAC is ignored without panic",
+			mac:         nil,
+			expectedMAC: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sp := &v1alpha1.SubnetPort{}
+			k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+				func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+					v1sp := obj.(*v1alpha1.SubnetPort)
+					v1sp.Spec.Subnet = "subnet1"
+					return nil
+				})
+
+			ip := "192.168.0.51"
+			attachmentID := "att-123"
+			portState := &model.SegmentPortState{
+				RealizedBindings: []model.AddressBindingEntry{
+					{
+						Binding: &model.PacketAddressClassifier{
+							IpAddress:  &ip,
+							MacAddress: tt.mac,
+						},
+					},
+				},
+				Attachment: &model.SegmentPortAttachmentState{
+					Id: &attachmentID,
+				},
+			}
+
+			patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+				func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+					return portState, false, nil
+				})
+			defer patchesCreateOrUpdateSubnetPort.Reset()
+
+			var capturedSP *v1alpha1.SubnetPort
+			writer := fakeStatusWriter{
+				updateFn: func(obj client.Object) {
+					if sp, ok := obj.(*v1alpha1.SubnetPort); ok {
+						capturedSP = sp.DeepCopy()
+					}
+				},
+			}
+			k8sClient.EXPECT().Status().Return(writer)
+
+			_, err := r.Reconcile(ctx, req)
+			assert.Nil(t, err)
+			assert.NotNil(t, capturedSP)
+			assert.Equal(t, "192.168.0.51", capturedSP.Status.NetworkInterfaceConfig.IPAddresses[0].IPAddress)
+			assert.Equal(t, tt.expectedMAC, capturedSP.Status.NetworkInterfaceConfig.MACAddress)
 		})
 	}
 }
