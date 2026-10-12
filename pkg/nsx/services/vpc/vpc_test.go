@@ -56,7 +56,7 @@ var (
 )
 
 func createService(t *testing.T) (*VPCService, *gomock.Controller, *mocks.MockVpcsClient, *mock_client.MockClient, *mock_stateclient.MockStateClient) {
-	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
 	cluster, _ := nsx.NewCluster(config2)
 	rc := cluster.NewRestConnector()
