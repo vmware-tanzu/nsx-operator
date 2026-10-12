@@ -1764,6 +1764,168 @@ func TestBuildSubnetPortMultipleSameMACBindings(t *testing.T) {
 	}
 }
 
+func TestBuildSubnetPortStaticIPWithRealizedStatusMAC(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	nsxClient := &nsx.Client{}
+	tr := true
+	service := &SubnetPortService{
+		Service: common.Service{
+			Client:    k8sClient,
+			NSXClient: nsxClient,
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+					VpcWcpEnhance:    &tr,
+				},
+				CoeConfig: &config.CoeConfig{Cluster: "fake_cluster"},
+			},
+		},
+		SubnetPortStore: setupStore(),
+	}
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion",
+		func(_ *nsx.Client, _ int) bool { return true })
+	defer patches.Reset()
+
+	ctx := context.Background()
+	namespace := &corev1.Namespace{}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), namespace).Return(nil).Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			return nil
+		}).AnyTimes()
+
+	staticSubnet := &model.VpcSubnet{
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: &tr},
+		},
+		Path: common.String("fake_static_path"),
+	}
+
+	dhcpSubnet := &model.VpcSubnet{
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String("DHCP_SERVER")},
+		Path:             common.String("fake_dhcp_path"),
+	}
+
+	t.Run("Static IP subnet with realized MAC in status fills MAC and keeps AllocateAddresses as BOTH", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7ae1",
+				Name:      "sp_update_with_status_mac",
+				Namespace: "fake_ns",
+			},
+			Spec: v1alpha1.SubnetPortSpec{
+				StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+				AddressBindings: []v1alpha1.PortAddressBinding{
+					{IPAddress: "10.10.11.9"},
+				},
+			},
+			Status: v1alpha1.SubnetPortStatus{
+				NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+					MACAddress: "04:50:56:00:70:00",
+				},
+			},
+		}
+
+		port, err := service.buildSubnetPort(sp, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+		assert.Nil(t, err)
+		assert.Equal(t, "BOTH", *port.Attachment.AllocateAddresses)
+		if assert.Len(t, port.AddressBindings, 1) {
+			assert.Equal(t, "10.10.11.9", *port.AddressBindings[0].IpAddress)
+			assert.NotNil(t, port.AddressBindings[0].MacAddress)
+			assert.Equal(t, "04:50:56:00:70:00", *port.AddressBindings[0].MacAddress)
+		}
+	})
+
+	t.Run("Static IP subnet with empty MAC in status does not set MacAddress and keeps AllocateAddresses as BOTH", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7ae2",
+				Name:      "sp_create_without_status_mac",
+				Namespace: "fake_ns",
+			},
+			Spec: v1alpha1.SubnetPortSpec{
+				StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+				AddressBindings: []v1alpha1.PortAddressBinding{
+					{IPAddress: "10.10.11.9"},
+				},
+			},
+			Status: v1alpha1.SubnetPortStatus{
+				NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+					MACAddress: "",
+				},
+			},
+		}
+
+		port, err := service.buildSubnetPort(sp, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+		assert.Nil(t, err)
+		assert.Equal(t, "BOTH", *port.Attachment.AllocateAddresses)
+		if assert.Len(t, port.AddressBindings, 1) {
+			assert.Equal(t, "10.10.11.9", *port.AddressBindings[0].IpAddress)
+			assert.Nil(t, port.AddressBindings[0].MacAddress)
+		}
+	})
+
+	t.Run("Static IP subnet with explicit MAC in spec takes precedence and sets AllocateAddresses as IP_POOL", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7ae3",
+				Name:      "sp_spec_mac_precedence",
+				Namespace: "fake_ns",
+			},
+			Spec: v1alpha1.SubnetPortSpec{
+				StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
+				AddressBindings: []v1alpha1.PortAddressBinding{
+					{IPAddress: "10.10.11.9", MACAddress: "00:50:56:11:22:33"},
+				},
+			},
+			Status: v1alpha1.SubnetPortStatus{
+				NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+					MACAddress: "04:50:56:00:70:00",
+				},
+			},
+		}
+
+		port, err := service.buildSubnetPort(sp, staticSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+		assert.Nil(t, err)
+		assert.Equal(t, "IP_POOL", *port.Attachment.AllocateAddresses)
+		if assert.Len(t, port.AddressBindings, 1) {
+			assert.Equal(t, "10.10.11.9", *port.AddressBindings[0].IpAddress)
+			assert.NotNil(t, port.AddressBindings[0].MacAddress)
+			assert.Equal(t, "00:50:56:11:22:33", *port.AddressBindings[0].MacAddress)
+		}
+	})
+
+	t.Run("DHCP subnet does not fill status MAC into address bindings", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:       "2ccec3b9-7546-4fd2-812a-1e3a4afd7ae4",
+				Name:      "sp_dhcp_no_fill",
+				Namespace: "fake_ns",
+			},
+			Spec: v1alpha1.SubnetPortSpec{
+				StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone,
+				AddressBindings: []v1alpha1.PortAddressBinding{
+					{IPAddress: "10.10.11.9"},
+				},
+			},
+			Status: v1alpha1.SubnetPortStatus{
+				NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+					MACAddress: "04:50:56:00:70:00",
+				},
+			},
+		}
+
+		port, err := service.buildSubnetPort(sp, dhcpSubnet, "ctx", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+		assert.Nil(t, err)
+		assert.Equal(t, "NONE", *port.Attachment.AllocateAddresses)
+		if assert.Len(t, port.AddressBindings, 1) {
+			assert.Equal(t, "10.10.11.9", *port.AddressBindings[0].IpAddress)
+			assert.Nil(t, port.AddressBindings[0].MacAddress)
+		}
+	})
+}
+
 func TestGetExistingSubnetPortForStatefulSetPod(t *testing.T) {
 	service := &SubnetPortService{
 		SubnetPortStore: &SubnetPortStore{
