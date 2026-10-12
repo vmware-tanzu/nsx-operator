@@ -83,6 +83,9 @@ type IPAddressAllocationSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPBlockName string `json:"ipBlockName,omitempty"`
+	// DNSHostName specifies the hostname used when auto-creating DNS records in NSX.
+	// +optional
+	DNSHostName string `json:"dnsHostName,omitempty"`
 }
 
 // IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
