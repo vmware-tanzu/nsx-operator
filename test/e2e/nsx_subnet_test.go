@@ -122,6 +122,7 @@ func TestSubnetSet(t *testing.T) {
 		RunSubtest(t, "case=SubnetBindingAutoVLANAllocation", SubnetBindingAutoVLANAllocation)
 		RunSubtest(t, "case=SubnetBindingManualVLANAllocation", SubnetBindingManualVLANAllocation)
 		RunSubtest(t, "case=SubnetBindingBranchAssociation", SubnetBindingBranchAssociation)
+		RunSubtest(t, "case=SubnetBindingFieldSelectorTargetSubnetName", SubnetBindingFieldSelectorTargetSubnetName)
 	})
 }
 
@@ -2127,6 +2128,78 @@ func SubnetBindingBranchAssociation(t *testing.T) {
 	vlan, err := waitForBindingMapVlan(subnetTestNamespace, bindingName1)
 	require.NoError(t, err, "BindingMap %s should be ready and have an auto-allocated status.vlanTrafficTag with branch association", bindingName1)
 	assert.True(t, vlan >= 1 && vlan <= 4094, "Allocated VLAN should be between 1 and 4094")
+}
+
+// SubnetBindingFieldSelectorTargetSubnetName tests querying SubnetConnectionBindingMaps using fieldSelector on spec.targetSubnetName.
+func SubnetBindingFieldSelectorTargetSubnetName(t *testing.T) {
+	parentSubnetName1, childSubnetNames1 := createBindingTestSubnets(t, 1)
+	parentSubnetName2, childSubnetNames2 := createBindingTestSubnets(t, 1)
+	childSubnetName1 := childSubnetNames1[0]
+	childSubnetName2 := childSubnetNames2[0]
+
+	bindingName1 := "binding-fs-1-" + getRandomString()
+	bindingName2 := "binding-fs-2-" + getRandomString()
+
+	binding1 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{Name: bindingName1, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       childSubnetName1,
+			TargetSubnetName: parentSubnetName1,
+		},
+	}
+	_, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Create(context.TODO(), binding1, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName1, v1.DeleteOptions{})
+	})
+
+	binding2 := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: v1.ObjectMeta{Name: bindingName2, Namespace: subnetTestNamespace},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:       childSubnetName2,
+			TargetSubnetName: parentSubnetName2,
+		},
+	}
+	_, err = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Create(context.TODO(), binding2, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).Delete(context.TODO(), bindingName2, v1.DeleteOptions{})
+	})
+
+	_, err = waitForBindingMapVlan(subnetTestNamespace, bindingName1)
+	require.NoError(t, err, "BindingMap %s should be ready and have an allocated VLAN", bindingName1)
+	_, err = waitForBindingMapVlan(subnetTestNamespace, bindingName2)
+	require.NoError(t, err, "BindingMap %s should be ready and have an allocated VLAN", bindingName2)
+
+	// Filter by spec.targetSubnetName = parentSubnetName1
+	list1, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).List(context.TODO(), v1.ListOptions{
+		FieldSelector: fmt.Sprintf("spec.targetSubnetName=%s", parentSubnetName1),
+	})
+	require.NoError(t, err, "Listing SubnetConnectionBindingMaps with fieldSelector spec.targetSubnetName should succeed")
+	assert.NotEmpty(t, list1.Items, "Should return at least one item matching parentSubnetName1")
+	for _, item := range list1.Items {
+		assert.Equal(t, parentSubnetName1, item.Spec.TargetSubnetName, "Returned item must match targetSubnetName")
+		assert.NotEqual(t, bindingName2, item.Name, "Binding for parentSubnetName2 must not appear in filtered list")
+	}
+
+	// Filter by spec.targetSubnetName = parentSubnetName2
+	list2, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).List(context.TODO(), v1.ListOptions{
+		FieldSelector: fmt.Sprintf("spec.targetSubnetName=%s", parentSubnetName2),
+	})
+	require.NoError(t, err, "Listing SubnetConnectionBindingMaps with fieldSelector spec.targetSubnetName should succeed")
+	assert.NotEmpty(t, list2.Items, "Should return at least one item matching parentSubnetName2")
+	for _, item := range list2.Items {
+		assert.Equal(t, parentSubnetName2, item.Spec.TargetSubnetName, "Returned item must match targetSubnetName")
+		assert.NotEqual(t, bindingName1, item.Name, "Binding for parentSubnetName1 must not appear in filtered list")
+	}
+
+	// Filter by non-existent targetSubnetName
+	nonExistentTarget := "non-existent-" + getRandomString()
+	listEmpty, err := testData.crdClientset.CrdV1alpha1().SubnetConnectionBindingMaps(subnetTestNamespace).List(context.TODO(), v1.ListOptions{
+		FieldSelector: fmt.Sprintf("spec.targetSubnetName=%s", nonExistentTarget),
+	})
+	require.NoError(t, err, "Listing with non-matching fieldSelector should succeed")
+	assert.Empty(t, listEmpty.Items, "List should be empty for non-existent targetSubnetName")
 }
 
 func createBindingTestSubnets(t *testing.T, numChildren int) (parentSubnetName string, childSubnetNames []string) {

@@ -3,6 +3,8 @@ package subnetbinding
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1395,13 +1398,24 @@ func TestGetSubnetConnectionBindingMapsBySubnetNameIndex(t *testing.T) {
 		},
 	}
 
-	r := createFakeReconciler(bm1, bm2, bmCrossNS)
+	bmSubnetSet := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "ns-1",
+			Name:      "bm-subnetset",
+		},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName:          "subnet-child-3",
+			TargetSubnetSetName: "subnetset-parent-1",
+		},
+	}
+
+	r := createFakeReconciler(bm1, bm2, bmCrossNS, bmSubnetSet)
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
 	r.Client = fake.NewClientBuilder().
 		WithScheme(newScheme).
-		WithObjects(bm1, bm2, bmCrossNS).
+		WithObjects(bm1, bm2, bmCrossNS, bmSubnetSet).
 		WithIndex(&v1alpha1.SubnetConnectionBindingMap{}, "spec.subnetName", subnetConnectionBindingMapSubnetNameIndexFunc).
 		WithIndex(&v1alpha1.SubnetConnectionBindingMap{}, "spec.targetSubnetName", subnetConnectionBindingMapTargetSubnetNameIndexFunc).
 		Build()
@@ -1414,6 +1428,12 @@ func TestGetSubnetConnectionBindingMapsBySubnetNameIndex(t *testing.T) {
 	assert.Equal(t, "bm-1", list.Items[0].Name)
 
 	list = &v1alpha1.SubnetConnectionBindingMapList{}
+	err = r.Client.List(ctx, list, client.InNamespace("ns-1"), client.MatchingFields{"spec.targetSubnetName": "subnet-parent-2"})
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(list.Items))
+	assert.Equal(t, "bm-2", list.Items[0].Name)
+
+	list = &v1alpha1.SubnetConnectionBindingMapList{}
 	err = r.Client.List(ctx, list, client.InNamespace("ns-1"), client.MatchingFields{"spec.subnetName": "subnet-child-2"})
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(list.Items))
@@ -1424,6 +1444,49 @@ func TestGetSubnetConnectionBindingMapsBySubnetNameIndex(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(list.Items))
 	assert.Equal(t, "bm-cross", list.Items[0].Name)
+
+	// Non-existent targetSubnetName returns empty list
+	list = &v1alpha1.SubnetConnectionBindingMapList{}
+	err = r.Client.List(ctx, list, client.InNamespace("ns-1"), client.MatchingFields{"spec.targetSubnetName": "non-existent"})
+	assert.Nil(t, err)
+	assert.Equal(t, 0, len(list.Items))
+
+	// bmSubnetSet has targetSubnetSetName and empty targetSubnetName, verify it is not matched by targetSubnetName
+	list = &v1alpha1.SubnetConnectionBindingMapList{}
+	err = r.Client.List(ctx, list, client.InNamespace("ns-1"), client.MatchingFields{"spec.targetSubnetName": "subnetset-parent-1"})
+	assert.Nil(t, err)
+	assert.Equal(t, 0, len(list.Items))
+}
+
+func TestSubnetConnectionBindingMapCRDSelectableFields(t *testing.T) {
+	crdPath := filepath.Join("..", "..", "..", "build", "yaml", "crd", "vpc", "crd.nsx.vmware.com_subnetconnectionbindingmaps.yaml")
+	data, err := os.ReadFile(crdPath)
+	require.NoError(t, err)
+
+	var crd struct {
+		Spec struct {
+			Versions []struct {
+				Name             string `yaml:"name"`
+				SelectableFields []struct {
+					JSONPath string `yaml:"jsonPath"`
+				} `yaml:"selectableFields"`
+			} `yaml:"versions"`
+		} `yaml:"spec"`
+	}
+	err = yaml.Unmarshal(data, &crd)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, crd.Spec.Versions)
+	v1alpha1Version := crd.Spec.Versions[0]
+	assert.Equal(t, "v1alpha1", v1alpha1Version.Name)
+
+	selectableFieldPaths := make([]string, 0, len(v1alpha1Version.SelectableFields))
+	for _, sf := range v1alpha1Version.SelectableFields {
+		selectableFieldPaths = append(selectableFieldPaths, sf.JSONPath)
+	}
+
+	assert.Contains(t, selectableFieldPaths, ".spec.subnetName")
+	assert.Contains(t, selectableFieldPaths, ".spec.targetSubnetName")
 }
 
 func createFakeReconciler(objs ...client.Object) *Reconciler {
@@ -1460,4 +1523,91 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 	}
 
 	return NewReconciler(mgr, subnetService, bindingService)
+}
+
+func TestGetPreferredVlan(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns status.vlanTrafficTag when present", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+			Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(201)},
+		}
+		r := createFakeReconciler(bm)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(201), preferred)
+	})
+
+	t.Run("returns VLANExtension.VLANID when status.vlanTrafficTag is nil and child subnet has extension", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+		}
+		childSubnet := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{Name: "sub-1", Namespace: "ns-1"},
+			Status: v1alpha1.SubnetStatus{
+				VLANExtension: v1alpha1.VLANExtension{VLANID: 300},
+			},
+		}
+		r := createFakeReconciler(bm, childSubnet)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(300), preferred)
+	})
+
+	t.Run("returns -1 when status.vlanTrafficTag is nil and child subnet not found", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+		}
+		r := createFakeReconciler(bm)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(-1), preferred)
+	})
+}
+
+func TestRestoreReconcile(t *testing.T) {
+	bmWithStatus := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "bm-restore", Namespace: "ns-1", UID: "bm-restore-uid"},
+		Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1", TargetSubnetName: "sub-target"},
+		Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(105)},
+	}
+
+	t.Run("getRestoreList error", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "List", func(_ client.Client, _ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("k8s list failed")
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get SubnetConnectionBindingMap restore list")
+	})
+
+	t.Run("success when restore list is empty", func(t *testing.T) {
+		r := createFakeReconciler()
+		err := r.RestoreReconcile()
+		assert.NoError(t, err)
+	})
+
+	t.Run("success when reconcile succeeds for restore items", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *Reconciler, _ context.Context, _ ctrl.Request) (ctrl.Result, error) {
+			return controllerscommon.ResultNormal, nil
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.NoError(t, err)
+	})
+
+	t.Run("error when reconcile fails for restore items", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *Reconciler, _ context.Context, _ ctrl.Request) (ctrl.Result, error) {
+			return controllerscommon.ResultNormal, fmt.Errorf("reconcile failed")
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "errors found in SubnetConnectionBindingMap restore")
+	})
 }
