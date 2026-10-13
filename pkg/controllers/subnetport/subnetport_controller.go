@@ -155,27 +155,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if pod != nil {
 			isVmSubnetPort = false
 			labels = &pod.Labels
-
-			// Check 2 places for nodename:
-			// 1. check annotation on subnetport cr: pod.vmware.com/esx-host-name
-			// 2. check pod.Spec.NodeName
-			var nodeName string
-			if subnetPort.Annotations != nil {
-				nodeName = subnetPort.Annotations[servicecommon.AnnotationESXHostName]
-			}
-			if nodeName == "" {
-				nodeName = pod.Spec.NodeName
-			}
-			if nodeName != "" {
-				node, err := common.GetNodeByName(r.NodeServiceReader, nodeName)
-				if err == nil && (node == nil || node.UniqueId == nil || *node.UniqueId == "") {
-					err = fmt.Errorf("transport node %s has no unique ID", nodeName)
-				}
-				if err != nil {
-					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to resolve Pod's transport node", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
-					return common.ResultNormal, err
-				}
-				contextID = *node.UniqueId
+			var errResolve error
+			contextID, errResolve = r.resolvePodTransportNode(subnetPort, pod, req.NamespacedName)
+			if errResolve != nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, errResolve, "Failed to resolve Pod's transport node", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+				return common.ResultNormal, errResolve
 			}
 		} else {
 			var getVMErr error
@@ -341,14 +325,8 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if r.restoreMode && pod != nil {
 			// Status updates log errors internally. Do not finish restore until the
 			// CR durably describes the port, including when restore_vif is enabled.
-			persisted := &v1alpha1.SubnetPort{}
-			if err := reader.Get(ctx, req.NamespacedName, persisted); err != nil {
+			if err := r.checkRestoreStatusPersisted(ctx, reader, req.NamespacedName, &subnetPort.Status); err != nil {
 				return common.ResultNormal, err
-			}
-			if persisted.Status.Attachment.ID == "" || persisted.Status.Attachment != subnetPort.Status.Attachment ||
-				!reflect.DeepEqual(persisted.Status.NetworkInterfaceConfig, subnetPort.Status.NetworkInterfaceConfig) ||
-				!common.IsObjectReady(persisted.Status.Conditions) {
-				return common.ResultNormal, fmt.Errorf("Pod SubnetPort %s restore status is not persisted", req.NamespacedName)
 			}
 		}
 		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
@@ -356,8 +334,8 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// In restore mode, we need to ensure the SubnetPort attachment Id is updated to the new SubnetPort before adding the annotation
 			// Otherwise VM operator will fail to get the new attachment ID.
 			updatedSubnetPort := &v1alpha1.SubnetPort{}
-			// Use APIReader to avoid cache not update
-			err := r.APIReader.Get(ctx, req.NamespacedName, updatedSubnetPort)
+			// Use reader (APIReader in restore mode) to avoid informer cache lag
+			err := reader.Get(ctx, req.NamespacedName, updatedSubnetPort)
 			if err != nil {
 				return common.ResultNormal, err
 			}
@@ -367,7 +345,8 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			// For restored SubnetPort,
 			// add restore annotation on SubnetPort CR for cpVM;
-			// add restore annotation on VM for VM service VM
+			// add restore annotation on VM for VM service VM;
+			// update restore status on Pod to notify Spherelet for NSX version < 9.2 (ESX 9.1).
 			portLabels := subnetPort.GetLabels()
 			cpvmValue, ok := portLabels[servicecommon.LabelCPVM]
 			if ok {
@@ -389,6 +368,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					return err != nil
 				}, func() error {
 					return common.UpdateReconfigureNicAnnotation(r.Client, ctx, vm, nicName)
+				})
+			}
+			if pod != nil {
+				retry.OnError(util.K8sClientRetry, func(err error) bool {
+					log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
+					return err != nil
+				}, func() error {
+					return common.SetReconfigureNicStatus(r.Client, ctx, pod)
 				})
 			}
 		}
@@ -423,6 +410,41 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), vmOrInterfaceNotFoundError, false)
 	}
 	return common.ResultNormal, nil
+}
+
+func (r *SubnetPortReconciler) resolvePodTransportNode(subnetPort *v1alpha1.SubnetPort, pod *v1.Pod, spKey types.NamespacedName) (string, error) {
+	var nodeName string
+	if subnetPort.Annotations != nil {
+		nodeName = subnetPort.Annotations[servicecommon.AnnotationESXHostName]
+	}
+	if nodeName == "" {
+		nodeName = pod.Spec.NodeName
+	}
+	if nodeName == "" {
+		log.Info("Node name is empty for Pod, skipping transport node resolution", "SubnetPort", spKey, "Pod", pod.Name)
+		return "", nil
+	}
+	node, err := common.GetNodeByName(r.NodeServiceReader, nodeName)
+	if err == nil && (node == nil || node.UniqueId == nil || *node.UniqueId == "") {
+		return "", fmt.Errorf("transport node %s has no unique ID", nodeName)
+	}
+	if err != nil {
+		return "", err
+	}
+	return *node.UniqueId, nil
+}
+
+func (r *SubnetPortReconciler) checkRestoreStatusPersisted(ctx context.Context, reader client.Reader, spKey types.NamespacedName, currentStatus *v1alpha1.SubnetPortStatus) error {
+	persisted := &v1alpha1.SubnetPort{}
+	if err := reader.Get(ctx, spKey, persisted); err != nil {
+		return err
+	}
+	if persisted.Status.Attachment.ID == "" || persisted.Status.Attachment != currentStatus.Attachment ||
+		!reflect.DeepEqual(persisted.Status.NetworkInterfaceConfig, currentStatus.NetworkInterfaceConfig) ||
+		!common.IsObjectReady(persisted.Status.Conditions) {
+		return fmt.Errorf("Pod SubnetPort %s restore status is not persisted", spKey)
+	}
+	return nil
 }
 
 // A newly recreated SubnetPort has no status. Fill only missing network data from

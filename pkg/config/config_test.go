@@ -197,14 +197,14 @@ func TestNsxConfig_VpcWcpEnhanceEnabled(t *testing.T) {
 	assert.False(t, (&NsxConfig{VpcWcpEnhance: &f}).VpcWcpEnhanceEnabled())
 }
 
-func TestNsxConfig_PodV2Enabled(t *testing.T) {
+func TestK8sConfig_PodV2Enabled(t *testing.T) {
 	f := false
 	tr := true
-	assert.False(t, (*NsxConfig)(nil).PodV2Enabled())
-	assert.False(t, (&NsxConfig{}).PodV2Enabled())
-	assert.False(t, (&NsxConfig{PodV2: nil}).PodV2Enabled())
-	assert.True(t, (&NsxConfig{PodV2: &tr}).PodV2Enabled())
-	assert.False(t, (&NsxConfig{PodV2: &f}).PodV2Enabled())
+	assert.False(t, (*K8sConfig)(nil).PodV2Enabled())
+	assert.False(t, (&K8sConfig{}).PodV2Enabled())
+	assert.False(t, (&K8sConfig{PodV2: nil}).PodV2Enabled())
+	assert.True(t, (&K8sConfig{PodV2: &tr}).PodV2Enabled())
+	assert.False(t, (&K8sConfig{PodV2: &f}).PodV2Enabled())
 }
 
 func TestNsxConfig_RestoreVifEnabled(t *testing.T) {
@@ -247,4 +247,36 @@ func TestNsxConfig_GetServiceSize(t *testing.T) {
 			assert.Equalf(t, tt.want, nsxConfig.GetNSXLBSize(), "GetNSXLBSize()")
 		})
 	}
+}
+
+func TestK8sConfig_PodV2Ini(t *testing.T) {
+	iniContent := `
+[DEFAULT]
+[coe]
+cluster = k8scl-one
+[ha]
+[k8s]
+pod_v2 = true
+[nsx_v3]
+nsx_api_managers = 127.0.0.1
+nsx_api_password = admin
+nsx_api_user = admin
+thumbprint = 81:49:DD:B7:E8:79:55:5D:9E:75:A9:FA:A6:7D:CB:EA:A4:CA:12:C6
+[vc]
+`
+	tmpFile, err := os.CreateTemp("", "nsxop_podv2_*.ini")
+	assert.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	_, err = tmpFile.WriteString(iniContent)
+	assert.NoError(t, err)
+	tmpFile.Close()
+
+	oldConfigPath := configFilePath
+	defer func() { configFilePath = oldConfigPath }()
+	configFilePath = tmpFile.Name()
+
+	cfg, err := NewNSXOperatorConfigFromFile()
+	assert.NoError(t, err)
+	assert.NotNil(t, cfg.K8sConfig.PodV2)
+	assert.True(t, cfg.K8sConfig.PodV2Enabled())
 }

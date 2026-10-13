@@ -87,6 +87,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					NsxConfig: &config.NsxConfig{
 						EnforcementPoint: "vmc-enforcementpoint",
 					},
+					K8sConfig: &config.K8sConfig{},
 				},
 			},
 			SubnetPortStore: &subnetport.SubnetPortStore{},
@@ -372,7 +373,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				trueVal := true
-				r.SubnetPortService.NSXConfig.NsxConfig.PodV2 = &trueVal
+				r.SubnetPortService.NSXConfig.K8sConfig.PodV2 = &trueVal
 				patches := gomonkey.ApplyFunc(common.GetSubnetPortForPod, func(ctx context.Context, c client.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
 					return nil, nil
 				})
@@ -403,7 +404,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				trueVal := true
-				r.SubnetPortService.NSXConfig.NsxConfig.PodV2 = &trueVal
+				r.SubnetPortService.NSXConfig.K8sConfig.PodV2 = &trueVal
 				patches := gomonkey.ApplyFunc(common.GetSubnetPortForPod, func(ctx context.Context, c client.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
 					return &v1alpha1.SubnetPort{
 						ObjectMeta: metav1.ObjectMeta{
@@ -428,7 +429,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				trueVal := true
-				r.SubnetPortService.NSXConfig.NsxConfig.PodV2 = &trueVal
+				r.SubnetPortService.NSXConfig.K8sConfig.PodV2 = &trueVal
 				patches := gomonkey.ApplyFunc(common.GetSubnetPortForPod, func(ctx context.Context, c client.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
 					return &v1alpha1.SubnetPort{
 						ObjectMeta: metav1.ObjectMeta{
@@ -454,7 +455,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				trueVal := true
-				r.SubnetPortService.NSXConfig.NsxConfig.PodV2 = &trueVal
+				r.SubnetPortService.NSXConfig.K8sConfig.PodV2 = &trueVal
 				patches := gomonkey.ApplyFunc(common.GetSubnetPortForPod, func(ctx context.Context, c client.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
 					return nil, nil
 				})
@@ -475,7 +476,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 					return nil
 				})
 				trueVal := true
-				r.SubnetPortService.NSXConfig.NsxConfig.PodV2 = &trueVal
+				r.SubnetPortService.NSXConfig.K8sConfig.PodV2 = &trueVal
 				patches := gomonkey.ApplyFunc(common.GetSubnetPortForPod, func(ctx context.Context, c client.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
 					return nil, nil
 				})
@@ -522,7 +523,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			falseVal := false
-			r.SubnetPortService.NSXConfig.NsxConfig.PodV2 = &falseVal
+			r.SubnetPortService.NSXConfig.K8sConfig.PodV2 = &falseVal
 			patches := tt.prepareFunc(t, r)
 			if patches != nil {
 				defer patches.Reset()

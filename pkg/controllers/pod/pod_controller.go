@@ -280,7 +280,7 @@ func (r *PodReconciler) reconcileLegacy(ctx context.Context, req ctrl.Request, p
 				log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 				return err != nil
 			}, func() error {
-				return setReconfigureNicStatus(r.Client, ctx, pod)
+				return common.SetReconfigureNicStatus(r.Client, ctx, pod)
 			})
 		}
 	} else {
@@ -327,73 +327,6 @@ func updatePodAnnotationForPortState(ctx context.Context, client client.Client, 
 		}
 	}
 	return nil
-}
-
-// Set PodNetworkReconfigRequired condition to true in Pod to inform spherelet the SubnetPort is restored with another vif ID
-func setReconfigureNicStatus(client client.Client, ctx context.Context, obj client.Object) error {
-	pod := obj.(*v1.Pod)
-	newConditions := []v1.PodCondition{
-		{
-			Type:               v1.PodConditionType("PodNetworkReconfigRequired"),
-			Status:             v1.ConditionTrue,
-			Reason:             "ReconfigureNic",
-			LastTransitionTime: metav1.Now(),
-		},
-	}
-	return updatePodStatusConditions(client, ctx, pod, newConditions)
-}
-
-func updatePodStatusConditions(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
-	conditionsUpdated := false
-	for i := range newConditions {
-		if mergePodStatusCondition(pod, &newConditions[i]) {
-			conditionsUpdated = true
-		}
-	}
-
-	if conditionsUpdated {
-		err := client.Status().Update(ctx, pod)
-		if err != nil {
-			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
-			return err
-		}
-		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
-			"New Conditions", newConditions)
-	}
-	return nil
-}
-
-func mergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
-	matchedCondition := getExistingConditionOfType(newCondition.Type, pod.Status.Conditions)
-
-	if isConditionSemanticEqual(matchedCondition, newCondition) {
-		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
-		return false
-	}
-
-	if matchedCondition != nil {
-		matchedCondition.Reason = newCondition.Reason
-		matchedCondition.Message = newCondition.Message
-		matchedCondition.Status = newCondition.Status
-		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
-	} else {
-		pod.Status.Conditions = append(pod.Status.Conditions, *newCondition)
-	}
-	return true
-}
-
-func getExistingConditionOfType(conditionType v1.PodConditionType, existingConditions []v1.PodCondition) *v1.PodCondition {
-	for i := range existingConditions {
-		if existingConditions[i].Type == conditionType {
-			return &existingConditions[i]
-		}
-	}
-	return nil
-}
-
-// isConditionSemanticEqual checks if two pod conditions are semantically equal.
-func isConditionSemanticEqual(matchedCondition, newCondition *v1.PodCondition) bool {
-	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
 }
 
 func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode, error) {

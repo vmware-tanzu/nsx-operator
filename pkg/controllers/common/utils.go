@@ -486,6 +486,71 @@ func UpdateReconfigureNicAnnotation(client k8sclient.Client, ctx context.Context
 	return nil
 }
 
+// SetReconfigureNicStatus sets PodNetworkReconfigRequired condition to true on Pod to inform spherelet the SubnetPort is restored with another vif ID.
+func SetReconfigureNicStatus(client k8sclient.Client, ctx context.Context, pod *v1.Pod) error {
+	newConditions := []v1.PodCondition{
+		{
+			Type:               v1.PodConditionType("PodNetworkReconfigRequired"),
+			Status:             v1.ConditionTrue,
+			Reason:             "ReconfigureNic",
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+	return UpdatePodStatusConditions(client, ctx, pod, newConditions)
+}
+
+func UpdatePodStatusConditions(client k8sclient.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+	conditionsUpdated := false
+	for i := range newConditions {
+		if MergePodStatusCondition(pod, &newConditions[i]) {
+			conditionsUpdated = true
+		}
+	}
+
+	if conditionsUpdated {
+		err := client.Status().Update(ctx, pod)
+		if err != nil {
+			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
+			return err
+		}
+		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
+			"New Conditions", newConditions)
+	}
+	return nil
+}
+
+func MergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
+	matchedCondition := GetExistingPodConditionOfType(newCondition.Type, pod.Status.Conditions)
+
+	if isPodConditionSemanticEqual(matchedCondition, newCondition) {
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		return false
+	}
+
+	if matchedCondition != nil {
+		matchedCondition.Reason = newCondition.Reason
+		matchedCondition.Message = newCondition.Message
+		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
+	} else {
+		pod.Status.Conditions = append(pod.Status.Conditions, *newCondition)
+	}
+	return true
+}
+
+func GetExistingPodConditionOfType(conditionType v1.PodConditionType, existingConditions []v1.PodCondition) *v1.PodCondition {
+	for i := range existingConditions {
+		if existingConditions[i].Type == conditionType {
+			return &existingConditions[i]
+		}
+	}
+	return nil
+}
+
+func isPodConditionSemanticEqual(matchedCondition, newCondition *v1.PodCondition) bool {
+	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
+}
+
 func GetSubnetByIP(subnets []*model.VpcSubnet, ip net.IP) (string, error) {
 	for _, subnet := range subnets {
 		for _, cidr := range subnet.IpAddresses {

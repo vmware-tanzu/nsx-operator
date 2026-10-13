@@ -131,7 +131,7 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 				}, Spec: v1.PodSpec{NodeName: "esx1"}, Status: v1.PodStatus{Phase: v1.PodRunning, PodIP: "10.0.0.10", PodIPs: []v1.PodIP{{IP: "10.0.0.10"}}}}
 				ss := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "pod-default", Namespace: "ns", UID: "subnetset-uid", Labels: map[string]string{servicecommon.LabelDefaultNetwork: servicecommon.DefaultPodNetwork}}, Spec: v1alpha1.SubnetSetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4}}
 				statusUnavailable := failStatus
-				api := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.SubnetPort{}).
+				api := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.SubnetPort{}, &v1.Pod{}).
 					WithObjects(pod, ss, &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns", UID: "namespace-uid"}}).
 					WithIndex(&v1alpha1.SubnetPort{}, util.SubnetPortNamespacePodIndexKey, subnetPortNamespacePodIndexFunc).
 					WithIndex(&v1alpha1.Subnet{}, util.SubnetAssociatedResource, subnetAssociatedResourceIndexFunc).
@@ -147,7 +147,7 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 						return c.SubResource(subresource).Update(ctx, obj, opts...)
 					}}).Build()
 				cached := podRestoreCachedClient{api}
-				cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{PodV2: servicecommon.Bool(true), RestoreVif: &restoreVIF}, CoeConfig: &config.CoeConfig{Cluster: "test"}}
+				cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{RestoreVif: &restoreVIF}, K8sConfig: &config.K8sConfig{PodV2: servicecommon.Bool(true)}, CoeConfig: &config.CoeConfig{Cluster: "test"}}
 				backend := &podRestorePortsClient{ports: map[string]model.VpcSubnetPort{}}
 				svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api, NSXConfig: cfg, NSXClient: &nsx.Client{PortClient: backend}}, SubnetPortStore: newPodRestorePortStore()}
 				p := &podcontroller.PodReconciler{Client: cached, APIReader: api, Scheme: scheme, SubnetPortService: svc, Recorder: fakeRecorder{}}
@@ -201,6 +201,16 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 					require.Equal(t, "10.0.0.10", *port.AddressBindings[0].IpAddress)
 					require.Equal(t, "02:50:56:00:00:01", *port.AddressBindings[0].MacAddress)
 					require.Equal(t, attachment, *port.Attachment.Id)
+				}
+				restoredPod := &v1.Pod{}
+				require.NoError(t, api.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, restoredPod))
+				reconfigCond := common.GetExistingPodConditionOfType("PodNetworkReconfigRequired", restoredPod.Status.Conditions)
+				if restoreVIF {
+					require.Nil(t, reconfigCond)
+				} else {
+					require.NotNil(t, reconfigCond)
+					require.Equal(t, v1.ConditionTrue, reconfigCond.Status)
+					require.Equal(t, "ReconfigureNic", reconfigCond.Reason)
 				}
 				require.NoError(t, r.RestoreReconcile()) // completed restore is idempotent
 				// Simulate fresh controllers after restart: same CR and same NSX store.

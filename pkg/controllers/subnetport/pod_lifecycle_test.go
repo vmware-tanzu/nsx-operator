@@ -179,7 +179,7 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 				tr := true
 				svc.NSXClient = &nsx.Client{}
 				svc.NSXConfig = &config.NSXOperatorConfig{
-					NsxConfig: &config.NsxConfig{PodV2: &tr},
+					K8sConfig: &config.K8sConfig{PodV2: &tr},
 				}
 			}
 			r := &SubnetPortReconciler{Client: api, APIReader: api, SubnetPortService: svc}

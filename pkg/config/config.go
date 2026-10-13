@@ -133,9 +133,6 @@ type NsxConfig struct {
 	// VpcWcpEnhance controls StatefulSet pod SubnetPort behavior together with NSX version.
 	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
 	VpcWcpEnhance *bool `ini:"vpc_wcp_enhance"`
-	// PodV2 controls whether Pod 2.0 (decoupled CR-based) path is enabled.
-	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
-	PodV2 *bool `ini:"pod_v2"`
 	// RestoreVif controls whether SubnetPort vif should be restored during restore mode.
 	RestoreVif *bool `ini:"restore_vif"`
 	// TnIdCheckInterval is the interval in seconds to check TN ID for node.
@@ -155,6 +152,9 @@ type K8sConfig struct {
 	// Expected values: "IPv4" (default), "IPv6", or "DualStack".
 	// Use GetIPAddressType() to obtain the canonical v1alpha1.IPAddressType.
 	IPFamily string `ini:"ip_family"`
+	// PodV2 controls whether Pod 2.0 (decoupled CR-based) path is enabled.
+	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
+	PodV2 *bool `ini:"pod_v2"`
 }
 
 // GetIPAddressType parses the raw IPFamily string and returns the canonical
@@ -448,11 +448,11 @@ func (nsxConfig *NsxConfig) VpcWcpEnhanceEnabled() bool {
 
 // PodV2Enabled reports whether Pod 2.0 is allowed by config.
 // Missing or nil key defaults to false; only an explicit true enables.
-func (nsxConfig *NsxConfig) PodV2Enabled() bool {
-	if nsxConfig == nil || nsxConfig.PodV2 == nil {
+func (k8sConfig *K8sConfig) PodV2Enabled() bool {
+	if k8sConfig == nil || k8sConfig.PodV2 == nil {
 		return false
 	}
-	return *nsxConfig.PodV2
+	return *k8sConfig.PodV2
 }
 
 // RestoreVifEnabled reports whether restoring SubnetPort vif is supported by config.

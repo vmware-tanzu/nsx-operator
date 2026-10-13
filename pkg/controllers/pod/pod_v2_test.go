@@ -70,7 +70,7 @@ func newPodV2TestReconciler(t *testing.T, precreated bool, stale bool) (*PodReco
 		cached = staleSubnetPortListClient{api}
 	}
 	enabled := true
-	cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{PodV2: &enabled}}
+	cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}, K8sConfig: &config.K8sConfig{PodV2: &enabled}}
 	svc := &subnetport.SubnetPortService{Service: servicecommon.Service{Client: cached, NSXClient: &nsx.Client{}, NSXConfig: cfg}}
 	r := &PodReconciler{Client: cached, APIReader: api, Scheme: scheme, SubnetPortService: svc, Recorder: fakeRecorder{}}
 	r.StatusUpdater = common.NewStatusUpdater(cached, cfg, r.Recorder, MetricResTypePod, "SubnetPort", "Pod")

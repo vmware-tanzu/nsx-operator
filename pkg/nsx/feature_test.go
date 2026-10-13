@@ -112,9 +112,9 @@ func TestPodV2FeatureEnabled(t *testing.T) {
 	t.Run("basic", func(t *testing.T) {
 		assert.False(t, PodV2FeatureEnabled(nil, &config.NSXOperatorConfig{}))
 		assert.False(t, PodV2FeatureEnabled(nsxClient, nil))
-		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: nil}))
-		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
-		assert.True(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{PodV2: &tr}}))
-		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{PodV2: &f}}))
+		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: nil}))
+		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: &config.K8sConfig{}}))
+		assert.True(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: &config.K8sConfig{PodV2: &tr}}))
+		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: &config.K8sConfig{PodV2: &f}}))
 	})
 }

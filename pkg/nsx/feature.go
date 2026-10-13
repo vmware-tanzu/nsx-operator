@@ -53,8 +53,8 @@ func PodV2FeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfi
 	if client == nil {
 		return false
 	}
-	if operatorConfig == nil || operatorConfig.NsxConfig == nil {
+	if operatorConfig == nil || operatorConfig.K8sConfig == nil {
 		return false
 	}
-	return operatorConfig.NsxConfig.PodV2Enabled()
+	return operatorConfig.K8sConfig.PodV2Enabled()
 }
