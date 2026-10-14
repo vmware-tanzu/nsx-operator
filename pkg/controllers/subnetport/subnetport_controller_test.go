@@ -4899,7 +4899,7 @@ func TestPodPredicate(t *testing.T) {
 	assert.False(t, podPredicate.Update(event.UpdateEvent{ObjectOld: nil, ObjectNew: podOld}), "Nil old object should return false")
 
 	// Create and Delete events
-	assert.True(t, podPredicate.Create(event.CreateEvent{Object: podOld}))
-	assert.True(t, podPredicate.Delete(event.DeleteEvent{Object: podOld}))
+	assert.False(t, podPredicate.Create(event.CreateEvent{Object: podOld}))
+	assert.False(t, podPredicate.Delete(event.DeleteEvent{Object: podOld}))
 	assert.False(t, podPredicate.Generic(event.GenericEvent{Object: podOld}))
 }

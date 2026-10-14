@@ -120,8 +120,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultNormal, err
 		}
 		if r.restoreMode && pod != nil {
-			if err := restoreSubnetPortStatusFromPod(subnetPort, pod); err != nil {
+			restored, err := restoreSubnetPortStatusFromPod(subnetPort, pod)
+			if err != nil {
 				return common.ResultNormal, err
+			}
+			if !restored {
+				return common.ResultNormal, nil
 			}
 		}
 		old_status := subnetPort.Status.DeepCopy()
@@ -449,7 +453,9 @@ func (r *SubnetPortReconciler) checkRestoreStatusPersisted(ctx context.Context, 
 
 // A newly recreated SubnetPort has no status. Fill only missing network data from
 // its realized owner Pod, then reuse the ordinary SubnetPort restoration path.
-func restoreSubnetPortStatusFromPod(sp *v1alpha1.SubnetPort, pod *v1.Pod) error {
+// Returns (true, nil) if successfully restored, or (false, nil) if the pod has
+// no persisted IP/MAC and should be skipped during restore.
+func restoreSubnetPortStatusFromPod(sp *v1alpha1.SubnetPort, pod *v1.Pod) (bool, error) {
 	restored := subnetport.GetPodRestoreStatus(pod)
 	if sp.Status.Attachment.ID == "" {
 		sp.Status.Attachment = restored.Attachment
@@ -476,10 +482,12 @@ func restoreSubnetPortStatusFromPod(sp *v1alpha1.SubnetPort, pod *v1.Pod) error 
 	isDHCP := sp.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone || sp.Spec.StaticIPAllocationType == ""
 	if !isDHCP {
 		if sp.Status.NetworkInterfaceConfig.MACAddress == "" || len(sp.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
-			return fmt.Errorf("Pod %s/%s has no persisted IP/MAC to restore SubnetPort %s", pod.Namespace, pod.Name, sp.Name)
+			log.Info("Pod has no persisted IP/MAC to restore SubnetPort, skipping in restore mode",
+				"Pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name), "SubnetPort", sp.Name)
+			return false, nil
 		}
 	}
-	return nil
+	return true, nil
 }
 
 func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subnetPort *v1alpha1.SubnetPort, interfaceIPType v1alpha1.IPAddressType, nsxSubnet *model.VpcSubnet) error {
@@ -717,10 +725,10 @@ var podPredicate = predicate.Funcs{
 		return !reflect.DeepEqual(oldPod.Labels, newPod.Labels)
 	},
 	CreateFunc: func(e event.CreateEvent) bool {
-		return true
+		return false
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
-		return true
+		return false
 	},
 	GenericFunc: func(e event.GenericEvent) bool {
 		return false
