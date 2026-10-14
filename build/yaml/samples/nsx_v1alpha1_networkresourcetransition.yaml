@@ -27,6 +27,7 @@ spec:
         name: pod-frontend-0
 
 status:
+  observedGeneration: 1
   phase: PartiallyFailed
   totalResources: 2
   succeededResources: 1
@@ -95,6 +96,7 @@ spec:
         name: vip-db-service
 
 status:
+  observedGeneration: 1
   phase: PartiallyFailed
   totalResources: 2
   succeededResources: 1

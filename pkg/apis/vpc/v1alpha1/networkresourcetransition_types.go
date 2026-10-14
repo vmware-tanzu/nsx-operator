@@ -7,7 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// MigrationPhase defines the overall or per-resource phase of network resource transition.
+// MigrationPhase defines the overall phase of network resource transition.
 // +kubebuilder:validation:Enum=Pending;Migrating;Succeeded;Failed;PartiallyFailed
 type MigrationPhase string
 
@@ -19,14 +19,29 @@ const (
 	MigrationPhasePartiallyFailed MigrationPhase = "PartiallyFailed"
 )
 
+// ResourceMigrationPhase defines the phase of an individual resource transition.
+// +kubebuilder:validation:Enum=Pending;Migrating;Succeeded;Failed
+type ResourceMigrationPhase string
+
+const (
+	ResourceMigrationPhasePending   ResourceMigrationPhase = "Pending"
+	ResourceMigrationPhaseMigrating ResourceMigrationPhase = "Migrating"
+	ResourceMigrationPhaseSucceeded ResourceMigrationPhase = "Succeeded"
+	ResourceMigrationPhaseFailed    ResourceMigrationPhase = "Failed"
+)
+
 // NamespacedObjectReference contains namespace and name to uniquely identify a namespaced Kubernetes resource.
 type NamespacedObjectReference struct {
 	// Namespace of the referent.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Namespace string `json:"namespace"`
 
 	// Name of the referent.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	Name string `json:"name"`
 }
 
@@ -35,6 +50,7 @@ type CreateSubnetPortSpec struct {
 	// SubnetIPReservations specifies the list of source SubnetIPReservations in the staging namespace to cut over.
 	// Supports dual-stack (IPv4 and IPv6) reservations mapped to a single SubnetPort.
 	// +kubebuilder:validation:MinItems=1
+	// +listType=atomic
 	SubnetIPReservations []NamespacedObjectReference `json:"subnetIPReservations"`
 
 	// SubnetPort specifies the target SubnetPort to create in the destination workload namespace.
@@ -53,13 +69,19 @@ type MoveIPAddressAllocationSpec struct {
 	Target NamespacedObjectReference `json:"target"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.createSubnetPort) || has(self.moveIPAddressAllocation)",message="at least one of createSubnetPort or moveIPAddressAllocation must be specified"
+// +kubebuilder:validation:XValidation:rule="!has(self.createSubnetPort) || self.createSubnetPort.all(x, self.createSubnetPort.filter(y, y.subnetPort.namespace == x.subnetPort.namespace && y.subnetPort.name == x.subnetPort.name).size() == 1)",message="target subnetPort must be unique across all createSubnetPort items"
+// +kubebuilder:validation:XValidation:rule="!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x, self.moveIPAddressAllocation.filter(y, y.target.namespace == x.target.namespace && y.target.name == x.target.name).size() == 1)",message="target IPAddressAllocation must be unique across all moveIPAddressAllocation items"
+// +kubebuilder:validation:XValidation:rule="!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x, self.moveIPAddressAllocation.filter(y, y.source.namespace == x.source.namespace && y.source.name == x.source.name).size() == 1)",message="source IPAddressAllocation must be unique across all moveIPAddressAllocation items"
 // NetworkResourceTransitionSpec defines the desired transition of network resources from staging to target namespaces.
 type NetworkResourceTransitionSpec struct {
 	// CreateSubnetPort specifies workload cutover(s) from SubnetIPReservation(s) to SubnetPort(s).
+	// +listType=atomic
 	// +optional
 	CreateSubnetPort []CreateSubnetPortSpec `json:"createSubnetPort,omitempty"`
 
 	// MoveIPAddressAllocation specifies Load Balancer VIP(s) to adopt into tenant namespaces.
+	// +listType=atomic
 	// +optional
 	MoveIPAddressAllocation []MoveIPAddressAllocationSpec `json:"moveIPAddressAllocation,omitempty"`
 }
@@ -70,11 +92,12 @@ type CreateSubnetPortStatus struct {
 	SubnetPort NamespacedObjectReference `json:"subnetPort"`
 
 	// SubnetIPReservations mirrors the source SubnetIPReservation references.
+	// +listType=atomic
 	// +optional
 	SubnetIPReservations []NamespacedObjectReference `json:"subnetIPReservations,omitempty"`
 
 	// Phase of this specific cutover operation.
-	Phase MigrationPhase `json:"phase"`
+	Phase ResourceMigrationPhase `json:"phase"`
 
 	// Message describes details or error information.
 	// +optional
@@ -85,6 +108,7 @@ type CreateSubnetPortStatus struct {
 	AttachmentID string `json:"attachmentID,omitempty"`
 
 	// IPAddresses realized on the target SubnetPort.
+	// +listType=set
 	// +optional
 	IPAddresses []string `json:"ipAddresses,omitempty"`
 
@@ -102,7 +126,7 @@ type MoveIPAddressAllocationStatus struct {
 	Target NamespacedObjectReference `json:"target"`
 
 	// Phase of this specific move operation.
-	Phase MigrationPhase `json:"phase"`
+	Phase ResourceMigrationPhase `json:"phase"`
 
 	// Message describes details or error information.
 	// +optional
@@ -111,6 +135,10 @@ type MoveIPAddressAllocationStatus struct {
 
 // NetworkResourceTransitionStatus defines the observed state of NetworkResourceTransition.
 type NetworkResourceTransitionStatus struct {
+	// ObservedGeneration represents the .metadata.generation that the condition/status was set based upon.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Phase defines the overall migration phase.
 	// +optional
 	Phase MigrationPhase `json:"phase,omitempty"`
@@ -128,14 +156,18 @@ type NetworkResourceTransitionStatus struct {
 	FailedResources int `json:"failedResources,omitempty"`
 
 	// CreateSubnetPort mirrors the status for each SubnetPort cutover.
+	// +listType=atomic
 	// +optional
 	CreateSubnetPort []CreateSubnetPortStatus `json:"createSubnetPort,omitempty"`
 
 	// MoveIPAddressAllocation mirrors the status for each IPAddressAllocation move.
+	// +listType=atomic
 	// +optional
 	MoveIPAddressAllocation []MoveIPAddressAllocationStatus `json:"moveIPAddressAllocation,omitempty"`
 
 	// Conditions track overall transition conditions.
+	// +listType=map
+	// +listMapKey=type
 	// +optional
 	Conditions []Condition `json:"conditions,omitempty"`
 }
@@ -152,6 +184,7 @@ type NetworkResourceTransitionStatus struct {
 // +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.totalResources`,description="Total resources to migrate"
 // +kubebuilder:printcolumn:name="Succeeded",type=integer,JSONPath=`.status.succeededResources`,description="Number of successfully migrated resources"
 // +kubebuilder:printcolumn:name="Failed",type=integer,JSONPath=`.status.failedResources`,description="Number of failed resources"
+// +kubebuilder:validation:XValidation:rule="self.spec == oldSelf.spec",message="spec is immutable"
 type NetworkResourceTransition struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

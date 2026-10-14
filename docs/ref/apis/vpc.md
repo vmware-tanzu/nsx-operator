@@ -202,7 +202,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `subnetPort` _[NamespacedObjectReference](#namespacedobjectreference)_ | SubnetPort mirrors the target SubnetPort reference. |  |  |
 | `subnetIPReservations` _[NamespacedObjectReference](#namespacedobjectreference) array_ | SubnetIPReservations mirrors the source SubnetIPReservation references. |  |  |
-| `phase` _[MigrationPhase](#migrationphase)_ | Phase of this specific cutover operation. |  | Enum: [Pending Migrating Succeeded Failed PartiallyFailed] <br /> |
+| `phase` _[ResourceMigrationPhase](#resourcemigrationphase)_ | Phase of this specific cutover operation. |  | Enum: [Pending Migrating Succeeded Failed] <br /> |
 | `message` _string_ | Message describes details or error information. |  |  |
 | `attachmentID` _string_ | AttachmentID of the realized SubnetPort on NSX. |  |  |
 | `ipAddresses` _string array_ | IPAddresses realized on the target SubnetPort. |  |  |
@@ -516,14 +516,12 @@ _Appears in:_
 
 _Underlying type:_ _string_
 
-MigrationPhase defines the overall or per-resource phase of network resource transition.
+MigrationPhase defines the overall phase of network resource transition.
 
 _Validation:_
 - Enum: [Pending Migrating Succeeded Failed PartiallyFailed]
 
 _Appears in:_
-- [CreateSubnetPortStatus](#createsubnetportstatus)
-- [MoveIPAddressAllocationStatus](#moveipaddressallocationstatus)
 - [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
 
 | Field | Description |
@@ -567,7 +565,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `source` _[NamespacedObjectReference](#namespacedobjectreference)_ | Source mirrors the source IPAddressAllocation reference. |  |  |
 | `target` _[NamespacedObjectReference](#namespacedobjectreference)_ | Target mirrors the target IPAddressAllocation reference. |  |  |
-| `phase` _[MigrationPhase](#migrationphase)_ | Phase of this specific move operation. |  | Enum: [Pending Migrating Succeeded Failed PartiallyFailed] <br /> |
+| `phase` _[ResourceMigrationPhase](#resourcemigrationphase)_ | Phase of this specific move operation. |  | Enum: [Pending Migrating Succeeded Failed] <br /> |
 | `message` _string_ | Message describes details or error information. |  |  |
 
 
@@ -587,8 +585,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `namespace` _string_ | Namespace of the referent. |  | Required: \{\} <br /> |
-| `name` _string_ | Name of the referent. |  | Required: \{\} <br /> |
+| `namespace` _string_ | Namespace of the referent. |  | MaxLength: 63 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$` <br />Required: \{\} <br /> |
+| `name` _string_ | Name of the referent. |  | MaxLength: 253 <br />Pattern: `^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$` <br />Required: \{\} <br /> |
 
 
 #### NetworkInfo
@@ -699,6 +697,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `observedGeneration` _integer_ | ObservedGeneration represents the .metadata.generation that the condition/status was set based upon. |  |  |
 | `phase` _[MigrationPhase](#migrationphase)_ | Phase defines the overall migration phase. |  | Enum: [Pending Migrating Succeeded Failed PartiallyFailed] <br /> |
 | `totalResources` _integer_ | TotalResources is the total number of target resources to migrate. |  |  |
 | `succeededResources` _integer_ | SucceededResources is the count of successfully transitioned resources. |  |  |
@@ -772,6 +771,27 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `id` _string_ | ID of the SubnetPort VIF attachment. |  |  |
+
+
+#### ResourceMigrationPhase
+
+_Underlying type:_ _string_
+
+ResourceMigrationPhase defines the phase of an individual resource transition.
+
+_Validation:_
+- Enum: [Pending Migrating Succeeded Failed]
+
+_Appears in:_
+- [CreateSubnetPortStatus](#createsubnetportstatus)
+- [MoveIPAddressAllocationStatus](#moveipaddressallocationstatus)
+
+| Field | Description |
+| --- | --- |
+| `Pending` |  |
+| `Migrating` |  |
+| `Succeeded` |  |
+| `Failed` |  |
 
 
 #### RuleAction
