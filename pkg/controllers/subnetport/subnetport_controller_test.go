@@ -3743,7 +3743,8 @@ func TestSubnetPortReconciler_RestoreReconcile(t *testing.T) {
 	defer mockCtl.Finish()
 
 	r := &SubnetPortReconciler{
-		Client: k8sClient,
+		Client:    k8sClient,
+		APIReader: k8sClient,
 		SubnetPortService: &subnetport.SubnetPortService{
 			SubnetPortStore: &subnetport.SubnetPortStore{},
 		},

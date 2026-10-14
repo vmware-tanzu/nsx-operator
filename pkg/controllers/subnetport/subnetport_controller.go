@@ -857,17 +857,13 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 	nsxSubnetPortCRIDs := r.SubnetPortService.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
 	restoreList := []types.NamespacedName{}
 	subnetPortList := &v1alpha1.SubnetPortList{}
-	reader := r.APIReader
-	if reader == nil {
-		reader = r.Client
-	}
-	if err := reader.List(context.TODO(), subnetPortList); err != nil {
+	if err := r.APIReader.List(context.TODO(), subnetPortList); err != nil {
 		return restoreList, err
 	}
 	for _, subnetport := range subnetPortList.Items {
 		isPodOwned := common.GetPodNameForSubnetPort(&subnetport) != ""
 		if isPodOwned {
-			pod, err := common.GetPodForSubnetPort(context.TODO(), reader, &subnetport)
+			pod, err := common.GetPodForSubnetPort(context.TODO(), r.APIReader, &subnetport)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
 					continue
