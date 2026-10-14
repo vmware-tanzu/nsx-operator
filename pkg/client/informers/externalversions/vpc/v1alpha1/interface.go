@@ -21,8 +21,6 @@ type Interface interface {
 	IPBlocksInfos() IPBlocksInfoInformer
 	// NetworkInfos returns a NetworkInfoInformer.
 	NetworkInfos() NetworkInfoInformer
-	// NetworkResourceTransitions returns a NetworkResourceTransitionInformer.
-	NetworkResourceTransitions() NetworkResourceTransitionInformer
 	// SecurityPolicies returns a SecurityPolicyInformer.
 	SecurityPolicies() SecurityPolicyInformer
 	// ServiceEndpoints returns a ServiceEndpointInformer.
@@ -81,11 +79,6 @@ func (v *version) IPBlocksInfos() IPBlocksInfoInformer {
 // NetworkInfos returns a NetworkInfoInformer.
 func (v *version) NetworkInfos() NetworkInfoInformer {
 	return &networkInfoInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
-// NetworkResourceTransitions returns a NetworkResourceTransitionInformer.
-func (v *version) NetworkResourceTransitions() NetworkResourceTransitionInformer {
-	return &networkResourceTransitionInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // SecurityPolicies returns a SecurityPolicyInformer.

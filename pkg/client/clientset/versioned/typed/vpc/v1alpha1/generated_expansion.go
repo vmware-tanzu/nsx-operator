@@ -15,8 +15,6 @@ type IPBlocksInfoExpansion interface{}
 
 type NetworkInfoExpansion interface{}
 
-type NetworkResourceTransitionExpansion interface{}
-
 type SecurityPolicyExpansion interface{}
 
 type ServiceEndpointExpansion interface{}
