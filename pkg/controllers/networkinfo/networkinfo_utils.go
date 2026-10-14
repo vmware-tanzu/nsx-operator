@@ -56,6 +56,16 @@ func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.
 		return
 	}
 
+	// Preserve AVI history for the same VPC when its subnet path is unavailable.
+	if aviSubnetPath == "" && vpcPath != "" {
+		for _, vpcInfo := range nc.Status.VPCs {
+			if vpcInfo.VPCPath == vpcPath && vpcInfo.AVISESubnetPath != "" {
+				aviSubnetPath = vpcInfo.AVISESubnetPath
+				break
+			}
+		}
+	}
+
 	// There should only be one vpc info in vpc network config info although it is defined as a list.
 	// Always update vpcs[0] object
 	nc.Status.VPCs = []v1alpha1.VPCInfo{{

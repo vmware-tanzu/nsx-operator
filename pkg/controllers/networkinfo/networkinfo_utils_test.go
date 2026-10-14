@@ -25,6 +25,44 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+func TestSetVPCNetworkConfigurationStatusWithLBSPreservesAVIHistory(t *testing.T) {
+	const vpcPath = "/orgs/default/projects/default/vpcs/system-vpc"
+	const oldSubnetPath = vpcPath + "/subnets/avi-se-subnet"
+	for _, tc := range []struct {
+		name           string
+		vpcPath        string
+		subnetPath     string
+		wantSubnetPath string
+	}{
+		{name: "preserve history on empty path", vpcPath: vpcPath, wantSubnetPath: oldSubnetPath},
+		{name: "update with new path", vpcPath: vpcPath, subnetPath: vpcPath + "/subnets/new-avi-se-subnet", wantSubnetPath: vpcPath + "/subnets/new-avi-se-subnet"},
+		{name: "do not inherit history from another VPC", vpcPath: vpcPath + "-replacement"},
+		{name: "do not inherit history without VPC identity"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha1.AddToScheme(scheme))
+			nc := &v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: common.SystemVPCNetworkConfigurationName},
+				Status: v1alpha1.VPCNetworkConfigurationStatus{VPCs: []v1alpha1.VPCInfo{{
+					Name: "system-vpc", VPCPath: vpcPath, AVISESubnetPath: oldSubnetPath,
+				}}},
+			}
+			kubeClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithStatusSubresource(&v1alpha1.VPCNetworkConfiguration{}).WithObjects(nc).Build()
+
+			setVPCNetworkConfigurationStatusWithLBS(ctx, kubeClient, nc.Name, "system-vpc", tc.subnetPath, "", tc.vpcPath)
+
+			updated := &v1alpha1.VPCNetworkConfiguration{}
+			require.NoError(t, kubeClient.Get(ctx, apitypes.NamespacedName{Name: nc.Name}, updated))
+			require.Len(t, updated.Status.VPCs, 1)
+			assert.Equal(t, tc.wantSubnetPath, updated.Status.VPCs[0].AVISESubnetPath)
+			assert.Equal(t, tc.vpcPath, updated.Status.VPCs[0].VPCPath)
+		})
+	}
+}
+
 func TestSetVPCNetworkConfigurationStatusWithGatewayConnection(t *testing.T) {
 	tests := []struct {
 		name                    string
