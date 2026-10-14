@@ -17,11 +17,11 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: NetworkInfo is used to report the network information for a namespace.
+        description: NetworkInfo is used to report the network information for a Namespace.
         properties:
-          allowedDNSDomains:
-            description: AllowedDNSDomains specifies the permitted DNS domain names
-              in the namespace.
+          allowedDNSRecordDomains:
+            description: AllowedDNSRecordDomains specifies the permitted domain names
+              for DNS records created in the Namespace.
             items:
               type: string
             type: array

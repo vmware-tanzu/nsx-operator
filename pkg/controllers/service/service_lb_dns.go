@@ -236,7 +236,7 @@ func getLoadBalancerServicesWithDNS(ctx context.Context, c client.Client, listOp
 	return filtered, nil
 }
 
-// enqueueLBServiceRequestsFromNetworkInfo requeues LoadBalancer Services that publish DNS when namespace AllowedDNSDomains change.
+// enqueueLBServiceRequestsFromNetworkInfo requeues LoadBalancer Services that publish DNS when namespace AllowedDNSRecordDomains change.
 func (r *ServiceLbReconciler) enqueueLBServiceRequestsFromNetworkInfo(ctx context.Context, obj client.Object) []reconcile.Request {
 	ni, ok := obj.(*v1alpha1.NetworkInfo)
 	if !ok || ni == nil {
@@ -254,7 +254,7 @@ func (r *ServiceLbReconciler) enqueueLBServiceRequestsFromNetworkInfo(ctx contex
 	return reqs
 }
 
-func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
+func predicateNetworkInfoAllowedDNSRecordDomainsChanged() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event.CreateEvent) bool {
 			return false
@@ -268,7 +268,7 @@ func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			return !slices.Equal(oldNI.AllowedDNSDomains, newNI.AllowedDNSDomains)
+			return !slices.Equal(oldNI.AllowedDNSRecordDomains, newNI.AllowedDNSRecordDomains)
 		},
 		GenericFunc: func(event.GenericEvent) bool {
 			return false

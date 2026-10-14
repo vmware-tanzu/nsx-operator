@@ -168,7 +168,7 @@ func (r *ServiceLbReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&v1alpha1.NetworkInfo{},
 			handler.EnqueueRequestsFromMapFunc(r.enqueueLBServiceRequestsFromNetworkInfo),
-			builder.WithPredicates(predicateNetworkInfoAllowedDNSDomainsChanged()),
+			builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged()),
 		).
 		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
