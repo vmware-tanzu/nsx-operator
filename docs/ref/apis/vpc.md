@@ -170,45 +170,6 @@ _Appears in:_
 | `Disconnected` |  |
 
 
-#### CreateSubnetPortSpec
-
-
-
-CreateSubnetPortSpec specifies the source SubnetIPReservation(s) and target SubnetPort to realize.
-
-
-
-_Appears in:_
-- [NetworkResourceTransitionSpec](#networkresourcetransitionspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `subnetIPReservations` _[NamespacedObjectReference](#namespacedobjectreference) array_ | SubnetIPReservations specifies the list of source SubnetIPReservations in the staging namespace to cut over.<br />Supports dual-stack (IPv4 and IPv6) reservations mapped to a single SubnetPort. |  | MinItems: 1 <br /> |
-| `subnetPort` _[NamespacedObjectReference](#namespacedobjectreference)_ | SubnetPort specifies the target SubnetPort to create in the destination workload namespace. |  | Required: \{\} <br /> |
-
-
-#### CreateSubnetPortStatus
-
-
-
-CreateSubnetPortStatus records the observed transition status for a SubnetPort cutover.
-
-
-
-_Appears in:_
-- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `subnetPort` _[NamespacedObjectReference](#namespacedobjectreference)_ | SubnetPort mirrors the target SubnetPort reference. |  |  |
-| `subnetIPReservations` _[NamespacedObjectReference](#namespacedobjectreference) array_ | SubnetIPReservations mirrors the source SubnetIPReservation references. |  |  |
-| `phase` _[ResourceMigrationPhase](#resourcemigrationphase)_ | Phase of this specific cutover operation. |  | Enum: [Pending Migrating Succeeded Failed] <br /> |
-| `message` _string_ | Message describes details or error information. |  |  |
-| `attachmentID` _string_ | AttachmentID of the realized SubnetPort on NSX. |  |  |
-| `ipAddresses` _string array_ | IPAddresses realized on the target SubnetPort. |  |  |
-| `macAddress` _string_ | MACAddress preserved and programmed on the target SubnetPort. |  |  |
-
-
 #### DHCPConfigMode
 
 _Underlying type:_ _string_
@@ -311,9 +272,9 @@ _Appears in:_
 | `recordName` _string_ | RecordName specifies the DNS record name or, for PTR records, the host-octet label.<br />For A/AAAA/CNAME: the hostname portion of the FQDN (e.g., "api" for "api.coke.com").<br />For PTR: the host octet of the IP address (e.g., "10" for 10.0.0.10). |  | MaxLength: 255 <br />Required: \{\} <br /> |
 | `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA CNAME PTR NS TXT] <br />Required: \{\} <br /> |
 | `recordValues` _string array_ | RecordValues specifies the DNS record data values. |  | MinItems: 1 <br />Required: \{\} <br /> |
-| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  | Optional: \{\} <br /> |
-| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br />Optional: \{\} <br /> |
-| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  | Optional: \{\} <br /> |
+| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  |  |
+| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br /> |
+| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  |  |
 
 
 #### DNSRecordStatus
@@ -329,7 +290,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  |  |
 
 
 #### DNSRecordType
@@ -372,6 +333,44 @@ IPAddressAllocation is the Schema for the IP allocation API.
 | `status` _[IPAddressAllocationStatus](#ipaddressallocationstatus)_ |  |  |  |
 
 
+#### IPAddressAllocationMoveSpec
+
+
+
+IPAddressAllocationMoveSpec specifies the source and target for transferring an IPAddressAllocation across Namespaces.
+Ownership of the allocated IP addresses is transferred without releasing the addresses.
+Rollback uses the same operation in a new transition, reversing source and target references.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionSpec](#networkresourcetransitionspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `source` _[NamespacedName](#namespacedname)_ | Source specifies the existing IPAddressAllocation to transfer from. |  | Required: \{\} <br /> |
+| `target` _[NamespacedName](#namespacedname)_ | Target specifies the target IPAddressAllocation in the destination Namespace. |  | Required: \{\} <br /> |
+
+
+#### IPAddressAllocationMoveStatus
+
+
+
+IPAddressAllocationMoveStatus records the observed transition status for an IPAddressAllocation move.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `source` _[NamespacedName](#namespacedname)_ | Source mirrors the source IPAddressAllocation reference. |  |  |
+| `target` _[NamespacedName](#namespacedname)_ | Target mirrors the target IPAddressAllocation reference. |  |  |
+| `phase` _[TransitionPhase](#transitionphase)_ | Phase of this specific move operation. |  | Enum: [InProgress Succeeded Failed] <br /> |
+| `message` _string_ | Message describes details or error information. |  |  |
+
+
 #### IPAddressAllocationSpec
 
 
@@ -390,7 +389,7 @@ _Appears in:_
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified.<br />Supported starting with VCF 9.2.0. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
-| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  | Optional: \{\} <br /> |
+| `ipBlockName` _string_ | IPBlockName specifies name of the IPBlock to allocate IP addresses. |  |  |
 
 
 #### IPAddressAllocationStatus
@@ -512,76 +511,23 @@ _Appears in:_
 | `end` _string_ | The end IP Address of the IP Range. |  |  |
 
 
-#### MigrationPhase
-
-_Underlying type:_ _string_
-
-MigrationPhase defines the overall phase of network resource transition.
-
-_Validation:_
-- Enum: [Pending Migrating Succeeded Failed PartiallyFailed]
-
-_Appears in:_
-- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
-
-| Field | Description |
-| --- | --- |
-| `Pending` |  |
-| `Migrating` |  |
-| `Succeeded` |  |
-| `Failed` |  |
-| `PartiallyFailed` |  |
-
-
-#### MoveIPAddressAllocationSpec
+#### NamespacedName
 
 
 
-MoveIPAddressAllocationSpec specifies the source and target for transferring an IPAddressAllocation (LB VIP).
+NamespacedName identifies a Kubernetes resource by Namespace and name.
+This API type preserves lowercase JSON fields and admission validation.
 
 
 
 _Appears in:_
-- [NetworkResourceTransitionSpec](#networkresourcetransitionspec)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `source` _[NamespacedObjectReference](#namespacedobjectreference)_ | Source specifies the existing IPAddressAllocation in the staging namespace. |  | Required: \{\} <br /> |
-| `target` _[NamespacedObjectReference](#namespacedobjectreference)_ | Target specifies the target IPAddressAllocation in the destination namespace. |  | Required: \{\} <br /> |
-
-
-#### MoveIPAddressAllocationStatus
-
-
-
-MoveIPAddressAllocationStatus records the observed transition status for an IPAddressAllocation move.
-
-
-
-_Appears in:_
-- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
-
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `source` _[NamespacedObjectReference](#namespacedobjectreference)_ | Source mirrors the source IPAddressAllocation reference. |  |  |
-| `target` _[NamespacedObjectReference](#namespacedobjectreference)_ | Target mirrors the target IPAddressAllocation reference. |  |  |
-| `phase` _[ResourceMigrationPhase](#resourcemigrationphase)_ | Phase of this specific move operation. |  | Enum: [Pending Migrating Succeeded Failed] <br /> |
-| `message` _string_ | Message describes details or error information. |  |  |
-
-
-#### NamespacedObjectReference
-
-
-
-NamespacedObjectReference contains namespace and name to uniquely identify a namespaced Kubernetes resource.
-
-
-
-_Appears in:_
-- [CreateSubnetPortSpec](#createsubnetportspec)
-- [CreateSubnetPortStatus](#createsubnetportstatus)
-- [MoveIPAddressAllocationSpec](#moveipaddressallocationspec)
-- [MoveIPAddressAllocationStatus](#moveipaddressallocationstatus)
+- [IPAddressAllocationMoveSpec](#ipaddressallocationmovespec)
+- [IPAddressAllocationMoveStatus](#ipaddressallocationmovestatus)
+- [SubnetIPReservationRestoreSpec](#subnetipreservationrestorespec)
+- [SubnetPortCutoverSpec](#subnetportcutoverspec)
+- [SubnetPortCutoverStatus](#subnetportcutoverstatus)
+- [SubnetPortRevertSpec](#subnetportrevertspec)
+- [SubnetPortRevertStatus](#subnetportrevertstatus)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -663,7 +609,7 @@ NetworkResourceTransition is the Schema for the networkresourcetransitions API.
 | `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
 | `kind` _string_ | `NetworkResourceTransition` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `spec` _[NetworkResourceTransitionSpec](#networkresourcetransitionspec)_ |  |  |  |
+| `spec` _[NetworkResourceTransitionSpec](#networkresourcetransitionspec)_ |  |  | Required: \{\} <br /> |
 | `status` _[NetworkResourceTransitionStatus](#networkresourcetransitionstatus)_ |  |  |  |
 
 
@@ -671,7 +617,7 @@ NetworkResourceTransition is the Schema for the networkresourcetransitions API.
 
 
 
-NetworkResourceTransitionSpec defines the desired transition of network resources from staging to target namespaces.
+NetworkResourceTransitionSpec defines the desired transition of network resources across Namespaces.
 
 
 
@@ -680,8 +626,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `createSubnetPort` _[CreateSubnetPortSpec](#createsubnetportspec) array_ | CreateSubnetPort specifies workload cutover(s) from SubnetIPReservation(s) to SubnetPort(s). |  |  |
-| `moveIPAddressAllocation` _[MoveIPAddressAllocationSpec](#moveipaddressallocationspec) array_ | MoveIPAddressAllocation specifies Load Balancer VIP(s) to adopt into tenant namespaces. |  |  |
+| `subnetPortCutovers` _[SubnetPortCutoverSpec](#subnetportcutoverspec) array_ | SubnetPortCutovers specifies workload cutovers from one reservation to one SubnetPort each. |  | MaxItems: 100 <br /> |
+| `subnetPortReverts` _[SubnetPortRevertSpec](#subnetportrevertspec) array_ | SubnetPortReverts specifies rollback from each detached SubnetPort to one exact-IP reservation.<br />Use a new transition request; the original forward transition remains immutable. |  | MaxItems: 100 <br /> |
+| `ipAddressAllocationMoves` _[IPAddressAllocationMoveSpec](#ipaddressallocationmovespec) array_ | IPAddressAllocationMoves specifies IPAddressAllocation resources to transfer across Namespaces. |  | MaxItems: 100 <br /> |
 
 
 #### NetworkResourceTransitionStatus
@@ -698,12 +645,13 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `observedGeneration` _integer_ | ObservedGeneration represents the .metadata.generation that the condition/status was set based upon. |  |  |
-| `phase` _[MigrationPhase](#migrationphase)_ | Phase defines the overall migration phase. |  | Enum: [Pending Migrating Succeeded Failed PartiallyFailed] <br /> |
-| `totalResources` _integer_ | TotalResources is the total number of target resources to migrate. |  |  |
+| `phase` _[TransitionPhase](#transitionphase)_ | Phase defines the overall transition phase. |  | Enum: [InProgress Succeeded Failed] <br /> |
+| `totalResources` _integer_ | TotalResources counts operations across cutovers, reverts, and allocation moves.<br />Each cutover or revert transfers one reservation for one SubnetPort. |  |  |
 | `succeededResources` _integer_ | SucceededResources is the count of successfully transitioned resources. |  |  |
 | `failedResources` _integer_ | FailedResources is the count of failed resources. |  |  |
-| `createSubnetPort` _[CreateSubnetPortStatus](#createsubnetportstatus) array_ | CreateSubnetPort mirrors the status for each SubnetPort cutover. |  |  |
-| `moveIPAddressAllocation` _[MoveIPAddressAllocationStatus](#moveipaddressallocationstatus) array_ | MoveIPAddressAllocation mirrors the status for each IPAddressAllocation move. |  |  |
+| `subnetPortCutovers` _[SubnetPortCutoverStatus](#subnetportcutoverstatus) array_ | SubnetPortCutovers mirrors the status for each SubnetPort cutover. |  |  |
+| `subnetPortReverts` _[SubnetPortRevertStatus](#subnetportrevertstatus) array_ | SubnetPortReverts mirrors the rollback status for each source SubnetPort. |  | MaxItems: 100 <br /> |
+| `ipAddressAllocationMoves` _[IPAddressAllocationMoveStatus](#ipaddressallocationmovestatus) array_ | IPAddressAllocationMoves mirrors the status for each IPAddressAllocation move. |  |  |
 | `conditions` _[Condition](#condition) array_ | Conditions track overall transition conditions. |  |  |
 
 
@@ -771,27 +719,6 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `id` _string_ | ID of the SubnetPort VIF attachment. |  |  |
-
-
-#### ResourceMigrationPhase
-
-_Underlying type:_ _string_
-
-ResourceMigrationPhase defines the phase of an individual resource transition.
-
-_Validation:_
-- Enum: [Pending Migrating Succeeded Failed]
-
-_Appears in:_
-- [CreateSubnetPortStatus](#createsubnetportstatus)
-- [MoveIPAddressAllocationStatus](#moveipaddressallocationstatus)
-
-| Field | Description |
-| --- | --- |
-| `Pending` |  |
-| `Migrating` |  |
-| `Succeeded` |  |
-| `Failed` |  |
 
 
 #### RuleAction
@@ -1310,6 +1237,26 @@ SubnetIPReservation is the Schema for the subnetipreservations API
 | `status` _[SubnetIPReservationStatus](#subnetipreservationstatus)_ |  |  |  |
 
 
+#### SubnetIPReservationRestoreSpec
+
+
+
+SubnetIPReservationRestoreSpec identifies a reservation to restore with exact addresses.
+The controller creates or adopts this Kubernetes object under transition protection,
+without requesting an independent allocation while the source SubnetPort owns the IPs.
+
+
+
+_Appears in:_
+- [SubnetPortRevertSpec](#subnetportrevertspec)
+- [SubnetPortRevertStatus](#subnetportrevertstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `reservation` _[NamespacedName](#namespacedname)_ | Reservation identifies the destination SubnetIPReservation by Namespace and name.<br />A recreated object receives a new UID. The destination Subnet name is derived<br />from the source SubnetPort and resolved in Reservation.Namespace, where a<br />same-named Subnet must resolve to the same backing subnet. |  | Required: \{\} <br /> |
+| `reservedIPs` _string array_ | ReservedIPs contains the exact interface addresses to restore: at most one IPv4<br />and one IPv6 address. Ranges, CIDRs, and requests for new addresses are not supported. |  | MaxItems: 2 <br />MinItems: 1 <br />Required: \{\} <br /> |
+
+
 #### SubnetIPReservationSpec
 
 
@@ -1381,6 +1328,87 @@ SubnetPort is the Schema for the subnetports API.
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[SubnetPortSpec](#subnetportspec)_ |  |  |  |
 | `status` _[SubnetPortStatus](#subnetportstatus)_ |  |  |  |
+
+
+#### SubnetPortCutoverSpec
+
+
+
+SubnetPortCutoverSpec transfers one source SubnetIPReservation to a target SubnetPort.
+The reservation holds the workload interface's IPv4 address and, when configured,
+its IPv6 address. The target claims these addresses without releasing them, and
+the source SubnetIPReservation is deleted after successful cutover.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionSpec](#networkresourcetransitionspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnetIPReservation` _[NamespacedName](#namespacedname)_ | SubnetIPReservation identifies the source reservation containing the interface addresses. |  | Required: \{\} <br /> |
+| `subnetPort` _[NamespacedName](#namespacedname)_ | SubnetPort identifies the target SubnetPort to create with the claimed addresses. |  | Required: \{\} <br /> |
+
+
+#### SubnetPortCutoverStatus
+
+
+
+SubnetPortCutoverStatus records the observed transition status for a SubnetPort cutover.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnetPort` _[NamespacedName](#namespacedname)_ | SubnetPort mirrors the target SubnetPort reference. |  |  |
+| `subnetIPReservation` _[NamespacedName](#namespacedname)_ | SubnetIPReservation mirrors the source reservation's Namespace and name. |  |  |
+| `phase` _[TransitionPhase](#transitionphase)_ | Phase of this specific cutover operation. |  | Enum: [InProgress Succeeded Failed] <br /> |
+| `message` _string_ | Message describes details or error information. |  |  |
+| `attachmentID` _string_ | AttachmentID of the realized SubnetPort. |  |  |
+| `ipAddresses` _string array_ | IPAddresses realized on the target SubnetPort. |  |  |
+| `macAddress` _string_ | MACAddress preserved and programmed on the target SubnetPort. |  |  |
+
+
+#### SubnetPortRevertSpec
+
+
+
+SubnetPortRevertSpec transfers a detached SubnetPort's addresses back to one reservation.
+The source SubnetPort must be detached from all network interfaces before transfer.
+The destination reservation must restore exactly the source port's current addresses
+on the same backing subnet. Transfer must be atomic and must not release addresses.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionSpec](#networkresourcetransitionspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnetPort` _[NamespacedName](#namespacedname)_ | SubnetPort identifies the detached source SubnetPort. |  | Required: \{\} <br /> |
+| `subnetIPReservation` _[SubnetIPReservationRestoreSpec](#subnetipreservationrestorespec)_ | SubnetIPReservation specifies the destination reservation and exact addresses to restore. |  | Required: \{\} <br /> |
+
+
+#### SubnetPortRevertStatus
+
+
+
+SubnetPortRevertStatus reports allocation-preserving restoration of one source port.
+
+
+
+_Appears in:_
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `subnetPort` _[NamespacedName](#namespacedname)_ | SubnetPort records the source port, retained after verified consumption. |  |  |
+| `subnetIPReservation` _[SubnetIPReservationRestoreSpec](#subnetipreservationrestorespec)_ | SubnetIPReservation mirrors the requested destination and exact addresses.<br />Success means the reservation is realized and port cleanup cannot release its addresses. |  |  |
+| `phase` _[TransitionPhase](#transitionphase)_ | Phase and Message report this operation's outcome, not whole-Namespace rollback. |  | Enum: [InProgress Succeeded Failed] <br /> |
+| `message` _string_ |  |  |  |
 
 
 #### SubnetPortSetting
@@ -1554,8 +1582,8 @@ _Appears in:_
 | `subnetDHCPv6Config` _[SubnetDHCPv6Config](#subnetdhcpv6config)_ | DHCPv6 configuration for Subnet.<br />Supported starting with VCF 9.2.0. |  |  |
 | `advancedConfig` _[SubnetAdvancedConfig](#subnetadvancedconfig)_ | VPC Subnet advanced configuration. |  |  |
 | `vlanConnectionName` _string_ | Distributed VLAN Connection name. |  |  |
-| `description` _string_ | Description of the Subnet. |  | MaxLength: 1024 <br />Optional: \{\} <br /> |
-| `ipBlockNames` _string array_ | IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).<br />The IPBlock should belong to one of the following sources:<br />1) The VPC's private IPBlock<br />2) The VPCConnectivityProfile's external IPBlock<br />3) The VPCConnectivityProfile's private-TGW IPBlock<br />4) The VPCConnectivityProfile's IPv6 IPBlock |  | MaxItems: 2 <br />MinItems: 0 <br />Optional: \{\} <br /> |
+| `description` _string_ | Description of the Subnet. |  | MaxLength: 1024 <br /> |
+| `ipBlockNames` _string array_ | IPBlockNames specifies the IPBlocks used for Subnet IP allocation. Maximum 2 IP blocks allowed (1 IPv4 + 1 IPv6).<br />The IPBlock should belong to one of the following sources:<br />1) The VPC's private IPBlock<br />2) The VPCConnectivityProfile's external IPBlock<br />3) The VPCConnectivityProfile's private-TGW IPBlock<br />4) The VPCConnectivityProfile's IPv6 IPBlock |  | MaxItems: 2 <br />MinItems: 0 <br /> |
 
 
 #### SubnetStatus
@@ -1577,6 +1605,27 @@ _Appears in:_
 | `vlanExtension` _[VLANExtension](#vlanextension)_ | VLAN extension configured for VPC Subnet. |  |  |
 | `shared` _boolean_ | Whether this is a pre-created Subnet shared with the Namespace. | false |  |
 | `conditions` _[Condition](#condition) array_ |  |  |  |
+
+
+#### TransitionPhase
+
+_Underlying type:_ _string_
+
+TransitionPhase defines the phase of network resource transition.
+
+_Validation:_
+- Enum: [InProgress Succeeded Failed]
+
+_Appears in:_
+- [IPAddressAllocationMoveStatus](#ipaddressallocationmovestatus)
+- [NetworkResourceTransitionStatus](#networkresourcetransitionstatus)
+- [SubnetPortCutoverStatus](#subnetportcutoverstatus)
+
+| Field | Description |
+| --- | --- |
+| `InProgress` |  |
+| `Succeeded` |  |
+| `Failed` |  |
 
 
 #### VLANExtension
@@ -1711,7 +1760,7 @@ _Appears in:_
 | `defaultSubnetSize` _integer_ | Default size of IPv4 Subnets. |  | Maximum: 65536 <br /> |
 | `dnsZones` _string array_ | DNSZones specifies the list of permitted DNS zones, identified by their NSX paths. |  |  |
 | `defaultIPv6PrefixLength` _integer_ | Default prefix length of IPv6 Subnets.<br />Supported starting with VCF 9.2.0. |  | Maximum: 127 <br />Minimum: 2 <br /> |
-| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  | Optional: \{\} <br /> |
+| `loadBalancerVPC` _string_ | NSX Policy path of the Load Balancer VPC. If set, load balancer resources (such as virtual servers and LB pools) of the Namespace will be created on this VPC's load balancer, instead of the Namespace's primary VPC. |  |  |
 
 
 #### VPCNetworkConfigurationStatus

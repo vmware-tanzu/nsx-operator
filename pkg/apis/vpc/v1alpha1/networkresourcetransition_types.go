@@ -7,31 +7,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// MigrationPhase defines the overall phase of network resource transition.
-// +kubebuilder:validation:Enum=Pending;Migrating;Succeeded;Failed;PartiallyFailed
-type MigrationPhase string
+// TransitionPhase defines the phase of a network resource transition.
+// +kubebuilder:validation:Enum=InProgress;Succeeded;Failed
+type TransitionPhase string
 
 const (
-	MigrationPhasePending         MigrationPhase = "Pending"
-	MigrationPhaseMigrating       MigrationPhase = "Migrating"
-	MigrationPhaseSucceeded       MigrationPhase = "Succeeded"
-	MigrationPhaseFailed          MigrationPhase = "Failed"
-	MigrationPhasePartiallyFailed MigrationPhase = "PartiallyFailed"
+	TransitionPhaseInProgress TransitionPhase = "InProgress"
+	TransitionPhaseSucceeded  TransitionPhase = "Succeeded"
+	TransitionPhaseFailed     TransitionPhase = "Failed"
 )
 
-// ResourceMigrationPhase defines the phase of an individual resource transition.
-// +kubebuilder:validation:Enum=Pending;Migrating;Succeeded;Failed
-type ResourceMigrationPhase string
-
-const (
-	ResourceMigrationPhasePending   ResourceMigrationPhase = "Pending"
-	ResourceMigrationPhaseMigrating ResourceMigrationPhase = "Migrating"
-	ResourceMigrationPhaseSucceeded ResourceMigrationPhase = "Succeeded"
-	ResourceMigrationPhaseFailed    ResourceMigrationPhase = "Failed"
-)
-
-// NamespacedObjectReference contains namespace and name to uniquely identify a namespaced Kubernetes resource.
-type NamespacedObjectReference struct {
+// NamespacedName identifies a Kubernetes resource by Namespace and name.
+// This API type preserves lowercase JSON fields and admission validation.
+type NamespacedName struct {
 	// Namespace of the referent.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=63
@@ -45,65 +33,115 @@ type NamespacedObjectReference struct {
 	Name string `json:"name"`
 }
 
-// CreateSubnetPortSpec specifies the source SubnetIPReservation(s) and target SubnetPort to realize.
-type CreateSubnetPortSpec struct {
-	// SubnetIPReservations specifies the list of source SubnetIPReservations in the staging namespace to cut over.
-	// Supports dual-stack (IPv4 and IPv6) reservations mapped to a single SubnetPort.
+// SubnetPortCutoverSpec transfers one source SubnetIPReservation to a target SubnetPort.
+// The reservation holds the workload interface's IPv4 address and, when configured,
+// its IPv6 address. The target claims these addresses without releasing them, and
+// the source SubnetIPReservation is deleted after successful cutover.
+type SubnetPortCutoverSpec struct {
+	// SubnetIPReservation identifies the source reservation containing the interface addresses.
+	// +kubebuilder:validation:Required
+	SubnetIPReservation NamespacedName `json:"subnetIPReservation"`
+
+	// SubnetPort identifies the target SubnetPort to create with the claimed addresses.
+	// +kubebuilder:validation:Required
+	SubnetPort NamespacedName `json:"subnetPort"`
+}
+
+// SubnetIPReservationRestoreSpec identifies a reservation to restore with exact addresses.
+// The controller creates or adopts this Kubernetes object under transition protection,
+// without requesting an independent allocation while the source SubnetPort owns the IPs.
+type SubnetIPReservationRestoreSpec struct {
+	// Reservation identifies the destination SubnetIPReservation by Namespace and name.
+	// A recreated object receives a new UID. The destination Subnet name is derived
+	// from the source SubnetPort and resolved in Reservation.Namespace, where a
+	// same-named Subnet must resolve to the same backing subnet.
+	// +kubebuilder:validation:Required
+	Reservation NamespacedName `json:"reservation"`
+
+	// ReservedIPs contains the exact interface addresses to restore: at most one IPv4
+	// and one IPv6 address. Ranges, CIDRs, and requests for new addresses are not supported.
+	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
-	// +listType=atomic
-	SubnetIPReservations []NamespacedObjectReference `json:"subnetIPReservations"`
-
-	// SubnetPort specifies the target SubnetPort to create in the destination workload namespace.
-	// +kubebuilder:validation:Required
-	SubnetPort NamespacedObjectReference `json:"subnetPort"`
+	// +kubebuilder:validation:MaxItems=2
+	// +kubebuilder:validation:items:MaxLength=45
+	// +kubebuilder:validation:XValidation:rule="self.all(address, isIP(address)) && (size(self) < 2 || ip(self[0]).family() != ip(self[1]).family())",message="reservedIPs must contain at most one individual IPv4 and one individual IPv6 address"
+	// +listType=set
+	ReservedIPs []string `json:"reservedIPs"`
 }
 
-// MoveIPAddressAllocationSpec specifies the source and target for transferring an IPAddressAllocation (LB VIP).
-type MoveIPAddressAllocationSpec struct {
-	// Source specifies the existing IPAddressAllocation in the staging namespace.
+// SubnetPortRevertSpec transfers a detached SubnetPort's addresses back to one reservation.
+// The source SubnetPort must be detached from all network interfaces before transfer.
+// The destination reservation must restore exactly the source port's current addresses
+// on the same backing subnet. Transfer must be atomic and must not release addresses.
+type SubnetPortRevertSpec struct {
+	// SubnetPort identifies the detached source SubnetPort.
 	// +kubebuilder:validation:Required
-	Source NamespacedObjectReference `json:"source"`
+	SubnetPort NamespacedName `json:"subnetPort"`
 
-	// Target specifies the target IPAddressAllocation in the destination namespace.
+	// SubnetIPReservation specifies the destination reservation and exact addresses to restore.
 	// +kubebuilder:validation:Required
-	Target NamespacedObjectReference `json:"target"`
+	SubnetIPReservation SubnetIPReservationRestoreSpec `json:"subnetIPReservation"`
 }
 
-// +kubebuilder:validation:XValidation:rule="has(self.createSubnetPort) || has(self.moveIPAddressAllocation)",message="at least one of createSubnetPort or moveIPAddressAllocation must be specified"
-// +kubebuilder:validation:XValidation:rule="!has(self.createSubnetPort) || self.createSubnetPort.all(x, self.createSubnetPort.filter(y, y.subnetPort.namespace == x.subnetPort.namespace && y.subnetPort.name == x.subnetPort.name).size() == 1)",message="target subnetPort must be unique across all createSubnetPort items"
-// +kubebuilder:validation:XValidation:rule="!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x, self.moveIPAddressAllocation.filter(y, y.target.namespace == x.target.namespace && y.target.name == x.target.name).size() == 1)",message="target IPAddressAllocation must be unique across all moveIPAddressAllocation items"
-// +kubebuilder:validation:XValidation:rule="!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x, self.moveIPAddressAllocation.filter(y, y.source.namespace == x.source.namespace && y.source.name == x.source.name).size() == 1)",message="source IPAddressAllocation must be unique across all moveIPAddressAllocation items"
-// NetworkResourceTransitionSpec defines the desired transition of network resources from staging to target namespaces.
+// IPAddressAllocationMoveSpec specifies the source and target for transferring an IPAddressAllocation across Namespaces.
+// Ownership of the allocated IP addresses is transferred without releasing the addresses.
+// Rollback uses the same operation in a new transition, reversing source and target references.
+type IPAddressAllocationMoveSpec struct {
+	// Source specifies the existing IPAddressAllocation to transfer from.
+	// +kubebuilder:validation:Required
+	Source NamespacedName `json:"source"`
+
+	// Target specifies the target IPAddressAllocation in the destination Namespace.
+	// +kubebuilder:validation:Required
+	Target NamespacedName `json:"target"`
+}
+
+// +kubebuilder:validation:XValidation:rule="(has(self.subnetPortCutovers) && size(self.subnetPortCutovers) > 0) || (has(self.ipAddressAllocationMoves) && size(self.ipAddressAllocationMoves) > 0) || (has(self.subnetPortReverts) && size(self.subnetPortReverts) > 0)",message="at least one transition operation list must be nonempty"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetPortCutovers) || self.subnetPortCutovers.all(x, self.subnetPortCutovers.exists_one(y, y.subnetPort == x.subnetPort))",message="target subnetPort must be unique across all subnetPortCutovers items"
+// +kubebuilder:validation:XValidation:rule="!has(self.ipAddressAllocationMoves) || self.ipAddressAllocationMoves.all(x, self.ipAddressAllocationMoves.exists_one(y, y.target == x.target))",message="target IPAddressAllocation must be unique across all ipAddressAllocationMoves items"
+// +kubebuilder:validation:XValidation:rule="!has(self.ipAddressAllocationMoves) || self.ipAddressAllocationMoves.all(x, self.ipAddressAllocationMoves.exists_one(y, y.source == x.source))",message="source IPAddressAllocation must be unique across all ipAddressAllocationMoves items"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetPortReverts) || self.subnetPortReverts.all(x, self.subnetPortReverts.exists_one(y, y.subnetPort == x.subnetPort))",message="source subnetPorts must be unique across reverts"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetPortReverts) || size(self.subnetPortReverts) == 0 || !has(self.subnetPortCutovers) || size(self.subnetPortCutovers) == 0",message="forward cutovers and reverse cutovers require separate transitions"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetPortCutovers) || self.subnetPortCutovers.all(x, self.subnetPortCutovers.exists_one(y, y.subnetIPReservation == x.subnetIPReservation))",message="source reservations must be unique across cutovers"
+// +kubebuilder:validation:XValidation:rule="!has(self.subnetPortReverts) || self.subnetPortReverts.all(x, self.subnetPortReverts.exists_one(y, y.subnetIPReservation.reservation == x.subnetIPReservation.reservation))",message="destination reservations must be unique across reverts"
+// NetworkResourceTransitionSpec defines the desired transition of network resources across Namespaces.
 type NetworkResourceTransitionSpec struct {
-	// CreateSubnetPort specifies workload cutover(s) from SubnetIPReservation(s) to SubnetPort(s).
+	// SubnetPortCutovers specifies workload cutovers from one reservation to one SubnetPort each.
+	// +kubebuilder:validation:MaxItems=100
 	// +listType=atomic
 	// +optional
-	CreateSubnetPort []CreateSubnetPortSpec `json:"createSubnetPort,omitempty"`
+	SubnetPortCutovers []SubnetPortCutoverSpec `json:"subnetPortCutovers,omitempty"`
 
-	// MoveIPAddressAllocation specifies Load Balancer VIP(s) to adopt into tenant namespaces.
+	// SubnetPortReverts specifies rollback from each detached SubnetPort to one exact-IP reservation.
+	// Use a new transition request; the original forward transition remains immutable.
+	// +kubebuilder:validation:MaxItems=100
 	// +listType=atomic
 	// +optional
-	MoveIPAddressAllocation []MoveIPAddressAllocationSpec `json:"moveIPAddressAllocation,omitempty"`
+	SubnetPortReverts []SubnetPortRevertSpec `json:"subnetPortReverts,omitempty"`
+
+	// IPAddressAllocationMoves specifies IPAddressAllocation resources to transfer across Namespaces.
+	// +kubebuilder:validation:MaxItems=100
+	// +listType=atomic
+	// +optional
+	IPAddressAllocationMoves []IPAddressAllocationMoveSpec `json:"ipAddressAllocationMoves,omitempty"`
 }
 
-// CreateSubnetPortStatus records the observed transition status for a SubnetPort cutover.
-type CreateSubnetPortStatus struct {
+// SubnetPortCutoverStatus records the observed transition status for a SubnetPort cutover.
+type SubnetPortCutoverStatus struct {
 	// SubnetPort mirrors the target SubnetPort reference.
-	SubnetPort NamespacedObjectReference `json:"subnetPort"`
+	SubnetPort NamespacedName `json:"subnetPort"`
 
-	// SubnetIPReservations mirrors the source SubnetIPReservation references.
-	// +listType=atomic
-	// +optional
-	SubnetIPReservations []NamespacedObjectReference `json:"subnetIPReservations,omitempty"`
+	// SubnetIPReservation mirrors the source reservation's Namespace and name.
+	SubnetIPReservation NamespacedName `json:"subnetIPReservation"`
 
 	// Phase of this specific cutover operation.
-	Phase ResourceMigrationPhase `json:"phase"`
+	Phase TransitionPhase `json:"phase"`
 
 	// Message describes details or error information.
 	// +optional
 	Message string `json:"message,omitempty"`
 
-	// AttachmentID of the realized SubnetPort on NSX.
+	// AttachmentID of the realized SubnetPort.
 	// +optional
 	AttachmentID string `json:"attachmentID,omitempty"`
 
@@ -117,16 +155,32 @@ type CreateSubnetPortStatus struct {
 	MACAddress string `json:"macAddress,omitempty"`
 }
 
-// MoveIPAddressAllocationStatus records the observed transition status for an IPAddressAllocation move.
-type MoveIPAddressAllocationStatus struct {
+// SubnetPortRevertStatus reports allocation-preserving restoration of one source port.
+type SubnetPortRevertStatus struct {
+	// SubnetPort records the source port, retained after verified consumption.
+	SubnetPort NamespacedName `json:"subnetPort"`
+
+	// SubnetIPReservation mirrors the requested destination and exact addresses.
+	// Success means the reservation is realized and port cleanup cannot release its addresses.
+	// +optional
+	SubnetIPReservation *SubnetIPReservationRestoreSpec `json:"subnetIPReservation,omitempty"`
+
+	// Phase and Message report this operation's outcome, not whole-Namespace rollback.
+	Phase TransitionPhase `json:"phase"`
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
+// IPAddressAllocationMoveStatus records the observed transition status for an IPAddressAllocation move.
+type IPAddressAllocationMoveStatus struct {
 	// Source mirrors the source IPAddressAllocation reference.
-	Source NamespacedObjectReference `json:"source"`
+	Source NamespacedName `json:"source"`
 
 	// Target mirrors the target IPAddressAllocation reference.
-	Target NamespacedObjectReference `json:"target"`
+	Target NamespacedName `json:"target"`
 
 	// Phase of this specific move operation.
-	Phase ResourceMigrationPhase `json:"phase"`
+	Phase TransitionPhase `json:"phase"`
 
 	// Message describes details or error information.
 	// +optional
@@ -139,11 +193,12 @@ type NetworkResourceTransitionStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Phase defines the overall migration phase.
+	// Phase defines the overall transition phase.
 	// +optional
-	Phase MigrationPhase `json:"phase,omitempty"`
+	Phase TransitionPhase `json:"phase,omitempty"`
 
-	// TotalResources is the total number of target resources to migrate.
+	// TotalResources counts operations across cutovers, reverts, and allocation moves.
+	// Each cutover or revert transfers one reservation for one SubnetPort.
 	// +optional
 	TotalResources int `json:"totalResources,omitempty"`
 
@@ -155,15 +210,21 @@ type NetworkResourceTransitionStatus struct {
 	// +optional
 	FailedResources int `json:"failedResources,omitempty"`
 
-	// CreateSubnetPort mirrors the status for each SubnetPort cutover.
+	// SubnetPortCutovers mirrors the status for each SubnetPort cutover.
 	// +listType=atomic
 	// +optional
-	CreateSubnetPort []CreateSubnetPortStatus `json:"createSubnetPort,omitempty"`
+	SubnetPortCutovers []SubnetPortCutoverStatus `json:"subnetPortCutovers,omitempty"`
 
-	// MoveIPAddressAllocation mirrors the status for each IPAddressAllocation move.
+	// SubnetPortReverts mirrors the rollback status for each source SubnetPort.
+	// +kubebuilder:validation:MaxItems=100
 	// +listType=atomic
 	// +optional
-	MoveIPAddressAllocation []MoveIPAddressAllocationStatus `json:"moveIPAddressAllocation,omitempty"`
+	SubnetPortReverts []SubnetPortRevertStatus `json:"subnetPortReverts,omitempty"`
+
+	// IPAddressAllocationMoves mirrors the status for each IPAddressAllocation move.
+	// +listType=atomic
+	// +optional
+	IPAddressAllocationMoves []IPAddressAllocationMoveStatus `json:"ipAddressAllocationMoves,omitempty"`
 
 	// Conditions track overall transition conditions.
 	// +listType=map
@@ -180,16 +241,17 @@ type NetworkResourceTransitionStatus struct {
 
 // NetworkResourceTransition is the Schema for the networkresourcetransitions API.
 // +kubebuilder:resource:scope="Cluster",shortName=nrt;nrts
-// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`,description="Migration phase of NetworkResourceTransition"
-// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.totalResources`,description="Total resources to migrate"
-// +kubebuilder:printcolumn:name="Succeeded",type=integer,JSONPath=`.status.succeededResources`,description="Number of successfully migrated resources"
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`,description="Transition phase of NetworkResourceTransition"
+// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.totalResources`,description="Total resources to transition"
+// +kubebuilder:printcolumn:name="Succeeded",type=integer,JSONPath=`.status.succeededResources`,description="Number of successfully transitioned resources"
 // +kubebuilder:printcolumn:name="Failed",type=integer,JSONPath=`.status.failedResources`,description="Number of failed resources"
 // +kubebuilder:validation:XValidation:rule="self.spec == oldSelf.spec",message="spec is immutable"
 type NetworkResourceTransition struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   NetworkResourceTransitionSpec   `json:"spec,omitempty"`
+	// +kubebuilder:validation:Required
+	Spec   NetworkResourceTransitionSpec   `json:"spec"`
 	Status NetworkResourceTransitionStatus `json:"status,omitempty"`
 }
 

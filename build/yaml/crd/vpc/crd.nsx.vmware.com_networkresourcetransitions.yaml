@@ -18,15 +18,15 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
-    - description: Migration phase of NetworkResourceTransition
+    - description: Transition phase of NetworkResourceTransition
       jsonPath: .status.phase
       name: Phase
       type: string
-    - description: Total resources to migrate
+    - description: Total resources to transition
       jsonPath: .status.totalResources
       name: Total
       type: integer
-    - description: Number of successfully migrated resources
+    - description: Number of successfully transitioned resources
       jsonPath: .status.succeededResources
       name: Succeeded
       type: integer
@@ -59,74 +59,20 @@ spec:
             type: object
           spec:
             description: NetworkResourceTransitionSpec defines the desired transition
-              of network resources from staging to target namespaces.
+              of network resources across Namespaces.
             properties:
-              createSubnetPort:
-                description: CreateSubnetPort specifies workload cutover(s) from SubnetIPReservation(s)
-                  to SubnetPort(s).
+              ipAddressAllocationMoves:
+                description: IPAddressAllocationMoves specifies IPAddressAllocation
+                  resources to transfer across Namespaces.
                 items:
-                  description: CreateSubnetPortSpec specifies the source SubnetIPReservation(s)
-                    and target SubnetPort to realize.
-                  properties:
-                    subnetIPReservations:
-                      description: |-
-                        SubnetIPReservations specifies the list of source SubnetIPReservations in the staging namespace to cut over.
-                        Supports dual-stack (IPv4 and IPv6) reservations mapped to a single SubnetPort.
-                      items:
-                        description: NamespacedObjectReference contains namespace
-                          and name to uniquely identify a namespaced Kubernetes resource.
-                        properties:
-                          name:
-                            description: Name of the referent.
-                            maxLength: 253
-                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                            type: string
-                          namespace:
-                            description: Namespace of the referent.
-                            maxLength: 63
-                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                            type: string
-                        required:
-                        - name
-                        - namespace
-                        type: object
-                      minItems: 1
-                      type: array
-                      x-kubernetes-list-type: atomic
-                    subnetPort:
-                      description: SubnetPort specifies the target SubnetPort to create
-                        in the destination workload namespace.
-                      properties:
-                        name:
-                          description: Name of the referent.
-                          maxLength: 253
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                          type: string
-                        namespace:
-                          description: Namespace of the referent.
-                          maxLength: 63
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                          type: string
-                      required:
-                      - name
-                      - namespace
-                      type: object
-                  required:
-                  - subnetIPReservations
-                  - subnetPort
-                  type: object
-                type: array
-                x-kubernetes-list-type: atomic
-              moveIPAddressAllocation:
-                description: MoveIPAddressAllocation specifies Load Balancer VIP(s)
-                  to adopt into tenant namespaces.
-                items:
-                  description: MoveIPAddressAllocationSpec specifies the source and
-                    target for transferring an IPAddressAllocation (LB VIP).
+                  description: |-
+                    IPAddressAllocationMoveSpec specifies the source and target for transferring an IPAddressAllocation across Namespaces.
+                    Ownership of the allocated IP addresses is transferred without releasing the addresses.
+                    Rollback uses the same operation in a new transition, reversing source and target references.
                   properties:
                     source:
                       description: Source specifies the existing IPAddressAllocation
-                        in the staging namespace.
+                        to transfer from.
                       properties:
                         name:
                           description: Name of the referent.
@@ -144,7 +90,7 @@ spec:
                       type: object
                     target:
                       description: Target specifies the target IPAddressAllocation
-                        in the destination namespace.
+                        in the destination Namespace.
                       properties:
                         name:
                           description: Name of the referent.
@@ -164,28 +110,175 @@ spec:
                   - source
                   - target
                   type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-type: atomic
+              subnetPortCutovers:
+                description: SubnetPortCutovers specifies workload cutovers from one
+                  reservation to one SubnetPort each.
+                items:
+                  description: |-
+                    SubnetPortCutoverSpec transfers one source SubnetIPReservation to a target SubnetPort.
+                    The reservation holds the workload interface's IPv4 address and, when configured,
+                    its IPv6 address. The target claims these addresses without releasing them, and
+                    the source SubnetIPReservation is deleted after successful cutover.
+                  properties:
+                    subnetIPReservation:
+                      description: SubnetIPReservation identifies the source reservation
+                        containing the interface addresses.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                    subnetPort:
+                      description: SubnetPort identifies the target SubnetPort to
+                        create with the claimed addresses.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - subnetIPReservation
+                  - subnetPort
+                  type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-type: atomic
+              subnetPortReverts:
+                description: |-
+                  SubnetPortReverts specifies rollback from each detached SubnetPort to one exact-IP reservation.
+                  Use a new transition request; the original forward transition remains immutable.
+                items:
+                  description: |-
+                    SubnetPortRevertSpec transfers a detached SubnetPort's addresses back to one reservation.
+                    The source SubnetPort must be detached from all network interfaces before transfer.
+                    The destination reservation must restore exactly the source port's current addresses
+                    on the same backing subnet. Transfer must be atomic and must not release addresses.
+                  properties:
+                    subnetIPReservation:
+                      description: SubnetIPReservation specifies the destination reservation
+                        and exact addresses to restore.
+                      properties:
+                        reservation:
+                          description: |-
+                            Reservation identifies the destination SubnetIPReservation by Namespace and name.
+                            A recreated object receives a new UID. The destination Subnet name is derived
+                            from the source SubnetPort and resolved in Reservation.Namespace, where a
+                            same-named Subnet must resolve to the same backing subnet.
+                          properties:
+                            name:
+                              description: Name of the referent.
+                              maxLength: 253
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                            namespace:
+                              description: Namespace of the referent.
+                              maxLength: 63
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                              type: string
+                          required:
+                          - name
+                          - namespace
+                          type: object
+                        reservedIPs:
+                          description: |-
+                            ReservedIPs contains the exact interface addresses to restore: at most one IPv4
+                            and one IPv6 address. Ranges, CIDRs, and requests for new addresses are not supported.
+                          items:
+                            maxLength: 45
+                            type: string
+                          maxItems: 2
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: set
+                          x-kubernetes-validations:
+                          - message: reservedIPs must contain at most one individual
+                              IPv4 and one individual IPv6 address
+                            rule: self.all(address, isIP(address)) && (size(self)
+                              < 2 || ip(self[0]).family() != ip(self[1]).family())
+                      required:
+                      - reservation
+                      - reservedIPs
+                      type: object
+                    subnetPort:
+                      description: SubnetPort identifies the detached source SubnetPort.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - subnetIPReservation
+                  - subnetPort
+                  type: object
+                maxItems: 100
                 type: array
                 x-kubernetes-list-type: atomic
             type: object
             x-kubernetes-validations:
-            - message: at least one of createSubnetPort or moveIPAddressAllocation
-                must be specified
-              rule: has(self.createSubnetPort) || has(self.moveIPAddressAllocation)
-            - message: target subnetPort must be unique across all createSubnetPort
+            - message: at least one transition operation list must be nonempty
+              rule: (has(self.subnetPortCutovers) && size(self.subnetPortCutovers)
+                > 0) || (has(self.ipAddressAllocationMoves) && size(self.ipAddressAllocationMoves)
+                > 0) || (has(self.subnetPortReverts) && size(self.subnetPortReverts)
+                > 0)
+            - message: target subnetPort must be unique across all subnetPortCutovers
                 items
-              rule: '!has(self.createSubnetPort) || self.createSubnetPort.all(x, self.createSubnetPort.filter(y,
-                y.subnetPort.namespace == x.subnetPort.namespace && y.subnetPort.name
-                == x.subnetPort.name).size() == 1)'
-            - message: target IPAddressAllocation must be unique across all moveIPAddressAllocation
+              rule: '!has(self.subnetPortCutovers) || self.subnetPortCutovers.all(x,
+                self.subnetPortCutovers.exists_one(y, y.subnetPort == x.subnetPort))'
+            - message: target IPAddressAllocation must be unique across all ipAddressAllocationMoves
                 items
-              rule: '!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x,
-                self.moveIPAddressAllocation.filter(y, y.target.namespace == x.target.namespace
-                && y.target.name == x.target.name).size() == 1)'
-            - message: source IPAddressAllocation must be unique across all moveIPAddressAllocation
+              rule: '!has(self.ipAddressAllocationMoves) || self.ipAddressAllocationMoves.all(x,
+                self.ipAddressAllocationMoves.exists_one(y, y.target == x.target))'
+            - message: source IPAddressAllocation must be unique across all ipAddressAllocationMoves
                 items
-              rule: '!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x,
-                self.moveIPAddressAllocation.filter(y, y.source.namespace == x.source.namespace
-                && y.source.name == x.source.name).size() == 1)'
+              rule: '!has(self.ipAddressAllocationMoves) || self.ipAddressAllocationMoves.all(x,
+                self.ipAddressAllocationMoves.exists_one(y, y.source == x.source))'
+            - message: source subnetPorts must be unique across reverts
+              rule: '!has(self.subnetPortReverts) || self.subnetPortReverts.all(x,
+                self.subnetPortReverts.exists_one(y, y.subnetPort == x.subnetPort))'
+            - message: forward cutovers and reverse cutovers require separate transitions
+              rule: '!has(self.subnetPortReverts) || size(self.subnetPortReverts)
+                == 0 || !has(self.subnetPortCutovers) || size(self.subnetPortCutovers)
+                == 0'
+            - message: source reservations must be unique across cutovers
+              rule: '!has(self.subnetPortCutovers) || self.subnetPortCutovers.all(x,
+                self.subnetPortCutovers.exists_one(y, y.subnetIPReservation == x.subnetIPReservation))'
+            - message: destination reservations must be unique across reverts
+              rule: '!has(self.subnetPortReverts) || self.subnetPortReverts.all(x,
+                self.subnetPortReverts.exists_one(y, y.subnetIPReservation.reservation
+                == x.subnetIPReservation.reservation))'
           status:
             description: NetworkResourceTransitionStatus defines the observed state
               of NetworkResourceTransition.
@@ -222,91 +315,14 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              createSubnetPort:
-                description: CreateSubnetPort mirrors the status for each SubnetPort
-                  cutover.
-                items:
-                  description: CreateSubnetPortStatus records the observed transition
-                    status for a SubnetPort cutover.
-                  properties:
-                    attachmentID:
-                      description: AttachmentID of the realized SubnetPort on NSX.
-                      type: string
-                    ipAddresses:
-                      description: IPAddresses realized on the target SubnetPort.
-                      items:
-                        type: string
-                      type: array
-                      x-kubernetes-list-type: set
-                    macAddress:
-                      description: MACAddress preserved and programmed on the target
-                        SubnetPort.
-                      type: string
-                    message:
-                      description: Message describes details or error information.
-                      type: string
-                    phase:
-                      description: Phase of this specific cutover operation.
-                      enum:
-                      - Pending
-                      - Migrating
-                      - Succeeded
-                      - Failed
-                      type: string
-                    subnetIPReservations:
-                      description: SubnetIPReservations mirrors the source SubnetIPReservation
-                        references.
-                      items:
-                        description: NamespacedObjectReference contains namespace
-                          and name to uniquely identify a namespaced Kubernetes resource.
-                        properties:
-                          name:
-                            description: Name of the referent.
-                            maxLength: 253
-                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                            type: string
-                          namespace:
-                            description: Namespace of the referent.
-                            maxLength: 63
-                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                            type: string
-                        required:
-                        - name
-                        - namespace
-                        type: object
-                      type: array
-                      x-kubernetes-list-type: atomic
-                    subnetPort:
-                      description: SubnetPort mirrors the target SubnetPort reference.
-                      properties:
-                        name:
-                          description: Name of the referent.
-                          maxLength: 253
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                          type: string
-                        namespace:
-                          description: Namespace of the referent.
-                          maxLength: 63
-                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                          type: string
-                      required:
-                      - name
-                      - namespace
-                      type: object
-                  required:
-                  - phase
-                  - subnetPort
-                  type: object
-                type: array
-                x-kubernetes-list-type: atomic
               failedResources:
                 description: FailedResources is the count of failed resources.
                 type: integer
-              moveIPAddressAllocation:
-                description: MoveIPAddressAllocation mirrors the status for each IPAddressAllocation
-                  move.
+              ipAddressAllocationMoves:
+                description: IPAddressAllocationMoves mirrors the status for each
+                  IPAddressAllocation move.
                 items:
-                  description: MoveIPAddressAllocationStatus records the observed
+                  description: IPAddressAllocationMoveStatus records the observed
                     transition status for an IPAddressAllocation move.
                   properties:
                     message:
@@ -315,8 +331,7 @@ spec:
                     phase:
                       description: Phase of this specific move operation.
                       enum:
-                      - Pending
-                      - Migrating
+                      - InProgress
                       - Succeeded
                       - Failed
                       type: string
@@ -367,23 +382,184 @@ spec:
                 format: int64
                 type: integer
               phase:
-                description: Phase defines the overall migration phase.
+                description: Phase defines the overall transition phase.
                 enum:
-                - Pending
-                - Migrating
+                - InProgress
                 - Succeeded
                 - Failed
-                - PartiallyFailed
                 type: string
+              subnetPortCutovers:
+                description: SubnetPortCutovers mirrors the status for each SubnetPort
+                  cutover.
+                items:
+                  description: SubnetPortCutoverStatus records the observed transition
+                    status for a SubnetPort cutover.
+                  properties:
+                    attachmentID:
+                      description: AttachmentID of the realized SubnetPort.
+                      type: string
+                    ipAddresses:
+                      description: IPAddresses realized on the target SubnetPort.
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    macAddress:
+                      description: MACAddress preserved and programmed on the target
+                        SubnetPort.
+                      type: string
+                    message:
+                      description: Message describes details or error information.
+                      type: string
+                    phase:
+                      description: Phase of this specific cutover operation.
+                      enum:
+                      - InProgress
+                      - Succeeded
+                      - Failed
+                      type: string
+                    subnetIPReservation:
+                      description: SubnetIPReservation mirrors the source reservation's
+                        Namespace and name.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                    subnetPort:
+                      description: SubnetPort mirrors the target SubnetPort reference.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - phase
+                  - subnetIPReservation
+                  - subnetPort
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
+              subnetPortReverts:
+                description: SubnetPortReverts mirrors the rollback status for each
+                  source SubnetPort.
+                items:
+                  description: SubnetPortRevertStatus reports allocation-preserving
+                    restoration of one source port.
+                  properties:
+                    message:
+                      type: string
+                    phase:
+                      description: Phase and Message report this operation's outcome,
+                        not whole-Namespace rollback.
+                      enum:
+                      - InProgress
+                      - Succeeded
+                      - Failed
+                      type: string
+                    subnetIPReservation:
+                      description: |-
+                        SubnetIPReservation mirrors the requested destination and exact addresses.
+                        Success means the reservation is realized and port cleanup cannot release its addresses.
+                      properties:
+                        reservation:
+                          description: |-
+                            Reservation identifies the destination SubnetIPReservation by Namespace and name.
+                            A recreated object receives a new UID. The destination Subnet name is derived
+                            from the source SubnetPort and resolved in Reservation.Namespace, where a
+                            same-named Subnet must resolve to the same backing subnet.
+                          properties:
+                            name:
+                              description: Name of the referent.
+                              maxLength: 253
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                            namespace:
+                              description: Namespace of the referent.
+                              maxLength: 63
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                              type: string
+                          required:
+                          - name
+                          - namespace
+                          type: object
+                        reservedIPs:
+                          description: |-
+                            ReservedIPs contains the exact interface addresses to restore: at most one IPv4
+                            and one IPv6 address. Ranges, CIDRs, and requests for new addresses are not supported.
+                          items:
+                            maxLength: 45
+                            type: string
+                          maxItems: 2
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: set
+                          x-kubernetes-validations:
+                          - message: reservedIPs must contain at most one individual
+                              IPv4 and one individual IPv6 address
+                            rule: self.all(address, isIP(address)) && (size(self)
+                              < 2 || ip(self[0]).family() != ip(self[1]).family())
+                      required:
+                      - reservation
+                      - reservedIPs
+                      type: object
+                    subnetPort:
+                      description: SubnetPort records the source port, retained after
+                        verified consumption.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                          type: string
+                        namespace:
+                          description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                  required:
+                  - phase
+                  - subnetPort
+                  type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-type: atomic
               succeededResources:
                 description: SucceededResources is the count of successfully transitioned
                   resources.
                 type: integer
               totalResources:
-                description: TotalResources is the total number of target resources
-                  to migrate.
+                description: |-
+                  TotalResources counts operations across cutovers, reverts, and allocation moves.
+                  Each cutover or revert transfers one reservation for one SubnetPort.
                 type: integer
             type: object
+        required:
+        - spec
         type: object
         x-kubernetes-validations:
         - message: spec is immutable
