@@ -874,24 +874,25 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 				continue
 			}
 
+			hasLegacyMAC := pod.Annotations[servicecommon.AnnotationPodMAC] != ""
+			isPodV2 := nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig)
+			// Backward compatibility: allow restore if legacy MAC annotation exists (Pod V1)
+			// or if we're in Pod V2 mode. Skip pods that belong to neither.
+			if !hasLegacyMAC && !isPodV2 {
+				continue
+			}
+
 			if !nsxSubnetPortCRIDs.Has(string(subnetport.UID)) || subnetport.Status.Attachment.ID == "" || !common.IsObjectReady(subnetport.Status.Conditions) {
-				// We need to restore it.
-				// Allow if legacy MAC annotation exists OR if we're in Pod V2 mode and the CR has saved status we can use.
-				hasLegacyMAC := pod.Annotations[servicecommon.AnnotationPodMAC] != ""
-				// For native Pod V2, we don't have the old MAC annotation, but we should restore if it's not ready or missing backend.
-				// Even if it failed realization previously (Ready=False), it should be retried.
-				if hasLegacyMAC || nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
-					hasSavedState := len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 || subnetport.Status.NetworkInterfaceConfig.MACAddress != ""
-					isDHCP := subnetport.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone || subnetport.Spec.StaticIPAllocationType == ""
-					// Issue 7: Do not add completely new static ports (no IP/MAC) to restore list, let normal reconcile handle them
-					if !hasLegacyMAC && !hasSavedState && !isDHCP {
-						log.Debug("Skipping completely new static Pod-owned SubnetPort in restore", "Namespace", subnetport.Namespace, "SubnetPort", subnetport.Name)
-						continue
-					}
-					restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				hasSavedState := len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 || subnetport.Status.NetworkInterfaceConfig.MACAddress != ""
+				isDHCP := subnetport.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone || subnetport.Spec.StaticIPAllocationType == ""
+				// Do not add completely new static ports (no IP/MAC) to restore list, let normal reconcile handle them
+				if !hasLegacyMAC && !hasSavedState && !isDHCP {
+					log.Debug("Skipping completely new static Pod-owned SubnetPort in restore", "Namespace", subnetport.Namespace, "SubnetPort", subnetport.Name)
+					continue
 				}
+				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
 			} else {
-				// Issue 8: Check Attachment ID consistency even for Ready Pod-owned SubnetPorts
+				// Check Attachment ID consistency even for Ready Pod-owned SubnetPorts
 				existingSubnetPorts := r.SubnetPortService.SubnetPortStore.GetByIndex(servicecommon.TagScopeSubnetPortCRUID, string(subnetport.UID))
 				if len(existingSubnetPorts) > 0 && existingSubnetPorts[0] != nil && existingSubnetPorts[0].Attachment != nil && existingSubnetPorts[0].Attachment.Id != nil &&
 					*existingSubnetPorts[0].Attachment.Id != subnetport.Status.Attachment.ID {
