@@ -78,9 +78,13 @@ spec:
                         properties:
                           name:
                             description: Name of the referent.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
                           namespace:
                             description: Namespace of the referent.
+                            maxLength: 63
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                             type: string
                         required:
                         - name
@@ -88,15 +92,20 @@ spec:
                         type: object
                       minItems: 1
                       type: array
+                      x-kubernetes-list-type: atomic
                     subnetPort:
                       description: SubnetPort specifies the target SubnetPort to create
                         in the destination workload namespace.
                       properties:
                         name:
                           description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                           type: string
                         namespace:
                           description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                       required:
                       - name
@@ -107,6 +116,7 @@ spec:
                   - subnetPort
                   type: object
                 type: array
+                x-kubernetes-list-type: atomic
               moveIPAddressAllocation:
                 description: MoveIPAddressAllocation specifies Load Balancer VIP(s)
                   to adopt into tenant namespaces.
@@ -120,9 +130,13 @@ spec:
                       properties:
                         name:
                           description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                           type: string
                         namespace:
                           description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                       required:
                       - name
@@ -134,9 +148,13 @@ spec:
                       properties:
                         name:
                           description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                           type: string
                         namespace:
                           description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                       required:
                       - name
@@ -147,7 +165,27 @@ spec:
                   - target
                   type: object
                 type: array
+                x-kubernetes-list-type: atomic
             type: object
+            x-kubernetes-validations:
+            - message: at least one of createSubnetPort or moveIPAddressAllocation
+                must be specified
+              rule: has(self.createSubnetPort) || has(self.moveIPAddressAllocation)
+            - message: target subnetPort must be unique across all createSubnetPort
+                items
+              rule: '!has(self.createSubnetPort) || self.createSubnetPort.all(x, self.createSubnetPort.filter(y,
+                y.subnetPort.namespace == x.subnetPort.namespace && y.subnetPort.name
+                == x.subnetPort.name).size() == 1)'
+            - message: target IPAddressAllocation must be unique across all moveIPAddressAllocation
+                items
+              rule: '!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x,
+                self.moveIPAddressAllocation.filter(y, y.target.namespace == x.target.namespace
+                && y.target.name == x.target.name).size() == 1)'
+            - message: source IPAddressAllocation must be unique across all moveIPAddressAllocation
+                items
+              rule: '!has(self.moveIPAddressAllocation) || self.moveIPAddressAllocation.all(x,
+                self.moveIPAddressAllocation.filter(y, y.source.namespace == x.source.namespace
+                && y.source.name == x.source.name).size() == 1)'
           status:
             description: NetworkResourceTransitionStatus defines the observed state
               of NetworkResourceTransition.
@@ -181,6 +219,9 @@ spec:
                   - type
                   type: object
                 type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
               createSubnetPort:
                 description: CreateSubnetPort mirrors the status for each SubnetPort
                   cutover.
@@ -196,6 +237,7 @@ spec:
                       items:
                         type: string
                       type: array
+                      x-kubernetes-list-type: set
                     macAddress:
                       description: MACAddress preserved and programmed on the target
                         SubnetPort.
@@ -210,7 +252,6 @@ spec:
                       - Migrating
                       - Succeeded
                       - Failed
-                      - PartiallyFailed
                       type: string
                     subnetIPReservations:
                       description: SubnetIPReservations mirrors the source SubnetIPReservation
@@ -221,23 +262,32 @@ spec:
                         properties:
                           name:
                             description: Name of the referent.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
                           namespace:
                             description: Namespace of the referent.
+                            maxLength: 63
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                             type: string
                         required:
                         - name
                         - namespace
                         type: object
                       type: array
+                      x-kubernetes-list-type: atomic
                     subnetPort:
                       description: SubnetPort mirrors the target SubnetPort reference.
                       properties:
                         name:
                           description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                           type: string
                         namespace:
                           description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                       required:
                       - name
@@ -248,6 +298,7 @@ spec:
                   - subnetPort
                   type: object
                 type: array
+                x-kubernetes-list-type: atomic
               failedResources:
                 description: FailedResources is the count of failed resources.
                 type: integer
@@ -268,16 +319,19 @@ spec:
                       - Migrating
                       - Succeeded
                       - Failed
-                      - PartiallyFailed
                       type: string
                     source:
                       description: Source mirrors the source IPAddressAllocation reference.
                       properties:
                         name:
                           description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                           type: string
                         namespace:
                           description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                       required:
                       - name
@@ -288,9 +342,13 @@ spec:
                       properties:
                         name:
                           description: Name of the referent.
+                          maxLength: 253
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                           type: string
                         namespace:
                           description: Namespace of the referent.
+                          maxLength: 63
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                           type: string
                       required:
                       - name
@@ -302,6 +360,12 @@ spec:
                   - target
                   type: object
                 type: array
+                x-kubernetes-list-type: atomic
+              observedGeneration:
+                description: ObservedGeneration represents the .metadata.generation
+                  that the condition/status was set based upon.
+                format: int64
+                type: integer
               phase:
                 description: Phase defines the overall migration phase.
                 enum:
@@ -321,6 +385,9 @@ spec:
                 type: integer
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: spec is immutable
+          rule: self.spec == oldSelf.spec
     served: true
     storage: true
     subresources:
