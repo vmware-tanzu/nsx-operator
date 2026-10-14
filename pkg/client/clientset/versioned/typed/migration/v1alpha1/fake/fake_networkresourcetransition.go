@@ -6,18 +6,18 @@
 package fake
 
 import (
-	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1"
+	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	migrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/migration/v1alpha1"
 	gentype "k8s.io/client-go/gentype"
 )
 
 // fakeNetworkResourceTransitions implements NetworkResourceTransitionInterface
 type fakeNetworkResourceTransitions struct {
 	*gentype.FakeClientWithList[*v1alpha1.NetworkResourceTransition, *v1alpha1.NetworkResourceTransitionList]
-	Fake *FakeCrdV1alpha1
+	Fake *FakeMigrationV1alpha1
 }
 
-func newFakeNetworkResourceTransitions(fake *FakeCrdV1alpha1) vpcv1alpha1.NetworkResourceTransitionInterface {
+func newFakeNetworkResourceTransitions(fake *FakeMigrationV1alpha1) migrationv1alpha1.NetworkResourceTransitionInterface {
 	return &fakeNetworkResourceTransitions{
 		gentype.NewFakeClientWithList[*v1alpha1.NetworkResourceTransition, *v1alpha1.NetworkResourceTransitionList](
 			fake.Fake,

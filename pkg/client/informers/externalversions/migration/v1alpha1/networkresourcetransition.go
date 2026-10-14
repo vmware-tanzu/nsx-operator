@@ -9,10 +9,10 @@ import (
 	context "context"
 	time "time"
 
-	apisvpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	apismigrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/vpc/v1alpha1"
+	migrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/listers/migration/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -23,7 +23,7 @@ import (
 // NetworkResourceTransitions.
 type NetworkResourceTransitionInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() vpcv1alpha1.NetworkResourceTransitionLister
+	Lister() migrationv1alpha1.NetworkResourceTransitionLister
 }
 
 type networkResourceTransitionInformer struct {
@@ -48,28 +48,28 @@ func NewFilteredNetworkResourceTransitionInformer(client versioned.Interface, re
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().NetworkResourceTransitions().List(context.Background(), options)
+				return client.MigrationV1alpha1().NetworkResourceTransitions().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().NetworkResourceTransitions().Watch(context.Background(), options)
+				return client.MigrationV1alpha1().NetworkResourceTransitions().Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().NetworkResourceTransitions().List(ctx, options)
+				return client.MigrationV1alpha1().NetworkResourceTransitions().List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.CrdV1alpha1().NetworkResourceTransitions().Watch(ctx, options)
+				return client.MigrationV1alpha1().NetworkResourceTransitions().Watch(ctx, options)
 			},
 		}, client),
-		&apisvpcv1alpha1.NetworkResourceTransition{},
+		&apismigrationv1alpha1.NetworkResourceTransition{},
 		resyncPeriod,
 		indexers,
 	)
@@ -80,9 +80,9 @@ func (f *networkResourceTransitionInformer) defaultInformer(client versioned.Int
 }
 
 func (f *networkResourceTransitionInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apisvpcv1alpha1.NetworkResourceTransition{}, f.defaultInformer)
+	return f.factory.InformerFor(&apismigrationv1alpha1.NetworkResourceTransition{}, f.defaultInformer)
 }
 
-func (f *networkResourceTransitionInformer) Lister() vpcv1alpha1.NetworkResourceTransitionLister {
-	return vpcv1alpha1.NewNetworkResourceTransitionLister(f.Informer().GetIndexer())
+func (f *networkResourceTransitionInformer) Lister() migrationv1alpha1.NetworkResourceTransitionLister {
+	return migrationv1alpha1.NewNetworkResourceTransitionLister(f.Informer().GetIndexer())
 }

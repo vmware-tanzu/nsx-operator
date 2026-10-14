@@ -43,6 +43,7 @@ md5sum $NSX_OPERATOR_DIR/bin/manager /etc/vmware/wcp/tls/manager
 chmod 777 /etc/vmware/wcp/tls/manager
 
 kubectl apply -f $NSX_OPERATOR_DIR/build/yaml/crd/vpc/
+kubectl apply -f $NSX_OPERATOR_DIR/build/yaml/crd/migration/
 kubectl scale deployment nsx-ncp -n vmware-system-nsx --replicas=1
 sleep 35
 

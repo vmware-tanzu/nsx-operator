@@ -6,7 +6,7 @@
 package v1alpha1
 
 import (
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	migrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	labels "k8s.io/apimachinery/pkg/labels"
 	listers "k8s.io/client-go/listers"
 	cache "k8s.io/client-go/tools/cache"
@@ -17,19 +17,19 @@ import (
 type NetworkResourceTransitionLister interface {
 	// List lists all NetworkResourceTransitions in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*vpcv1alpha1.NetworkResourceTransition, err error)
+	List(selector labels.Selector) (ret []*migrationv1alpha1.NetworkResourceTransition, err error)
 	// Get retrieves the NetworkResourceTransition from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*vpcv1alpha1.NetworkResourceTransition, error)
+	Get(name string) (*migrationv1alpha1.NetworkResourceTransition, error)
 	NetworkResourceTransitionListerExpansion
 }
 
 // networkResourceTransitionLister implements the NetworkResourceTransitionLister interface.
 type networkResourceTransitionLister struct {
-	listers.ResourceIndexer[*vpcv1alpha1.NetworkResourceTransition]
+	listers.ResourceIndexer[*migrationv1alpha1.NetworkResourceTransition]
 }
 
 // NewNetworkResourceTransitionLister returns a new NetworkResourceTransitionLister.
 func NewNetworkResourceTransitionLister(indexer cache.Indexer) NetworkResourceTransitionLister {
-	return &networkResourceTransitionLister{listers.New[*vpcv1alpha1.NetworkResourceTransition](indexer, vpcv1alpha1.Resource("networkresourcetransition"))}
+	return &networkResourceTransitionLister{listers.New[*migrationv1alpha1.NetworkResourceTransition](indexer, migrationv1alpha1.Resource("networkresourcetransition"))}
 }

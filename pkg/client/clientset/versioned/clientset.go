@@ -9,6 +9,7 @@ import (
 	fmt "fmt"
 	http "net/http"
 
+	migrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/migration/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
@@ -17,13 +18,20 @@ import (
 
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
+	MigrationV1alpha1() migrationv1alpha1.MigrationV1alpha1Interface
 	CrdV1alpha1() crdv1alpha1.CrdV1alpha1Interface
 }
 
 // Clientset contains the clients for groups.
 type Clientset struct {
 	*discovery.DiscoveryClient
-	crdV1alpha1 *crdv1alpha1.CrdV1alpha1Client
+	migrationV1alpha1 *migrationv1alpha1.MigrationV1alpha1Client
+	crdV1alpha1       *crdv1alpha1.CrdV1alpha1Client
+}
+
+// MigrationV1alpha1 retrieves the MigrationV1alpha1Client
+func (c *Clientset) MigrationV1alpha1() migrationv1alpha1.MigrationV1alpha1Interface {
+	return c.migrationV1alpha1
 }
 
 // CrdV1alpha1 retrieves the CrdV1alpha1Client
@@ -75,6 +83,10 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 
 	var cs Clientset
 	var err error
+	cs.migrationV1alpha1, err = migrationv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
 	cs.crdV1alpha1, err = crdv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
 		return nil, err
@@ -100,6 +112,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 // New creates a new Clientset for the given RESTClient.
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
+	cs.migrationV1alpha1 = migrationv1alpha1.New(c)
 	cs.crdV1alpha1 = crdv1alpha1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)

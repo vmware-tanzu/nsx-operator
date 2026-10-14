@@ -20,3 +20,6 @@ Right now nsx-operator supports SecurityPolicy CRD reconciling, check out
 ## License
 
 This repository is available under the [Apache 2.0 license](LICENSE).
+
+NetworkResourceTransition API documentation and installation notes are available
+in [Network resource transitions](docs/network-resource-transition.md).
