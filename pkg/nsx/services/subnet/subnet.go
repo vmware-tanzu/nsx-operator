@@ -410,10 +410,27 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 	if reflect.DeepEqual(obj.Status.Subnets, subnetInfoList) {
 		return nil
 	}
-	obj.Status.Subnets = subnetInfoList
-	if err := service.Client.Status().Update(context.Background(), obj); err != nil {
-		log.Error(err, "Failed to update SubnetSet status")
-		return err
+
+	ctx := context.Background()
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latestSubnetSet := &v1alpha1.SubnetSet{}
+		if err := service.Client.Get(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}, latestSubnetSet); err != nil {
+			return err
+		}
+		if reflect.DeepEqual(latestSubnetSet.Status.Subnets, subnetInfoList) {
+			obj.Status.Subnets = latestSubnetSet.Status.Subnets
+			return nil
+		}
+		latestSubnetSet.Status.Subnets = subnetInfoList
+		if err := service.Client.Status().Update(ctx, latestSubnetSet); err != nil {
+			return err
+		}
+		obj.Status.Subnets = subnetInfoList
+		return nil
+	})
+	if retryErr != nil {
+		log.Error(retryErr, "Failed to update SubnetSet status")
+		return retryErr
 	}
 	return nil
 }
