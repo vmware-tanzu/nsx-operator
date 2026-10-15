@@ -8,14 +8,14 @@ import (
 )
 
 func TestConfigPreservesUnrelatedSettings(t *testing.T) {
-	original := []byte("[nsx_v3]\nnsx_api_managers=example.invalid\npod_v2=false\n[k8s]\ncluster=fixture\n")
+	original := []byte("[nsx_v3]\nnsx_api_managers=example.invalid\n[k8s]\npod_v2=false\ncluster=fixture\n")
 	b, err := Config(original, true, false, true, true)
 	require.NoError(t, err)
 	f, err := ini.Load(b)
 	require.NoError(t, err)
 	require.Equal(t, "example.invalid", f.Section("nsx_v3").Key("nsx_api_managers").String())
 	require.Equal(t, "fixture", f.Section("k8s").Key("cluster").String())
-	require.True(t, f.Section("nsx_v3").Key("pod_v2").MustBool())
+	require.True(t, f.Section("k8s").Key("pod_v2").MustBool())
 	require.True(t, f.Section("k8s").Key("enable_restore").MustBool())
 	require.Contains(t, string(original), "pod_v2=false")
 }

@@ -21,9 +21,10 @@ func Config(original []byte, v2, enhance, restore, vif bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range map[string]bool{"pod_v2": v2, "vpc_wcp_enhance": enhance, "restore_vif": vif} {
+	for key, value := range map[string]bool{"vpc_wcp_enhance": enhance, "restore_vif": vif} {
 		f.Section("nsx_v3").Key(key).SetValue(fmt.Sprint(value))
 	}
+	f.Section("k8s").Key("pod_v2").SetValue(fmt.Sprint(v2))
 	f.Section("k8s").Key("enable_restore").SetValue(fmt.Sprint(restore))
 	var b bytes.Buffer
 	_, err = f.WriteTo(&b)

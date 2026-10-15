@@ -40,7 +40,7 @@ func localSuite(t *testing.T, ncp *unstructured.Unstructured) *p2Suite {
 	*p2Deployment = "operator"
 	t.Cleanup(func() { testData = oldData; *p2OperatorNS = oldNS; *p2Deployment = oldDeployment })
 	deployment := appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: *p2Deployment, Namespace: *p2OperatorNS, UID: "operator-uid"}, Spec: appsv1.DeploymentSpec{Replicas: ptr.To[int32](2), Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "operator"}}, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "operator"}, Annotations: map[string]string{"keep": "original"}}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "manager", Image: "original", VolumeMounts: []corev1.VolumeMount{{Name: "original", MountPath: "/etc/ncp.ini"}, {Name: "cert", MountPath: "/certs"}}}}, Volumes: []corev1.Volume{{Name: "original"}, {Name: "cert"}}}}}}
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: *p2Deployment + "-podv2-e2e-state", Namespace: *p2OperatorNS, UID: "journal-uid", Labels: map[string]string{p2Label: "run"}}, Data: map[string][]byte{"original.ini": []byte("[nsx_v3]\npod_v2=false\n[k8s]\ncluster=keep\n")}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: *p2Deployment + "-podv2-e2e-state", Namespace: *p2OperatorNS, UID: "journal-uid", Labels: map[string]string{p2Label: "run"}}, Data: map[string][]byte{"original.ini": []byte("[nsx_v3]\nnsx_api_managers=example\n[k8s]\npod_v2=false\ncluster=keep\n")}}
 	clients := kubefake.NewClientset(&deployment, secret)
 	crds := crdfake.NewSimpleClientset() //nolint:staticcheck // Generated client has no apply configurations / NewClientset.
 	testData = &TestData{clientset: clients, crdClientset: crds}
