@@ -128,13 +128,19 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 		name, ownerUID                             string
 		realized, terminal, wantRestore, wantError bool
 		v2mode                                     bool
-		staticAlloc                                bool
+		staticAlloc                                v1alpha1.StaticIPAllocationType
+		savedState, gatewayOnly                    bool
 		readyMismatch                              bool
 	}{
 		{name: "realized", ownerUID: "pod-uid", realized: true, wantRestore: true},
 		{name: "not-realized", ownerUID: "pod-uid"},
-		{name: "not-realized-but-v2-dhcp", ownerUID: "pod-uid", v2mode: true, wantRestore: true},
-		{name: "not-realized-but-v2-static", ownerUID: "pod-uid", v2mode: true, wantRestore: false, staticAlloc: true},
+		{name: "not-realized-v2-unset", ownerUID: "pod-uid", v2mode: true},
+		{name: "not-realized-v2-none", ownerUID: "pod-uid", v2mode: true, staticAlloc: v1alpha1.StaticIPAllocationTypeNone},
+		{name: "not-realized-v2-static", ownerUID: "pod-uid", v2mode: true, staticAlloc: v1alpha1.StaticIPAllocationTypeIPv4},
+		{name: "saved-cr-state-unset", ownerUID: "pod-uid", v2mode: true, savedState: true, wantRestore: true},
+		{name: "saved-cr-state-none", ownerUID: "pod-uid", v2mode: true, staticAlloc: v1alpha1.StaticIPAllocationTypeNone, savedState: true, wantRestore: true},
+		{name: "saved-cr-state-static", ownerUID: "pod-uid", v2mode: true, staticAlloc: v1alpha1.StaticIPAllocationTypeIPv4, savedState: true, wantRestore: true},
+		{name: "gateway-only", ownerUID: "pod-uid", v2mode: true, gatewayOnly: true},
 		{name: "terminal", ownerUID: "pod-uid", realized: true, terminal: true},
 		{name: "terminal-v2", ownerUID: "pod-uid", v2mode: true, terminal: true},
 		{name: "replacement-owner", ownerUID: "old-pod", realized: true, wantError: true},
@@ -154,8 +160,15 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: "ns", UID: "cr-uid", OwnerReferences: []metav1.OwnerReference{
 				{Kind: "Pod", Name: pod.Name, UID: types.UID(tc.ownerUID)},
 			}}}
-			if tc.staticAlloc {
-				sp.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationTypeIPv4
+			sp.Spec.StaticIPAllocationType = tc.staticAlloc
+			if tc.savedState {
+				sp.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
+					MACAddress:  "02:50:56:00:00:01",
+					IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.10/24"}},
+				}
+			}
+			if tc.gatewayOnly {
+				sp.Status.NetworkInterfaceConfig.IPAddresses = []v1alpha1.NetworkInterfaceIPAddress{{Gateway: "10.0.0.1"}}
 			}
 
 			store := newPodRestorePortStore()

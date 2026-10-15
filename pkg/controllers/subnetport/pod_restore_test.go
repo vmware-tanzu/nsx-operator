@@ -275,22 +275,43 @@ func TestRestoreSubnetPortStatusFromPod(t *testing.T) {
 		require.True(t, restored)
 		require.Equal(t, []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.10"}}, sp.Status.NetworkInterfaceConfig.IPAddresses)
 	})
-	t.Run("missing saved IP skips restore for static IPs", func(t *testing.T) {
-		incompletePod := pod.DeepCopy()
-		incompletePod.Status = v1.PodStatus{}
-		sp := &v1alpha1.SubnetPort{Spec: v1alpha1.SubnetPortSpec{StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4}}
-		restored, err := restoreSubnetPortStatusFromPod(sp, incompletePod)
-		require.NoError(t, err)
-		require.False(t, restored)
-	})
-	t.Run("DHCP bypasses missing IP/MAC check", func(t *testing.T) {
-		incompletePod := pod.DeepCopy()
-		incompletePod.Status = v1.PodStatus{}
-		sp := &v1alpha1.SubnetPort{Spec: v1alpha1.SubnetPortSpec{StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone}}
-		restored, err := restoreSubnetPortStatusFromPod(sp, incompletePod)
-		require.NoError(t, err)
-		require.True(t, restored)
-	})
+	for _, allocationType := range []v1alpha1.StaticIPAllocationType{"", v1alpha1.StaticIPAllocationTypeNone, v1alpha1.StaticIPAllocationTypeIPv4} {
+		for _, tc := range []struct {
+			name        string
+			podMAC      bool
+			podIPs      []v1.PodIP
+			crNetwork   v1alpha1.NetworkInterfaceConfig
+			wantRestore bool
+		}{
+			{name: "no saved state"},
+			{name: "missing IP", podMAC: true},
+			{name: "missing MAC", podIPs: []v1.PodIP{{IP: "10.0.0.10"}}},
+			{name: "empty Pod IP", podMAC: true, podIPs: []v1.PodIP{{}}},
+			{name: "gateway only", podMAC: true, crNetwork: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{Gateway: "10.0.0.1"}},
+			}},
+			{name: "saved Pod state", podMAC: true, podIPs: []v1.PodIP{{IP: "10.0.0.10"}}, wantRestore: true},
+			{name: "saved CR state", crNetwork: v1alpha1.NetworkInterfaceConfig{
+				MACAddress:  "02:50:56:00:00:02",
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.11/24"}},
+			}, wantRestore: true},
+		} {
+			t.Run(fmt.Sprintf("%s/allocation=%q", tc.name, allocationType), func(t *testing.T) {
+				ownerPod := pod.DeepCopy()
+				ownerPod.Status = v1.PodStatus{PodIPs: tc.podIPs}
+				if !tc.podMAC {
+					delete(ownerPod.Annotations, servicecommon.AnnotationPodMAC)
+				}
+				sp := &v1alpha1.SubnetPort{
+					Spec:   v1alpha1.SubnetPortSpec{StaticIPAllocationType: allocationType},
+					Status: v1alpha1.SubnetPortStatus{NetworkInterfaceConfig: tc.crNetwork},
+				}
+				restored, err := restoreSubnetPortStatusFromPod(sp, ownerPod)
+				require.NoError(t, err)
+				require.Equal(t, tc.wantRestore, restored)
+			})
+		}
+	}
 }
 
 func TestReconcileRestoreModeSkipsIncompletePod(t *testing.T) {
@@ -319,36 +340,40 @@ func TestReconcileRestoreModeSkipsIncompletePod(t *testing.T) {
 				},
 			},
 		},
-		Spec: v1alpha1.SubnetPortSpec{
-			StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4,
-		},
 	}
-	api := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.SubnetPort{}, &v1.Pod{}).
-		WithObjects(pod, sp, &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns", UID: "namespace-uid"}}).
-		Build()
+	for _, allocationType := range []v1alpha1.StaticIPAllocationType{"", v1alpha1.StaticIPAllocationTypeNone, v1alpha1.StaticIPAllocationTypeIPv4} {
+		t.Run(fmt.Sprintf("allocation=%q", allocationType), func(t *testing.T) {
+			port := sp.DeepCopy()
+			port.Spec.StaticIPAllocationType = allocationType
+			api := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.SubnetPort{}, &v1.Pod{}).
+				WithObjects(pod, port, &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns", UID: "namespace-uid"}}).
+				Build()
 
-	cfg := &config.NSXOperatorConfig{
-		NsxConfig: &config.NsxConfig{},
-		K8sConfig: &config.K8sConfig{PodV2: servicecommon.Bool(true)},
-		CoeConfig: &config.CoeConfig{Cluster: "test"},
-	}
-	backend := &podRestorePortsClient{ports: map[string]model.VpcSubnetPort{}}
-	svc := &serviceport.SubnetPortService{
-		Service:         servicecommon.Service{Client: api, NSXConfig: cfg, NSXClient: &nsx.Client{PortClient: backend}},
-		SubnetPortStore: newPodRestorePortStore(),
-	}
-	r := &SubnetPortReconciler{
-		Client:            api,
-		APIReader:         api,
-		Scheme:            scheme,
-		SubnetPortService: svc,
-		restoreMode:       true,
-		Recorder:          fakeRecorder{},
-	}
-	r.StatusUpdater = common.NewStatusUpdater(api, cfg, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+			cfg := &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{},
+				K8sConfig: &config.K8sConfig{PodV2: servicecommon.Bool(true)},
+				CoeConfig: &config.CoeConfig{Cluster: "test"},
+			}
+			backend := &podRestorePortsClient{ports: map[string]model.VpcSubnetPort{}}
+			svc := &serviceport.SubnetPortService{
+				Service:         servicecommon.Service{Client: api, NSXConfig: cfg, NSXClient: &nsx.Client{PortClient: backend}},
+				SubnetPortStore: newPodRestorePortStore(),
+			}
+			r := &SubnetPortReconciler{
+				Client:            api,
+				APIReader:         api,
+				Scheme:            scheme,
+				SubnetPortService: svc,
+				restoreMode:       true,
+				Recorder:          fakeRecorder{},
+			}
+			r.StatusUpdater = common.NewStatusUpdater(api, cfg, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 
-	res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: sp.Namespace, Name: sp.Name}})
-	require.NoError(t, err)
-	require.Equal(t, ctrl.Result{}, res)
-	require.Empty(t, backend.ports)
+			res, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(port)})
+			require.NoError(t, err)
+			require.Equal(t, ctrl.Result{}, res)
+			require.Zero(t, backend.patches)
+			require.Empty(t, backend.ports)
+		})
+	}
 }

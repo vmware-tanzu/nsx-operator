@@ -451,10 +451,16 @@ func (r *SubnetPortReconciler) checkRestoreStatusPersisted(ctx context.Context, 
 	return nil
 }
 
+func hasIPAddress(addresses []v1alpha1.NetworkInterfaceIPAddress) bool {
+	return slices.ContainsFunc(addresses, func(address v1alpha1.NetworkInterfaceIPAddress) bool {
+		return address.IPAddress != ""
+	})
+}
+
 // A newly recreated SubnetPort has no status. Fill only missing network data from
 // its realized owner Pod, then reuse the ordinary SubnetPort restoration path.
-// Returns (true, nil) if successfully restored, or (false, nil) if the pod has
-// no persisted IP/MAC and should be skipped during restore.
+// Returns (true, nil) if the merged status has persisted IP/MAC, or (false, nil)
+// if either is missing and the Pod should be skipped during restore.
 func restoreSubnetPortStatusFromPod(sp *v1alpha1.SubnetPort, pod *v1.Pod) (bool, error) {
 	restored := subnetport.GetPodRestoreStatus(pod)
 	if sp.Status.Attachment.ID == "" {
@@ -464,28 +470,15 @@ func restoreSubnetPortStatusFromPod(sp *v1alpha1.SubnetPort, pod *v1.Pod) (bool,
 		sp.Status.NetworkInterfaceConfig.MACAddress = restored.NetworkInterfaceConfig.MACAddress
 	}
 
-	// For DHCP ports with gateway-only info, we should preserve the gateway info
-	// and not overwrite it with empty Pod data if the Pod hasn't got an IP yet.
-	hasIP := false
-	for _, address := range sp.Status.NetworkInterfaceConfig.IPAddresses {
-		if address.IPAddress != "" {
-			hasIP = true
-			break
-		}
-	}
-	if !hasIP && len(restored.NetworkInterfaceConfig.IPAddresses) > 0 {
-		// Only replace with Pod's IPs if the Pod actually has IPs.
+	// Fill missing IPs, including gateway-only status, only when the Pod has saved IPs.
+	if !hasIPAddress(sp.Status.NetworkInterfaceConfig.IPAddresses) && hasIPAddress(restored.NetworkInterfaceConfig.IPAddresses) {
 		sp.Status.NetworkInterfaceConfig.IPAddresses = restored.NetworkInterfaceConfig.IPAddresses
 	}
 
-	// Check if this is a DHCP allocation without IP requirement.
-	isDHCP := sp.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone || sp.Spec.StaticIPAllocationType == ""
-	if !isDHCP {
-		if sp.Status.NetworkInterfaceConfig.MACAddress == "" || len(sp.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
-			log.Info("Pod has no persisted IP/MAC to restore SubnetPort, skipping in restore mode",
-				"Pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name), "SubnetPort", sp.Name)
-			return false, nil
-		}
+	if sp.Status.NetworkInterfaceConfig.MACAddress == "" || !hasIPAddress(sp.Status.NetworkInterfaceConfig.IPAddresses) {
+		log.Info("Pod has no persisted IP/MAC to restore SubnetPort, skipping in restore mode",
+			"Pod", fmt.Sprintf("%s/%s", pod.Namespace, pod.Name), "SubnetPort", sp.Name)
+		return false, nil
 	}
 	return true, nil
 }
@@ -883,11 +876,10 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 			}
 
 			if !nsxSubnetPortCRIDs.Has(string(subnetport.UID)) || subnetport.Status.Attachment.ID == "" || !common.IsObjectReady(subnetport.Status.Conditions) {
-				hasSavedState := len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 || subnetport.Status.NetworkInterfaceConfig.MACAddress != ""
-				isDHCP := subnetport.Spec.StaticIPAllocationType == v1alpha1.StaticIPAllocationTypeNone || subnetport.Spec.StaticIPAllocationType == ""
-				// Do not add completely new static ports (no IP/MAC) to restore list, let normal reconcile handle them
-				if !hasLegacyMAC && !hasSavedState && !isDHCP {
-					log.Debug("Skipping completely new static Pod-owned SubnetPort in restore", "Namespace", subnetport.Namespace, "SubnetPort", subnetport.Name)
+				hasSavedState := hasIPAddress(subnetport.Status.NetworkInterfaceConfig.IPAddresses) || subnetport.Status.NetworkInterfaceConfig.MACAddress != ""
+				// Leave ports without saved Pod or CR network state for normal reconciliation.
+				if !hasLegacyMAC && !hasSavedState {
+					log.Debug("Skipping Pod-owned SubnetPort without saved network state in restore", "Namespace", subnetport.Namespace, "SubnetPort", subnetport.Name)
 					continue
 				}
 				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
