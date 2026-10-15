@@ -849,6 +849,7 @@ func SubnetPortWithDHCP(t *testing.T) {
 	// then delete and recreate the Subnet with the available CIDR as specified IPAddresses.
 	subnetCreated := createSubnetWithCheck(t, dhcpSubnet)
 	ipAddresses := subnetCreated.Status.NetworkAddresses[0]
+	dhcpSubnetUID := string(subnetCreated.UID)
 	require.NotEmpty(t, ipAddresses, "No IP address in Subnet")
 	_, subnetCIDR, err := net.ParseCIDR(ipAddresses)
 	require.NoError(t, err, "Failed to parse Subnet CIDR")
@@ -872,6 +873,12 @@ func SubnetPortWithDHCP(t *testing.T) {
 			return true, nil
 		}
 		return false, err
+	})
+	require.NoError(t, err)
+	// Wait for NSX to mark the backing subnet for deletion before reusing its CIDR.
+	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 100*time.Second, false, func(ctx context.Context) (bool, error) {
+		nsxSubnets := testData.fetchSubnetBySubnetUID(t, dhcpSubnetUID)
+		return len(nsxSubnets) == 0 || *nsxSubnets[0].MarkedForDelete, nil
 	})
 	require.NoError(t, err)
 	subnetCreated = createSubnetWithCheck(t, dhcpSubnet)
