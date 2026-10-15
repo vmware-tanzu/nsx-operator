@@ -57,18 +57,6 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 			if ref := metav1.GetControllerOf(pod); ref != nil && ref.Kind == "StatefulSet" {
 				stsName = ref.Name
 			}
-		} else {
-			for _, ref := range sp.GetOwnerReferences() {
-				if ref.Kind == "Pod" {
-					if appId == "" {
-						appId = string(ref.UID)
-					}
-					if podName == "" {
-						podName = ref.Name
-					}
-					break
-				}
-			}
 		}
 	}
 	var externalAddressBinding *model.ExternalAddressBinding
