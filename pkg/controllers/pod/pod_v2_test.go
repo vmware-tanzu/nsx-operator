@@ -53,7 +53,7 @@ func newPodV2TestReconciler(t *testing.T, precreated bool, stale bool) (*PodReco
 		Spec:       v1alpha1.SubnetSetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4},
 	}
 	if precreated {
-		names := []string{"dhcp-subnet"}
+		names := []string{"precreated-subnet"}
 		ss.Spec.SubnetNames = &names
 	}
 	api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, ss).
@@ -96,26 +96,46 @@ func TestPodV2StaleCacheDoesNotDuplicateSubnetPorts(t *testing.T) {
 	}
 }
 
-func TestPodV2PrecreatedSubnetUsesActualIPAllocation(t *testing.T) {
-	r, api, req := newPodV2TestReconciler(t, true, false)
-	if _, err := r.Reconcile(context.Background(), req); err != nil {
-		t.Fatal(err)
+func TestPodV2RequestsStaticIPAllocation(t *testing.T) {
+	ctx := context.Background()
+	mixedSubnet := &model.VpcSubnet{
+		SubnetDhcpConfig:   &model.SubnetDhcpConfig{Mode: servicecommon.String("DHCP_SERVER")},
+		SubnetDhcpv6Config: &model.SubnetDhcpv6Config{Mode: servicecommon.String("DHCP_SERVER")},
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{Enabled: servicecommon.Bool(true)},
+		},
 	}
-	ports := &v1alpha1.SubnetPortList{}
-	if err := api.List(context.Background(), ports); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		interfaceIPType        v1alpha1.IPAddressType
+		staticIPAllocationType v1alpha1.StaticIPAllocationType
+	}{
+		{v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4},
+		{v1alpha1.IPAddressTypeIPv6, v1alpha1.StaticIPAllocationTypeIPv6},
+		{v1alpha1.IPAddressTypeIPv4IPv6, v1alpha1.StaticIPAllocationTypeIPv4IPv6},
 	}
-	if len(ports.Items) != 1 {
-		t.Fatalf("want 1 port, got %d", len(ports.Items))
-	}
-	// The referenced pre-created subnet uses DHCP, while the SubnetSet only
-	// carries subnetNames and IPAddressType, as required by its API contract.
-	nsxSubnet := &model.VpcSubnet{SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: servicecommon.String("DHCP_SERVER")}, AdvancedConfig: &model.SubnetAdvancedConfig{StaticIpAllocation: &model.StaticIpAllocation{Enabled: servicecommon.Bool(false)}}}
-	sp := ports.Items[0]
-	expected := util.ComputeDefaultStaticIPAllocationType(nsxSubnet, sp.Spec.InterfaceIPType)
-	actual := common.ResolveEffectiveStaticIPAllocationType(sp.Spec.StaticIPAllocationType, nsxSubnet, sp.Spec.InterfaceIPType)
-	if actual != expected {
-		t.Fatalf("Pod-created CR forces %s; the actual DHCP subnet requires %s (explicit value prevents downstream defaulting)", actual, expected)
+	for _, precreated := range []bool{false, true} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("precreated=%v/%s", precreated, tt.interfaceIPType), func(t *testing.T) {
+				r, api, req := newPodV2TestReconciler(t, precreated, false)
+				ss := &v1alpha1.SubnetSet{}
+				require.NoError(t, api.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "default-pod"}, ss))
+				ss.Spec.IPAddressType = tt.interfaceIPType
+				require.NoError(t, api.Update(ctx, ss))
+
+				_, err := r.Reconcile(ctx, req)
+				require.NoError(t, err)
+				ports := &v1alpha1.SubnetPortList{}
+				require.NoError(t, api.List(ctx, ports))
+				require.Len(t, ports.Items, 1)
+				sp := ports.Items[0]
+				require.Equal(t, tt.interfaceIPType, sp.Spec.InterfaceIPType)
+				require.Equal(t, tt.staticIPAllocationType, sp.Spec.StaticIPAllocationType)
+
+				// Explicit Pod allocation must override the mixed-mode Subnet's DHCP default.
+				actual := common.ResolveEffectiveStaticIPAllocationType(sp.Spec.StaticIPAllocationType, mixedSubnet, sp.Spec.InterfaceIPType)
+				require.Equal(t, tt.staticIPAllocationType, actual)
+			})
+		}
 	}
 }
 

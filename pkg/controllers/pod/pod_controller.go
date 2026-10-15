@@ -173,8 +173,8 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 			Spec: v1alpha1.SubnetPortSpec{
 				SubnetSet:       subnetSet.Name,
 				InterfaceIPType: interfaceIPType,
-				// Resolve static allocation from the selected NSX Subnet. A pre-created
-				// SubnetSet does not carry its member Subnets' DHCP/static configuration.
+				// Pods do not support DHCP, so request static allocation even on mixed-mode Subnets.
+				StaticIPAllocationType: v1alpha1.StaticIPAllocationType(interfaceIPType),
 			},
 		}
 
