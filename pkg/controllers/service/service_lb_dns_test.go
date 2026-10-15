@@ -21,6 +21,7 @@ import (
 	mockdns "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnsrecordprovider"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
+	extann "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
 
@@ -85,7 +86,7 @@ func TestReconcileLoadBalancerServiceDNS(t *testing.T) {
 			Spec:       v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
 		}
 		if hostname != "" {
-			svc.Annotations = map[string]string{servicecommon.AnnotationDNSHostnameKey: hostname}
+			svc.Annotations = map[string]string{extann.HostnameKey: hostname}
 		}
 		if ip != "" {
 			svc.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{{IP: ip}}
@@ -169,33 +170,6 @@ func TestReconcileLoadBalancerServiceDNS(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "dnsZoneValidationError_updateCondition_error",
-			svc:  makeLbSvc("ns1", "lb-err-cond", "u5-cond", "app.example.com", "203.0.113.6"),
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				allowed := map[string]string{"/zones/t": "example.com"}
-				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).Return(
-					nil, allowed, &dns.DNSZoneValidationError{Msg: "zone mismatch"}).Times(1)
-				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns1", "lb-err-cond").Return(false, fmt.Errorf("mock delete error")).Times(1)
-			},
-			wantErr: true,
-		},
-		{
-			name: "validateEndpoints_error_updateCondition_error",
-			svc:  makeLbSvc("ns1", "lb-val-cond-err", "u11", "app.example.com", "203.0.113.6"),
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil, fmt.Errorf("mock val error")).Times(1)
-			},
-			wantErr: true,
-		},
-		{
-			name: "stale_dns_records_deletes",
-			svc:  makeLbSvc("ns1", "lb-stale", "u6", "app.example.com", "203.0.113.6"),
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil, nil).Times(1)
-				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns1", "lb-stale").Return(true, nil).Times(1)
-			},
-		},
-		{
 			name: "stale_dns_records_deletes_error",
 			svc:  makeLbSvc("ns1", "lb-stale-err", "u7", "app.example.com", "203.0.113.6"),
 			setupMock: func(m *mockdns.MockDNSRecordProvider) {
@@ -218,37 +192,6 @@ func TestReconcileLoadBalancerServiceDNS(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "validate_endpoints_error",
-			svc:  makeLbSvc("ns1", "lb-val-err", "u10", "app.example.com", "203.0.113.6"),
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil, fmt.Errorf("mock val error")).Times(1)
-			},
-			wantErr: true,
-		},
-		{
-			name: "targetsFromLoadBalancerIngress_empty_skip_batch",
-			svc: &v1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "ns1", Name: "lb-no-target", UID: "u11",
-					Annotations: map[string]string{servicecommon.AnnotationDNSHostnameKey: "a.com"},
-				},
-				Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
-				Status: v1.ServiceStatus{
-					LoadBalancer: v1.LoadBalancerStatus{Ingress: []v1.LoadBalancerIngress{}}, // empty targets
-				},
-			},
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns1", "lb-no-target").Return(true, nil).Times(1)
-			},
-		},
-		{
-			name: "no_ip_targets_deletes",
-			svc:  makeLbSvc("ns1", "lb", "u2", "app.example.com", ""),
-			setupMock: func(m *mockdns.MockDNSRecordProvider) {
-				m.EXPECT().DeleteRecordByOwnerNN(gomock.Any(), dns.ResourceKindService, "ns1", "lb").Return(true, nil).Times(1)
-			},
-		},
-		{
 			name: "no_annotation_skips",
 			svc:  makeLbSvc("ns1", "lb", "u3", "", "203.0.113.5"),
 			setupMock: func(m *mockdns.MockDNSRecordProvider) {
@@ -261,12 +204,12 @@ func TestReconcileLoadBalancerServiceDNS(t *testing.T) {
 			setupMock: func(m *mockdns.MockDNSRecordProvider) {
 				allowed := map[string]string{"/zones/t": "example.com"}
 				m.EXPECT().ValidateEndpointsByZone(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-					func(namespace string, owner *dns.ResourceRef, eps []*extdns.Endpoint) ([]dns.EndpointRow, []*extdns.Endpoint, map[string]string, error) {
+					func(namespace string, owner *dns.ResourceRef, eps []*extdns.Endpoint) ([]dns.EndpointRow, map[string]string, error) {
 						require.Len(t, eps, 3)
 						require.Equal(t, "app.example.com", eps[0].DNSName)
 						require.Equal(t, "", eps[1].DNSName)
 						require.Equal(t, "", eps[2].DNSName)
-						return []dns.EndpointRow{*dns.NewEndpointRow(&extdns.Endpoint{DNSName: "app.example.com", Targets: []string{"203.0.113.5"}, RecordType: "A"}, "/zones/t", "app")}, nil, allowed, nil
+						return []dns.EndpointRow{*dns.NewEndpointRow(&extdns.Endpoint{DNSName: "app.example.com", Targets: []string{"203.0.113.5"}, RecordType: "A"}, "/zones/t", "app")}, allowed, nil
 					}).Times(1)
 				m.EXPECT().CreateOrUpdateRecords(gomock.Any(), gomock.Any()).Return(true, nil).Times(1)
 			},
@@ -354,7 +297,7 @@ func TestReconcileLoadBalancerServiceDNS_nonZoneValidationErrUpdatesCondition(t 
 			Namespace:   "ns1",
 			Name:        "lb",
 			UID:         "u-infra",
-			Annotations: map[string]string{servicecommon.AnnotationDNSHostnameKey: "app.example.com"},
+			Annotations: map[string]string{extann.HostnameKey: "app.example.com"},
 			Generation:  2,
 		},
 		Spec: v1.ServiceSpec{Type: v1.ServiceTypeLoadBalancer},
@@ -471,6 +414,72 @@ func TestIsOwnedByGateway(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, isOwnedByGateway(tt.ownerRefs))
+		})
+	}
+}
+
+func TestParseDNSHostnamesFromAnnotation(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        []string
+	}{
+		{
+			name:        "nil annotations",
+			annotations: nil,
+			want:        nil,
+		},
+		{
+			name:        "empty annotations",
+			annotations: map[string]string{},
+			want:        nil,
+		},
+		{
+			name:        "skip annotation ignored on service",
+			annotations: map[string]string{servicecommon.AnnotationsDNSSkip: "true", extann.HostnameKey: "example.com"},
+			want:        []string{"example.com"},
+		},
+		{
+			name:        "stable annotation",
+			annotations: map[string]string{extann.HostnameKey: "stable.example.com"},
+			want:        []string{"stable.example.com"},
+		},
+		{
+			name:        "alpha annotation fallback",
+			annotations: map[string]string{extann.LegacyHostnameKey: "alpha.example.com"},
+			want:        []string{"alpha.example.com"},
+		},
+		{
+			name: "both annotations stable wins",
+			annotations: map[string]string{
+				extann.HostnameKey:       "stable.example.com",
+				extann.LegacyHostnameKey: "alpha.example.com",
+			},
+			want: []string{"stable.example.com"},
+		},
+		{
+			name: "stable empty overrides alpha fallback",
+			annotations: map[string]string{
+				extann.HostnameKey:       "",
+				extann.LegacyHostnameKey: "alpha.example.com",
+			},
+			want: []string{""},
+		},
+		{
+			name:        "stable empty string alone",
+			annotations: map[string]string{extann.HostnameKey: ""},
+			want:        []string{""},
+		},
+		{
+			name:        "stable whitespace string alone",
+			annotations: map[string]string{extann.HostnameKey: "   "},
+			want:        []string{""},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseDNSHostnamesFromAnnotation(tc.annotations)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

@@ -24,6 +24,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	extann "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 	extdnssrc "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/source"
 )
 
@@ -201,8 +202,6 @@ func (r *genericRouteReconciler[PT, T, PI]) getRouteHostnames(obj PT) []string {
 	return extdnssrc.RouteHostnames(
 		meta,
 		extdnssrc.RouteSpecHostnames(specHostnames),
-		servicecommon.AnnotationDNSHostnameSourceKey,
-		servicecommon.AnnotationDNSHostnameKey,
 		false,
 	)
 }
@@ -251,10 +250,7 @@ func (r *genericRouteReconciler[PT, T, PI]) predicateFuncsRouteDNS() predicate.F
 			if !oldOk || !newOk {
 				return false
 			}
-			oldAnnos := e.ObjectOld.GetAnnotations()
-			newAnnos := e.ObjectNew.GetAnnotations()
-			if oldAnnos[servicecommon.AnnotationDNSHostnameKey] != newAnnos[servicecommon.AnnotationDNSHostnameKey] ||
-				oldAnnos[servicecommon.AnnotationDNSHostnameSourceKey] != newAnnos[servicecommon.AnnotationDNSHostnameSourceKey] {
+			if extann.HasRouteDNSAnnotationsChanged(e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()) {
 				return true
 			}
 			oldParent := parentRefKeys(oldRoute.GetNamespace(), oldRoute.GetParentRefs())
@@ -309,10 +305,8 @@ var predicateFuncsGateway = predicate.Funcs{
 		if oldObj.Spec.GatewayClassName != newObj.Spec.GatewayClassName {
 			return true
 		}
-		oldAnnos := oldObj.GetAnnotations()
-		newAnnos := newObj.GetAnnotations()
-		if oldAnnos[servicecommon.AnnotationDNSHostnameKey] != newAnnos[servicecommon.AnnotationDNSHostnameKey] ||
-			oldAnnos[servicecommon.AnnotationsDNSSkip] != newAnnos[servicecommon.AnnotationsDNSSkip] {
+		if extann.HasHostnameAnnotationChanged(oldObj.GetAnnotations(), newObj.GetAnnotations()) ||
+			oldObj.GetAnnotations()[servicecommon.AnnotationsDNSSkip] != newObj.GetAnnotations()[servicecommon.AnnotationsDNSSkip] {
 			return true
 		}
 
@@ -359,7 +353,7 @@ func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
 	}
 }
 
-// networkInfoToGatewayDNSRequests enqueues Gateways in the NetworkInfo namespace that are managed, have a usable LB IP, and set external-dns.alpha.kubernetes.io/hostname.
+// networkInfoToGatewayDNSRequests enqueues managed Gateways with usable IPs and hostname annotations in the NetworkInfo namespace.
 func (r *GatewayReconciler) networkInfoToGatewayDNSRequests(ctx context.Context, obj client.Object) []reconcile.Request {
 	ni, ok := obj.(*v1alpha1.NetworkInfo)
 	if !ok || ni == nil {
@@ -376,12 +370,7 @@ func (r *GatewayReconciler) networkInfoToGatewayDNSRequests(ctx context.Context,
 		if !shouldProcessGateway(gw) || !hasUsableGatewayIP(gw) {
 			continue
 		}
-		gwAnnotations := gw.Annotations
-		if len(gwAnnotations) == 0 {
-			continue
-		}
-		hostnames := gwAnnotations[servicecommon.AnnotationDNSHostnameKey]
-		if strings.TrimSpace(hostnames) == "" {
+		if len(parseDNSHostnamesFromAnnotation(gw.Annotations)) == 0 {
 			continue
 		}
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gw)})

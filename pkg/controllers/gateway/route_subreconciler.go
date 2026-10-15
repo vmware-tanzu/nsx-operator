@@ -32,7 +32,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 	extdnssrc "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/source"
@@ -412,7 +411,7 @@ func (r *genericRouteReconciler[PT, T, PI]) inferRouteDNSHostnamesFromAcceptedPa
 			continue
 		}
 		filters := extdnssrc.AdmissionHostnameFiltersForRouteParentFromRows(ent.AdmissionRows, &ref, routeNS)
-		inh, err := extdnssrc.RouteHostnamesMatchingAdmission(filters, objMeta, []string{""}, servicecommon.AnnotationDNSHostnameSourceKey, servicecommon.AnnotationDNSHostnameKey)
+		inh, err := extdnssrc.RouteHostnamesMatchingAdmission(filters, objMeta, []string{""})
 		if err != nil {
 			return nil, err
 		}
@@ -503,8 +502,6 @@ func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForAggregation
 	desiredHostnames := extdnssrc.RouteHostnames(
 		objMeta,
 		extdnssrc.RouteSpecHostnames(specHostnames),
-		servicecommon.AnnotationDNSHostnameSourceKey,
-		servicecommon.AnnotationDNSHostnameKey,
 		false,
 	)
 	var uniqHostnames []string
@@ -522,7 +519,7 @@ func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForAggregation
 		return nil, nil, nil
 	}
 
-	allowWild := extdnssrc.RouteHostnameWildcardAllowed(objMeta, servicecommon.AnnotationDNSHostnameSourceKey, servicecommon.AnnotationDNSHostnameKey)
+	allowWild := extdnssrc.RouteHostnameWildcardAllowed(objMeta.GetAnnotations())
 
 	var eps []*extdns.Endpoint
 	for _, h := range uniqHostnames {

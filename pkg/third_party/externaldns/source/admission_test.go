@@ -11,6 +11,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	extann "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/annotations"
 )
 
 func TestAdmissionFilterStringForHostname(t *testing.T) {
@@ -121,8 +123,8 @@ func TestRouteHostnamesMatchingAdmission(t *testing.T) {
 	allowed := []string{"*.example.com", "foo.bar.com"}
 	meta := &metav1.ObjectMeta{
 		Annotations: map[string]string{
-			"gateway-hostname-source": "annotation-only",
-			"hostname":                "*.example.com",
+			extann.GatewayHostnameSourceKey: "annotation-only",
+			extann.HostnameKey:              "*.example.com",
 		},
 	}
 	tests := []struct {
@@ -140,13 +142,13 @@ func TestRouteHostnamesMatchingAdmission(t *testing.T) {
 		{[]string{"test.example.com"}, nil, nil},
 	}
 	for _, tc := range tests {
-		got, err := RouteHostnamesMatchingAdmission(tc.allowed, meta, tc.hosts, "gateway-hostname-source", "hostname")
+		got, err := RouteHostnamesMatchingAdmission(tc.allowed, meta, tc.hosts)
 		require.NoError(t, err)
 		assert.Equal(t, tc.want, got)
 	}
 
 	// test wildcard not allowed
-	got, err := RouteHostnamesMatchingAdmission(allowed, nil, []string{"*.example.com"}, "gateway-hostname-source", "hostname")
+	got, err := RouteHostnamesMatchingAdmission(allowed, nil, []string{"*.example.com"})
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }

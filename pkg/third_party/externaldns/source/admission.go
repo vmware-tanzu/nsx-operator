@@ -126,11 +126,15 @@ func appendAdmissionHostnameFilterString(s string, seen map[string]struct{}, out
 }
 
 // RouteHostnamesMatchingAdmission maps raw route hosts to admitted DNS names via GwMatchingHost.
-func RouteHostnamesMatchingAdmission(allowed []string, routeMeta *metav1.ObjectMeta, rawRouteHostnames []string, gatewayHostnameSourceAnnoKey, hostnameAnnoKey string) ([]string, error) {
+func RouteHostnamesMatchingAdmission(allowed []string, routeMeta *metav1.ObjectMeta, rawRouteHostnames []string) ([]string, error) {
 	if len(allowed) == 0 || len(rawRouteHostnames) == 0 {
 		return nil, nil
 	}
-	allowWildcardDNSName := RouteHostnameWildcardAllowed(routeMeta, gatewayHostnameSourceAnnoKey, hostnameAnnoKey)
+	var annos map[string]string
+	if routeMeta != nil {
+		annos = routeMeta.Annotations
+	}
+	allowWildcardDNSName := RouteHostnameWildcardAllowed(annos)
 	var out []string
 	seen := make(map[string]struct{})
 	for _, rtHost := range rawRouteHostnames {
