@@ -119,8 +119,16 @@ func newPodRestorePortStore() *serviceport.SubnetPortStore {
 
 func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 	for _, restoreVIF := range []bool{true, false} {
-		for _, failStatus := range []bool{false, true} {
-			t.Run(fmt.Sprintf("restore_vif=%v/status_failure=%v", restoreVIF, failStatus), func(t *testing.T) {
+		for _, tc := range []struct {
+			failStatus    bool
+			ipAddressType v1alpha1.IPAddressType
+		}{
+			{false, v1alpha1.IPAddressTypeIPv4},
+			{true, v1alpha1.IPAddressTypeIPv4},
+			{false, ""},
+			{true, ""},
+		} {
+			t.Run(fmt.Sprintf("restore_vif=%v/status_failure=%v/ip_type=%s", restoreVIF, tc.failStatus, tc.ipAddressType), func(t *testing.T) {
 				ctx := context.Background()
 				scheme := runtime.NewScheme()
 				require.NoError(t, v1.AddToScheme(scheme))
@@ -129,8 +137,8 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 					Name: "workload", Namespace: "ns", UID: "12345678-1234-1234-1234-123456789abc",
 					Annotations: map[string]string{servicecommon.AnnotationPodMAC: "02:50:56:00:00:01", servicecommon.AnnotationAttachment: "original-attachment"},
 				}, Spec: v1.PodSpec{NodeName: "esx1"}, Status: v1.PodStatus{Phase: v1.PodRunning, PodIP: "10.0.0.10", PodIPs: []v1.PodIP{{IP: "10.0.0.10"}}}}
-				ss := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "pod-default", Namespace: "ns", UID: "subnetset-uid", Labels: map[string]string{servicecommon.LabelDefaultNetwork: servicecommon.DefaultPodNetwork}}, Spec: v1alpha1.SubnetSetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4}}
-				statusUnavailable := failStatus
+				ss := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "pod-default", Namespace: "ns", UID: "subnetset-uid", Labels: map[string]string{servicecommon.LabelDefaultNetwork: servicecommon.DefaultPodNetwork}}, Spec: v1alpha1.SubnetSetSpec{IPAddressType: tc.ipAddressType}}
+				statusUnavailable := tc.failStatus
 				api := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.SubnetPort{}, &v1.Pod{}).
 					WithObjects(pod, ss, &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns", UID: "namespace-uid"}}).
 					WithIndex(&v1alpha1.SubnetPort{}, util.SubnetPortNamespacePodIndexKey, subnetPortNamespacePodIndexFunc).
@@ -146,7 +154,7 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 						}
 						return c.SubResource(subresource).Update(ctx, obj, opts...)
 					}}).Build()
-				cached := podRestoreCachedClient{api}
+				cached := util.NewRestoreClient(podRestoreCachedClient{api})
 				cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{RestoreVif: &restoreVIF}, K8sConfig: &config.K8sConfig{PodV2: servicecommon.Bool(true)}, CoeConfig: &config.CoeConfig{Cluster: "test"}}
 				backend := &podRestorePortsClient{ports: map[string]model.VpcSubnetPort{}}
 				svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api, NSXConfig: cfg, NSXClient: &nsx.Client{PortClient: backend}}, SubnetPortStore: newPodRestorePortStore()}
@@ -168,6 +176,8 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 				crs := &v1alpha1.SubnetPortList{}
 				require.NoError(t, api.List(ctx, crs))
 				require.Len(t, crs.Items, 1)
+				require.Equal(t, v1alpha1.IPAddressTypeIPv4, crs.Items[0].Spec.InterfaceIPType)
+				require.Equal(t, v1alpha1.StaticIPAllocationTypeIPv4, crs.Items[0].Spec.StaticIPAllocationType)
 				require.Empty(t, crs.Items[0].Status.NetworkInterfaceConfig.IPAddresses)
 				require.Empty(t, backend.ports)
 				nsxSubnet := &model.VpcSubnet{Id: servicecommon.String("subnet"), Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc/subnets/subnet"), RealizationId: servicecommon.String("switch-uuid"), IpAddressType: servicecommon.String("IPV4"), IpAddresses: []string{"10.0.0.0/24"}, AccessMode: servicecommon.String("PUBLIC"), AdvancedConfig: &model.SubnetAdvancedConfig{StaticIpAllocation: &model.StaticIpAllocation{Enabled: servicecommon.Bool(true)}}}
@@ -175,7 +185,7 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 				vpcSvc.On("IsRADeactivatedByVPCPath", testifymock.Anything).Return(false, nil)
 				r := &SubnetPortReconciler{Client: cached, APIReader: api, Scheme: scheme, SubnetPortService: svc, SubnetService: podRestoreSubnetService{subnet: nsxSubnet}, VPCService: vpcSvc, IpAddressAllocationService: &mock.MockIPAddressAllocationProvider{}, NodeServiceReader: podRestoreNodeService{}, Recorder: fakeRecorder{}}
 				r.StatusUpdater = common.NewStatusUpdater(cached, cfg, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
-				if failStatus {
+				if tc.failStatus {
 					require.ErrorContains(t, r.RestoreReconcile(), "restore status is not persisted")
 					require.Len(t, backend.ports, 1)
 					pending, err := r.getRestoreList()
@@ -213,7 +223,14 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 					require.Equal(t, "ReconfigureNic", reconfigCond.Reason)
 				}
 				require.NoError(t, r.RestoreReconcile()) // completed restore is idempotent
+				require.NoError(t, api.Get(ctx, client.ObjectKeyFromObject(ss), ss))
+				require.Equal(t, tc.ipAddressType, ss.Spec.IPAddressType, "restore must succeed without backfilling the SubnetSet")
 				// Simulate fresh controllers after restart: same CR and same NSX store.
+				if ss.Spec.IPAddressType == "" {
+					// The SubnetSet controller can persist its IPv4 default in normal mode.
+					ss.Spec.IPAddressType = v1alpha1.IPAddressTypeIPv4
+					require.NoError(t, api.Update(ctx, ss))
+				}
 				normalPod := &podcontroller.PodReconciler{Client: api, APIReader: api, Scheme: scheme, SubnetPortService: svc, Recorder: fakeRecorder{}, StatusUpdater: p.StatusUpdater}
 				_, err := normalPod.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}})
 				require.NoError(t, err)

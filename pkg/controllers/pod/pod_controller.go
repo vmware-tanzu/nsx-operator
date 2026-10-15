@@ -154,6 +154,10 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultNormal, err
 		}
+	} else if r.restoreMode {
+		// Legacy SubnetSets omit IPAddressType, and restore skips their spec updates.
+		// Match the IPv4 fallback used by SubnetPort restore.
+		interfaceIPType = v1alpha1.IPAddressTypeIPv4
 	} else {
 		err = fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
 		r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
