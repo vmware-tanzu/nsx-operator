@@ -1,0 +1,1255 @@
+
+[TestSubnetReconciler_Reconcile/Delete_Subnet_CR_failed_to_delete_NSX_Subnet - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Delete Subnet CR failed to delete NSX Subnet",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "failed to delete NSX Subnet"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Delete_Subnet_CR_with_stale_SubnetPort - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Delete Subnet CR with stale SubnetPort",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "cannot delete Subnet fake-id, still attached by 1 port(s)"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Get_Subnet_CR_return_other_error_should_retry - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Get Subnet CR return other error should retry",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "get Subnet CR error"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Subnet_CR_with_finalizer_delete_failed - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Subnet CR with finalizer delete failed",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "delete NSX Subnet failed"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Create_or_Update_Subnet_with_create_NSX_Subnet_failure - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Create or Update Subnet with create NSX Subnet failure",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "create or update failed"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Update_Subnet_CR_spec_success - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Update Subnet CR spec success",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": {
+  "metadata": {
+   "name": "test-subnet",
+   "namespace": "default",
+   "resourceVersion": "MASKED_RESOURCE_VERSION",
+   "uid": "MASKED_UID"
+  },
+  "spec": {
+   "accessMode": "Private",
+   "advancedConfig": {
+    "staticIPAllocation": {
+     "enabled": true
+    }
+   },
+   "ipv4SubnetSize": 16,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {},
+    "mode": "DHCPDeactivated"
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   },
+   "vpcName": "project-id:vpc-id"
+  },
+  "status": {
+   "vlanExtension": {}
+  }
+ }
+}
+---
+
+[TestSubnetReconciler_Reconcile/Update_Subnet_CR_with_update_status_error - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Update Subnet CR with update status error",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "failed to get NSX Subnet from store"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Update_Subnet_CR_with_update_status_error - 2]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Update Subnet CR with update status error",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": {
+  "metadata": {
+   "name": "test-subnet",
+   "namespace": "default",
+   "resourceVersion": "MASKED_RESOURCE_VERSION",
+   "uid": "MASKED_UID"
+  },
+  "spec": {
+   "accessMode": "Private",
+   "advancedConfig": {
+    "staticIPAllocation": {
+     "enabled": true
+    }
+   },
+   "ipv4SubnetSize": 16,
+   "subnetDHCPConfig": {
+    "dhcpServerAdditionalConfig": {},
+    "mode": "DHCPDeactivated"
+   },
+   "subnetDHCPv6Config": {
+    "dhcpv6ServerAdditionalConfig": {}
+   },
+   "vpcName": "project-id:vpc-id"
+  },
+  "status": {
+   "vlanExtension": {}
+  }
+ }
+}
+---
+
+[TestSubnetReconciler_Reconcile/Create_or_Update_Subnet_with_generate_Subnet_tags_failure - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Create or Update Subnet with generate Subnet tags failure",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "failed to generate Subnet tags"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Create_or_Update_Subnet_with_VPCNetworkConfiguration_is_nil - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Create or Update Subnet with VPCNetworkConfiguration is nil",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "vpcNeworkConfig is nil"
+}
+---
+
+[TestSubnetReconciler_Reconcile/Create_or_Update_Subnet_with_get_access_mode_error - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile output under scenario: Create or Update Subnet with get access mode error",
+  "scenario": "reconcile_subnet"
+ },
+ "payload": "vpc not found"
+}
+---
+
+[TestReconcileWithSubnetConnectionBindingMaps/Successfully_add_finalizer_after_a_Subnet_is_used_by_SubnetConnectionBindingMap - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: Successfully add finalizer after a Subnet is used by SubnetConnectionBindingMap",
+  "scenario": "reconcile_with_binding_maps"
+ },
+ "payload": {
+  "Requeue": false,
+  "RequeueAfter": 0
+ }
+}
+---
+
+[TestReconcileWithSubnetConnectionBindingMaps/Failed_to_add_finalizer_after_a_Subnet_is_used_by_SubnetConnectionBindingMap - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: Failed to add finalizer after a Subnet is used by SubnetConnectionBindingMap",
+  "scenario": "reconcile_with_binding_maps"
+ },
+ "payload": "failed to update CR"
+}
+---
+
+[TestReconcileWithSubnetConnectionBindingMaps/Not_add_duplicated_finalizer_after_a_Subnet_is_used_by_SubnetConnectionBindingMap - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: Not add duplicated finalizer after a Subnet is used by SubnetConnectionBindingMap",
+  "scenario": "reconcile_with_binding_maps"
+ },
+ "payload": {
+  "Requeue": false,
+  "RequeueAfter": 0
+ }
+}
+---
+
+[TestReconcileWithSubnetConnectionBindingMaps/Successfully_remove_finalizer_after_a_Subnet_is_not_used_by_any_SubnetConnectionBindingMaps - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: Successfully remove finalizer after a Subnet is not used by any SubnetConnectionBindingMaps",
+  "scenario": "reconcile_with_binding_maps"
+ },
+ "payload": {
+  "Requeue": false,
+  "RequeueAfter": 0
+ }
+}
+---
+
+[TestReconcileWithSubnetConnectionBindingMaps/Failed_to_remove_finalizer_after_a_Subnet_is_not_used_by_any_SubnetConnectionBindingMaps - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: Failed to remove finalizer after a Subnet is not used by any SubnetConnectionBindingMaps",
+  "scenario": "reconcile_with_binding_maps"
+ },
+ "payload": "failed to update CR"
+}
+---
+
+[TestReconcileWithSubnetConnectionBindingMaps/Not_update_finalizers_if_a_Subnet_is_not_used_by_any_SubnetConnectionBindingMaps - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: Not update finalizers if a Subnet is not used by any SubnetConnectionBindingMaps",
+  "scenario": "reconcile_with_binding_maps"
+ },
+ "payload": {
+  "Requeue": false,
+  "RequeueAfter": 0
+ }
+}
+---
+
+[TestReconcileWithSubnetConnectionBindingMaps/Delete_a_Subnet_is_not_allowed_if_it_is_used_by_SubnetConnectionBindingMap - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: Delete a Subnet is not allowed if it is used by SubnetConnectionBindingMap",
+  "scenario": "reconcile_with_binding_maps"
+ },
+ "payload": "failed to delete Subnet CR ns1/subnet1"
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/full_featured_ipv4_subnet_cr - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: full_featured_ipv4_subnet_cr",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": {
+  "AccessMode": "Private_TGW",
+  "AdvancedConfig": {
+   "ConnectivityState": "CONNECTED",
+   "DhcpServerAddresses": [
+    "192.168.1.2"
+   ],
+   "GatewayAddresses": [
+    "192.168.1.1"
+   ],
+   "StaticIpAllocation": {
+    "Enabled": true,
+    "PoolRanges": [
+     "192.168.1.30-192.168.1.40"
+    ]
+   }
+  },
+  "Description": "Production IPv4 Subnet with PrivateTGW",
+  "DisplayName": "subnet-ipv4-full_phoia",
+  "Id": "subnet-ipv4-full_phoia",
+  "IpAddressType": "IPV4",
+  "IpAddresses": [
+   "192.168.1.0/26"
+  ],
+  "IpBlocks": [
+   "/infra/ip-blocks/infra-block-v4"
+  ],
+  "Ipv4SubnetSize": 64,
+  "SubnetDhcpConfig": {
+   "DhcpServerAdditionalConfig": {
+    "ReservedIpRanges": [
+     "192.168.1.10-192.168.1.20"
+    ]
+   },
+   "Mode": "DHCP_SERVER"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-ipv4-full"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "uid-ipv4-full-12345"
+   },
+   {
+    "Scope": "custom-scope",
+    "Tag": "custom-tag"
+   },
+   {
+    "Scope": "app",
+    "Tag": "backend"
+   },
+   {
+    "Scope": "env",
+    "Tag": "production"
+   }
+  ]
+ }
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/ipv6_subnet_cr_stateful_dhcp_with_reserved_ranges - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: ipv6_subnet_cr_stateful_dhcp_with_reserved_ranges",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": {
+  "AccessMode": "Public",
+  "AdvancedConfig": {
+   "ConnectivityState": "CONNECTED",
+   "DhcpServerAddresses": [
+    "2001:db8::2"
+   ],
+   "GatewayAddresses": [
+    "2001:db8::1"
+   ],
+   "StaticIpAllocation": {
+    "Enabled": false
+   }
+  },
+  "Description": "IPv6 Subnet with stateful DHCPv6",
+  "DisplayName": "subnet-ipv6-stateful_phoia",
+  "Id": "subnet-ipv6-stateful_phoia",
+  "IpAddressType": "IPV6",
+  "IpAddresses": [
+   "2001:db8::/64"
+  ],
+  "Ipv6PrefixLength": 64,
+  "SubnetDhcpv6Config": {
+   "Dhcpv6ServerAdditionalConfig": {
+    "ReservedIpRanges": [
+     "2001:db8::10-2001:db8::20"
+    ]
+   },
+   "Mode": "DHCP_SERVER"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-ipv6-stateful"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "uid-ipv6-stateful-11223"
+   }
+  ]
+ }
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/ipv6_subnet_cr_with_stateless_dhcp_and_whitespace_trimming - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: ipv6_subnet_cr_with_stateless_dhcp_and_whitespace_trimming",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": {
+  "AccessMode": "Public",
+  "AdvancedConfig": {
+   "ConnectivityState": "DISCONNECTED",
+   "DhcpServerAddresses": [
+    "2001:db8::5"
+   ],
+   "GatewayAddresses": [
+    "2001:db8::1"
+   ],
+   "StaticIpAllocation": {
+    "Enabled": true,
+    "PoolRanges": [
+     "2001:db8::50-2001:db8::60",
+     "2001:db8::100"
+    ]
+   }
+  },
+  "Description": "IPv6 Subnet with stateless DHCP",
+  "DisplayName": "subnet-ipv6-stateless_phoia",
+  "Id": "subnet-ipv6-stateless_phoia",
+  "IpAddressType": "IPV6",
+  "IpAddresses": [
+   "2001:db8::/64"
+  ],
+  "Ipv6PrefixLength": 64,
+  "SubnetDhcpv6Config": {
+   "Mode": "DHCP_SERVER_STATELESS"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-ipv6-stateless"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "uid-ipv6-stateless-67890"
+   }
+  ]
+ }
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/pure_static_allocation_ipv4_subnet_cr - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: pure_static_allocation_ipv4_subnet_cr",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": {
+  "AccessMode": "Private",
+  "AdvancedConfig": {
+   "ConnectivityState": "CONNECTED",
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet-ipv4-static-only_phoia",
+  "Id": "subnet-ipv4-static-only_phoia",
+  "IpAddressType": "IPV4",
+  "IpAddresses": [
+   "10.100.0.0/27"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-ipv4-static-only"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "uid-ipv4-static-88888"
+   }
+  ]
+ }
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/dual_stack_with_status_network_addresses_fallback_and_tepless - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: dual_stack_with_status_network_addresses_fallback_and_tepless",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": {
+  "AccessMode": "Public",
+  "AdvancedConfig": {
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet-dual-tepless_phoia",
+  "Id": "subnet-dual-tepless_phoia",
+  "IpAddressType": "IPV4_IPV6",
+  "IpAddresses": [
+   "10.244.0.0/27",
+   "fd00:10:244::/64"
+  ],
+  "Ipv4SubnetSize": 32,
+  "Ipv6PrefixLength": 64,
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "SubnetDhcpv6Config": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-dual-tepless"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "uid-dual-tepless-99999"
+   },
+   {
+    "Scope": "ENABLED",
+    "Tag": "WCP_L3_SUBNET_IN_VLAN_BACKED_VPC_MODE"
+   }
+  ]
+ }
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/dual_stack_subnet_with_ipv4_spec_and_static_ip_allocation - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: dual_stack_subnet_with_ipv4_spec_and_static_ip_allocation",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": {
+  "AccessMode": "Public",
+  "AdvancedConfig": {
+   "GatewayAddresses": [
+    "10.244.0.1"
+   ],
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet-dual-spec-v4_phoia",
+  "Id": "subnet-dual-spec-v4_phoia",
+  "IpAddressType": "IPV4_IPV6",
+  "IpAddresses": [
+   "10.244.0.0/27"
+  ],
+  "Ipv4SubnetSize": 32,
+  "Ipv6PrefixLength": 64,
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "SubnetDhcpv6Config": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-dual-spec-v4"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "uid-dual-spec-v4-123"
+   }
+  ]
+ }
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/backward_compatibility_no_ipv6_version_check - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: backward_compatibility_no_ipv6_version_check",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": {
+  "AccessMode": "Private",
+  "AdvancedConfig": {
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet-legacy_phoia",
+  "Id": "subnet-legacy_phoia",
+  "IpAddresses": [
+   "10.0.0.0/24"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-legacy"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "uid-legacy-11111"
+   }
+  ]
+ }
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/error_tepless_check_failure - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: error_tepless_check_failure",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": "failed to list NetworkInfo"
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/error_exceed_tags_limit - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: error_exceed_tags_limit",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": "tags cannot exceed maximum size 26, tags length: 29"
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/error_invalid_ipblock_name - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: error_invalid_ipblock_name",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": "invalid IPBlock name \"invalid space name\": must not be empty or contain spaces, tabs, or newlines"
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/error_missing_vpcinfo_for_project_ipblock - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: error_missing_vpcinfo_for_project_ipblock",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": "org or project info is missing to build path for IPBlock project-block-only"
+}
+---
+
+[TestBuildSubnet_SubnetCR_IntegrationMatrix/error_unsupported_object_type - 1]
+{
+ "metadata": {
+  "component": "subnet_builder",
+  "description": "Verify buildSubnet under scenario: error_unsupported_object_type",
+  "scenario": "build_subnet_cr_integration"
+ },
+ "payload": "unsupported type"
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_ConnectivityState/create_subnet_with_connected_state - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet connectivity state under scenario: create subnet with connected state",
+  "scenario": "create_or_update_subnet_connectivity_state"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "ConnectivityState": "CONNECTED",
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet-connectivity_hlz23",
+  "Id": "subnet-connectivity_hlz23",
+  "IpAddresses": [
+   "10.0.0.0/24"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_ConnectivityState/create_subnet_with_disconnected_state - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet connectivity state under scenario: create subnet with disconnected state",
+  "scenario": "create_or_update_subnet_connectivity_state"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "ConnectivityState": "DISCONNECTED",
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet-connectivity_hlz23",
+  "Id": "subnet-connectivity_hlz23",
+  "IpAddresses": [
+   "10.0.0.0/24"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_ConnectivityState/update_existing_subnet_connectivity_state_from_connected_to_disconnected - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet connectivity state under scenario: update existing subnet connectivity state from connected to disconnected",
+  "scenario": "create_or_update_subnet_connectivity_state"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "ConnectivityState": "DISCONNECTED",
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "existing-subnet-name",
+  "Id": "existing-subnet-id",
+  "IpAddresses": [
+   "10.0.0.0/24"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_ConnectivityState/create_subnet_with_connectivity_state_not_set - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet connectivity state under scenario: create subnet with connectivity state not set",
+  "scenario": "create_or_update_subnet_connectivity_state"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet-connectivity_hlz23",
+  "Id": "subnet-connectivity_hlz23",
+  "IpAddresses": [
+   "10.0.0.0/24"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet-connectivity"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "test-uuid-connectivity"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_Errors/invalid_IPBlockNames_fails_before_calling_NSX - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet error with invalid IPBlock name",
+  "scenario": "create_or_update_subnet_error_invalid_ipblock"
+ },
+ "payload": "invalid IPBlock name \"invalid block with space\": must not be empty or contain spaces, tabs, or newlines"
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_Errors/excessive_labels_exceed_max_tags_limit - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet error when tags exceed limit",
+  "scenario": "create_or_update_subnet_error_excessive_tags"
+ },
+ "payload": "tags cannot exceed maximum size 26, tags length: 30"
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_AddressMerging - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet dual-stack address and gateway merging",
+  "scenario": "create_or_update_subnet_address_merging"
+ },
+ "payload": {
+  "AccessMode": "Public",
+  "AdvancedConfig": {
+   "DhcpServerAddresses": [
+    "10.0.0.2",
+    "2001:db8::2"
+   ],
+   "GatewayAddresses": [
+    "10.0.0.1",
+    "2001:db8::1"
+   ],
+   "StaticIpAllocation": {
+    "Enabled": false
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "Id": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "IpAddressType": "IPV4_IPV6",
+  "IpAddresses": [
+   "10.0.0.0/24",
+   "2001:db8::/64"
+  ],
+  "Ipv6PrefixLength": 64,
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_SERVER"
+  },
+  "SubnetDhcpv6Config": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet1"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_DHCPUpdate - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet DHCP and DHCPv6 dynamic configuration update",
+  "scenario": "create_or_update_subnet_dhcp_update"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "StaticIpAllocation": {
+    "Enabled": false
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "Id": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "IpAddressType": "IPV4_IPV6",
+  "IpAddresses": [
+   "10.0.0.0/24",
+   "2001:db8::/64"
+  ],
+  "Ipv4SubnetSize": 24,
+  "Ipv6PrefixLength": 64,
+  "SubnetDhcpConfig": {
+   "DhcpServerAdditionalConfig": {
+    "ReservedIpRanges": [
+     "10.0.0.10-10.0.0.50"
+    ]
+   },
+   "Mode": "DHCP_SERVER"
+  },
+  "SubnetDhcpv6Config": {
+   "Dhcpv6ServerAdditionalConfig": {
+    "ReservedIpRanges": [
+     "2001:db8::10-2001:db8::50"
+    ]
+   },
+   "Mode": "DHCP_SERVER"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet1"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_StaticIPAllocationUpdate - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet StaticIPAllocation pool ranges dynamic update",
+  "scenario": "create_or_update_subnet_static_ip_allocation_update"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "StaticIpAllocation": {
+    "Enabled": true,
+    "PoolRanges": [
+     "10.0.0.10-10.0.0.100"
+    ]
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "Id": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "IpAddressType": "IPV4",
+  "IpAddresses": [
+   "10.0.0.0/24"
+  ],
+  "Ipv4SubnetSize": 24,
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet1"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_IpBlocksUpdate - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet IP blocks update and type conversion",
+  "scenario": "create_or_update_subnet_ipblocks_update"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "",
+  "DisplayName": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "Id": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "IpAddressType": "IPV4_IPV6",
+  "IpBlocks": [
+   "/infra/ip-blocks/ipblock-v4",
+   "/infra/ip-blocks/ipblock-v6"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "SubnetDhcpv6Config": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet1"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
+
+[TestSubnetService_CreateOrUpdateSubnet_IpBlocksPreserved - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify CreateOrUpdateSubnet IP blocks preserved on update",
+  "scenario": "create_or_update_subnet_ipblocks_preserved"
+ },
+ "payload": {
+  "AccessMode": "",
+  "AdvancedConfig": {
+   "StaticIpAllocation": {
+    "Enabled": true
+   }
+  },
+  "Description": "updated description",
+  "DisplayName": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "Id": "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf",
+  "IpAddressType": "IPV4",
+  "IpBlocks": [
+   "/infra/ip-blocks/ipblock-v4"
+  ],
+  "SubnetDhcpConfig": {
+   "Mode": "DHCP_DEACTIVATED"
+  },
+  "Tags": [
+   {
+    "Scope": "nsx-op/cluster",
+    "Tag": "k8scl-one:test"
+   },
+   {
+    "Scope": "nsx-op/version",
+    "Tag": "1.0.0"
+   },
+   {
+    "Scope": "nsx-op/subnet_name",
+    "Tag": "subnet1"
+   },
+   {
+    "Scope": "nsx-op/subnet_uid",
+    "Tag": "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+   },
+   {
+    "Scope": "nsx-op/namespace_uid",
+    "Tag": "ns1"
+   }
+  ]
+ }
+}
+---
