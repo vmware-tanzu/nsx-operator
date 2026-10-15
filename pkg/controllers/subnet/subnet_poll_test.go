@@ -858,6 +858,96 @@ func TestPollAllSharedSubnets(t *testing.T) {
 	}
 }
 
+func TestPollAllSharedSubnetsConcurrentRace(t *testing.T) {
+	// Create subnet CRs
+	var subnetCRs []client.Object
+	for i := 0; i < 5; i++ {
+		subnetCR := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("test-subnet-%d", i),
+				Namespace: "default",
+			},
+		}
+		subnetCRs = append(subnetCRs, subnetCR)
+	}
+
+	r := createFakeSubnetReconciler(subnetCRs)
+	r.SubnetService.NSXSubnetCache = make(map[string]struct {
+		Subnet     *model.VpcSubnet
+		StatusList []model.VpcSubnetStatus
+	})
+
+	for i := 0; i < 5; i++ {
+		resKey := fmt.Sprintf("project1:vpc1:subnet-%d", i)
+		r.SubnetService.AddSharedSubnetToResourceMap(resKey, types.NamespacedName{
+			Namespace: "default",
+			Name:      fmt.Sprintf("test-subnet-%d", i),
+		})
+	}
+
+	// Mock GetNSXSubnetByAssociatedResource to simulate slight network latency
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource",
+		func(_ *subnetservice.SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+			time.Sleep(2 * time.Millisecond)
+			return &model.VpcSubnet{
+				Id:   common.String("subnet-id-" + associatedResource),
+				Path: common.String("/projects/project1/vpcs/vpc1/subnets/" + associatedResource),
+			}, nil
+		})
+	defer patches.Reset()
+
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus",
+		func(_ *subnetservice.SubnetService, nsxSubnet *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+			time.Sleep(2 * time.Millisecond)
+			return []model.VpcSubnetStatus{
+				{NetworkAddress: common.String("10.0.0.0/24")},
+			}, nil
+		})
+
+	patches.ApplyPrivateMethod(reflect.TypeOf(r), "enqueueSubnetForReconciliation",
+		func(_ *SubnetReconciler, ctx context.Context, namespacedName types.NamespacedName) {
+		})
+
+	var subnetportService *subnetport.SubnetPortService
+	patches.ApplyMethod(reflect.TypeOf(subnetportService), "DeletePortCount",
+		func(_ common.SubnetPortServiceProvider, subnetPath string) {})
+
+	stopWriter := make(chan struct{})
+	writerDone := make(chan struct{})
+
+	// Concurrently write to SharedSubnetResourceMap while pollAllSharedSubnets is running
+	go func() {
+		defer close(writerDone)
+		i := 0
+		for {
+			select {
+			case <-stopWriter:
+				return
+			default:
+				resKey := fmt.Sprintf("project1:vpc1:subnet-%d", i%10)
+				nn := types.NamespacedName{Namespace: "default", Name: fmt.Sprintf("subnet-%d", i)}
+				if i%2 == 0 {
+					r.SubnetService.AddSharedSubnetToResourceMap(resKey, nn)
+				} else {
+					r.SubnetService.RemoveSharedSubnetFromResourceMap(resKey, nn)
+				}
+				i++
+				time.Sleep(500 * time.Microsecond)
+			}
+		}
+	}()
+
+	// Run pollAllSharedSubnets multiple times concurrently with the writer
+	for iter := 0; iter < 5; iter++ {
+		assert.NotPanics(t, func() {
+			r.pollAllSharedSubnets()
+		})
+	}
+
+	close(stopWriter)
+	<-writerDone
+}
+
 func TestUpdateSharedSubnetWithError(t *testing.T) {
 	// This test verifies that updateSharedSubnetWithError correctly handles different subnet states
 
