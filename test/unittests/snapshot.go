@@ -129,47 +129,58 @@ func sanitize(input interface{}) (interface{}, error) {
 func maskFields(val interface{}) interface{} {
 	switch m := val.(type) {
 	case map[string]interface{}:
+		result := make(map[string]interface{})
 		for k, v := range m {
+			// Ignore null fields when persisting snapshots
+			if v == nil {
+				continue
+			}
+
 			// Identify dynamic fields to mask
 			switch strings.ToLower(k) {
 			case "uid":
 				if s, ok := v.(string); ok {
 					if s != "" {
-						m[k] = "MASKED_UID"
+						result[k] = "MASKED_UID"
+					} else {
+						result[k] = s
 					}
 				} else {
-					m[k] = maskFields(v)
+					result[k] = maskFields(v)
 				}
 			case "resourceversion":
 				if s, ok := v.(string); ok {
 					if s != "" {
-						m[k] = "MASKED_RESOURCE_VERSION"
+						result[k] = "MASKED_RESOURCE_VERSION"
+					} else {
+						result[k] = s
 					}
 				} else {
-					m[k] = maskFields(v)
+					result[k] = maskFields(v)
 				}
 			case "creationtimestamp", "timestamp", "deletiontimestamp", "lasttransitiontime", "lastupdatetime", "lastheartbeattime":
 				if s, ok := v.(string); ok {
 					if s != "" {
-						m[k] = "MASKED_TIMESTAMP"
+						result[k] = "MASKED_TIMESTAMP"
+					} else {
+						result[k] = s
 					}
 				} else {
-					m[k] = maskFields(v)
+					result[k] = maskFields(v)
 				}
 			case "managedfields":
-				if v != nil {
-					m[k] = "MASKED_MANAGED_FIELDS"
-				}
+				result[k] = "MASKED_MANAGED_FIELDS"
 			default:
-				m[k] = maskFields(v)
+				result[k] = maskFields(v)
 			}
 		}
-		return m
+		return result
 	case []interface{}:
+		result := make([]interface{}, len(m))
 		for i, v := range m {
-			m[i] = maskFields(v)
+			result[i] = maskFields(v)
 		}
-		return m
+		return result
 	default:
 		return val
 	}
