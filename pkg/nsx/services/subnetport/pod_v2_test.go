@@ -54,6 +54,7 @@ func TestBuildPodSubnetPortValidatesOwnerBeforeStatefulSetReuse(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, *current.Id, *built.Id)
 	require.Equal(t, string(pod.UID), *built.Attachment.AppId)
+	require.Equal(t, common.String("esx-id"), built.Attachment.ContextId)
 	for scope, value := range map[string]string{
 		common.TagScopeNamespace: "ns", common.TagScopeNamespaceUID: "namespace-uid",
 		common.TagScopePodName: pod.Name, common.TagScopePodUID: string(pod.UID),
@@ -70,4 +71,10 @@ func TestBuildPodSubnetPortValidatesOwnerBeforeStatefulSetReuse(t *testing.T) {
 	}
 	require.Empty(t, nsxutil.FindTag(built.Tags, common.TagScopeVMNamespace))
 	require.Empty(t, nsxutil.FindTag(built.Tags, common.TagScopeVMNamespaceUID))
+
+	// Without a transport node, keep the Pod identity but omit the context ID.
+	built, err = svc.buildSubnetPort(sp, &model.VpcSubnet{Path: &path}, "", nil, false, false, v1alpha1.IPAddressTypeIPv4)
+	require.NoError(t, err)
+	require.Nil(t, built.Attachment.ContextId)
+	require.Equal(t, common.String(string(pod.UID)), built.Attachment.AppId)
 }

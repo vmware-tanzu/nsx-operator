@@ -251,7 +251,9 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	}
 	if appId != "" {
 		nsxSubnetPort.Attachment.AppId = &appId
-		nsxSubnetPort.Attachment.ContextId = &contextID
+		if contextID != "" {
+			nsxSubnetPort.Attachment.ContextId = &contextID
+		}
 	}
 	if len(addressBindings) > 0 {
 		nsxSubnetPort.AddressBindings = addressBindings
