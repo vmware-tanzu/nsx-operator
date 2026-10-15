@@ -379,7 +379,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 					return err != nil
 				}, func() error {
-					return common.SetReconfigureNicStatus(r.Client, ctx, pod)
+					return common.SetReconfigureNicStatus(r.Client, reader, ctx, pod)
 				})
 			}
 		}

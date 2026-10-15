@@ -294,7 +294,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 			name: "RestorePod",
 			prepareFunc: func(t *testing.T, r *PodReconciler) *gomonkey.Patches {
 				k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
-				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(2).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 					podCR := obj.(*v1.Pod)
 					podCR.Spec.NodeName = "node-1"
 					return nil

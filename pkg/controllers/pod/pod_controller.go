@@ -276,11 +276,15 @@ func (r *PodReconciler) reconcileLegacy(ctx context.Context, req ctrl.Request, p
 		r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
 		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 			// Update restore status on Pod to notify Spherelet for NSX version < 9.2
+			reader := client.Reader(r.Client)
+			if r.APIReader != nil {
+				reader = r.APIReader
+			}
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
 				log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 				return err != nil
 			}, func() error {
-				return common.SetReconfigureNicStatus(r.Client, ctx, pod)
+				return common.SetReconfigureNicStatus(r.Client, reader, ctx, pod)
 			})
 		}
 	} else {

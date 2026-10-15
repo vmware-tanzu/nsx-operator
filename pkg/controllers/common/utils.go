@@ -487,7 +487,15 @@ func UpdateReconfigureNicAnnotation(client k8sclient.Client, ctx context.Context
 }
 
 // SetReconfigureNicStatus sets PodNetworkReconfigRequired condition to true on Pod to inform spherelet the SubnetPort is restored with another vif ID.
-func SetReconfigureNicStatus(client k8sclient.Client, ctx context.Context, pod *v1.Pod) error {
+func SetReconfigureNicStatus(client k8sclient.Client, reader k8sclient.Reader, ctx context.Context, pod *v1.Pod) error {
+	// Each retry must start from persisted state, not a Pod mutated by a failed update.
+	latestPod := &v1.Pod{}
+	if err := reader.Get(ctx, k8sclient.ObjectKeyFromObject(pod), latestPod); err != nil {
+		return err
+	}
+	if latestPod.UID != pod.UID {
+		return fmt.Errorf("Pod %s/%s UID changed from %s to %s", pod.Namespace, pod.Name, pod.UID, latestPod.UID)
+	}
 	newConditions := []v1.PodCondition{
 		{
 			Type:               v1.PodConditionType("PodNetworkReconfigRequired"),
@@ -496,7 +504,7 @@ func SetReconfigureNicStatus(client k8sclient.Client, ctx context.Context, pod *
 			LastTransitionTime: metav1.Now(),
 		},
 	}
-	return UpdatePodStatusConditions(client, ctx, pod, newConditions)
+	return UpdatePodStatusConditions(client, ctx, latestPod, newConditions)
 }
 
 func UpdatePodStatusConditions(client k8sclient.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
