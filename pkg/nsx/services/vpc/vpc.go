@@ -389,7 +389,7 @@ func (s *VPCService) GetAVISubnetInfo(vpc model.Vpc) (string, string, error) {
 
 	if len(statusList.Results) == 0 {
 		log.Info("AVI subnet status not found", "VPC", vpc.Id)
-		return "", "", err
+		return "", "", fmt.Errorf("AVI subnet status is not ready for VPC %s", info.VPCID)
 	}
 
 	if statusList.Results[0].NetworkAddress == nil {
@@ -1022,7 +1022,7 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	ncName := common.SystemVPCNetworkConfigurationName
 	netConfig, found, err := s.GetVPCNetworkConfig(ncName)
 	if err != nil {
-		return "", err
+		return NoneLB, err
 	}
 	if !found {
 		log.Info("Get LB provider", "No system NetworkConfig found", ncName)
@@ -1031,45 +1031,90 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 
 	vpcConnectivityProfile, err := s.GetVpcConnectivityProfileWithRetry(netConfig)
 	if err != nil {
-		return "", err
+		return NoneLB, err
 	}
 
 	// NSX LB can work when Service gateway is enabled
 	serviceGatewayEnable := IsServiceGatewayEnabled(vpcConnectivityProfile)
-	globalLbProvider = s.getLBProvider(serviceGatewayEnable)
+	provider, err := s.getLBProvider(netConfig, serviceGatewayEnable)
+	if err != nil {
+		log.Error(err, "Failed to resolve LB provider, will requeue reconcile")
+		return NoneLB, err
+	}
+	globalLbProvider = provider
 	log.Info("Get LB provider", "provider", globalLbProvider)
 	return globalLbProvider, nil
 }
 
-func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
-	// if no Alb endpoint found, return nsx-lb
-	// if found, and nsx lbs found, return nsx-lb
-	// else return avi
+func (s *VPCService) checkALBEndpoint() (bool, error) {
+	probeErr := GetAlbEndpoint(s.NSXClient.Cluster)
+	if probeErr == nil {
+		return true, nil
+	}
+
+	// HTTP 404 indicates the ALB endpoint is absent. However, if NSX status is DOWN,
+	// the 404 may be from an unready gateway or transient state; recheck once healthy.
+	if errors.Is(probeErr, nsxutil.HttpNotFoundError) {
+		if s.NSXClient.Cluster.Health() == nsx.RED {
+			return false, fmt.Errorf("NSX cluster status is DOWN, will recheck ALB endpoint once healthy")
+		}
+		return false, nil
+	}
+
+	// All other errors (TCP timeouts, TLS handshakes, HTTP 5xx, connection resets)
+	// are treated as transient failures. Return error to trigger controller requeue.
+	return false, probeErr
+}
+
+func (s *VPCService) getLBProvider(netConfig *v1alpha1.VPCNetworkConfiguration, edgeEnable bool) (LBProvider, error) {
 	log.Info("Checking lb provider")
+
+	// 1. If Avi was previously used, persist Avi LB provider (never switch existing Avi cluster to NSX LB)
+	if s.isAviPreviouslyUsed(netConfig) {
+		log.Info("Avi LB was previously in use, returning Avi LB provider")
+		return AVILB, nil
+	}
+
+	// 2. Fresh cluster / Avi not previously used: native NSX LB service already exists
+	if len(s.LbsStore.List()) > 0 {
+		log.Info("Native NSX LB service found and Avi was not previously in use, returning NSX LB")
+		if edgeEnable {
+			return NSXLB, nil
+		}
+		return NoneLB, nil
+	}
+
+	// 3. Fresh cluster with UseAVILoadBalancer: verify ALB endpoint on NSX
 	if s.Service.NSXConfig.UseAVILoadBalancer {
-		albEndpointFound := false
-		if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
-			if err == nil {
-				return false
-			}
-			if errors.Is(err, nsxutil.HttpCommonError) {
-				return true
-			} else {
-				return false
-			}
-		}, func() error {
-			return GetAlbEndpoint(s.Service.NSXClient.Cluster)
-		}); err == nil {
-			albEndpointFound = true
+		albEndpointFound, err := s.checkALBEndpoint()
+		if err != nil {
+			log.Warn("Transient error probing ALB endpoint on NSX. Requeuing...", "err", err)
+			return NoneLB, err
 		}
-		if albEndpointFound && len(s.LbsStore.List()) == 0 {
-			return AVILB
+		if albEndpointFound {
+			return AVILB, nil
 		}
+		log.Info("ALB endpoint not found on NSX and Avi was not previously used, falling back to NSX LB check")
 	}
+
+	// 4. Default to NSX LB if edge / service gateway is enabled
 	if edgeEnable {
-		return NSXLB
+		return NSXLB, nil
 	}
-	return NoneLB
+	return NoneLB, nil
+}
+
+func (s *VPCService) isAviPreviouslyUsed(nc *v1alpha1.VPCNetworkConfiguration) bool {
+	if nc == nil {
+		return false
+	}
+	for _, vpcInfo := range nc.Status.VPCs {
+		if vpcInfo.AVISESubnetPath != "" {
+			log.Info("Found existing system VPCNetworkConfiguration with AVI SE subnet path", "path", vpcInfo.AVISESubnetPath)
+			return true
+		}
+	}
+	return false
 }
 
 func (s *VPCService) GetNetworkStackFromVPCPath(vpcPath string) (v1alpha1.NetworkStackType, error) {
