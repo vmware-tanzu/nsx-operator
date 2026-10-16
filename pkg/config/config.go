@@ -152,6 +152,9 @@ type K8sConfig struct {
 	// Expected values: "IPv4" (default), "IPv6", or "DualStack".
 	// Use GetIPAddressType() to obtain the canonical v1alpha1.IPAddressType.
 	IPFamily string `ini:"ip_family"`
+	// PodV2 controls whether Pod 2.0 (decoupled CR-based) path is enabled.
+	// When omitted (nil), treated as false; only an explicit true enables the enhancement path.
+	PodV2 *bool `ini:"pod_v2"`
 }
 
 // GetIPAddressType parses the raw IPFamily string and returns the canonical
@@ -441,6 +444,15 @@ func (nsxConfig *NsxConfig) VpcWcpEnhanceEnabled() bool {
 		return false
 	}
 	return *nsxConfig.VpcWcpEnhance
+}
+
+// PodV2Enabled reports whether Pod 2.0 is allowed by config.
+// Missing or nil key defaults to false; only an explicit true enables.
+func (k8sConfig *K8sConfig) PodV2Enabled() bool {
+	if k8sConfig == nil || k8sConfig.PodV2 == nil {
+		return false
+	}
+	return *k8sConfig.PodV2
 }
 
 // RestoreVifEnabled reports whether restoring SubnetPort vif is supported by config.

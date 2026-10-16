@@ -47,3 +47,14 @@ func RestoreVifFeatureEnabled(client *Client, operatorConfig *config.NSXOperator
 	}
 	return operatorConfig.NsxConfig.RestoreVifEnabled()
 }
+
+// PodV2FeatureEnabled is true when operator config sets pod_v2 to true.
+func PodV2FeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
+	if client == nil {
+		return false
+	}
+	if operatorConfig == nil || operatorConfig.K8sConfig == nil {
+		return false
+	}
+	return operatorConfig.K8sConfig.PodV2Enabled()
+}

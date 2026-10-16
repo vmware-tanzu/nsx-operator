@@ -407,6 +407,9 @@ func (client *Client) resetNSXVersionFeatureCache() {
 }
 
 func (client *Client) NSXCheckVersion(feature int) bool {
+	if client == nil || client.NSXVerChecker.cluster == nil {
+		return false
+	}
 	if client.NSXVerChecker.featureSupported[feature] {
 		return true
 	}
