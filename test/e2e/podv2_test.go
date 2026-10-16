@@ -285,6 +285,15 @@ func (s *p2Suite) hostCase(t *testing.T) {
 	unchanged := s.port(t, p)
 	require.Equal(t, port.Attachment.ContextId, unchanged.Attachment.ContextId)
 	s.hostAnnotation(t, c, "")
+	s.wait(t, "valid host fallback restores Ready=True", func(ctx context.Context) (bool, string, error) {
+		x, e := testData.crdClientset.CrdV1alpha1().SubnetPorts(c.Namespace).Get(ctx, c.Name, metav1.GetOptions{})
+		if e != nil {
+			return false, c.Name, e
+		}
+		return ready(x.Status.Conditions, corev1.ConditionTrue), fmt.Sprintf("conditions=%+v", x.Status.Conditions), nil
+	})
+	c = s.cr(t, p)
+	port = s.port(t, p)
 	s.sameIdentity(t, p, c, port)
 	s.removePod(t, p)
 	s.noPort(t, string(p.UID))

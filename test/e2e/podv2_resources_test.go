@@ -225,7 +225,10 @@ func (s *p2Suite) verify(t *testing.T, p *corev1.Pod, c *api.SubnetPort, port *m
 func (s *p2Suite) removePod(t *testing.T, p *corev1.Pod) {
 	t.Helper()
 	s.step(t, "delete Pod "+p.Name)
-	e := testData.clientset.CoreV1().Pods(p.Namespace).Delete(s.ctx, p.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &p.UID}})
+	e := testData.clientset.CoreV1().Pods(p.Namespace).Delete(s.ctx, p.Name, metav1.DeleteOptions{
+		Preconditions:      &metav1.Preconditions{UID: &p.UID},
+		GracePeriodSeconds: ptr.To[int64](0),
+	})
 	if e != nil && !apierrors.IsNotFound(e) {
 		require.NoError(t, e)
 	}
