@@ -64,18 +64,18 @@ func (mr *MockZonesClientMockRecorder) Get(arg0, arg1, arg2, arg3 interface{}) *
 }
 
 // List mocks base method.
-func (m *MockZonesClient) List(arg0, arg1, arg2 string, arg3 *string, arg4 *bool, arg5 *string, arg6 *int64, arg7 *bool, arg8 *string) (model.DnsZoneListResult, error) {
+func (m *MockZonesClient) List(arg0, arg1, arg2 string, arg3 *string, arg4 *bool, arg5 *bool, arg6 *string, arg7 *int64, arg8 *bool, arg9 *string) (model.DnsZoneListResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 	ret0, _ := ret[0].(model.DnsZoneListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockZonesClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 interface{}) *gomock.Call {
+func (mr *MockZonesClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockZonesClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockZonesClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 }
 
 // Patch mocks base method.

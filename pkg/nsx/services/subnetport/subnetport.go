@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"sync"
 	"time"
@@ -522,6 +523,8 @@ func (service *SubnetPortService) ResetSubnetTotalIP(path string) {
 	defer info.lock.Unlock()
 	info.totalStaticIP = 0
 	info.totalDhcpIP = 0
+	info.totalStaticIPv6 = 0
+	info.totalDhcpIPv6 = nil
 }
 
 func (service *SubnetPortService) ListSubnetPortByStsName(ns string, stsName string) []*model.VpcSubnetPort {
@@ -657,7 +660,7 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 	} else if dhcpMode == model.SubnetDhcpConfig_MODE_SERVER {
 		// For DHCP Server mode Subnet, get total IPs from DHCP IP Pool from NSX each time
 		// since user might update reservedIPRanges for the subnet and it impacts the DHCP Pool size
-		dhcpServerStats, err := service.NSXClient.DhcpServerConfigStatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil)
+		dhcpServerStats, err := service.NSXClient.DhcpServerConfigStatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			log.Error(err, "Failed to get Subnet dhcp-server-config stats", "Subnet", *subnet.Path)
 			return false, err
@@ -721,14 +724,14 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 		return true, nil
 	}
 
-	var allocatedIPNumberIPv6 int
 	if !useStaticPool {
+		allocatedIPNumberIPv6 := big.NewInt(0)
 		// DHCPv6 pool stats need NSX's VpcIpv6 feature; on older versions DhcpIpv6 stays nil.
 		if !service.NSXClient.NSXCheckVersion(nsx.IPv6) {
 			log.Info("DHCPv6 pool statistics unavailable on this NSX version; allowing allocation", "Subnet", *subnet.Path)
 			return true, nil
 		}
-		dhcpServerStats, err := service.NSXClient.DhcpServerConfigStatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil)
+		dhcpServerStats, err := service.NSXClient.DhcpServerConfigStatsClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, nil, nil, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			log.Error(err, "Failed to get Subnet dhcp-server-config stats for IPv6", "Subnet", *subnet.Path)
 			return false, err
@@ -738,10 +741,14 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 			return true, nil
 		}
 		if dhcpServerStats.DhcpIpv6.IpPoolStats[0].PoolSize != nil {
-			info.totalDhcpIPv6 = int(*dhcpServerStats.DhcpIpv6.IpPoolStats[0].PoolSize)
+			if poolSize, ok := new(big.Int).SetString(*dhcpServerStats.DhcpIpv6.IpPoolStats[0].PoolSize, 10); ok {
+				info.totalDhcpIPv6 = poolSize
+			}
 		}
 		if sharedSubnet && dhcpServerStats.DhcpIpv6.IpPoolStats[0].AllocatedNumber != nil {
-			allocatedIPNumberIPv6 = int(*dhcpServerStats.DhcpIpv6.IpPoolStats[0].AllocatedNumber)
+			if allocated, ok := new(big.Int).SetString(*dhcpServerStats.DhcpIpv6.IpPoolStats[0].AllocatedNumber, 10); ok {
+				allocatedIPNumberIPv6 = allocated
+			}
 		}
 
 		if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
@@ -749,13 +756,23 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 		}
 
 		existingIPCount := service.countExistingIPsForPool(*subnet.Path, false, true)
-		if sharedSubnet {
-			existingIPCount = max(existingIPCount, allocatedIPNumberIPv6)
+		existingBig := big.NewInt(int64(existingIPCount))
+		if sharedSubnet && allocatedIPNumberIPv6.Cmp(existingBig) > 0 {
+			existingBig = allocatedIPNumberIPv6
 		}
 
-		return info.dirtyDhcpCountIPv6+existingIPCount+ipCount <= info.totalDhcpIPv6, nil
+		required := new(big.Int).SetInt64(int64(info.dirtyDhcpCountIPv6 + ipCount))
+		required.Add(required, existingBig)
+
+		total := info.totalDhcpIPv6
+		if total == nil {
+			total = big.NewInt(0)
+		}
+
+		return required.Cmp(total) <= 0, nil
 	}
 
+	var allocatedIPNumberIPv6 int
 	if !isNewEntry || info.totalStaticIPv6 == 0 || sharedSubnet {
 		staticIPPoolIPv6, err := service.NSXClient.IPPoolClient.Get(subnetInfo.OrgID, subnetInfo.ProjectID, subnetInfo.VPCID, subnetInfo.ID, "static-ipv6-default")
 		if err != nil {

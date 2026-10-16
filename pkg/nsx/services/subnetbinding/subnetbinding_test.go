@@ -273,7 +273,7 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 					}}
 				expOrg, _ := wrapOrgRoot(orgConfig)
 				mockOrgRootClient.EXPECT().Patch(&orgRootMatcher{expOrg}, &enforceRevisionCheckParam).Return(nil)
-				mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
+				mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil, nil).
 					Return(model.SubnetConnectionBindingMapListResult{
 						ResultCount: &count,
 						Results: []model.SubnetConnectionBindingMap{
@@ -300,7 +300,7 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 					}}
 				expOrg, _ := wrapOrgRoot(orgConfig)
 				mockOrgRootClient.EXPECT().Patch(&orgRootMatcher{expOrg}, &enforceRevisionCheckParam).Return(nil)
-				mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
+				mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil, nil).
 					Return(model.SubnetConnectionBindingMapListResult{
 						ResultCount: &count,
 						Results: []model.SubnetConnectionBindingMap{
@@ -322,7 +322,7 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 			name: "failed to list from NSX",
 			prepareFunc: func() {
 				mockOrgRootClient.EXPECT().Patch(gomock.Any(), &enforceRevisionCheckParam).Return(nil)
-				mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
+				mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil, nil).
 					Return(model.SubnetConnectionBindingMapListResult{}, nsxutil.NewNSXApiError(&model.ApiError{ErrorMessage: String("fake-error")}, stderrors.ErrorType_ERROR))
 			},
 			expErr:                "nsx error code: 0, message: fake-error",
@@ -335,12 +335,12 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 				count1 := int64(1)
 				mockOrgRootClient.EXPECT().Patch(gomock.Any(), &enforceRevisionCheckParam).Return(nil)
 				gomock.InOrder(
-					mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
+					mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil, nil).
 						Return(model.SubnetConnectionBindingMapListResult{
 							ResultCount: &count0,
 							Results:     []model.SubnetConnectionBindingMap{},
 						}, nil),
-					mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil).
+					mockSubnetBindingClient.EXPECT().List("default", "default", "vpc1", "subnet1", nil, nil, nil, nil, nil, nil, nil).
 						Return(model.SubnetConnectionBindingMapListResult{
 							ResultCount: &count1,
 							Results: []model.SubnetConnectionBindingMap{

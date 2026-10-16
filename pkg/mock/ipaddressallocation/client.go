@@ -64,19 +64,19 @@ func (mr *MockIPAddressAllocationClientMockRecorder) Get(arg0, arg1, arg2, arg3 
 }
 
 // List mocks base method.
-func (m *MockIPAddressAllocationClient) List(arg0, arg1, arg2 string, arg3 *string, arg4 *bool, arg5 *string, arg6 *int64, arg7 *bool,
-	arg8 *string) (model.VpcIpAddressAllocationListResult, error) {
+func (m *MockIPAddressAllocationClient) List(arg0, arg1, arg2 string, arg3 *string, arg4 *bool, arg5 *bool, arg6 *string, arg7 *int64, arg8 *bool,
+	arg9 *string) (model.VpcIpAddressAllocationListResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 	ret0, _ := ret[0].(model.VpcIpAddressAllocationListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockIPAddressAllocationClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 interface{}) *gomock.Call {
+func (mr *MockIPAddressAllocationClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockIPAddressAllocationClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockIPAddressAllocationClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 }
 
 // Patch mocks base method.
