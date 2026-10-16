@@ -24,6 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -182,7 +183,8 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 			},
 		}
 
-		if err := ctrl.SetControllerReference(pod, subnetPort, r.Scheme); err != nil {
+		// Keep cascading cleanup without blocking foreground Pod deletion on the CR.
+		if err := ctrl.SetControllerReference(pod, subnetPort, r.Scheme, controllerutil.WithBlockOwnerDeletion(false)); err != nil {
 			log.Error(err, "Failed to set ControllerReference on SubnetPort CR")
 			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
 			return common.ResultNormal, err

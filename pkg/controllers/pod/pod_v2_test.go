@@ -94,6 +94,12 @@ func TestPodV2StaleCacheDoesNotDuplicateSubnetPorts(t *testing.T) {
 	if len(ports.Items) != 1 {
 		t.Fatalf("same Pod must own one SubnetPort, got %d after two reconciles against stale List cache", len(ports.Items))
 	}
+	owner := metav1.GetControllerOf(&ports.Items[0])
+	require.NotNil(t, owner)
+	require.Equal(t, "Pod", owner.Kind)
+	require.Equal(t, req.Name, owner.Name)
+	require.Equal(t, types.UID("12345678-1234-1234-1234-123456789abc"), owner.UID)
+	require.Equal(t, servicecommon.Bool(false), owner.BlockOwnerDeletion)
 }
 
 func TestPodV2RequestsStaticIPAllocation(t *testing.T) {
