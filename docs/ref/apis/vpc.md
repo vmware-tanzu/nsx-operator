@@ -475,19 +475,19 @@ _Appears in:_
 
 
 
-NetworkInfo is used to report the network information for a namespace.
+NetworkInfo is used to report the network information for a Namespace.
 
 
 
 
 
-| Field | Description | Default | Validation |
-| --- | --- | --- | --- |
-| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1` | | |
-| `kind` _string_ | `NetworkInfo` | | |
-| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
-| `vpcs` _[VPCState](#vpcstate) array_ |  |  |  |
-| `allowedDNSDomains` _string array_ | AllowedDNSDomains specifies the permitted DNS domain names in the namespace. |  |  |
+| Field | Description                                                                                            | Default | Validation |
+| --- |--------------------------------------------------------------------------------------------------------| --- | --- |
+| `apiVersion` _string_ | `crd.nsx.vmware.com/v1alpha1`                                                                          | | |
+| `kind` _string_ | `NetworkInfo`                                                                                          | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`.                                        |  |  |
+| `vpcs` _[VPCState](#vpcstate) array_ |                                                                                                        |  |  |
+| `allowedDNSRecordDomains` _string array_ | AllowedDNSRecordDomains specifies the permitted domain names for DNS records created in the Namespace. |  |  |
 
 
 #### NetworkInterfaceConfig

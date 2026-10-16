@@ -325,16 +325,16 @@ var predicateFuncsGateway = predicate.Funcs{
 	},
 }
 
-// predicateNetworkInfoAllowedDNSDomainsChanged triggers when NetworkInfo.AllowedDNSDomains changes on update, or on create when domains are non-empty.
+// predicateNetworkInfoAllowedDNSRecordDomainsChanged triggers when NetworkInfo.AllowedDNSRecordDomains changes on update, or on create when domains are non-empty.
 // Requeue the K8s Gateway resources to ensure the latest allowed DNS domains are used to validate the FQDNs claimed in the Gateway resources.
-func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
+func predicateNetworkInfoAllowedDNSRecordDomainsChanged() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			obj, ok := e.Object.(*v1alpha1.NetworkInfo)
 			if !ok {
 				return false
 			}
-			return len(obj.AllowedDNSDomains) > 0
+			return len(obj.AllowedDNSRecordDomains) > 0
 		},
 		DeleteFunc: func(event.DeleteEvent) bool {
 			return false
@@ -345,7 +345,7 @@ func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			return !slices.Equal(oldNI.AllowedDNSDomains, newNI.AllowedDNSDomains)
+			return !slices.Equal(oldNI.AllowedDNSRecordDomains, newNI.AllowedDNSRecordDomains)
 		},
 		GenericFunc: func(event.GenericEvent) bool {
 			return false

@@ -559,7 +559,7 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		NetworkStack:            networkStack,
 	}
 
-	var allowedDNSDomains []string
+	var allowedDNSRecordDomains []string
 	if r.DNSRecordService != nil && len(nc.Spec.DNSZones) > 0 {
 		zoneMap, zoneSyncErr := r.DNSRecordService.SyncDNSZonesByVpcNetworkConfig(nc)
 		if zoneSyncErr != nil {
@@ -571,13 +571,13 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if domainName == "" {
 				continue
 			}
-			allowedDNSDomains = append(allowedDNSDomains, domainName)
+			allowedDNSRecordDomains = append(allowedDNSRecordDomains, domainName)
 		}
 	}
 
 	// AKO needs to know the AVI subnet path created by NSX
 	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, aviSubnetPath, nsxLBSPath, *createdVpc.Path)
-	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state, allowedDNSDomains)
+	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state, allowedDNSRecordDomains)
 
 	if retryWithSystemVPC {
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, systemNSCondition)

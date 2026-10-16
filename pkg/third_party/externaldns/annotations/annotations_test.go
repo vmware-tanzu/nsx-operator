@@ -43,14 +43,14 @@ func TestResolveLegacyAnnotations(t *testing.T) {
 			annotations: map[string]string{
 				LegacyAnnotationPrefix + "hostname":                "example.org",
 				LegacyAnnotationPrefix + "gateway-hostname-source": "annotation-only",
-				"description":                                      "kept",
+				"description": "kept",
 			},
 			expected: map[string]string{
 				LegacyAnnotationPrefix + "hostname":                "example.org",
 				LegacyAnnotationPrefix + "gateway-hostname-source": "annotation-only",
-				HostnameKey:                                        "example.org",
-				GatewayHostnameSourceKey:                           "annotation-only",
-				"description":                                      "kept",
+				HostnameKey:              "example.org",
+				GatewayHostnameSourceKey: "annotation-only",
+				"description":            "kept",
 			},
 			resolved: true,
 		},
