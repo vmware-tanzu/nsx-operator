@@ -73,8 +73,8 @@ spec:
                   This field is read-only and must not be set in create or update requests.
                 type: string
               recordName:
-                description: RecordName specifies the hostname portion of the FQDN (e.g.,
-                  "api" for "api.coke.com").
+                description: RecordName specifies the hostname portion of the FQDN
+                  (e.g., "api" for "api.coke.com").
                 maxLength: 255
                 type: string
               recordType:

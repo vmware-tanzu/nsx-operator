@@ -305,10 +305,6 @@ _Appears in:_
 | --- | --- |
 | `A` |  |
 | `AAAA` |  |
-| `CNAME` |  |
-| `PTR` |  |
-| `NS` |  |
-| `TXT` |  |
 
 
 #### IPAddressAllocation
