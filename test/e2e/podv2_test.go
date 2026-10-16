@@ -364,6 +364,27 @@ func (s *p2Suite) stateful(t *testing.T) {
 				return e
 			}))
 			s.noPort(t, string(p1.UID))
+			s.wait(t, "ordinal 0 stable and port retained after scaling", func(ctx context.Context) (bool, string, error) {
+				p, e := testData.clientset.CoreV1().Pods(p0.Namespace).Get(ctx, p0.Name, metav1.GetOptions{})
+				if e != nil {
+					return false, "get ordinal 0 Pod", e
+				}
+				if p.DeletionTimestamp != nil {
+					return false, fmt.Sprintf("pod uid=%s terminating", p.UID), nil
+				}
+				cs, e := s.podCRs(ctx, p)
+				if e != nil || len(cs) != 1 || !ready(cs[0].Status.Conditions, corev1.ConditionTrue) {
+					return false, fmt.Sprintf("CRs=%d", len(cs)), e
+				}
+				ps, e := s.ports(common.TagScopePodUID, string(p.UID))
+				if e != nil || len(ps) != 1 || ps[0].Path == nil || *ps[0].Path != *newPort.Path {
+					return false, fmt.Sprintf("matching ports=%d", len(ps)), e
+				}
+				_ = s.rememberPod(p)
+				replacement = p
+				c = cs[0].DeepCopy()
+				return true, "ordinal 0 stable and retained", nil
+			})
 			s.sameIdentity(t, replacement, c, newPort)
 			require.NoError(t, testData.clientset.AppsV1().StatefulSets(sts.Namespace).Delete(s.ctx, sts.Name, metav1.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)}))
 			s.noPort(t, string(replacement.UID))
@@ -401,7 +422,23 @@ func (s *p2Suite) restartCase(t *testing.T) {
 	require.NoError(t, s.stop(s.ctx))
 	require.NoError(t, s.start(s.ctx))
 	require.NoError(t, s.normal(s.ctx))
+
+	// Group CRs by owner UID and NSX ports by Pod UID; check exactly one CR/port per current Pod, with no duplicate fallback-name CRs.
+	allCRs, err := testData.crdClientset.CrdV1alpha1().SubnetPorts(s.namespace()).List(s.ctx, metav1.ListOptions{})
+	require.NoError(t, err)
+	crByPodUID := map[string][]api.SubnetPort{}
+	for _, cr := range allCRs.Items {
+		for _, ref := range cr.OwnerReferences {
+			if ref.Kind == "Pod" {
+				crByPodUID[string(ref.UID)] = append(crByPodUID[string(ref.UID)], cr)
+			}
+		}
+	}
 	for _, p := range pods {
+		require.Len(t, crByPodUID[string(p.UID)], 1, "exactly one CR per current Pod UID")
+		podPorts, e := s.ports(common.TagScopePodUID, string(p.UID))
+		require.NoError(t, e)
+		require.Len(t, podPorts, 1, "exactly one NSX port per current Pod UID")
 		crs = append(crs, s.cr(t, p))
 		ports = append(ports, s.port(t, p))
 	}
@@ -537,11 +574,16 @@ func (s *p2Suite) restoreCase(t *testing.T, legacy, badHost, vif bool) {
 		require.NotEqual(t, attachment, c.Status.Attachment.ID)
 		require.NotEmpty(t, c.Status.Attachment.ID)
 	}
+	require.Equal(t, c.Status.Attachment.ID, *port.Attachment.Id, "CR and NSX port attachment IDs must match")
 	s.verify(t, p, c, port)
 	require.NoError(t, s.force(s.ctx, false))
 	require.NoError(t, s.start(s.ctx))
 	require.NoError(t, s.normal(s.ctx))
-	s.sameIdentity(t, p, c, port)
+	c = s.cr(t, p)
+	port = s.port(t, p)
+	require.Equal(t, c.Status.Attachment.ID, *port.Attachment.Id, "CR and NSX port attachment IDs must match")
+	s.verify(t, p, c, port)
+	s.matchIPs(t, ips, c)
 	// Reconciliation after an additional restart must reuse both identities.
 	require.NoError(t, s.stop(s.ctx))
 	require.NoError(t, s.start(s.ctx))
