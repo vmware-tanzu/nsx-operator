@@ -157,7 +157,7 @@ func createFakeSubnetReconciler(objects []client.Object) *SubnetReconciler {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objects...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithStatusSubresource(&v1alpha1.Subnet{}, &v1alpha1.SubnetPortSetting{}).WithObjects(objects...).Build()
 	service := &vpc.VPCService{
 		Service: common.Service{
 			Client:    fakeClient,
@@ -197,7 +197,8 @@ func createFakeSubnetReconciler(objects []client.Object) *SubnetReconciler {
 
 	return &SubnetReconciler{
 		Client:            fakeClient,
-		Scheme:            fake.NewClientBuilder().Build().Scheme(),
+		APIReader:         fakeClient,
+		Scheme:            newScheme,
 		VPCService:        service,
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
@@ -969,6 +970,10 @@ type MockManager struct {
 }
 
 func (m *MockManager) GetClient() client.Client {
+	return m.client
+}
+
+func (m *MockManager) GetAPIReader() client.Reader {
 	return m.client
 }
 

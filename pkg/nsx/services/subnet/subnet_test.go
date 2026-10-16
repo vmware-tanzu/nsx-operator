@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -18,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +35,7 @@ import (
 	mockOrgRoot "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -2452,6 +2455,126 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 	}
 }
 
+func TestGetSharedSubnetResourceMapSnapshot(t *testing.T) {
+	const associatedResource = "project1:vpc1:subnet1"
+	original := types.NamespacedName{Namespace: "test-ns", Name: "subnet-original"}
+	snapshotOnly := types.NamespacedName{Namespace: "test-ns", Name: "subnet-snapshot"}
+	newShare := types.NamespacedName{Namespace: "test-ns", Name: "subnet-new"}
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			SharedSubnetResourceMap: map[string]sets.Set[types.NamespacedName]{
+				associatedResource: sets.New(original),
+			},
+		},
+	}
+
+	snapshot := service.GetSharedSubnetResourceMapSnapshot()
+	snapshot[associatedResource].Delete(original)
+	snapshot[associatedResource].Insert(snapshotOnly)
+	snapshot["snapshot-only-resource"] = sets.New(snapshotOnly)
+	assert.Equal(t, map[string]sets.Set[types.NamespacedName]{associatedResource: sets.New(original)}, service.GetSharedSubnetResourceMapSnapshot())
+
+	snapshot = service.GetSharedSubnetResourceMapSnapshot()
+	service.AddSharedSubnetToResourceMap(associatedResource, newShare)
+	service.RemoveSharedSubnetFromResourceMap(associatedResource, original)
+	assert.Equal(t, sets.New(original), snapshot[associatedResource], "later store changes must not mutate a returned set")
+	delete(snapshot, associatedResource)
+	assert.Equal(t, sets.New(newShare), service.GetSharedSubnetResourceMapSnapshot()[associatedResource])
+}
+
+func TestGetSharedSubnetResourceMapSnapshotConcurrentUpdates(t *testing.T) {
+	const associatedResource = "project1:vpc1:subnet-stable"
+	stableShare := types.NamespacedName{Namespace: "test-ns", Name: "subnet-stable"}
+	snapshotOnly := types.NamespacedName{Namespace: "test-ns", Name: "subnet-snapshot"}
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			SharedSubnetResourceMap: map[string]sets.Set[types.NamespacedName]{
+				associatedResource: sets.New(stableShare),
+			},
+		},
+	}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for worker := range 4 {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			<-start
+			resource := fmt.Sprintf("project1:vpc1:subnet-%d", worker)
+			share := types.NamespacedName{Namespace: "test-ns", Name: fmt.Sprintf("subnet-%d", worker)}
+			for range 100 {
+				service.AddSharedSubnetToResourceMap(resource, share)
+				service.AddSharedSubnetToResourceMap(associatedResource, share)
+				service.RemoveSharedSubnetFromResourceMap(associatedResource, share)
+				service.RemoveSharedSubnetFromResourceMap(resource, share)
+			}
+		}(worker)
+	}
+	close(start)
+	for range 200 {
+		snapshot := service.GetSharedSubnetResourceMapSnapshot()
+		assert.True(t, snapshot[associatedResource].Has(stableShare))
+		assert.False(t, snapshot[associatedResource].Has(snapshotOnly))
+		snapshot[associatedResource].Insert(snapshotOnly)
+	}
+	wg.Wait()
+	assert.Equal(t, map[string]sets.Set[types.NamespacedName]{associatedResource: sets.New(stableShare)}, service.GetSharedSubnetResourceMapSnapshot())
+}
+
+func TestGetNSXSubnetCacheKeys(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			NSXSubnetCache: make(map[string]struct {
+				Subnet     *model.VpcSubnet
+				StatusList []model.VpcSubnetStatus
+			}),
+		},
+	}
+	service.UpdateNSXSubnetCache("project1:vpc1:subnet1", &model.VpcSubnet{}, nil)
+	service.UpdateNSXSubnetCache("project1:vpc1:subnet2", &model.VpcSubnet{}, nil)
+	keys := service.GetNSXSubnetCacheKeys()
+	assert.ElementsMatch(t, []string{"project1:vpc1:subnet1", "project1:vpc1:subnet2"}, keys)
+	keys[0] = "snapshot-only-resource"
+	assert.ElementsMatch(t, []string{"project1:vpc1:subnet1", "project1:vpc1:subnet2"}, service.GetNSXSubnetCacheKeys())
+
+	keys = service.GetNSXSubnetCacheKeys()
+	service.RemoveSubnetFromCache("project1:vpc1:subnet1", "deleted")
+	service.UpdateNSXSubnetCache("project1:vpc1:subnet3", &model.VpcSubnet{}, nil)
+	assert.ElementsMatch(t, []string{"project1:vpc1:subnet1", "project1:vpc1:subnet2"}, keys)
+	assert.ElementsMatch(t, []string{"project1:vpc1:subnet2", "project1:vpc1:subnet3"}, service.GetNSXSubnetCacheKeys())
+}
+
+func TestRemoveSubnetFromCacheIfUnshared(t *testing.T) {
+	const associatedResource = "project1:vpc1:subnet1"
+	oldShare := types.NamespacedName{Namespace: "test-ns", Name: "subnet-old"}
+	newShare := types.NamespacedName{Namespace: "test-ns", Name: "subnet-new"}
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			NSXSubnetCache: make(map[string]struct {
+				Subnet     *model.VpcSubnet
+				StatusList []model.VpcSubnetStatus
+			}),
+			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+		},
+	}
+	service.UpdateNSXSubnetCache(associatedResource, &model.VpcSubnet{}, nil)
+	service.UpdateNSXSubnetCache("project1:vpc1:subnet2", &model.VpcSubnet{}, nil)
+	service.AddSharedSubnetToResourceMap(associatedResource, oldShare)
+	service.RemoveSharedSubnetFromResourceMap(associatedResource, oldShare)
+	assert.NotContains(t, service.GetSharedSubnetResourceMapSnapshot(), associatedResource)
+
+	// A new share can arrive after cleanup observed the resource as unshared.
+	service.AddSharedSubnetToResourceMap(associatedResource, newShare)
+	assert.False(t, service.RemoveSubnetFromCacheIfUnshared(associatedResource))
+	assert.ElementsMatch(t, []string{associatedResource, "project1:vpc1:subnet2"}, service.GetNSXSubnetCacheKeys())
+	assert.Equal(t, sets.New(newShare), service.GetSharedSubnetResourceMapSnapshot()[associatedResource])
+
+	service.RemoveSharedSubnetFromResourceMap(associatedResource, newShare)
+	assert.True(t, service.RemoveSubnetFromCacheIfUnshared(associatedResource))
+	assert.Equal(t, []string{"project1:vpc1:subnet2"}, service.GetNSXSubnetCacheKeys())
+	assert.False(t, service.RemoveSubnetFromCacheIfUnshared(associatedResource), "a missing cache entry must not be reported as removed")
+}
+
 func TestSubnetService_CreateOrUpdateSubnet_ConnectivityState(t *testing.T) {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mockClient.NewMockClient(mockCtl)
@@ -3780,6 +3903,240 @@ func TestGetUpdatedSubnetSizesAndPrefixes(t *testing.T) {
 			size, prefix := getUpdatedSubnetSizesAndPrefixes(tt.existingSubnet, tt.newIpv4SubnetSize, tt.newIpv6PrefixLength, tt.newIPType)
 			assert.Equal(t, tt.expectedSize, size)
 			assert.Equal(t, tt.expectedPrefix, prefix)
+		})
+	}
+}
+
+type fakePortSettingsClient struct {
+	list func(string, string, string, string, *string) (model.VpcSubnetPortSettingListResult, error)
+}
+
+func (fakePortSettingsClient) Delete(_ string, _ string, _ string, _ string, _ string) error {
+	return nil
+}
+
+func (fakePortSettingsClient) Get(_ string, _ string, _ string, _ string, _ string) (model.VpcSubnetPortSetting, error) {
+	return model.VpcSubnetPortSetting{}, nil
+}
+
+func (c fakePortSettingsClient) List(orgID string, projectID string, vpcID string, subnetID string, cursor *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetPortSettingListResult, error) {
+	if c.list != nil {
+		return c.list(orgID, projectID, vpcID, subnetID, cursor)
+	}
+	psID := "ps-test"
+	return model.VpcSubnetPortSettingListResult{
+		Results: []model.VpcSubnetPortSetting{
+			{Id: &psID},
+		},
+	}, nil
+}
+
+func (fakePortSettingsClient) Patch(_ string, _ string, _ string, _ string, _ string, _ model.VpcSubnetPortSetting) error {
+	return nil
+}
+
+func (fakePortSettingsClient) Update(_ string, _ string, _ string, _ string, _ string, _ model.VpcSubnetPortSetting) (model.VpcSubnetPortSetting, error) {
+	return model.VpcSubnetPortSetting{}, nil
+}
+
+func TestListPortSettingsByAssociatedResource(t *testing.T) {
+	service := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				PortSettingsClient: &fakePortSettingsClient{},
+			},
+		},
+	}
+
+	// Valid associatedResource: projectID:vpcID:subnetID
+	results, err := service.ListPortSettingsByAssociatedResource("proj-1:vpc-1:subnet-1")
+	assert.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "ps-test", *results[0].Id)
+
+	// Invalid associatedResource
+	_, err = service.ListPortSettingsByAssociatedResource("invalid-resource")
+	assert.Error(t, err)
+
+	// Nil PortSettingsClient
+	nilClientService := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+		},
+	}
+	_, err = nilClientService.ListPortSettingsByAssociatedResource("proj-1:vpc-1:subnet-1")
+	assert.Error(t, err)
+}
+
+func TestListPortSettingsByAssociatedResourcePagination(t *testing.T) {
+	first := model.VpcSubnetPortSetting{Id: common.String("ps-first")}
+	second := model.VpcSubnetPortSetting{Id: common.String("ps-second")}
+	listErr := errors.New("failed to list PortSettings")
+	notFoundCode := int64(404)
+	notFoundMessage := "PortSetting was not found"
+	notFoundErr := apierrors.NewNotFound()
+	notFoundErr.Data = data.NewStructValue("test", map[string]data.DataValue{
+		"error_code":    data.NewIntegerValue(notFoundCode),
+		"error_message": data.NewStringValue(notFoundMessage),
+	})
+	timedOutCode := int64(408)
+	timedOutMessage := "PortSettings request timed out"
+	timedOutErr := apierrors.NewTimedOut()
+	timedOutErr.Data = data.NewStructValue("test", map[string]data.DataValue{
+		"error_code":    data.NewIntegerValue(timedOutCode),
+		"error_message": data.NewStringValue(timedOutMessage),
+	})
+	type page struct {
+		cursor *string
+		result model.VpcSubnetPortSettingListResult
+		err    error
+	}
+	tests := []struct {
+		name         string
+		pages        []page
+		want         []model.VpcSubnetPortSetting
+		wantErr      error
+		wantErrType  apierrors.ErrorTypeEnum
+		wantAPIError *model.ApiError
+		errText      string
+	}{
+		{
+			name: "all pages are returned in order",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}, Cursor: common.String("next")}},
+				{cursor: common.String("next"), result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{second}}},
+			},
+			want: []model.VpcSubnetPortSetting{first, second},
+		},
+		{
+			name: "empty cursor ends pagination",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}, Cursor: common.String("")}},
+			},
+			want: []model.VpcSubnetPortSetting{first},
+		},
+		{
+			name: "nil cursor ends empty pagination",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{}},
+			},
+		},
+		{
+			name: "empty intermediate page continues pagination",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Cursor: common.String("next")}},
+				{cursor: common.String("next"), result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{second}}},
+			},
+			want: []model.VpcSubnetPortSetting{second},
+		},
+		{
+			name: "first page failure returns no results",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}}, err: listErr},
+			},
+			wantErr: listErr,
+		},
+		{
+			name: "second page failure discards partial results",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}, Cursor: common.String("next")}},
+				{cursor: common.String("next"), result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{second}}, err: listErr},
+			},
+			wantErr: listErr,
+		},
+		{
+			name: "SDK NotFound with data is converted",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}}, err: *notFoundErr},
+			},
+			wantErrType:  apierrors.ErrorType_NOT_FOUND,
+			wantAPIError: &model.ApiError{ErrorCode: &notFoundCode, ErrorMessage: &notFoundMessage},
+		},
+		{
+			name: "second page SDK NotFound is converted and discards partial results",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}, Cursor: common.String("next")}},
+				{cursor: common.String("next"), err: *notFoundErr},
+			},
+			wantErrType:  apierrors.ErrorType_NOT_FOUND,
+			wantAPIError: &model.ApiError{ErrorCode: &notFoundCode, ErrorMessage: &notFoundMessage},
+		},
+		{
+			name: "SDK TimedOut with data is converted",
+			pages: []page{
+				{err: *timedOutErr},
+			},
+			wantErrType:  apierrors.ErrorType_TIMED_OUT,
+			wantAPIError: &model.ApiError{ErrorCode: &timedOutCode, ErrorMessage: &timedOutMessage},
+		},
+		{
+			name: "second page SDK TimedOut is converted and discards partial results",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}, Cursor: common.String("next")}},
+				{cursor: common.String("next"), err: *timedOutErr},
+			},
+			wantErrType:  apierrors.ErrorType_TIMED_OUT,
+			wantAPIError: &model.ApiError{ErrorCode: &timedOutCode, ErrorMessage: &timedOutMessage},
+		},
+		{
+			name: "repeated cursor discards partial results",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}, Cursor: common.String("next")}},
+				{cursor: common.String("next"), result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{second}, Cursor: common.String("next")}},
+			},
+			errText: "repeated PortSettings pagination cursor",
+		},
+		{
+			name: "cursor cycle discards partial results",
+			pages: []page{
+				{result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{first}, Cursor: common.String("next")}},
+				{cursor: common.String("next"), result: model.VpcSubnetPortSettingListResult{Cursor: common.String("last")}},
+				{cursor: common.String("last"), result: model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{second}, Cursor: common.String("next")}},
+			},
+			errText: "repeated PortSettings pagination cursor",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			service := &SubnetService{
+				Service: common.Service{
+					NSXClient: &nsx.Client{
+						PortSettingsClient: &fakePortSettingsClient{
+							list: func(orgID, projectID, vpcID, subnetID string, cursor *string) (model.VpcSubnetPortSettingListResult, error) {
+								require.Less(t, calls, len(tt.pages), "unexpected extra page request")
+								assert.Equal(t, "default", orgID)
+								assert.Equal(t, "proj-1", projectID)
+								assert.Equal(t, "vpc-1", vpcID)
+								assert.Equal(t, "subnet-1", subnetID)
+								page := tt.pages[calls]
+								assert.Equal(t, page.cursor, cursor)
+								calls++
+								return page.result, page.err
+							},
+						},
+					},
+				},
+			}
+			results, err := service.ListPortSettingsByAssociatedResource("proj-1:vpc-1:subnet-1")
+			assert.Equal(t, len(tt.pages), calls)
+			if tt.wantErrType != "" {
+				var convertedErr *nsxutil.NSXApiError
+				require.ErrorAs(t, err, &convertedErr)
+				assert.Equal(t, tt.wantErrType, convertedErr.Type())
+				assert.Equal(t, tt.wantAPIError, convertedErr.ApiError)
+				assert.Nil(t, results, "failed pagination must not return a partial snapshot")
+			} else if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Same(t, tt.wantErr, err, "ordinary errors must be returned unchanged")
+				assert.Nil(t, results, "failed pagination must not return a partial snapshot")
+			} else if tt.errText != "" {
+				require.ErrorContains(t, err, tt.errText)
+				assert.Nil(t, results, "invalid pagination must not return a partial snapshot")
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, results)
+			}
 		})
 	}
 }

@@ -981,6 +981,49 @@ func (service *SubnetService) RemoveSubnetFromCache(associatedResource string, r
 	log.Info("Removed Subnet from cache", "reason", reason, "AssociatedResource", associatedResource)
 }
 
+// GetNSXSubnetCacheKeys returns a copy of the associated resources in the subnet cache.
+func (service *SubnetService) GetNSXSubnetCacheKeys() []string {
+	service.nsxSubnetCacheMutex.RLock()
+	defer service.nsxSubnetCacheMutex.RUnlock()
+
+	keys := make([]string, 0, len(service.NSXSubnetCache))
+	for associatedResource := range service.NSXSubnetCache {
+		keys = append(keys, associatedResource)
+	}
+	return keys
+}
+
+// RemoveSubnetFromCacheIfUnshared removes a cached subnet only while it has no shared Subnet CRs.
+func (service *SubnetService) RemoveSubnetFromCacheIfUnshared(associatedResource string) bool {
+	// Keep the sharing check and cache deletion atomic with respect to new shares.
+	service.sharedSubnetResourceMapMutex.RLock()
+	service.nsxSubnetCacheMutex.Lock()
+	_, cached := service.NSXSubnetCache[associatedResource]
+	removed := len(service.SharedSubnetResourceMap[associatedResource]) == 0 && cached
+	if removed {
+		delete(service.NSXSubnetCache, associatedResource)
+	}
+	service.nsxSubnetCacheMutex.Unlock()
+	service.sharedSubnetResourceMapMutex.RUnlock()
+
+	if removed {
+		log.Info("Removed unshared Subnet from cache", "AssociatedResource", associatedResource)
+	}
+	return removed
+}
+
+// GetSharedSubnetResourceMapSnapshot returns an independent copy of the shared subnet map and its sets.
+func (service *SubnetService) GetSharedSubnetResourceMapSnapshot() map[string]sets.Set[types.NamespacedName] {
+	service.sharedSubnetResourceMapMutex.RLock()
+	defer service.sharedSubnetResourceMapMutex.RUnlock()
+
+	snapshot := make(map[string]sets.Set[types.NamespacedName], len(service.SharedSubnetResourceMap))
+	for associatedResource, namespacedNames := range service.SharedSubnetResourceMap {
+		snapshot[associatedResource] = namespacedNames.Clone()
+	}
+	return snapshot
+}
+
 // AddSharedSubnetToResourceMap adds a shared subnet CR to the resource map
 func (service *SubnetService) AddSharedSubnetToResourceMap(associatedResource string, namespacedName types.NamespacedName) {
 	service.sharedSubnetResourceMapMutex.Lock()
@@ -1254,5 +1297,38 @@ func getUpdatedSubnetSizesAndPrefixes(existingSubnet *model.VpcSubnet, newIpv4Su
 		return newIpv4SubnetSize, existingSubnet.Ipv6PrefixLength
 	} else {
 		return existingSubnet.Ipv4SubnetSize, existingSubnet.Ipv6PrefixLength
+	}
+}
+
+// ListPortSettingsByAssociatedResource queries NSX for all PortSettings under the shared subnet.
+func (service *SubnetService) ListPortSettingsByAssociatedResource(associatedResource string) ([]model.VpcSubnetPortSetting, error) {
+	if service.NSXClient == nil || service.NSXClient.PortSettingsClient == nil {
+		return nil, fmt.Errorf("PortSettingsClient is not initialized")
+	}
+	subnetPath, err := common.GetSubnetPathFromAssociatedResource(associatedResource)
+	if err != nil {
+		return nil, err
+	}
+	orgID, projectID, vpcID, subnetID, err := common.ExtractSubnetPath(subnetPath)
+	if err != nil {
+		return nil, err
+	}
+	var results []model.VpcSubnetPortSetting
+	var cursor *string
+	seenCursors := sets.New[string]()
+	for {
+		result, err := service.NSXClient.PortSettingsClient.List(orgID, projectID, vpcID, subnetID, cursor, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			return nil, nsxutil.TransNSXApiError(err)
+		}
+		results = append(results, result.Results...)
+		if result.Cursor == nil || *result.Cursor == "" {
+			return results, nil
+		}
+		if seenCursors.Has(*result.Cursor) {
+			return nil, fmt.Errorf("repeated PortSettings pagination cursor %q for associated resource %s", *result.Cursor, associatedResource)
+		}
+		seenCursors.Insert(*result.Cursor)
+		cursor = result.Cursor
 	}
 }
