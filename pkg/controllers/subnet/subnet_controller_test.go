@@ -157,7 +157,7 @@ func createFakeSubnetReconciler(objects []client.Object) *SubnetReconciler {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objects...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithStatusSubresource(&v1alpha1.Subnet{}, &v1alpha1.SubnetPortSetting{}).WithObjects(objects...).Build()
 	service := &vpc.VPCService{
 		Service: common.Service{
 			Client:    fakeClient,

@@ -1235,3 +1235,24 @@ func getUpdatedSubnetSizesAndPrefixes(existingSubnet *model.VpcSubnet, newIpv4Su
 		return existingSubnet.Ipv4SubnetSize, existingSubnet.Ipv6PrefixLength
 	}
 }
+
+// ListPortSettingsByAssociatedResource queries NSX for all PortSettings under the shared subnet.
+func (service *SubnetService) ListPortSettingsByAssociatedResource(associatedResource string) ([]model.VpcSubnetPortSetting, error) {
+	if service.NSXClient == nil || service.NSXClient.PortSettingsClient == nil {
+		return nil, fmt.Errorf("PortSettingsClient is not initialized")
+	}
+	subnetPath, err := common.GetSubnetPathFromAssociatedResource(associatedResource)
+	if err != nil {
+		return nil, err
+	}
+	orgID, projectID, vpcID, subnetID, err := common.ExtractSubnetPath(subnetPath)
+	if err != nil {
+		return nil, err
+	}
+	result, err := service.NSXClient.PortSettingsClient.List(orgID, projectID, vpcID, subnetID, nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return result.Results, nil
+}
+

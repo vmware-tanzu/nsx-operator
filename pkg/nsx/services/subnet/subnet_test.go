@@ -3780,3 +3780,60 @@ func TestGetUpdatedSubnetSizesAndPrefixes(t *testing.T) {
 		})
 	}
 }
+
+type fakePortSettingsClient struct{}
+
+func (fakePortSettingsClient) Delete(_ string, _ string, _ string, _ string, _ string) error {
+	return nil
+}
+
+func (fakePortSettingsClient) Get(_ string, _ string, _ string, _ string, _ string) (model.VpcSubnetPortSetting, error) {
+	return model.VpcSubnetPortSetting{}, nil
+}
+
+func (fakePortSettingsClient) List(_ string, _ string, _ string, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetPortSettingListResult, error) {
+	psID := "ps-test"
+	return model.VpcSubnetPortSettingListResult{
+		Results: []model.VpcSubnetPortSetting{
+			{Id: &psID},
+		},
+	}, nil
+}
+
+func (fakePortSettingsClient) Patch(_ string, _ string, _ string, _ string, _ string, _ model.VpcSubnetPortSetting) error {
+	return nil
+}
+
+func (fakePortSettingsClient) Update(_ string, _ string, _ string, _ string, _ string, _ model.VpcSubnetPortSetting) (model.VpcSubnetPortSetting, error) {
+	return model.VpcSubnetPortSetting{}, nil
+}
+
+func TestListPortSettingsByAssociatedResource(t *testing.T) {
+	service := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				PortSettingsClient: &fakePortSettingsClient{},
+			},
+		},
+	}
+
+	// Valid associatedResource: projectID:vpcID:subnetID
+	results, err := service.ListPortSettingsByAssociatedResource("proj-1:vpc-1:subnet-1")
+	assert.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, "ps-test", *results[0].Id)
+
+	// Invalid associatedResource
+	_, err = service.ListPortSettingsByAssociatedResource("invalid-resource")
+	assert.Error(t, err)
+
+	// Nil PortSettingsClient
+	nilClientService := &SubnetService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{},
+		},
+	}
+	_, err = nilClientService.ListPortSettingsByAssociatedResource("proj-1:vpc-1:subnet-1")
+	assert.Error(t, err)
+}
+

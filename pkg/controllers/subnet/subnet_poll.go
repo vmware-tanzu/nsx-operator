@@ -4,16 +4,23 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var ticker = time.NewTicker(10 * time.Minute)
@@ -70,6 +77,9 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 
 		// Update the cache with the latest NSX subnet and status list
 		r.SubnetService.UpdateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
+
+		// Regularly poll and sync PortConfigs for this shared subnet across all mapped Namespaces
+		r.pollAndSyncPortConfigs(ctx, associatedResource, namespacedNames)
 
 		// Enqueue all subnet CRs associated with this resource for reconciliation
 		for namespacedName := range namespacedNames {
@@ -215,3 +225,176 @@ func (r *SubnetReconciler) handleNSXSubnetError(ctx context.Context, err error, 
 		r.updateSharedSubnetWithError(ctx, namespacedName, err, errorType)
 	}
 }
+
+// pollAndSyncPortConfigs regularly polls NSX PortConfigs (PortSettings) for a shared subnet
+// and synchronizes SubnetPortSetting CRs across all namespaces where the subnet is shared.
+func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associatedResource string, namespacedNames sets.Set[types.NamespacedName]) {
+	portSettings, err := r.SubnetService.ListPortSettingsByAssociatedResource(associatedResource)
+	if err != nil {
+		log.Warn("Failed to list PortConfigs for shared Subnet during polling", "AssociatedResource", associatedResource, "err", err)
+		return
+	}
+
+	nsxPortSettingIDs := sets.New[string]()
+	for _, ps := range portSettings {
+		if ps.Id != nil && *ps.Id != "" {
+			nsxPortSettingIDs.Insert(*ps.Id)
+		}
+	}
+
+	for namespacedName := range namespacedNames {
+		subnetCR := &v1alpha1.Subnet{}
+		if err := r.Client.Get(ctx, namespacedName, subnetCR); err != nil {
+			log.Error(err, "Failed to get Subnet CR for PortConfig sync", "Subnet", namespacedName)
+			continue
+		}
+		if !subnetCR.DeletionTimestamp.IsZero() {
+			continue
+		}
+
+		if err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource); err != nil {
+			log.Error(err, "Failed to sync PortConfigs for Subnet", "Subnet", namespacedName)
+		}
+	}
+}
+
+// generateValidPortSettingName creates a valid Kubernetes name from portSetting ID
+func generateValidPortSettingName(psID string) string {
+	if len(validation.IsDNS1123Subdomain(psID)) == 0 {
+		return psID
+	}
+	return "port-setting-" + util.TruncateUIDHash(psID)
+}
+
+// getPortSettingIDFromCR extracts the original portSetting ID from SubnetPortSetting CR
+func getPortSettingIDFromCR(cr *v1alpha1.SubnetPortSetting) string {
+	if cr.Annotations != nil {
+		if anno, ok := cr.Annotations[servicecommon.AnnotationAssociatedResource]; ok && anno != "" {
+			parts := strings.Split(anno, ":")
+			if len(parts) >= 4 {
+				return parts[len(parts)-1]
+			}
+		}
+	}
+	return cr.Name
+}
+
+// syncPortConfigsForNamespaceSubnet reconciles SubnetPortSetting CRs for a specific shared Subnet CR.
+// It creates new CRs for NSX PortConfigs, updates existing ones, and deletes orphan CRs.
+func (r *SubnetReconciler) syncPortConfigsForNamespaceSubnet(ctx context.Context, subnetCR *v1alpha1.Subnet, portSettings []model.VpcSubnetPortSetting, nsxPortSettingIDs sets.Set[string], associatedResource string) error {
+	if associatedResource == "" && subnetCR.Annotations != nil {
+		associatedResource = subnetCR.Annotations[servicecommon.AnnotationAssociatedResource]
+	}
+
+	existingList := &v1alpha1.SubnetPortSettingList{}
+	if err := r.Client.List(ctx, existingList, client.InNamespace(subnetCR.Namespace)); err != nil {
+		return fmt.Errorf("failed to list SubnetPortSetting CRs in namespace %s: %w", subnetCR.Namespace, err)
+	}
+
+	existingCRByPsID := make(map[string]*v1alpha1.SubnetPortSetting)
+	for i := range existingList.Items {
+		item := &existingList.Items[i]
+		if item.Spec.SubnetName == subnetCR.Name {
+			psID := getPortSettingIDFromCR(item)
+			existingCRByPsID[psID] = item
+		}
+	}
+
+	// Create new SubnetPortSetting CRs or update existing ones
+	for _, ps := range portSettings {
+		if ps.Id == nil || *ps.Id == "" {
+			continue
+		}
+		psID := *ps.Id
+
+		existingCR, exists := existingCRByPsID[psID]
+		if !exists {
+			targetName := generateValidPortSettingName(psID)
+			psAnno := psID
+			if associatedResource != "" {
+				psAnno = fmt.Sprintf("%s:%s", associatedResource, psID)
+			}
+			newCR := &v1alpha1.SubnetPortSetting{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      targetName,
+					Namespace: subnetCR.Namespace,
+					Annotations: map[string]string{
+						servicecommon.AnnotationAssociatedResource: psAnno,
+					},
+				},
+				Spec: v1alpha1.SubnetPortSettingSpec{
+					SubnetName: subnetCR.Name,
+				},
+			}
+			if err := controllerutil.SetOwnerReference(subnetCR, newCR, r.Scheme); err != nil {
+				log.Warn("Failed to set OwnerReference for SubnetPortSetting", "Namespace", subnetCR.Namespace, "Name", targetName, "err", err)
+			}
+			err := r.Client.Create(ctx, newCR)
+			if err != nil {
+				// If a CR with the same name already exists, fallback to generateName
+				if apierrors.IsAlreadyExists(err) {
+					log.Info("SubnetPortSetting CR with the same name already exists, using generateName",
+						"Namespace", subnetCR.Namespace, "Name", targetName)
+					newCR.GenerateName = targetName + "-"
+					newCR.Name = ""
+					err = r.Client.Create(ctx, newCR)
+				}
+			}
+			if err != nil {
+				log.Error(err, "Failed to create SubnetPortSetting CR", "Namespace", subnetCR.Namespace, "Name", targetName)
+				continue
+			}
+			log.Info("Successfully created SubnetPortSetting CR", "Namespace", subnetCR.Namespace, "Name", newCR.Name)
+
+			newCR.Status.Conditions = []v1alpha1.Condition{
+				{
+					Type:               v1alpha1.Ready,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "PortSettingRealized",
+					Message:            fmt.Sprintf("PortSetting %s is realized on NSX", psID),
+				},
+			}
+			if err := r.Client.Status().Update(ctx, newCR); err != nil {
+				log.Error(err, "Failed to update SubnetPortSetting status", "Namespace", subnetCR.Namespace, "Name", newCR.Name)
+			}
+		} else {
+			// Update status if not marked Ready
+			hasReadyCondition := false
+			for _, cond := range existingCR.Status.Conditions {
+				if cond.Type == v1alpha1.Ready && cond.Status == corev1.ConditionTrue {
+					hasReadyCondition = true
+					break
+				}
+			}
+			if !hasReadyCondition {
+				existingCR.Status.Conditions = []v1alpha1.Condition{
+					{
+						Type:               v1alpha1.Ready,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "PortSettingRealized",
+						Message:            fmt.Sprintf("PortSetting %s is realized on NSX", psID),
+					},
+				}
+				if err := r.Client.Status().Update(ctx, existingCR); err != nil {
+					log.Error(err, "Failed to update existing SubnetPortSetting status", "Namespace", subnetCR.Namespace, "Name", existingCR.Name)
+				}
+			}
+		}
+	}
+
+	// Delete orphan CRs that no longer exist in NSX
+	for psID, cr := range existingCRByPsID {
+		if !nsxPortSettingIDs.Has(psID) {
+			if err := r.Client.Delete(ctx, cr); err != nil {
+				log.Error(err, "Failed to delete orphan SubnetPortSetting CR", "Namespace", subnetCR.Namespace, "Name", cr.Name)
+			} else {
+				log.Info("Successfully deleted orphan SubnetPortSetting CR", "Namespace", subnetCR.Namespace, "Name", cr.Name)
+			}
+		}
+	}
+
+	return nil
+}
+

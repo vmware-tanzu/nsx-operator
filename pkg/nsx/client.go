@@ -130,6 +130,7 @@ type Client struct {
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
 	DynamicIPReservationsClient       subnets.DynamicIpReservationsClient
 	StaticIPReservationsClient        subnets.StaticIpReservationsClient
+	PortSettingsClient                subnets.PortSettingsClient
 	NsxApiClient                      *nsxt.APIClient
 	VifsClient                        fabric.VifsClient
 	DnsZoneClient                     dns_services.ZonesClient
@@ -255,6 +256,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
 	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
 	StaticIPReservationsClient := subnets.NewStaticIpReservationsClient(connector)
+	portSettingsClient := subnets.NewPortSettingsClient(connector)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	vifsClient := fabric.NewVifsClient(connector)
@@ -328,6 +330,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
 		DynamicIPReservationsClient:       DynamicIPReservationsClient,
 		StaticIPReservationsClient:        StaticIPReservationsClient,
+		PortSettingsClient:                portSettingsClient,
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,
