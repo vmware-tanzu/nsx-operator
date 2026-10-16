@@ -357,6 +357,34 @@ func TestPodV2WaitsForDefaultSubnetSet(t *testing.T) {
 	}
 }
 
+func TestPodV2TerminatingPodPreservesExistingCR(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%v", existing), func(t *testing.T) {
+			r, api, req := newPodV2TestReconciler(t, false, false)
+			ctx := context.Background()
+			if existing {
+				_, err := r.Reconcile(ctx, req)
+				require.NoError(t, err)
+			}
+			before := &v1alpha1.SubnetPortList{}
+			require.NoError(t, api.List(ctx, before))
+			pod := &v1.Pod{}
+			require.NoError(t, api.Get(ctx, req.NamespacedName, pod))
+			pod.Finalizers = []string{"test-finalizer"}
+			require.NoError(t, api.Update(ctx, pod))
+			require.NoError(t, api.Delete(ctx, pod))
+			require.NoError(t, api.Get(ctx, req.NamespacedName, pod))
+			require.False(t, pod.DeletionTimestamp.IsZero())
+			result, err := r.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.Equal(t, common.ResultNormal, result)
+			after := &v1alpha1.SubnetPortList{}
+			require.NoError(t, api.List(ctx, after))
+			require.Equal(t, before.Items, after.Items)
+		})
+	}
+}
+
 func TestPodV2DeletedPodIsNotRecreated(t *testing.T) {
 	r, api, req := newPodV2TestReconciler(t, false, false)
 	ctx := context.Background()

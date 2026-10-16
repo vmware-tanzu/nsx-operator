@@ -123,10 +123,42 @@ func TestStatefulSetReplacementReusesOriginalSubnetOnlyForCurrentOwner(t *testin
 	require.Equal(t, path, gotPath)
 }
 
+func TestTerminatingPodDoesNotReconcileSubnetPort(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	now := metav1.Now()
+	pod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "pod", Namespace: "ns", UID: "pod-uid",
+		DeletionTimestamp: &now, Finalizers: []string{"test-finalizer"},
+	}}
+	sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{
+		Name: "port", Namespace: pod.Namespace, UID: "cr-uid",
+		OwnerReferences: []metav1.OwnerReference{{Kind: "Pod", Name: pod.Name, UID: pod.UID}},
+	}}
+	api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, sp).Build()
+	require.NoError(t, api.Get(ctx, client.ObjectKeyFromObject(sp), sp))
+	cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}
+	// No backend services: a terminating owner must be checked before allocation.
+	r := &SubnetPortReconciler{Client: api, APIReader: api}
+	r.StatusUpdater = common.NewStatusUpdater(api, cfg, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+	for _, restoreMode := range []bool{false, true} {
+		r.restoreMode = restoreMode
+		result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(sp)})
+		require.NoError(t, err)
+		require.Equal(t, common.ResultNormal, result)
+	}
+	after := &v1alpha1.SubnetPort{}
+	require.NoError(t, api.Get(ctx, client.ObjectKeyFromObject(sp), after))
+	require.Equal(t, sp, after)
+}
+
 func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 	for _, tc := range []struct {
 		name, ownerUID                             string
 		realized, terminal, wantRestore, wantError bool
+		terminating                                bool
 		v2mode                                     bool
 		staticAlloc                                v1alpha1.StaticIPAllocationType
 		savedState, gatewayOnly                    bool
@@ -143,6 +175,9 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 		{name: "gateway-only", ownerUID: "pod-uid", v2mode: true, gatewayOnly: true},
 		{name: "terminal", ownerUID: "pod-uid", realized: true, terminal: true},
 		{name: "terminal-v2", ownerUID: "pod-uid", v2mode: true, terminal: true},
+		{name: "terminating", ownerUID: "pod-uid", realized: true, terminating: true},
+		{name: "terminating-v2", ownerUID: "pod-uid", v2mode: true, savedState: true, terminating: true},
+		{name: "terminating-ready-mismatch", ownerUID: "pod-uid", realized: true, terminating: true, readyMismatch: true},
 		{name: "replacement-owner", ownerUID: "old-pod", realized: true, wantError: true},
 		{name: "ready-but-attachment-mismatch", ownerUID: "pod-uid", realized: true, wantRestore: true, readyMismatch: true},
 	} {
@@ -156,6 +191,11 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 			}
 			if tc.terminal {
 				pod.Status.Phase = v1.PodSucceeded
+			}
+			if tc.terminating {
+				now := metav1.Now()
+				pod.DeletionTimestamp = &now
+				pod.Finalizers = []string{"test-finalizer"}
 			}
 			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: "ns", UID: "cr-uid", OwnerReferences: []metav1.OwnerReference{
 				{Kind: "Pod", Name: pod.Name, UID: types.UID(tc.ownerUID)},

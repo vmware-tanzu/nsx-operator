@@ -127,6 +127,11 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 		return common.ResultNormal, nil
 	}
 
+	if !pod.DeletionTimestamp.IsZero() {
+		log.Info("Pod is terminating, skipping SubnetPort CR creation", "Pod", req.NamespacedName)
+		return common.ResultNormal, nil
+	}
+
 	r.StatusUpdater.IncreaseUpdateTotal()
 
 	subnetPort, err := common.GetSubnetPortForPod(ctx, r.Client, pod)

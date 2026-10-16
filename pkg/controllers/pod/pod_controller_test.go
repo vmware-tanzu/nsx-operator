@@ -1366,6 +1366,9 @@ func TestPodReconciler_Reconcile_TerminatingPod(t *testing.T) {
 	r := &PodReconciler{
 		Client:        fakeClient,
 		StatusUpdater: common.NewStatusUpdater(fakeClient, cf, fakeRecorder{}, MetricResTypePod, "SubnetPort", "Pod"),
+		SubnetPortService: &subnetport.SubnetPortService{Service: servicecommon.Service{
+			NSXClient: &nsx.Client{}, NSXConfig: cf,
+		}},
 	}
 
 	getSubnetPathCalled := false

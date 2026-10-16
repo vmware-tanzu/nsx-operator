@@ -119,6 +119,10 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get owner Pod", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
 			return common.ResultNormal, err
 		}
+		if pod != nil && !pod.DeletionTimestamp.IsZero() {
+			log.Info("Owner Pod is terminating, skipping SubnetPort creation or update", "SubnetPort", req.NamespacedName)
+			return common.ResultNormal, nil
+		}
 		if r.restoreMode && pod != nil {
 			restored, err := restoreSubnetPortStatusFromPod(subnetPort, pod)
 			if err != nil {
@@ -863,7 +867,7 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 				}
 				return restoreList, err
 			}
-			if common.PodIsDeleted(pod) {
+			if common.PodIsDeleted(pod) || !pod.DeletionTimestamp.IsZero() {
 				continue
 			}
 
