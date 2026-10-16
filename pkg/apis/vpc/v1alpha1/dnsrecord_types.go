@@ -11,17 +11,11 @@ import (
 type DNSRecordType string
 
 const (
-	DNSRecordTypeA     DNSRecordType = "A"
-	DNSRecordTypeAAAA  DNSRecordType = "AAAA"
-	DNSRecordTypeCNAME DNSRecordType = "CNAME"
-	DNSRecordTypePTR   DNSRecordType = "PTR"
-	DNSRecordTypeNS    DNSRecordType = "NS"
-	DNSRecordTypeTXT   DNSRecordType = "TXT"
+	DNSRecordTypeA    DNSRecordType = "A"
+	DNSRecordTypeAAAA DNSRecordType = "AAAA"
 )
 
 // DNSRecordSpec defines the desired state of DNSRecord.
-// +kubebuilder:validation:XValidation:rule="!has(self.ipAddress) || self.recordType == 'PTR'",message="ipAddress can only be set when recordType is PTR"
-// +kubebuilder:validation:XValidation:rule="(self.recordType in ['CNAME', 'PTR']) ? size(self.recordValues) == 1 : true",message="CNAME and PTR records must have exactly one value"
 type DNSRecordSpec struct {
 	// DomainName specifies the DNS domain for this record.
 	// +kubebuilder:validation:Required
@@ -29,15 +23,13 @@ type DNSRecordSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="DomainName is immutable after creation"
 	DomainName string `json:"domainName"`
 
-	// RecordName specifies the DNS record name or, for PTR records, the host-octet label.
-	// For A/AAAA/CNAME: the hostname portion of the FQDN (e.g., "api" for "api.coke.com").
-	// For PTR: the host octet of the IP address (e.g., "10" for 10.0.0.10).
+	// RecordName specifies the hostname portion of the FQDN (e.g., "api" for "api.coke.com").
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=255
 	RecordName string `json:"recordName"`
 
 	// RecordType specifies the DNS record type.
-	// +kubebuilder:validation:Enum=A;AAAA;CNAME;PTR;NS;TXT
+	// +kubebuilder:validation:Enum=A;AAAA
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="RecordType is immutable after creation"
 	RecordType DNSRecordType `json:"recordType"`
@@ -46,10 +38,6 @@ type DNSRecordSpec struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	RecordValues []string `json:"recordValues"`
-
-	// IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR.
-	// +optional
-	IPAddress string `json:"ipAddress,omitempty"`
 
 	// TTL specifies the Time-To-Live in seconds for this DNS record.
 	// Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes).
