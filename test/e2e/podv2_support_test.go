@@ -63,7 +63,7 @@ var (
 	p2RunBudget      = flag.Duration("podv2-budget", 90*time.Minute, "Suite work deadline; cleanup has a separate deadline")
 )
 
-var p2DHCPNamespace = flag.String("podv2-dhcp-namespace", "", "Second empty VPC namespace whose default Pod SubnetSet references pre-created DHCP Subnets (TB03)")
+var p2DHCPNamespace = flag.String("podv2-dhcp-namespace", "", "Second empty VPC namespace whose default Pod SubnetSet references pre-created mixed-mode Subnets (TC03)")
 
 const p2Label = "e2e.nsx.vmware.com/podv2-run"
 const p2Volume = "podv2-e2e-config"
@@ -352,7 +352,7 @@ func podV2Main(m *testing.M) int {
 	} else if strings.HasPrefix(filter, "TestPodV2/") {
 		_ = flag.Set("test.run", "^TestPodV2$/"+strings.TrimPrefix(filter, "TestPodV2/"))
 	} else if !strings.HasPrefix(filter, "^TestPodV2$") {
-		fmt.Fprintln(os.Stderr, "Use -run '^TestPodV2$/TB02' to select a case; unrelated tests are disabled on this branch")
+		fmt.Fprintln(os.Stderr, "Use -run '^TestPodV2$/TC02' to select a case; unrelated tests are disabled on this branch")
 		return 2
 	}
 	sig := make(chan os.Signal, 1)
@@ -483,8 +483,8 @@ func (s *p2Suite) operatorPods(ctx context.Context) ([]corev1.Pod, error) {
 }
 func (s *p2Suite) preflight(t *testing.T) {
 	s.step(t, "preflight: empty namespace, operator, transport node and rollback journal")
-	if podV2CaseSelected("TB03_PrecreatedDHCP") && *p2DHCPNamespace == "" {
-		t.Log("Note: -podv2-dhcp-namespace not provided; TB03_PrecreatedDHCP will be skipped")
+	if podV2CaseSelected("TC03_PrecreatedMixedSubnets") && *p2DHCPNamespace == "" {
+		t.Log("Note: -podv2-dhcp-namespace not provided; TC03_PrecreatedMixedSubnets will be skipped")
 	}
 	require.Positive(t, *p2Timeout)
 	require.Positive(t, *p2CleanupTimeout)

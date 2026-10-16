@@ -47,16 +47,16 @@ func TestPodV2(t *testing.T) {
 		name string
 		run  func(*testing.T)
 	}{
-		{"TB01_Legacy", s.legacy},
-		{"TB02_StaticLifecycle", s.staticLifecycle},
-		{"TB03_PrecreatedDHCP", s.dhcp},
-		{"TB04_Labels", s.labelCase},
-		{"TB05_HostRetry", s.hostCase},
-		{"TB06_StatefulSet", s.stateful},
-		{"TB07_RestartAndReplacement", s.restartCase},
-		{"TB08_RestoreExistingCR", func(t *testing.T) { s.restoreVariants(t, false, false) }},
-		{"TB09_RestoreLegacyMissingCR", func(t *testing.T) { s.restoreVariants(t, true, false) }},
-		{"TB10_RestoreRetry", func(t *testing.T) { s.restoreVariants(t, false, true) }},
+		{"TC01_Legacy", s.legacy},
+		{"TC02_StaticLifecycle", s.staticLifecycle},
+		{"TC03_PrecreatedMixedSubnets", s.precreatedMixedSubnets},
+		{"TC04_Labels", s.labelCase},
+		{"TC05_HostRetry", s.hostCase},
+		{"TC06_StatefulSet", s.stateful},
+		{"TC07_RestartAndReplacement", s.restartCase},
+		{"TC08_RestoreExistingCR", func(t *testing.T) { s.restoreVariants(t, false, false) }},
+		{"TC09_RestoreLegacyMissingCR", func(t *testing.T) { s.restoreVariants(t, true, false) }},
+		{"TC10_RestoreRetry", func(t *testing.T) { s.restoreVariants(t, false, true) }},
 	}
 	for _, c := range cases {
 		ok := RunSubtest(t, c.name, func(t *testing.T) {
@@ -141,9 +141,9 @@ func (s *p2Suite) staticLifecycle(t *testing.T) {
 	s.removePod(t, p)
 	s.noPort(t, string(p.UID))
 }
-func (s *p2Suite) dhcp(t *testing.T) {
+func (s *p2Suite) precreatedMixedSubnets(t *testing.T) {
 	if s.journal.DHCPNamespace == "" {
-		t.Skip("Skipping TB03: -podv2-dhcp-namespace not provided with a provisioned pre-created DHCP default Pod SubnetSet; see PODV2.md")
+		t.Skip("Skipping TC03: -podv2-dhcp-namespace not provided with a provisioned pre-created mixed-mode default Pod SubnetSet; see PODV2.md")
 		return
 	}
 	s.activeNamespace = s.journal.DHCPNamespace
@@ -153,21 +153,33 @@ func (s *p2Suite) dhcp(t *testing.T) {
 		}
 		s.activeNamespace = ""
 	}()
-	s.mode(t, true, true)
+	s.mode(t, true, false)
 	sets, e := testData.crdClientset.CrdV1alpha1().SubnetSets(s.namespace()).List(s.ctx, metav1.ListOptions{LabelSelector: common.LabelDefaultNetwork + "=" + common.DefaultPodNetwork})
 	require.NoError(t, e)
 	require.Len(t, sets.Items, 1)
 	set := sets.Items[0]
-	require.NotNil(t, set.Spec.SubnetNames, "TB03 requires pre-created subnets, not an auto-created DHCP SubnetSet")
+	require.NotNil(t, set.Spec.SubnetNames, "TC03 requires pre-created subnets, not an auto-created SubnetSet")
 	require.NotEmpty(t, *set.Spec.SubnetNames)
-	p := s.pod(t, "dhcp")
+	require.NotEmpty(t, set.Spec.IPAddressType)
+
+	p := s.pod(t, "mixed")
 	c := s.cr(t, p)
 	port := s.port(t, p)
+
+	// Verify CR references the default Pod SubnetSet and static allocation matches InterfaceIPType rather than None.
 	require.Equal(t, set.Name, c.Spec.SubnetSet)
-	require.Equal(t, api.StaticIPAllocationTypeNone, c.Spec.StaticIPAllocationType)
+	require.Equal(t, set.Spec.IPAddressType, c.Spec.InterfaceIPType)
+	require.Equal(t, api.StaticIPAllocationType(c.Spec.InterfaceIPType), c.Spec.StaticIPAllocationType)
+	require.NotEqual(t, api.StaticIPAllocationTypeNone, c.Spec.StaticIPAllocationType)
+
+	// Verify fresh NSX port requests IP and MAC allocation (attachment.allocate_addresses=BOTH).
+	// Require nonempty statically allocated IP addresses and MAC in realized port state.
 	require.NotNil(t, port.Attachment)
-	require.NotEqual(t, "BOTH", ptr.Deref(port.Attachment.AllocateAddresses, ""))
-	require.NotEqual(t, "IP_POOL", ptr.Deref(port.Attachment.AllocateAddresses, ""))
+	require.Equal(t, "BOTH", ptr.Deref(port.Attachment.AllocateAddresses, ""))
+	require.NotEmpty(t, c.Status.NetworkInterfaceConfig.MACAddress)
+	require.NotEmpty(t, normalized(t, crIPs(c)))
+	s.verify(t, p, c, port)
+
 	portSubnetPath := strings.Split(ptr.Deref(port.Path, ""), "/ports/")[0]
 	var backend *model.VpcSubnet
 	for _, name := range *set.Spec.SubnetNames {
@@ -197,7 +209,9 @@ func (s *p2Suite) dhcp(t *testing.T) {
 		}
 	}
 	require.NotNil(t, backend, "selected parent is outside the configured pre-created Subnets")
-	require.False(t, util.NSXSubnetStaticIPAllocationEnabled(backend))
+
+	// Mixed-mode requirement: both static IP allocation and DHCP are enabled on the NSX Subnet.
+	require.True(t, util.NSXSubnetStaticIPAllocationEnabled(backend), "TC03 mixed-mode requires static IP allocation enabled on backend Subnet")
 	if set.Spec.IPAddressType != api.IPAddressTypeIPv6 {
 		require.NotNil(t, backend.SubnetDhcpConfig)
 		require.Equal(t, "DHCP_SERVER", ptr.Deref(backend.SubnetDhcpConfig.Mode, ""))
@@ -206,6 +220,7 @@ func (s *p2Suite) dhcp(t *testing.T) {
 		require.NotNil(t, backend.SubnetDhcpv6Config)
 		require.Equal(t, "DHCP_SERVER", ptr.Deref(backend.SubnetDhcpv6Config.Mode, ""))
 	}
+
 	require.NoError(t, s.stop(s.ctx))
 	require.NoError(t, s.start(s.ctx))
 	require.NoError(t, s.normal(s.ctx))

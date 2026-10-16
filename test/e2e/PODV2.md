@@ -5,7 +5,7 @@ namespace setup are bypassed. The operator image must already contain commits 1
 and 2. The runner does not build, replace or deploy the operator image.
 
 The suite validates the operator's Kubernetes/NSX behavior on a legacy Pod
-platform. Only TB01 checks workload connectivity. CR Ready does not establish
+platform. Only TC01 checks workload connectivity. CR Ready does not establish
 that full Pod v2 guest networking works. Restore is simulated by removing a
 specific test-owned NSX port while the operator is stopped; no backup rollback
 is performed.
@@ -33,10 +33,10 @@ the source):
   family. Its VPC must allow a private Subnet. The suite temporarily selects its
   own static SubnetSet, then restores the original default label.
 - `-podv2-dhcp-namespace`: a **second** empty VPC namespace, whose default Pod
-  SubnetSet already references pre-created DHCP Subnets through `spec.subnetNames`.
+  SubnetSet already references pre-created mixed-mode Subnets through `spec.subnetNames`.
   Those Subnets must be allowed for the default Pod network by the namespace's
-  VPCNetworkConfiguration, with static allocation disabled and DHCP enabled for
-  the tested IP families. TB03 uses these existing parents without changing them.
+  VPCNetworkConfiguration, with both static allocation and DHCP enabled for
+  the tested IP families. TC03 uses these existing parents without changing them.
   This flag is required for the full suite, but not when selecting other cases.
 - `-podv2-image`: image providing `sh`, `httpd`, `wget`, `nslookup`, and `sleep`;
   default `busybox:1.36`. Use an image that this testbed can pull.
@@ -86,7 +86,7 @@ cleanup is running.
 Add the test-binary flag to the same invocation:
 
 ```bash
--test.run '^TestPodV2$/TB08_RestoreExistingCR/restore_vif_false$'
+-test.run '^TestPodV2$/TC08_RestoreExistingCR/restore_vif_false$'
 ```
 
 For the ordinary `go test` entry point, the equivalent filter is `-run` rather
@@ -96,16 +96,16 @@ To explicitly restore the original repository suite, use `-podv2-only=false`.
 
 | Case | What is checked |
 | --- | --- |
-| TB01_Legacy | Legacy IP/MAC annotations, no Pod CR, peer HTTP, DNS, Service, deletion |
-| TB02_StaticLifecycle | One Pod-owned CR/port, default static SubnetSet, IP family, allocation, identity, host context, deletion |
-| TB03_PrecreatedDHCP | Default pre-created Subnet selection, actual DHCP/static settings, restart identity, deletion |
-| TB04_Labels | Add/change/remove labels, namespace tag uniqueness, stable CR/port |
-| TB05_HostRetry | Node fallback, explicit host, bad host Ready=False without empty context, recovery |
-| TB06_StatefulSet | Enhancement on/off, ordinal replacement, reuse/identity tags, scale-down and final cleanup; Parallel Pod management |
-| TB07_RestartAndReplacement | Label churn, two restarts, one CR/port per UID, same-name replacement |
-| TB08_RestoreExistingCR | Missing NSX port with original CR/status retained, both restore_vif settings, persisted status and normal reconciliation |
-| TB09_RestoreLegacyMissingCR | Realized legacy Pod with missing NSX port and no CR, both restore_vif settings, creation and reuse of one CR |
-| TB10_RestoreRetry | Bad host during restore, no end-timestamp advance or new port, repair/retry, both restore_vif settings |
+| TC01_Legacy | Legacy IP/MAC annotations, no Pod CR, peer HTTP, DNS, Service, deletion |
+| TC02_StaticLifecycle | One Pod-owned CR/port, default static SubnetSet, IP family, allocation, identity, host context, deletion |
+| TC03_PrecreatedMixedSubnets | Default pre-created mixed-mode Subnet selection, static allocation over DHCP, restart identity, deletion |
+| TC04_Labels | Add/change/remove labels, namespace tag uniqueness, stable CR/port |
+| TC05_HostRetry | Node fallback, explicit host, bad host Ready=False without empty context, recovery |
+| TC06_StatefulSet | Enhancement on/off, ordinal replacement, reuse/identity tags, scale-down and final cleanup; Parallel Pod management |
+| TC07_RestartAndReplacement | Label churn, two restarts, one CR/port per UID, same-name replacement |
+| TC08_RestoreExistingCR | Missing NSX port with original CR/status retained, both restore_vif settings, persisted status and normal reconciliation |
+| TC09_RestoreLegacyMissingCR | Realized legacy Pod with missing NSX port and no CR, both restore_vif settings, creation and reuse of one CR |
+| TC10_RestoreRetry | Bad host during restore, no end-timestamp advance or new port, repair/retry, both restore_vif settings |
 
 Cases run serially. A failed case stops the remaining cases and starts cleanup.
 Selecting any one case still includes its setup and full cleanup. No workload
