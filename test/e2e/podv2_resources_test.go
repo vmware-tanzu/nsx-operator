@@ -226,7 +226,9 @@ func (s *p2Suite) removePod(t *testing.T, p *corev1.Pod) {
 	t.Helper()
 	s.step(t, "delete Pod "+p.Name)
 	e := testData.clientset.CoreV1().Pods(p.Namespace).Delete(s.ctx, p.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &p.UID}})
-	require.NoError(t, e)
+	if e != nil && !apierrors.IsNotFound(e) {
+		require.NoError(t, e)
+	}
 	s.wait(t, "Pod and CR deleted", func(ctx context.Context) (bool, string, error) {
 		_, e := testData.clientset.CoreV1().Pods(p.Namespace).Get(ctx, p.Name, metav1.GetOptions{})
 		if !apierrors.IsNotFound(e) {
