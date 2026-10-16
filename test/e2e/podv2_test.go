@@ -296,7 +296,7 @@ func (s *p2Suite) stateful(t *testing.T) {
 				t.Skip("NSX does not support StatefulSet port reuse")
 			}
 			s.mode(t, true, enabled)
-			name := s.journal.Run + "-sts"
+			name := fmt.Sprintf("%s-sts-%t", s.journal.Run, enabled)
 			pod := s.podObject("template")
 			svc, e := testData.clientset.CoreV1().Services(s.namespace()).Create(s.ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: s.labels()}, Spec: corev1.ServiceSpec{ClusterIP: "None", Selector: s.labels(), Ports: []corev1.ServicePort{{Port: 8080}}}}, metav1.CreateOptions{})
 			require.NoError(t, e)
@@ -309,15 +309,31 @@ func (s *p2Suite) stateful(t *testing.T) {
 			oldPort := s.port(t, p0)
 			_ = s.port(t, p1)
 			require.NoError(t, testData.clientset.CoreV1().Pods(p0.Namespace).Delete(s.ctx, p0.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &p0.UID}}))
-			s.wait(t, "StatefulSet replacement UID", func(ctx context.Context) (bool, string, error) {
+			var replacement *corev1.Pod
+			var c *api.SubnetPort
+			s.wait(t, "StatefulSet replacement Pod and Ready CR", func(ctx context.Context) (bool, string, error) {
 				p, e := testData.clientset.CoreV1().Pods(p0.Namespace).Get(ctx, p0.Name, metav1.GetOptions{})
 				if e != nil {
-					return false, "waiting for replacement", e
+					return false, "get replacement Pod", e
 				}
-				return p.UID != p0.UID && p.DeletionTimestamp == nil, fmt.Sprintf("uid=%s old=%s", p.UID, p0.UID), nil
+				if p.UID == p0.UID || p.DeletionTimestamp != nil || p.Spec.NodeName == "" {
+					return false, fmt.Sprintf("pod uid=%s scheduled=%t terminating=%t", p.UID, p.Spec.NodeName != "", p.DeletionTimestamp != nil), nil
+				}
+				cs, e := s.podCRs(ctx, p)
+				if e != nil {
+					return false, "list CRs", e
+				}
+				if len(cs) != 1 {
+					return false, fmt.Sprintf("matching CRs=%d for pod uid=%s", len(cs), p.UID), nil
+				}
+				if !ready(cs[0].Status.Conditions, corev1.ConditionTrue) {
+					return false, fmt.Sprintf("CR=%s conditions=%+v", cs[0].Name, cs[0].Status.Conditions), nil
+				}
+				replacement = p
+				c = cs[0].DeepCopy()
+				return true, "replacement pod and CR ready", nil
 			})
-			replacement := s.scheduled(t, p0.Name)
-			c := s.cr(t, replacement)
+			require.NoError(t, s.rememberPod(replacement))
 			newPort := s.port(t, replacement)
 			require.NotEqual(t, c0.UID, c.UID)
 			s.verify(t, replacement, c, newPort)
@@ -342,9 +358,18 @@ func (s *p2Suite) stateful(t *testing.T) {
 			s.sameIdentity(t, replacement, c, newPort)
 			require.NoError(t, testData.clientset.AppsV1().StatefulSets(sts.Namespace).Delete(s.ctx, sts.Name, metav1.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)}))
 			s.noPort(t, string(replacement.UID))
-			s.wait(t, "StatefulSet deleted", func(ctx context.Context) (bool, string, error) {
+			s.wait(t, "StatefulSet and its Pods deleted", func(ctx context.Context) (bool, string, error) {
 				_, e := testData.clientset.AppsV1().StatefulSets(sts.Namespace).Get(ctx, sts.Name, metav1.GetOptions{})
-				return apierrors.IsNotFound(e), "waiting for StatefulSet garbage collection", nil
+				if !apierrors.IsNotFound(e) {
+					return false, "waiting for StatefulSet garbage collection", e
+				}
+				pods, e := testData.clientset.CoreV1().Pods(sts.Namespace).List(ctx, metav1.ListOptions{
+					LabelSelector: metav1.FormatLabelSelector(&metav1.LabelSelector{MatchLabels: s.labels()}),
+				})
+				if e != nil {
+					return false, "list StatefulSet pods", e
+				}
+				return len(pods.Items) == 0, fmt.Sprintf("remaining pods=%d", len(pods.Items)), nil
 			})
 			require.NoError(t, testData.clientset.CoreV1().Services(s.namespace()).Delete(s.ctx, svc.Name, metav1.DeleteOptions{}))
 		}) {
