@@ -273,7 +273,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		}
 		// StatefulSet controller is always registered so that after NSX upgrades
 		// replica/GC logic can run without restarting the operator. Reconcile and CollectGarbage
-		// no-op until NSX version supports STS pods and vpc_wcp_enhance=true in config; delete cleanup still runs.
+		// no-op until NSX version supports STS pods and vpc_wcp_enhance=true in config.
 		reconcilerList = append(reconcilerList, statefulsetcontroller.NewStatefulSetReconciler(reconcilerMgr, subnetPortService))
 		if nsx.StatefulSetPodSubnetPortFeatureEnabled(commonService.NSXClient, commonService.NSXConfig) {
 			log.Info("NSX version and config allow StatefulSet Pod feature; StatefulSet controller will run replica/GC work")
