@@ -33,6 +33,8 @@ const (
 	WebhookCertDir        = "/etc/nsx-operator/webhook-certs"
 	EASCertFile           = "eas.crt"
 	EASKeyFile            = "eas.key"
+	ModeVPC               = "VPC"
+	ModeAntreaNSXOnly     = "antreaNSXOnly"
 )
 
 var (
@@ -96,7 +98,8 @@ type configCache struct {
 }
 
 type DefaultConfig struct {
-	Debug bool `ini:"debug"`
+	Debug bool   `ini:"debug"`
+	Mode  string `ini:"mode"`
 }
 
 type CoeConfig struct {
@@ -227,6 +230,10 @@ func LoadConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Fall back to mode from [coe] section if not defined in [DEFAULT]
+	if nsxOperatorConfig.DefaultConfig.Mode == "" && cfg.Section("coe").HasKey("mode") {
+		nsxOperatorConfig.DefaultConfig.Mode = cfg.Section("coe").Key("mode").String()
+	}
 	err = cfg.Section("nsx_v3").MapTo(nsxOperatorConfig.NsxConfig)
 	if err != nil {
 		return nil, err
@@ -262,7 +269,9 @@ func NewNSXOperatorConfigFromFile() (*NSXOperatorConfig, error) {
 
 func NewNSXOpertorConfig() *NSXOperatorConfig {
 	defaultNSXOperatorConfig := &NSXOperatorConfig{
-		&DefaultConfig{},
+		&DefaultConfig{
+			Mode: ModeVPC,
+		},
 		&CoeConfig{EnableSha: true},
 		&NsxConfig{
 			InventoryBatchPeriod: 5,
@@ -278,7 +287,56 @@ func NewNSXOpertorConfig() *NSXOperatorConfig {
 	return defaultNSXOperatorConfig
 }
 
+func (operatorConfig *NSXOperatorConfig) GetMode() string {
+	if operatorConfig == nil || operatorConfig.DefaultConfig == nil || operatorConfig.Mode == "" {
+		return ModeVPC
+	}
+	return operatorConfig.Mode
+}
+
+func (operatorConfig *NSXOperatorConfig) IsAntreaNSXOnly() bool {
+	if operatorConfig == nil || operatorConfig.DefaultConfig == nil {
+		return false
+	}
+	clean := strings.ToLower(strings.TrimSpace(operatorConfig.Mode))
+	clean = strings.ReplaceAll(clean, "-", "")
+	clean = strings.ReplaceAll(clean, "_", "")
+	return clean == "antreansxonly"
+}
+
+func (operatorConfig *NSXOperatorConfig) IsVPCMode() bool {
+	return !operatorConfig.IsAntreaNSXOnly()
+}
+
+func (operatorConfig *NSXOperatorConfig) validateMode() error {
+	mode := operatorConfig.GetMode()
+	clean := strings.ToLower(strings.TrimSpace(mode))
+	clean = strings.ReplaceAll(clean, "-", "")
+	clean = strings.ReplaceAll(clean, "_", "")
+	if clean == "vpc" {
+		operatorConfig.DefaultConfig.Mode = ModeVPC
+		return nil
+	}
+	if clean == "antreansxonly" {
+		operatorConfig.DefaultConfig.Mode = ModeAntreaNSXOnly
+		if operatorConfig.CoeConfig != nil {
+			operatorConfig.CoeConfig.EnableVPCNetwork = false
+		}
+		if operatorConfig.K8sConfig == nil {
+			operatorConfig.K8sConfig = &K8sConfig{}
+		}
+		operatorConfig.K8sConfig.EnableAntreaNSXInterworking = true
+		return nil
+	}
+	err := fmt.Errorf("invalid mode '%s', supported modes are '%s' and '%s'", mode, ModeVPC, ModeAntreaNSXOnly)
+	configLog.Error(err, "Validate mode failed")
+	return err
+}
+
 func (operatorConfig *NSXOperatorConfig) validate() error {
+	if err := operatorConfig.validateMode(); err != nil {
+		return err
+	}
 	if err := operatorConfig.CoeConfig.validate(); err != nil {
 		return err
 	}

@@ -138,7 +138,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 
 	checkLicense(nsxClient, cf.LicenseValidationInterval)
 
-	if cf.K8sConfig.EnableRestore && config.HasVPCNamespaces() {
+	if cf.K8sConfig.EnableRestore && (config.HasVPCNamespaces() || cf.IsAntreaNSXOnly()) {
 		var err error
 		restoreMode, err = pkgutil.CompareNSXRestore(mgr.GetClient(), nsxClient)
 		if err != nil {
@@ -166,6 +166,16 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	var vpcService *vpc.VPCService
 	var hookServer webhook.Server
 	var subnetSetReconcile *subnetset.SubnetSetReconciler
+
+	var inventoryService *inventoryservice.InventoryService
+	if cf.EnableInventory {
+		var err error
+		inventoryService, err = inventoryservice.InitializeService(commonService, false)
+		if err != nil {
+			log.Error(err, "Failed to initialize inventory commonService", "controller", "Inventory")
+			os.Exit(1)
+		}
+	}
 
 	if config.HasVPCNamespaces() {
 		// Check NSX version for VPC networking mode
@@ -216,14 +226,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		if err != nil {
 			log.Error(err, "Failed to initialize SubnetConnectionBindingMap commonService")
 			os.Exit(1)
-		}
-		var inventoryService *inventoryservice.InventoryService
-		if cf.EnableInventory {
-			inventoryService, err = inventoryservice.InitializeService(commonService, false)
-			if err != nil {
-				log.Error(err, "Failed to initialize inventory commonService", "controller", "Inventory")
-				os.Exit(1)
-			}
 		}
 		subnetIPReservationService, err := subnetipreservationservice.InitializeService(commonService, subnetPortService)
 		if err != nil {
@@ -280,9 +282,13 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		} else {
 			log.Info("StatefulSet Pod feature gated (NSX version and/or vpc_wcp_enhance!=true); StatefulSet controller registered but replica/GC no-op until enabled")
 		}
-		if cf.EnableInventory {
+		if cf.EnableInventory && inventoryService != nil {
 			reconcilerList = append(reconcilerList, inventory.NewInventoryController(reconcilerMgr.GetClient(), inventoryService, cf))
 		}
+	}
+
+	if cf.IsAntreaNSXOnly() && cf.EnableInventory && inventoryService != nil {
+		reconcilerList = append(reconcilerList, inventory.NewInventoryController(reconcilerMgr.GetClient(), inventoryService, cf))
 	}
 
 	// Add controllers which can run in non-VPC mode
@@ -294,12 +300,14 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	// Add the NSXServiceAccount controller.
-	if cf.EnableAntreaNSXInterworking {
+	if cf.EnableAntreaNSXInterworking || cf.IsAntreaNSXOnly() {
 		reconcilerList = append(reconcilerList, nsxserviceaccountcontroller.NewNSXServiceAccountReconciler(reconcilerMgr, commonService))
 	}
 
 	if restoreMode {
-		subnetSetReconcile.EnableRestoreMode()
+		if subnetSetReconcile != nil {
+			subnetSetReconcile.EnableRestoreMode()
+		}
 		err := pkgutil.ProcessRestore(reconcilerList, mgr.GetClient())
 		if err != nil {
 			log.Error(err, "Failed to process restore")
@@ -399,9 +407,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := config.InitMixedMode(context.Background(), cfg, cf.CoeConfig.EnableVPCNetwork); err != nil {
-		log.Error(err, "Failed to initialize mixed mode state")
-		os.Exit(1)
+	if cf.IsAntreaNSXOnly() {
+		log.Info("Running in Antrea-NSX-Only mode, disabling VPC and mixed-mode networking")
+		config.InitAntreaNSXOnlyMode()
+	} else {
+		if err := config.InitMixedMode(context.Background(), cfg, cf.CoeConfig.EnableVPCNetwork); err != nil {
+			log.Error(err, "Failed to initialize mixed mode state")
+			os.Exit(1)
+		}
 	}
 	util.SetHasVPCNamespacesFunc(config.HasVPCNamespaces)
 
