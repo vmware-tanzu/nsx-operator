@@ -147,25 +147,23 @@ func TestPodV2RequestsStaticIPAllocation(t *testing.T) {
 
 func TestPodV2NameCollisionsPreserveOtherOwners(t *testing.T) {
 	ctx := context.Background()
-	for _, collisions := range []int{1} {
-		t.Run(fmt.Sprintf("collisions=%d", collisions), func(t *testing.T) {
-			r, api, req := newPodV2TestReconciler(t, false, false)
+	for _, stale := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stale-cache=%v", stale), func(t *testing.T) {
+			r, api, req := newPodV2TestReconciler(t, false, stale)
 			pod := &v1.Pod{}
 			require.NoError(t, api.Get(ctx, req.NamespacedName, pod))
-			for attempt := 0; attempt < collisions; attempt++ {
-				other := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{
-					Name: common.GenerateSubnetPortName(pod, attempt), Namespace: pod.Namespace,
-					OwnerReferences: []metav1.OwnerReference{{Kind: "Pod", Name: "other", UID: "other-uid", Controller: servicecommon.Bool(true)}},
-				}}
-				require.NoError(t, api.Create(ctx, other))
-			}
+			other := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{
+				Name: common.GenerateSubnetPortName(pod, 0), Namespace: pod.Namespace,
+				OwnerReferences: []metav1.OwnerReference{{Kind: "Pod", Name: "other", UID: "other-uid", Controller: servicecommon.Bool(true)}},
+			}}
+			require.NoError(t, api.Create(ctx, other))
 			for i := 0; i < 2; i++ {
 				_, err := r.Reconcile(ctx, req)
 				require.NoError(t, err)
 			}
 			ports := &v1alpha1.SubnetPortList{}
 			require.NoError(t, api.List(ctx, ports))
-			require.Len(t, ports.Items, collisions+1)
+			require.Len(t, ports.Items, 2)
 			owned := 0
 			for _, sp := range ports.Items {
 				if metav1.IsControlledBy(&sp, pod) {
@@ -196,6 +194,11 @@ func TestPodV2NameCollisionRetryLimit(t *testing.T) {
 						return c.Create(ctx, obj, opts...)
 					}
 					attempts++
+					if attempts == 1 {
+						require.Equal(t, pod.Name+"-12345", sp.Name)
+					} else {
+						require.Len(t, sp.Name, len(pod.Name)+6)
+					}
 					require.LessOrEqual(t, attempts, 2, "reconcile must yield after exhausting name collision attempts")
 					// Simulate another writer taking each name, including the random fallback,
 					// before Create reaches the API server.
@@ -228,12 +231,7 @@ func TestPodV2NameCollisionRetryLimit(t *testing.T) {
 
 			// Once competing writes stop, later reconciles create or reuse exactly one CR.
 			r.Client = api
-			// If we simulated a foreign collision on Attempt 1 (full UID), delete it now
-			// since in reality full UIDs do not collide, and we need the next Reconcile to succeed.
-			if !reuseLast && len(foreignPorts) == 2 {
-				api.Delete(ctx, foreignPorts[1])
-				foreignPorts = foreignPorts[:1]
-			}
+
 			for i := 0; i < 2; i++ {
 				_, err = r.Reconcile(ctx, req)
 				require.NoError(t, err)

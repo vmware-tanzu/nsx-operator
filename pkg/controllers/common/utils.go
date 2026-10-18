@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -1002,29 +1003,26 @@ func GetSubnetPortForPod(ctx context.Context, c k8sclient.Client, pod *v1.Pod) (
 }
 
 // GenerateSubnetPortName generates a SubnetPort name following the naming convention:
-// Attempt 0: <pod_name[:20]>-<pod_uid[:8]>
-// Attempt 1: <pod_name[:20]>-<pod_uid> (full UID)
+// Attempt 0: <pod_name>-<pod_uid[:5]>
+// Attempt >= 1: <pod_name>-<random_5_chars>
 func GenerateSubnetPortName(pod *v1.Pod, attempt int) string {
+	const suffixLength = 5
+	const maxPodNameLength = validation.DNS1123SubdomainMaxLength - suffixLength - 1
 	podNamePrefix := pod.Name
-	if len(podNamePrefix) > 20 {
-		podNamePrefix = podNamePrefix[:20]
+	if len(podNamePrefix) > maxPodNameLength {
+		podNamePrefix = podNamePrefix[:maxPodNameLength]
 	}
-	// Trim trailing non-alphanumeric characters (like '.') to ensure valid DNS subdomain
+	// Truncation must not leave an invalid DNS label before the suffix.
 	podNamePrefix = strings.TrimRight(podNamePrefix, "-.")
 
-	podUID := string(pod.UID)
-	switch attempt {
-	case 0:
-		uidShort := podUID
-		if len(uidShort) > 8 {
-			uidShort = uidShort[:8]
+	if attempt == 0 {
+		uidShort := string(pod.UID)
+		if len(uidShort) > suffixLength {
+			uidShort = uidShort[:suffixLength]
 		}
 		return fmt.Sprintf("%s-%s", podNamePrefix, uidShort)
-	case 1:
-		return fmt.Sprintf("%s-%s", podNamePrefix, podUID)
-	default:
-		return fmt.Sprintf("%s-%s", podNamePrefix, rand.String(8))
 	}
+	return fmt.Sprintf("%s-%s", podNamePrefix, rand.String(suffixLength))
 }
 
 // GetNodeByName returns the HostTransportNode for a node name using the NodeServiceReader.

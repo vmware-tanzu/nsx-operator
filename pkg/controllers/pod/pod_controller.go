@@ -219,6 +219,18 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 			r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
 			return common.ResultNormal, nil
 		}
+		// A previous reconcile may have created a random fallback that the cache
+		// has not observed yet. Find it before choosing another random name.
+		ports := &v1alpha1.SubnetPortList{}
+		if err := reader.List(ctx, ports, client.InNamespace(pod.Namespace)); err != nil {
+			return common.ResultNormal, err
+		}
+		for i := range ports.Items {
+			if metav1.IsControlledBy(&ports.Items[i], pod) {
+				r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
+				return common.ResultNormal, nil
+			}
+		}
 		log.Warn("SubnetPort CR name is owned by another object", "attempt", attempt, "SubnetPortName", spName, "Namespace", pod.Namespace, "PodName", pod.Name)
 	}
 	if createErr != nil {

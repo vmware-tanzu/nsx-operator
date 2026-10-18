@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -1935,29 +1936,30 @@ func TestGenerateSubnetPortName(t *testing.T) {
 			UID:  "12345678-abcd-1234-abcd-1234567890ab",
 		},
 	}
-	// Attempt 0: <name[:20]>-<uid[:8]>
-	name0 := GenerateSubnetPortName(pod, 0)
-	assert.Equal(t, "my-long-pod-name-exc-12345678", name0)
-
-	// Attempt 1: <name[:20]>-<full_uid>
-	name1 := GenerateSubnetPortName(pod, 1)
-	assert.Equal(t, "my-long-pod-name-exc-12345678-abcd-1234-abcd-1234567890ab", name1)
-
-	// Attempt 2: <name[:20]>-<random_8_char>
-	name2 := GenerateSubnetPortName(pod, 2)
-	assert.True(t, strings.HasPrefix(name2, "my-long-pod-name-exc-"))
-	assert.Equal(t, len("my-long-pod-name-exc-")+8, len(name2))
-
-	podBoundary := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "abcdefghijklmnopqrs.worker",
-			UID:  "87654321-abcd-1234-abcd-1234567890ab",
-		},
+	assert.Equal(t, pod.Name+"-12345", GenerateSubnetPortName(pod, 0))
+	for _, attempt := range []int{1, 2} {
+		name := GenerateSubnetPortName(pod, attempt)
+		assert.True(t, strings.HasPrefix(name, pod.Name+"-"))
+		assert.Len(t, name, len(pod.Name)+6)
+		assert.Empty(t, validation.IsDNS1123Subdomain(name))
 	}
-	// Attempt 0: <name[:20] stripped of '.'>-<uid[:8]>
-	nameBoundary := GenerateSubnetPortName(podBoundary, 0)
-	// Original 20 chars is "abcdefghijklmnopqrs.", the dot should be stripped
-	assert.Equal(t, "abcdefghijklmnopqrs-87654321", nameBoundary)
+
+	for _, tc := range []struct{ name, prefix string }{
+		{"abcdefghijklmnopqrs.worker", "abcdefghijklmnopqrs.worker"},
+		{strings.Repeat("a", 247), strings.Repeat("a", 247)},
+		{strings.Repeat("a", 253), strings.Repeat("a", 247)},
+		{strings.Repeat("a", 246) + ".worker", strings.Repeat("a", 246)},
+		{strings.Repeat("a", 246) + "-worker", strings.Repeat("a", 246)},
+	} {
+		pod.Name = tc.name
+		assert.Equal(t, tc.prefix+"-12345", GenerateSubnetPortName(pod, 0))
+		for _, attempt := range []int{0, 1} {
+			name := GenerateSubnetPortName(pod, attempt)
+			assert.True(t, strings.HasPrefix(name, tc.prefix+"-"))
+			assert.Len(t, name, len(tc.prefix)+6)
+			assert.Empty(t, validation.IsDNS1123Subdomain(name))
+		}
+	}
 }
 
 type fakeNodeServiceReader struct {
