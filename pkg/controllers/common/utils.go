@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -1005,9 +1004,10 @@ func GetSubnetPortForPod(ctx context.Context, c k8sclient.Client, pod *v1.Pod) (
 // GenerateSubnetPortName generates a SubnetPort name following the naming convention:
 // Attempt 0: <pod_name>-<pod_uid[:5]>
 // Attempt >= 1: <pod_name>-<random_5_chars>
+// Keep the Pod name prefix within 57 characters, matching VirtualNetworkInterface.
 func GenerateSubnetPortName(pod *v1.Pod, attempt int) string {
 	const suffixLength = 5
-	const maxPodNameLength = validation.DNS1123SubdomainMaxLength - suffixLength - 1
+	const maxPodNameLength = 57
 	podNamePrefix := pod.Name
 	if len(podNamePrefix) > maxPodNameLength {
 		podNamePrefix = podNamePrefix[:maxPodNameLength]

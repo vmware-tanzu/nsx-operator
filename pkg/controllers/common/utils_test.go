@@ -1946,10 +1946,11 @@ func TestGenerateSubnetPortName(t *testing.T) {
 
 	for _, tc := range []struct{ name, prefix string }{
 		{"abcdefghijklmnopqrs.worker", "abcdefghijklmnopqrs.worker"},
-		{strings.Repeat("a", 247), strings.Repeat("a", 247)},
-		{strings.Repeat("a", 253), strings.Repeat("a", 247)},
-		{strings.Repeat("a", 246) + ".worker", strings.Repeat("a", 246)},
-		{strings.Repeat("a", 246) + "-worker", strings.Repeat("a", 246)},
+		{strings.Repeat("a", 57), strings.Repeat("a", 57)},
+		{strings.Repeat("a", 58), strings.Repeat("a", 57)},
+		{strings.Repeat("a", 253), strings.Repeat("a", 57)},
+		{strings.Repeat("a", 56) + ".worker", strings.Repeat("a", 56)},
+		{strings.Repeat("a", 56) + "-worker", strings.Repeat("a", 56)},
 	} {
 		pod.Name = tc.name
 		assert.Equal(t, tc.prefix+"-12345", GenerateSubnetPortName(pod, 0))
