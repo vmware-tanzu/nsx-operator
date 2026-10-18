@@ -20,6 +20,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	ctrlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	common "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	util "github.com/vmware-tanzu/nsx-operator/pkg/util"
@@ -130,6 +131,7 @@ func (s *p2Suite) staticLifecycle(t *testing.T) {
 	p := s.pod(t, "static")
 	c := s.cr(t, p)
 	port := s.port(t, p)
+	require.Equal(t, ctrlcommon.GenerateSubnetPortName(p, 0), c.Name, "SubnetPort CR name must follow GenerateSubnetPortName convention (<pod_name[:57]>-<pod_uid[:5]>)")
 	require.Equal(t, s.journal.Run+"-static", c.Spec.SubnetSet)
 	require.Equal(t, s.journal.DefaultSet.Spec.IPAddressType, c.Spec.InterfaceIPType)
 	require.Equal(t, api.StaticIPAllocationType(c.Spec.InterfaceIPType), c.Spec.StaticIPAllocationType)
@@ -436,6 +438,7 @@ func (s *p2Suite) restartCase(t *testing.T) {
 	}
 	for _, p := range pods {
 		require.Len(t, crByPodUID[string(p.UID)], 1, "exactly one CR per current Pod UID")
+		require.Equal(t, ctrlcommon.GenerateSubnetPortName(p, 0), crByPodUID[string(p.UID)][0].Name, "SubnetPort CR must use primary naming format without fallback duplicates")
 		podPorts, e := s.ports(common.TagScopePodUID, string(p.UID))
 		require.NoError(t, e)
 		require.Len(t, podPorts, 1, "exactly one NSX port per current Pod UID")
@@ -455,6 +458,7 @@ func (s *p2Suite) restartCase(t *testing.T) {
 	require.NotEqual(t, old.UID, replacement.UID)
 	newCR := s.cr(t, replacement)
 	require.NotEqual(t, crs[0].UID, newCR.UID)
+	require.Equal(t, ctrlcommon.GenerateSubnetPortName(replacement, 0), newCR.Name, "replacement Pod CR must follow GenerateSubnetPortName")
 	s.verify(t, replacement, newCR, s.port(t, replacement))
 	pods[0] = replacement
 	for _, p := range pods {
@@ -563,6 +567,8 @@ func (s *p2Suite) restoreCase(t *testing.T, legacy, badHost, vif bool) {
 	port := s.port(t, p)
 	if saved != nil {
 		require.Equal(t, saved.UID, c.UID, "restore replaced existing CR")
+	} else if legacy {
+		require.Equal(t, ctrlcommon.GenerateSubnetPortName(p, 0), c.Name, "restored SubnetPort CR for legacy Pod must match GenerateSubnetPortName convention")
 	}
 	s.matchIPs(t, ips, c)
 	require.Equal(t, strings.ToLower(mac), strings.ToLower(c.Status.NetworkInterfaceConfig.MACAddress))

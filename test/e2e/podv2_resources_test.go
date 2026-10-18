@@ -312,11 +312,11 @@ func (s *p2Suite) defaultLabel(ctx context.Context, name string, on bool) error 
 			if name == s.journal.DefaultSet.Name {
 				if oldVal, ok := s.journal.DefaultSet.Labels[common.LabelDefaultSubnetSet]; ok {
 					c.Labels[common.LabelDefaultSubnetSet] = oldVal
-				} else {
+				}
+			} else if s.journal.DefaultSet.Name != "" {
+				if _, ok := s.journal.DefaultSet.Labels[common.LabelDefaultSubnetSet]; ok {
 					c.Labels[common.LabelDefaultSubnetSet] = common.LabelDefaultPodSubnetSet
 				}
-			} else {
-				c.Labels[common.LabelDefaultSubnetSet] = common.LabelDefaultPodSubnetSet
 			}
 		} else {
 			delete(c.Labels, common.LabelDefaultNetwork)
