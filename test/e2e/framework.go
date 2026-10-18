@@ -341,26 +341,30 @@ func (data *TestData) createVCNamespace(namespace string) error {
 	vcNamespace := &VCNamespaceCreateSpec{
 		Supervisor: svID,
 		Namespace:  namespace,
-		StorageSpecs: []InstancesStorageSpec{
-			{
-				Policy: storagePolicyID,
-			},
-		},
-		ContentLibraries: []InstancesContentLibrarySpec{
-			{
-				ContentLibrary: contentLibraryID,
-			},
-		},
 		NetworkSpec: InstancesNetworkConfigInfo{
 			NetworkProvider: "NSX_VPC",
 			VpcNetwork: InstancesVpcNetworkInfo{
 				DefaultSubnetSize: 16,
 			},
 		},
-		VmServiceSpec: &InstancesVMServiceSpec{
+	}
+	if storagePolicyID != "" {
+		vcNamespace.StorageSpecs = []InstancesStorageSpec{
+			{
+				Policy: storagePolicyID,
+			},
+		}
+	}
+	if contentLibraryID != "" {
+		vcNamespace.ContentLibraries = []InstancesContentLibrarySpec{
+			{
+				ContentLibrary: contentLibraryID,
+			},
+		}
+		vcNamespace.VmServiceSpec = &InstancesVMServiceSpec{
 			ContentLibraries: []string{contentLibraryID},
 			VmClasses:        []string{"best-effort-xsmall"},
-		},
+		}
 	}
 
 	// Session will be created automatically by ensureSession() in vcClient methods
