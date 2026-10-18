@@ -909,6 +909,9 @@ func (s *p2Suite) configure(ctx context.Context, v2, enhance, restore, vif bool)
 	return s.updateDeployment(ctx, func(d *appsv1.Deployment) {
 		// Start from the saved template, so mode changes do not accumulate mounts.
 		d.Spec.Template = *s.journal.Deployment.Spec.Template.DeepCopy()
+		if s.journal.Deployment.Spec.Template.Spec.NodeSelector != nil {
+			d.Spec.Template.Spec.NodeSelector = s.journal.Deployment.Spec.Template.Spec.NodeSelector
+		}
 		if d.Spec.Template.Annotations == nil {
 			d.Spec.Template.Annotations = map[string]string{}
 		}
@@ -1226,6 +1229,10 @@ func (s *p2Suite) cleanup() error {
 	add(s.updateDeployment(ctx, func(d *appsv1.Deployment) {
 		d.Spec.Template = *s.journal.Deployment.Spec.Template.DeepCopy()
 		d.Spec.Replicas = ptr.To(*s.journal.Deployment.Spec.Replicas)
+		// Ensure any deployed nodeSelector is preserved if present in journal
+		if s.journal.Deployment.Spec.Template.Spec.NodeSelector != nil {
+			d.Spec.Template.Spec.NodeSelector = s.journal.Deployment.Spec.Template.Spec.NodeSelector
+		}
 	}))
 	s.configMounted = false
 	add(s.poll(ctx, "original operator healthy", func(c context.Context) (bool, string, error) {
