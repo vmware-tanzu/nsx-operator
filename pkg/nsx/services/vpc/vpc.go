@@ -1119,6 +1119,7 @@ func IsVNAMode(profile *model.VpcConnectivityProfile) (bool, error) {
 func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
+
 	if globalLbProvider != NoneLB {
 		log.Debug("LB provider", "current provider", globalLbProvider)
 		return globalLbProvider, nil
@@ -1132,6 +1133,11 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	if !found {
 		log.Info("Get LB provider", "No system NetworkConfig found", ncName)
 		return NoneLB, nil
+	}
+	if hasAVILBSubnetPath(netConfig) {
+		globalLbProvider = AVILB
+		log.Info("Get LB provider from system VPCNetworkConfiguration status", "provider", globalLbProvider)
+		return globalLbProvider, nil
 	}
 
 	vpcConnectivityProfile, err := s.GetVpcConnectivityProfileWithRetry(netConfig)
@@ -1149,6 +1155,18 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	globalLbProvider = provider
 	log.Info("Get LB provider", "provider", globalLbProvider)
 	return globalLbProvider, nil
+}
+
+// hasAVILBSubnetPath reports whether the system VPCNetworkConfiguration has
+// a populated AVI LB subnet path.
+func hasAVILBSubnetPath(networkConfig *v1alpha1.VPCNetworkConfiguration) bool {
+	for _, vpcInfo := range networkConfig.Status.VPCs {
+		if vpcInfo.AVISESubnetPath != "" {
+			log.Info("Using AVI LB because the system VPC has an AVI LB subnet path", "networkConfig", networkConfig.Name)
+			return true
+		}
+	}
+	return false
 }
 
 func (s *VPCService) checkALBEndpoint() (bool, error) {
