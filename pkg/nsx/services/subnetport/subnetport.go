@@ -50,8 +50,7 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	builder, _ := servicecommon.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 1)
 
 	wg.Add(1)
 
@@ -65,15 +64,9 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	subnetPortService.SubnetPortStore = setupStore()
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return subnetPortService, err
 	}
 

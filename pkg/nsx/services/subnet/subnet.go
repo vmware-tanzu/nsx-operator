@@ -69,8 +69,7 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 	builder, _ := common.PolicyPathVpcSubnet.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 1)
 	subnetService := &SubnetService{
 		Service:     service,
 		SubnetStore: buildSubnetStore(),
@@ -86,14 +85,9 @@ func InitializeSubnetService(service common.Service) (*SubnetService, error) {
 
 	wg.Add(1)
 	go subnetService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnet, nil, subnetService.SubnetStore)
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return subnetService, err
 	}
 	return subnetService, nil

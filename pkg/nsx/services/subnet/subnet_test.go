@@ -368,6 +368,26 @@ func TestInitializeSubnetService(t *testing.T) {
 	}
 }
 
+func TestInitializeSubnetService_Error(t *testing.T) {
+	commonService := common.Service{
+		NSXClient: &nsx.Client{
+			QueryClient: &fakeQueryClient{},
+			NsxConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+		return model.SearchResponse{}, fmt.Errorf("mock subnet search error")
+	})
+	defer patches.Reset()
+
+	_, err := InitializeSubnetService(commonService)
+	assert.ErrorContains(t, err, "mock subnet search error")
+}
+
 func TestSubnetService_GetSubnetByCR(t *testing.T) {
 	service := &SubnetService{
 		Service:     common.Service{},

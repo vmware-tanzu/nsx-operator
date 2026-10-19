@@ -36,8 +36,7 @@ func InitializeStaticRoute(commonService common.Service, vpcService common.VPCSe
 	builder, _ := common.PolicyPathVpcStaticRoutes.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 1)
 
 	wg.Add(1)
 	staticRouteService := &StaticRouteService{Service: commonService, builder: builder}
@@ -47,16 +46,9 @@ func InitializeStaticRoute(commonService common.Service, vpcService common.VPCSe
 	staticRouteService.IPAllocationService = ipAllocationService
 
 	go staticRouteService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeStaticRoutes, nil, staticRouteService.StaticRouteStore)
-
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return staticRouteService, err
 	}
 

@@ -32,33 +32,29 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	error) {
 	builder, _ := common.PolicyPathVpcIPAddressAllocation.NewPolicyTreeBuilder()
 
+	numRoutines := 1
+	if includeNCP {
+		numRoutines = 2
+	}
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, numRoutines)
 
 	ipAddressAllocationService := &IPAddressAllocationService{Service: service, VPCService: vpcService, builder: builder}
 	ipAddressAllocationService.ipAddressAllocationStore = buildIPAddressAllocationStore()
 
+	wg.Add(numRoutines)
 	if includeNCP {
-		wg.Add(2)
 		go ipAddressAllocationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPAddressAllocation,
 			[]model.Tag{{Scope: String(common.TagScopeNCPCluster), Tag: String(service.NSXClient.NsxConfig.Cluster)}},
 			ipAddressAllocationService.ipAddressAllocationStore)
-	} else {
-		wg.Add(1)
 	}
 	go ipAddressAllocationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeIPAddressAllocation,
 		[]model.Tag{{Scope: String(common.TagScopeCluster), Tag: String(service.NSXClient.NsxConfig.Cluster)}},
 		ipAddressAllocationService.ipAddressAllocationStore)
 
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return ipAddressAllocationService, err
 	}
 	return ipAddressAllocationService, nil

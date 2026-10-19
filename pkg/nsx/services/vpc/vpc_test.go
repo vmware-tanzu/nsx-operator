@@ -3148,6 +3148,7 @@ func TestInitializeVPC(t *testing.T) {
 		expectVPCGetByIndex int
 		expectAllVPCNum     int
 		searchKey           string
+		wantErr             bool
 	}{
 		{
 			name: "InitializeVPC with NSX VPC",
@@ -3172,20 +3173,37 @@ func TestInitializeVPC(t *testing.T) {
 			expectVPCGetByIndex: 0,
 			expectAllVPCNum:     1,
 			searchKey:           "",
+			wantErr:             false,
+		},
+		{
+			name: "InitializeVPC with error",
+			prepareFunc: func() *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+					return model.SearchResponse{}, fmt.Errorf("mock error")
+				})
+				return patches
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tc := range testCases {
-		if tc.prepareFunc != nil {
-			patches := tc.prepareFunc()
-			defer patches.Reset()
-		}
-		service, err := InitializeVPC(commonService)
-		assert.NoError(t, err)
-		res := service.GetVPCsByNamespace(tc.searchKey)
-		assert.Equal(t, tc.expectVPCGetByIndex, len(res))
-		allVPCs := service.ListVPC()
-		assert.Equal(t, tc.expectAllVPCNum, len(allVPCs))
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.prepareFunc != nil {
+				patches := tc.prepareFunc()
+				defer patches.Reset()
+			}
+			service, err := InitializeVPC(commonService)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			res := service.GetVPCsByNamespace(tc.searchKey)
+			assert.Equal(t, tc.expectVPCGetByIndex, len(res))
+			allVPCs := service.ListVPC()
+			assert.Equal(t, tc.expectAllVPCNum, len(allVPCs))
+		})
 	}
 }
 
