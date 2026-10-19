@@ -649,12 +649,14 @@ func (s *NSXServiceAccountService) GetNSXRestoreStatus() (*v1alpha1.NSXRestoreSt
 	return &nsxRestoreStatus, nil
 }
 
-func (s *NSXServiceAccountService) UpdateProxyEndpointsIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+func (s *NSXServiceAccountService) UpdateConnectionInfoIfNeeded(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	proxyEndpoints, err := s.getProxyEndpoints(ctx)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(proxyEndpoints, obj.Status.ProxyEndpoints) {
+	if !reflect.DeepEqual(proxyEndpoints, obj.Status.ProxyEndpoints) ||
+		!reflect.DeepEqual(s.NSXConfig.NsxApiManagers, obj.Status.NSXManagers) {
+		obj.Status.NSXManagers = s.NSXConfig.NsxApiManagers
 		obj.Status.ProxyEndpoints = proxyEndpoints
 		return s.Client.Status().Update(ctx, obj)
 	}

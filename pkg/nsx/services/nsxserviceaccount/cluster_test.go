@@ -2365,12 +2365,13 @@ func TestIsNSXServiceAccountRealized(t *testing.T) {
 	}
 }
 
-func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
+func TestUpdateConnectionInfoIfNeeded(t *testing.T) {
 	tests := []struct {
 		name                   string
 		nsxServiceAccount      *v1alpha1.NSXServiceAccount
 		prepareFunc            func(*testing.T, *NSXServiceAccountService, context.Context)
 		expectedProxyEndpoints v1alpha1.NSXProxyEndpoint
+		expectNoStatusUpdate   bool
 	}{
 		{
 			name: "update nsx service account with proxy endpoints",
@@ -2380,7 +2381,8 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 					Namespace: "ns1",
 				},
 				Status: v1alpha1.NSXServiceAccountStatus{
-					Phase: v1alpha1.NSXServiceAccountPhaseRealized,
+					Phase:       v1alpha1.NSXServiceAccountPhaseRealized,
+					NSXManagers: []string{"mgr1:443", "mgr2:443"},
 					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{
 						Addresses: []v1alpha1.NSXProxyEndpointAddress{
 							{
@@ -2452,18 +2454,60 @@ func TestUpdateProxyEndpointsIfNeeded(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "update stale manager addresses",
+			nsxServiceAccount: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "account",
+					Namespace: "ns1",
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:       v1alpha1.NSXServiceAccountPhaseRealized,
+					NSXManagers: []string{"old-manager:443"},
+					ClusterID:   "existing-cluster",
+					Secrets:     []v1alpha1.NSXSecret{{Name: "existing-secret", Namespace: "ns1"}},
+				},
+			},
+		},
+		{
+			name:                 "keep unchanged manager addresses",
+			expectNoStatusUpdate: true,
+			nsxServiceAccount: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "account",
+					Namespace: "ns1",
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:       v1alpha1.NSXServiceAccountPhaseRealized,
+					NSXManagers: []string{"mgr1:443", "mgr2:443"},
+					ClusterID:   "existing-cluster",
+					Secrets:     []v1alpha1.NSXSecret{{Name: "existing-secret", Namespace: "ns1"}},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.TODO()
 			commonService := newFakeCommonService()
 			s := &NSXServiceAccountService{Service: commonService}
-			assert.NoError(t, s.Client.Create(ctx, tt.nsxServiceAccount))
-			tt.prepareFunc(t, s, ctx)
+			require.NoError(t, s.Client.Create(ctx, tt.nsxServiceAccount))
+			if tt.prepareFunc != nil {
+				tt.prepareFunc(t, s, ctx)
+			}
+			expectedStatus := tt.nsxServiceAccount.DeepCopy().Status
+			expectedStatus.NSXManagers = s.NSXConfig.NsxApiManagers
+			expectedStatus.ProxyEndpoints = tt.expectedProxyEndpoints
 
-			err := s.UpdateProxyEndpointsIfNeeded(ctx, tt.nsxServiceAccount)
-			require.NoError(t, err)
-			assert.Equal(t, tt.expectedProxyEndpoints, tt.nsxServiceAccount.Status.ProxyEndpoints)
+			resourceVersion := tt.nsxServiceAccount.ResourceVersion
+			require.NoError(t, s.UpdateConnectionInfoIfNeeded(ctx, tt.nsxServiceAccount))
+			actual := &v1alpha1.NSXServiceAccount{}
+			key := types.NamespacedName{Name: tt.nsxServiceAccount.Name, Namespace: tt.nsxServiceAccount.Namespace}
+			require.NoError(t, s.Client.Get(ctx, key, actual))
+			assert.Equal(t, expectedStatus, actual.Status)
+			if tt.expectNoStatusUpdate {
+				assert.Equal(t, resourceVersion, actual.ResourceVersion)
+			}
 		})
 	}
 }
