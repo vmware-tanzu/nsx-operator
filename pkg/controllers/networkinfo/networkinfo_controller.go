@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -966,10 +967,14 @@ func (r *NetworkInfoReconciler) getRestoreList() ([]types.NamespacedName, error)
 	return restoreList, nil
 }
 
-func (r *NetworkInfoReconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
+func (r *NetworkInfoReconciler) StartController(mgr ctrl.Manager, hookServer webhook.Server) error {
 	if err := r.Start(mgr); err != nil {
 		log.Error(err, "Failed to create networkinfo controller", "controller", "NetworkInfo")
 		return err
+	}
+	if hookServer != nil {
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-vpcnetworkconfiguration",
+			&webhook.Admission{Handler: &VPCNetworkConfigurationValidator{decoder: admission.NewDecoder(mgr.GetScheme())}})
 	}
 	go common.GenericGarbageCollector(make(chan bool), commonservice.GCInterval, r.CollectGarbage)
 	return nil
