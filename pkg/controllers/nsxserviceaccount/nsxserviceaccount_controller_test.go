@@ -12,6 +12,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
@@ -239,7 +240,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					nsxVersion := &nsx.NsxVersion{ProductVersion: "4.0.1"}
 					return nsxVersion, nil
 				})
-				patches.ApplyMethodSeq(r.Service, "UpdateProxyEndpointsIfNeeded", []gomonkey.OutputCell{{
+				patches.ApplyMethodSeq(r.Service, "UpdateConnectionInfoIfNeeded", []gomonkey.OutputCell{{
 					Values: gomonkey.Params{nil},
 					Times:  1,
 				}})
@@ -264,6 +265,45 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 							Status: metav1.ConditionFalse,
 						},
 					},
+				},
+			},
+		},
+		{
+			name: "RefreshNSXManagersAfterRestart",
+			prepareFunc: func(t *testing.T, r *NSXServiceAccountReconciler, ctx context.Context) *gomonkey.Patches {
+				r.Service.Client = r.Client
+				r.Service.NSXConfig.NsxApiManagers = []string{"new-manager-1:443", "new-manager-2:443"}
+				require.NoError(t, r.Client.Create(ctx, &nsxvmwarecomv1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:       requestArgs.req.Name,
+						Namespace:  requestArgs.req.Namespace,
+						Finalizers: []string{servicecommon.NSXServiceAccountFinalizerName},
+					},
+					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+						Phase:       nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+						NSXManagers: []string{"old-manager:443"},
+						ClusterID:   "existing-cluster",
+						Secrets:     []nsxvmwarecomv1alpha1.NSXSecret{{Name: "existing-secret", Namespace: "ns1"}},
+					},
+				}))
+				patches := gomonkey.ApplyMethodReturn(r.Service.NSXClient, "NSXCheckVersion", true)
+				patches.ApplyMethodReturn(r.Service, "RestoreRealizedNSXServiceAccount", nil)
+				return patches
+			},
+			args: requestArgs,
+			want: ResultNormal,
+			expectedCR: &nsxvmwarecomv1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            requestArgs.req.Name,
+					Namespace:       requestArgs.req.Namespace,
+					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
+					ResourceVersion: "3",
+				},
+				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+					Phase:       nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
+					NSXManagers: []string{"new-manager-1:443", "new-manager-2:443"},
+					ClusterID:   "existing-cluster",
+					Secrets:     []nsxvmwarecomv1alpha1.NSXSecret{{Name: "existing-secret", Namespace: "ns1"}},
 				},
 			},
 		},
