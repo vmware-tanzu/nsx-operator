@@ -1,12 +1,20 @@
 package e2e
 
 import (
+	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
 
 var cleanupOnce sync.Once
+
+var (
+	vcNamespaceConcurrency  = 3
+	vcNamespaceReadyTimeout = 5 * time.Minute
+)
 
 // Pre-defined namespace names for e2e tests
 // These namespaces are created once at the start of all tests and cleaned up at the end
@@ -68,14 +76,24 @@ func InitAllNamespaces() error {
 		log.Info("Skipping VC namespace creation - not using WCP setup")
 		return nil
 	}
+	if vcNamespaceConcurrency < 1 {
+		return fmt.Errorf("VC namespace concurrency must be positive, got %d", vcNamespaceConcurrency)
+	}
+	if vcNamespaceReadyTimeout <= 0 {
+		return fmt.Errorf("VC namespace readiness timeout must be positive, got %s", vcNamespaceReadyTimeout)
+	}
 
-	log.Info("Creating VC namespaces", "count", len(allVCNamespaces))
-	// Create namespaces concurrently
-	g := new(errgroup.Group)
+	log.Info("Creating VC namespaces", "count", len(allVCNamespaces), "concurrency", vcNamespaceConcurrency)
+	// Limit concurrent provisioning to avoid overwhelming the supervisor and network controller.
+	g, ctx := errgroup.WithContext(context.Background())
+	g.SetLimit(vcNamespaceConcurrency)
 	for _, ns := range allVCNamespaces {
+		if ctx.Err() != nil {
+			break
+		}
 		ns := ns
 		g.Go(func() error {
-			if err := testData.createVCNamespace(ns); err != nil {
+			if err := testData.createVCNamespace(ctx, ns); err != nil {
 				log.Error(err, "Failed to create VC namespace", "namespace", ns)
 				return err
 			}
@@ -100,6 +118,7 @@ func CleanupVCNamespaces(namespaces ...string) {
 	}
 
 	g := new(errgroup.Group)
+	g.SetLimit(max(1, vcNamespaceConcurrency))
 	for _, ns := range namespaces {
 		ns := ns
 		g.Go(func() error {

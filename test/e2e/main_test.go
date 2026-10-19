@@ -253,6 +253,9 @@ func testMain(m *testing.M) int {
 	flag.StringVar(&testOptions.vcPassword, "vc-password", "", "The password used by the user when requesting vCenter API session")
 	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
 	flag.IntVar(&testOptions.logLevel, "log-level", 0, "")
+	flag.IntVar(&vcNamespaceConcurrency, "vc-namespace-concurrency", vcNamespaceConcurrency, "Maximum concurrent VC namespace operations")
+	flag.DurationVar(&vcNamespaceReadyTimeout, "vc-namespace-ready-timeout", vcNamespaceReadyTimeout, "Timeout waiting for VC namespace networking")
+	flag.DurationVar(&operatorReadyTimeout, "operator-ready-timeout", operatorReadyTimeout, "Timeout waiting for the operator rollout and webhook admission")
 	flag.Parse()
 
 	log = logger.ZapCustomLogger(testOptions.debugLog, testOptions.logLevel)
@@ -284,9 +287,23 @@ func testMain(m *testing.M) int {
 		log.Info("Pod IPv6: ", "network", clusterInfo.podV6NetworkCIDR)
 	}
 
-	// Batch create all VC namespaces once
+	// Pod readiness alone does not guarantee that the elected operator has
+	// initialized its services and started the admission listener.
+	if testData.useWCPSetup() {
+		if err := testData.waitForOperatorReady(); err != nil {
+			log.Error(err, "Operator prerequisites are not ready")
+			collectE2EDiagnostics("operator-setup")
+			return 1
+		}
+	}
+
+	// Batch create all VC namespaces once. Keep their state long enough to
+	// diagnose initialization failures instead of running against missing NSs.
 	if err := InitAllNamespaces(); err != nil {
 		log.Error(err, "failed to init all e2e namespaces")
+		collectE2EDiagnostics("namespace-setup")
+		CleanupAllNamespaces()
+		return 1
 	}
 
 	// Handle Ctrl+C to trigger cleanup
@@ -331,6 +348,9 @@ func testMain(m *testing.M) int {
 
 	// Print test summary at the end
 	testResultTracker.PrintSummary()
+	if ret != 0 {
+		collectE2EDiagnostics("test-failure")
+	}
 
 	CleanupAllNamespaces()
 	return ret

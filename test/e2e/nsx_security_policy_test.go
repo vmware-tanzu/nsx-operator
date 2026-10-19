@@ -455,12 +455,12 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-client.yaml")
-	_ = applyYAML(yamlPath, nsClient)
 	defer deleteYAML(yamlPath, nsClient)
+	require.NoError(t, applyYAML(yamlPath, nsClient), "Failed to create named-port client resources")
 
 	yamlPath, _ = filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-web.yaml")
-	_ = applyYAML(yamlPath, nsWeb)
 	defer deleteYAML(yamlPath, nsWeb)
+	require.NoError(t, applyYAML(yamlPath, nsWeb), "Failed to create named-port server resources")
 
 	clientA := "client"
 	webA := "web"
