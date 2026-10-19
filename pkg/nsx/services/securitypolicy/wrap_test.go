@@ -55,7 +55,7 @@ func (f fakeSecurityClient) Get(domainIdParam string, securityPolicyIdParam stri
 	return model.SecurityPolicy{}, nil
 }
 
-func (f fakeSecurityClient) List(domainIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includeRuleCountParam *bool, includedFieldsParam *string,
+func (f fakeSecurityClient) List(domainIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includeRuleCountParam *bool, includedFieldsParam *string,
 	pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string,
 ) (model.SecurityPolicyListResult, error) {
 	return model.SecurityPolicyListResult{}, nil
@@ -91,7 +91,7 @@ func (f fakeVPCSecurityClient) Get(orgIDParam string, projectIDParam string, vpc
 	return model.SecurityPolicy{}, nil
 }
 
-func (f fakeVPCSecurityClient) List(orgIDParam string, projectIDParam string, vpcIDParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool,
+func (f fakeVPCSecurityClient) List(orgIDParam string, projectIDParam string, vpcIDParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool,
 	includeRuleCountParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string,
 ) (model.SecurityPolicyListResult, error) {
 	return model.SecurityPolicyListResult{}, nil
@@ -119,7 +119,7 @@ func (f fakeVPCGroupClient) Get(orgIdParam string, projectIdParam string, vpcIdP
 	return model.Group{}, nil
 }
 
-func (f fakeVPCGroupClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, memberTypesParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.GroupListResult, error) {
+func (f fakeVPCGroupClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, memberTypesParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.GroupListResult, error) {
 	return model.GroupListResult{}, nil
 }
 

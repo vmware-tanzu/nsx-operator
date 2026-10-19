@@ -34,7 +34,7 @@ require (
 	github.com/vmware/govmomi v0.53.1
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.8.0
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.8.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.1-0.20260731022611-0b74bd8dd86c
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.0.0-20260918040257-df14078d062c
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.1-0.20260731022611-0b74bd8dd86c
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.1

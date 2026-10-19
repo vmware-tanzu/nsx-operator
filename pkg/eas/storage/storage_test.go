@@ -39,7 +39,7 @@ func (f *fakeSubnetsClient) Delete(string, string, string, string) error { retur
 func (f *fakeSubnetsClient) Get(string, string, string, string) (model.VpcSubnet, error) {
 	return model.VpcSubnet{}, nil
 }
-func (f *fakeSubnetsClient) List(_, _, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
+func (f *fakeSubnetsClient) List(_, _, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
 	return f.results, f.err
 }
 func (f *fakeSubnetsClient) Patch(string, string, string, string, model.VpcSubnet) error { return nil }
@@ -52,7 +52,7 @@ type fakeDHCPStatsClient struct {
 	err    error
 }
 
-func (f *fakeDHCPStatsClient) Get(_, _, _, _ string, _ *string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
+func (f *fakeDHCPStatsClient) Get(_, _, _, _ string, _ *string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
 	return f.result, f.err
 }
 
@@ -64,7 +64,7 @@ type fakeIPPoolClient struct {
 func (f *fakeIPPoolClient) Get(string, string, string, string, string) (model.IpAddressPool, error) {
 	return model.IpAddressPool{}, nil
 }
-func (f *fakeIPPoolClient) List(_, _, _, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressPoolListResult, error) {
+func (f *fakeIPPoolClient) List(_, _, _, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressPoolListResult, error) {
 	return f.result, f.err
 }
 
@@ -85,7 +85,7 @@ type fakeInfraIPBlockUsageClient struct {
 func (f *fakeInfraIPBlockUsageClient) Get(string) (model.IpAddressBlockUsage, error) {
 	return f.result, f.err
 }
-func (f *fakeInfraIPBlockUsageClient) List(_ *string, _ *bool, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressBlockUsageList, error) {
+func (f *fakeInfraIPBlockUsageClient) List(_ *string, _ *bool, _ *bool, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressBlockUsageList, error) {
 	return model.IpAddressBlockUsageList{}, nil
 }
 

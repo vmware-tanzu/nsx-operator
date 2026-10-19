@@ -352,7 +352,7 @@ func (s *VPCService) GetDefaultSNATIP(vpc model.Vpc) (string, error) {
 	// TODO: support scale scenario
 	pageSize := int64(1000)
 	markedForDelete := false
-	results, err := ruleClient.List(info.OrgID, info.ProjectID, info.VPCID, common.DefaultSNATID, cursor, &markedForDelete, nil, &pageSize, nil, nil)
+	results, err := ruleClient.List(info.OrgID, info.ProjectID, info.VPCID, common.DefaultSNATID, cursor, nil, &markedForDelete, nil, &pageSize, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read SNAT rule list to get default SNAT ip", "VPC", vpc.Id)
@@ -885,7 +885,7 @@ func (s *VPCService) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (str
 		return "", err
 	}
 	// pre created VPC may have more than one attachment, list all the attachment and select the first one
-	vpcAttachmentsListResult, err := s.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil)
+	vpcAttachmentsListResult, err := s.NSXClient.VpcAttachmentClient.List(VPCResourceInfo.OrgID, VPCResourceInfo.ProjectID, VPCResourceInfo.VPCID, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		log.Error(err, "Failed to list VPC attachment", "VPC Path", vpcPath)
 		return "", err
@@ -984,7 +984,7 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 	transitGatewayPath := *profile.TransitGatewayPath
 	parts := strings.Split(transitGatewayPath, "/")
 	transitGatewayId := parts[len(parts)-1]
-	res, err := s.NSXClient.TransitGatewayAttachmentClient.List(org, project, transitGatewayId, nil, &markedForDelete, nil, nil, nil, nil)
+	res, err := s.NSXClient.TransitGatewayAttachmentClient.List(org, project, transitGatewayId, nil, nil, &markedForDelete, nil, nil, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		return status, err
@@ -1300,7 +1300,7 @@ func (s *VPCService) GetLBSsFromNSXByVPC(vpcPath string) (string, error) {
 		return "", err
 	}
 	includeMarkForDeleted := false
-	lbs, err := s.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, &includeMarkForDeleted, nil, nil, nil, nil)
+	lbs, err := s.NSXClient.VPCLBSClient.List(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID, nil, nil, &includeMarkForDeleted, nil, nil, nil, nil)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read LB services in VPC under from NSX", "VPC", vpcPath)

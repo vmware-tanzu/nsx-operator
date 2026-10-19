@@ -34,7 +34,7 @@ func (c *fakeDynamicIPReservationsClient) Get(orgIdParam string, projectIdParam 
 	return model.DynamicIpAddressReservation{}, nil
 }
 
-func (c *fakeDynamicIPReservationsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DynamicIpAddressReservationListResult, error) {
+func (c *fakeDynamicIPReservationsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.DynamicIpAddressReservationListResult, error) {
 	return model.DynamicIpAddressReservationListResult{}, nil
 }
 
@@ -56,7 +56,7 @@ func (c *fakeStaticIPReservationsClient) Get(orgIdParam string, projectIdParam s
 	return model.StaticIpAddressReservation{}, nil
 }
 
-func (c *fakeStaticIPReservationsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.StaticIpAddressReservationListResult, error) {
+func (c *fakeStaticIPReservationsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, subnetIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.StaticIpAddressReservationListResult, error) {
 	return model.StaticIpAddressReservationListResult{}, nil
 }
 

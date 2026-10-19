@@ -118,7 +118,7 @@ func (c fakeVPCConnectivityProfilesClient) Get(orgIdParam string, projectIdParam
 	return model.VpcConnectivityProfile{}, nil
 }
 
-func (c fakeVPCConnectivityProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcConnectivityProfileListResult, error) {
+func (c fakeVPCConnectivityProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcConnectivityProfileListResult, error) {
 	return model.VpcConnectivityProfileListResult{}, nil
 }
 
@@ -140,7 +140,7 @@ func (c fakeTransitGatewayAttachmentClient) Get(orgIdParam string, projectIdPara
 	return model.TransitGatewayAttachment{}, nil
 }
 
-func (c fakeTransitGatewayAttachmentClient) List(orgIdParam string, projectIdParam string, transitGatewayIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.TransitGatewayAttachmentListResult, error) {
+func (c fakeTransitGatewayAttachmentClient) List(orgIdParam string, projectIdParam string, transitGatewayIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.TransitGatewayAttachmentListResult, error) {
 	return model.TransitGatewayAttachmentListResult{}, nil
 }
 
@@ -162,7 +162,7 @@ func (c fakeVPCLBSClient) Get(orgIdParam string, projectIdParam string, vpcIdPar
 	return model.LBService{}, nil
 }
 
-func (c fakeVPCLBSClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.LBServiceListResult, error) {
+func (c fakeVPCLBSClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.LBServiceListResult, error) {
 	return model.LBServiceListResult{}, nil
 }
 
@@ -190,7 +190,7 @@ func (c fakeVPCAttachmentsClient) Get(orgIdParam string, projectIdParam string, 
 	return model.VpcAttachment{}, nil
 }
 
-func (c fakeVPCAttachmentsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcAttachmentListResult, error) {
+func (c fakeVPCAttachmentsClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcAttachmentListResult, error) {
 	return model.VpcAttachmentListResult{}, nil
 }
 
@@ -212,7 +212,7 @@ func (c fakeVpcServiceProfilesClient) Get(orgIdParam string, projectIdParam stri
 	return model.VpcServiceProfile{}, nil
 }
 
-func (c fakeVpcServiceProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcServiceProfileListResult, error) {
+func (c fakeVpcServiceProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcServiceProfileListResult, error) {
 	return model.VpcServiceProfileListResult{}, nil
 }
 
@@ -234,7 +234,7 @@ func (c fakeIpv6NdraProfilesClient) Get(ndraProfileIdParam string) (model.Ipv6Nd
 	return model.Ipv6NdraProfile{}, nil
 }
 
-func (c fakeIpv6NdraProfilesClient) List(cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.Ipv6NdraProfileListResult, error) {
+func (c fakeIpv6NdraProfilesClient) List(cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.Ipv6NdraProfileListResult, error) {
 	return model.Ipv6NdraProfileListResult{}, nil
 }
 
@@ -256,7 +256,7 @@ func (c fakeProjectIpv6NdraProfilesClient) Get(orgIdParam string, projectIdParam
 	return model.Ipv6NdraProfile{}, nil
 }
 
-func (c fakeProjectIpv6NdraProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.Ipv6NdraProfileListResult, error) {
+func (c fakeProjectIpv6NdraProfilesClient) List(orgIdParam string, projectIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.Ipv6NdraProfileListResult, error) {
 	return model.Ipv6NdraProfileListResult{}, nil
 }
 
@@ -280,7 +280,7 @@ func (c fakeVpcsClientForRA) Get(orgIdParam string, projectIdParam string, vpcId
 	return model.Vpc{}, nil
 }
 
-func (c fakeVpcsClientForRA) List(orgIdParam string, projectIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcListResult, error) {
+func (c fakeVpcsClientForRA) List(orgIdParam string, projectIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcListResult, error) {
 	return model.VpcListResult{}, nil
 }
 
@@ -524,7 +524,7 @@ func (c fakeIPAddressAllocationClient) Get(orgIdParam string, projectIdParam str
 	return model.VpcIpAddressAllocation{}, nil
 }
 
-func (c fakeIPAddressAllocationClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcIpAddressAllocationListResult, error) {
+func (c fakeIPAddressAllocationClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcIpAddressAllocationListResult, error) {
 	return model.VpcIpAddressAllocationListResult{}, nil
 }
 
@@ -3590,7 +3590,7 @@ func TestGetNetworkStackFromNC(t *testing.T) {
 
 type fakeVpcAttachmentClient struct{}
 
-func (c *fakeVpcAttachmentClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcAttachmentListResult, error) {
+func (c *fakeVpcAttachmentClient) List(orgIdParam string, projectIdParam string, vpcIdParam string, cursorParam *string, includeConflictsParam *bool, includeMarkForDeleteObjectsParam *bool, includedFieldsParam *string, pageSizeParam *int64, sortAscendingParam *bool, sortByParam *string) (model.VpcAttachmentListResult, error) {
 	return model.VpcAttachmentListResult{}, nil
 }
 
@@ -3632,7 +3632,7 @@ func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing
 			name:    "Failed to list VPC attachment",
 			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
 			prepareFunc: func(t *testing.T, service *VPCService, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
 					return model.VpcAttachmentListResult{}, fmt.Errorf("list error")
 				})
 				return patches
@@ -3644,7 +3644,7 @@ func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing
 			name:    "No VPC attachment found",
 			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
 			prepareFunc: func(t *testing.T, service *VPCService, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
 					return model.VpcAttachmentListResult{Results: []model.VpcAttachment{}}, nil
 				})
 				return patches
@@ -3656,7 +3656,7 @@ func TestNetworkInfoReconciler_GetVpcConnectivityProfilePathByVpcPath(t *testing
 			name:    "Successful VPC attachment retrieval",
 			vpcPath: "/orgs/default/projects/project-quality/vpcs/fake-vpc",
 			prepareFunc: func(t *testing.T, service *VPCService, ctx context.Context) *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.VpcAttachmentClient), "List", func(_ *fakeVpcAttachmentClient, _ string, _ string, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcAttachmentListResult, error) {
 					return model.VpcAttachmentListResult{
 						Results: []model.VpcAttachment{
 							{

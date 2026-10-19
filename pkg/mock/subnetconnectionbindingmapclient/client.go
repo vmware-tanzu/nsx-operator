@@ -64,18 +64,18 @@ func (mr *MockSubnetConnectionBindingMapsClientMockRecorder) Get(arg0, arg1, arg
 }
 
 // List mocks base method.
-func (m *MockSubnetConnectionBindingMapsClient) List(arg0, arg1, arg2, arg3 string, arg4 *string, arg5 *bool, arg6 *string, arg7 *int64, arg8 *bool, arg9 *string) (model.SubnetConnectionBindingMapListResult, error) {
+func (m *MockSubnetConnectionBindingMapsClient) List(arg0, arg1, arg2, arg3 string, arg4 *string, arg5 *bool, arg6 *bool, arg7 *string, arg8 *int64, arg9 *bool, arg10 *string) (model.SubnetConnectionBindingMapListResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
+	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10)
 	ret0, _ := ret[0].(model.SubnetConnectionBindingMapListResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockSubnetConnectionBindingMapsClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 interface{}) *gomock.Call {
+func (mr *MockSubnetConnectionBindingMapsClientMockRecorder) List(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSubnetConnectionBindingMapsClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSubnetConnectionBindingMapsClient)(nil).List), arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10)
 }
 
 // Patch mocks base method.
