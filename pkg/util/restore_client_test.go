@@ -9,7 +9,6 @@ import (
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	legacyv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -21,9 +20,8 @@ func TestShouldInterceptResource(t *testing.T) {
 	// Nil
 	assert.False(t, ShouldInterceptResource(nil))
 
-	// NCPConfig (no webhook)
-	ncpConfig := &unstructured.Unstructured{}
-	ncpConfig.SetName(NSXRestoreStatus)
+	// Trusted operator writes to NCPConfig bypass its webhook, including during restore.
+	ncpConfig := NewNSXRestoreStatus()
 	assert.False(t, ShouldInterceptResource(ncpConfig))
 
 	// NSX CRDs that have validating webhooks configured
@@ -86,8 +84,7 @@ func TestRestoreClient_PassthroughWhitelistedAndNonTarget(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Whitelisted NCPConfig should pass through
-	ncpConfig := &unstructured.Unstructured{}
-	ncpConfig.SetName(NSXRestoreStatus)
+	ncpConfig := NewNSXRestoreStatus()
 
 	mockK8sClient.EXPECT().Update(ctx, ncpConfig).Return(nil).Times(1)
 	err := restoreClient.Update(ctx, ncpConfig)

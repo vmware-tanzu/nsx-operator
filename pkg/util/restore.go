@@ -7,8 +7,6 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,14 +32,7 @@ type ReconcilerProvider interface {
 
 func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, error) {
 	ctx := context.TODO()
-	gvk := schema.GroupVersionKind{
-		Group:   "nsx.vmware.com",
-		Version: "v1",
-		Kind:    "NCPConfig",
-	}
-
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvk)
+	obj := NewNSXRestoreStatus()
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: NSXRestoreStatus}, obj); err != nil {
 		if apierrors.IsNotFound(err) {
 			obj.SetName(NSXRestoreStatus)
@@ -103,14 +94,7 @@ func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, er
 
 func updateRestoreEndTime(k8sClient client.Client) error {
 	ctx := context.TODO()
-	gvk := schema.GroupVersionKind{
-		Group:   "nsx.vmware.com",
-		Version: "v1",
-		Kind:    "NCPConfig",
-	}
-
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvk)
+	obj := NewNSXRestoreStatus()
 
 	return retry.OnError(retry.DefaultBackoff, func(err error) bool {
 		return err != nil
