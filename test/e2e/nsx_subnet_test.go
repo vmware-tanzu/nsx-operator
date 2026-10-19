@@ -847,8 +847,8 @@ func SubnetPortWithDHCP(t *testing.T) {
 	// As it's hard to know the available CIDRs in the IP block in advance,
 	// we first create a Subnet with DHCPServer mode only to get the available CIDR,
 	// then delete and recreate the Subnet with the available CIDR as specified IPAddresses.
-	subnetCreated := createSubnetWithCleanup(t, dhcpSubnet)
-	subnetCreated = assureSubnet(t, dhcpSubnet.Namespace, dhcpSubnet.Name, "")
+	createSubnetWithCleanup(t, dhcpSubnet)
+	subnetCreated := assureSubnet(t, dhcpSubnet.Namespace, dhcpSubnet.Name, "")
 	require.NotEmpty(t, subnetCreated.Status.NetworkAddresses)
 	ipAddresses := subnetCreated.Status.NetworkAddresses[0]
 	require.NotEmpty(t, ipAddresses, "No IP address in Subnet")
@@ -870,7 +870,7 @@ func SubnetPortWithDHCP(t *testing.T) {
 	// so the replacement does not reuse a path still being deleted.
 	deleteSubnetAndWaitForNSXPurge(t, subnetCreated)
 	dhcpSubnet.Name = "subnet-dhcp-" + getRandomString()
-	subnetCreated = createSubnetWithCleanup(t, dhcpSubnet)
+	createSubnetWithCleanup(t, dhcpSubnet)
 	subnetCreated = assureSubnet(t, dhcpSubnet.Namespace, dhcpSubnet.Name, "")
 	log.Info("DHCP Subnet with reserved IP ranges created", "Subnet", subnetCreated)
 	require.Equal(t, 1, len(subnetCreated.Status.NetworkAddresses))

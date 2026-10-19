@@ -218,7 +218,7 @@ func TestCheck(t *testing.T) {
 			if tt.change != nil {
 				tt.change(&f)
 			}
-			client := fake.NewSimpleClientset(f.objects()...)
+			client := fake.NewClientset(f.objects()...)
 			err := Check(context.Background(), client, cfg)
 			if tt.wantErr == "" {
 				if err != nil {
