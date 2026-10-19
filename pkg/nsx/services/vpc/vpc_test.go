@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
-	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -851,6 +852,8 @@ func TestGetVPCsByNamespace(t *testing.T) {
 }
 
 func TestGetLBProvider(t *testing.T) {
+	previousProvider := globalLbProvider
+	t.Cleanup(func() { globalLbProvider = previousProvider })
 	vpcService := &VPCService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -873,6 +876,7 @@ func TestGetLBProvider(t *testing.T) {
 		prepareFuncs     func() *gomonkey.Patches
 		lbprovider       LBProvider
 		expectLBProvider LBProvider
+		expectError      bool
 	}{
 		{
 			name:             "Test when globalLbProvider is avi lb",
@@ -899,8 +903,8 @@ func TestGetLBProvider(t *testing.T) {
 						},
 					}, nil
 				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) LBProvider {
-					return NSXLB
+				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) (LBProvider, error) {
+					return NSXLB, nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
 					return &v1alpha1.VPCNetworkConfiguration{}, true, nil
@@ -918,6 +922,17 @@ func TestGetLBProvider(t *testing.T) {
 				})
 			},
 		},
+		{
+			name:             "Test when GetVPCNetworkConfig returns error",
+			lbprovider:       NoneLB,
+			expectLBProvider: NoneLB,
+			expectError:      true,
+			prepareFuncs: func() *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+					return nil, false, errors.New("api server connection timeout")
+				})
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -931,8 +946,86 @@ func TestGetLBProvider(t *testing.T) {
 			}
 
 			lbProvider, err := vpcService.GetLBProvider()
-			assert.Nil(t, err)
-			assert.Equal(t, testCase.expectLBProvider, lbProvider)
+			if testCase.expectError {
+				assert.NotNil(t, err)
+				assert.Equal(t, testCase.expectLBProvider, lbProvider)
+			} else {
+				assert.Nil(t, err)
+				assert.Equal(t, testCase.expectLBProvider, lbProvider)
+			}
+		})
+	}
+}
+
+func TestGetLBProviderRetriesALBProbeAndCachesAVI(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		probeErr error
+		health   nsx.ClusterHealth
+	}{
+		{name: "HTTP common error", probeErr: nsxUtil.HttpCommonError, health: nsx.GREEN},
+		{name: "TCP connection refused", probeErr: &url.Error{Op: "Get", URL: albEndpointPath, Err: syscall.ECONNREFUSED}, health: nsx.GREEN},
+		{name: "connection timeout", probeErr: &url.Error{Op: "Get", URL: albEndpointPath, Err: context.DeadlineExceeded}, health: nsx.GREEN},
+		{name: "TLS failure", probeErr: &url.Error{Op: "Get", URL: albEndpointPath, Err: errors.New("TLS handshake failed")}, health: nsx.GREEN},
+		{name: "404 while cluster is down", probeErr: nsxUtil.HttpNotFoundError, health: nsx.RED},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previousProvider := globalLbProvider
+			globalLbProvider = NoneLB
+			t.Cleanup(func() { globalLbProvider = previousProvider })
+
+			vpcService := &VPCService{
+				Service: common.Service{
+					NSXConfig: &config.NSXOperatorConfig{
+						NsxConfig: &config.NsxConfig{UseAVILoadBalancer: true},
+					},
+					NSXClient: &nsx.Client{Cluster: &nsx.Cluster{}},
+				},
+				LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+					Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
+					BindingType: model.LBServiceBindingType(),
+				}},
+			}
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, name string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
+				assert.Equal(t, common.SystemVPCNetworkConfigurationName, name)
+				return &v1alpha1.VPCNetworkConfiguration{}, true, nil
+			})
+			defer patches.Reset()
+			patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfileWithRetry", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*model.VpcConnectivityProfile, error) {
+				return &model.VpcConnectivityProfile{
+					ServiceGateway: &model.VpcServiceGatewayConfig{Enable: common.Bool(true)},
+				}, nil
+			})
+			patches.ApplyMethod(reflect.TypeOf(vpcService.NSXClient.Cluster), "Health", func(_ *nsx.Cluster) nsx.ClusterHealth {
+				return tc.health
+			})
+			probeErr := tc.probeErr
+			probeCalls := 0
+			patches.ApplyMethod(reflect.TypeOf(vpcService.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+				assert.Equal(t, albEndpointPath, path)
+				probeCalls++
+				return nil, probeErr
+			})
+
+			provider, err := vpcService.GetLBProvider()
+			require.Error(t, err)
+			assert.Equal(t, NoneLB, provider)
+			assert.Equal(t, NoneLB, globalLbProvider)
+			assert.Equal(t, 1, probeCalls)
+
+			probeErr = nil
+			provider, err = vpcService.GetLBProvider()
+			require.NoError(t, err)
+			assert.Equal(t, AVILB, provider)
+			assert.Equal(t, AVILB, globalLbProvider)
+			assert.Equal(t, 2, probeCalls)
+
+			// A later probe failure must not affect the cached provider or cause another probe.
+			probeErr = errors.New("ALB endpoint unavailable again")
+			provider, err = vpcService.GetLBProvider()
+			require.NoError(t, err)
+			assert.Equal(t, AVILB, provider)
+			assert.Equal(t, 2, probeCalls)
 		})
 	}
 }
@@ -1033,108 +1126,69 @@ func TestIsVNAMode(t *testing.T) {
 }
 
 func TestGetLbProvider(t *testing.T) {
-	vpcService := &VPCService{
-		Service: common.Service{
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					UseAVILoadBalancer: false,
+	for _, tc := range []struct {
+		name           string
+		useAVI         bool
+		edgeEnabled    bool
+		hasLBS         bool
+		probeErr       error
+		health         nsx.ClusterHealth
+		wantProvider   LBProvider
+		wantError      bool
+		wantProbeCalls int
+	}{
+		{name: "AVI disabled with gateway", edgeEnabled: true, wantProvider: NSXLB},
+		{name: "AVI disabled without gateway", wantProvider: NoneLB},
+		{name: "ALB present with gateway", useAVI: true, edgeEnabled: true, wantProvider: AVILB, wantProbeCalls: 1},
+		{name: "ALB present without gateway", useAVI: true, wantProvider: AVILB, wantProbeCalls: 1},
+		{name: "existing NSX LB with gateway", useAVI: true, edgeEnabled: true, hasLBS: true, wantProvider: NSXLB},
+		{name: "existing NSX LB without gateway", useAVI: true, hasLBS: true, wantProvider: NoneLB},
+		{name: "ALB absent with gateway", useAVI: true, edgeEnabled: true, probeErr: nsxUtil.HttpNotFoundError, health: nsx.GREEN, wantProvider: NSXLB, wantProbeCalls: 1},
+		{name: "ALB absent without gateway", useAVI: true, probeErr: nsxUtil.HttpNotFoundError, health: nsx.GREEN, wantProvider: NoneLB, wantProbeCalls: 1},
+		{name: "ALB absent with partially healthy cluster", useAVI: true, edgeEnabled: true, probeErr: nsxUtil.HttpNotFoundError, health: nsx.ORANGE, wantProvider: NSXLB, wantProbeCalls: 1},
+		{name: "wrapped 404", useAVI: true, edgeEnabled: true, probeErr: fmt.Errorf("probe: %w", nsxUtil.HttpNotFoundError), health: nsx.GREEN, wantProvider: NSXLB, wantProbeCalls: 1},
+		{name: "404 with unhealthy cluster", useAVI: true, edgeEnabled: true, probeErr: nsxUtil.HttpNotFoundError, health: nsx.RED, wantProvider: NoneLB, wantError: true, wantProbeCalls: 1},
+		{name: "HTTP common error", useAVI: true, edgeEnabled: true, probeErr: nsxUtil.HttpCommonError, wantProvider: NoneLB, wantError: true, wantProbeCalls: 1},
+		{name: "transport error", useAVI: true, edgeEnabled: true, probeErr: &url.Error{Op: "Get", URL: albEndpointPath, Err: syscall.ECONNREFUSED}, wantProvider: NoneLB, wantError: true, wantProbeCalls: 1},
+		{name: "transport error with existing NSX LB and gateway", useAVI: true, edgeEnabled: true, hasLBS: true, probeErr: errors.New("connection timeout"), wantProvider: NSXLB},
+		{name: "transport error with existing NSX LB without gateway", useAVI: true, hasLBS: true, probeErr: errors.New("connection timeout"), wantProvider: NoneLB},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &VPCService{
+				Service: common.Service{
+					NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{UseAVILoadBalancer: tc.useAVI}},
+					NSXClient: &nsx.Client{Cluster: &nsx.Cluster{}},
 				},
-			},
-			NSXClient: &nsx.Client{
-				Cluster: &nsx.Cluster{},
-			},
-		},
-		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-			BindingType: model.LBServiceBindingType(),
-		}},
+				LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+					Indexer: cache.NewIndexer(keyFunc, cache.Indexers{}), BindingType: model.LBServiceBindingType(),
+				}},
+			}
+			if tc.hasLBS {
+				service.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("vpc-path")})
+			}
+			calls := 0
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
+				assert.Equal(t, albEndpointPath, path)
+				calls++
+				return nil, tc.probeErr
+			})
+			defer patches.Reset()
+			patches.ApplyMethod(reflect.TypeOf(service.NSXClient.Cluster), "Health", func(_ *nsx.Cluster) nsx.ClusterHealth {
+				return tc.health
+			})
+			provider, err := service.getLBProvider(tc.edgeEnabled)
+			if tc.wantError {
+				require.Error(t, err)
+				if !errors.Is(tc.probeErr, nsxUtil.HttpNotFoundError) {
+					assert.ErrorIs(t, err, tc.probeErr)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.wantProvider, provider)
+			assert.Equal(t, tc.wantProbeCalls, calls)
+		})
 	}
-	// Test when UseAVILoadBalancer is false
-	patch := gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		return nil, nil
-	})
-	lbProvider := vpcService.getLBProvider(true)
-	assert.Equal(t, NSXLB, lbProvider)
-
-	patch.Reset()
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		return nil, errors.New("fake error")
-	})
-	lbProvider = vpcService.getLBProvider(false)
-	assert.Equal(t, NoneLB, lbProvider)
-
-	patch.Reset()
-	vpcService.Service.NSXConfig.NsxConfig.UseAVILoadBalancer = true
-	// Test when UseAVILoadBalancer is true and Alb endpoint found, but no nsx lbs found
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		return nil, nil
-	})
-	lbProvider = vpcService.getLBProvider(true)
-	assert.Equal(t, AVILB, lbProvider)
-	patch.Reset()
-
-	// Test when UseAVILoadBalancer is true, get alb endpoint common error
-	retry := 0
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		retry++
-		if strings.Contains(path, "alb-endpoint") {
-			return nil, nsxUtil.HttpCommonError
-		} else {
-			return nil, nil
-		}
-	})
-	lbProvider = vpcService.getLBProvider(true)
-	assert.Equal(t, NSXLB, lbProvider)
-	assert.Equal(t, 4, retry)
-	patch.Reset()
-
-	// Test when UseAVILoadBalancer is true, get alb endpoint not found error
-	retry = 0
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		retry++
-		if strings.Contains(path, "alb-endpoint") {
-			return nil, nsxUtil.HttpNotFoundError
-		} else {
-			return nil, nil
-		}
-	})
-	lbProvider = vpcService.getLBProvider(true)
-	assert.Equal(t, NSXLB, lbProvider)
-	assert.Equal(t, 1, retry)
-	patch.Reset()
-
-	// Test when UseAVILoadBalancer is true, Alb endpoint found, and NSX lbs found
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		return nil, nil
-	})
-	vpcService.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("12345")})
-	lbProvider = vpcService.getLBProvider(true)
-	assert.Equal(t, NSXLB, lbProvider)
-	patch.Reset()
-
-	// Test when UseAVILoadBalancer is true, Alb endpoint found,  but no edge cluster
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		if strings.Contains(path, "alb-endpoint") {
-			return nil, nil
-		} else {
-			return nil, nsxUtil.HttpNotFoundError
-		}
-	})
-	vpcService.LbsStore.Add(&model.LBService{Id: &defaultLBSName, ConnectivityPath: common.String("12345")})
-	lbProvider = vpcService.getLBProvider(false)
-	assert.Equal(t, NoneLB, lbProvider)
-	patch.Reset()
-
-	// Test when UseAVILoadBalancer is true, Alb endpoint found, and no NSX lbs found
-	patch = gomonkey.ApplyPrivateMethod(reflect.TypeOf(vpcService.Service.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-		return nil, nil
-	})
-	lbs := vpcService.LbsStore.GetByKey("12345")
-	err := vpcService.LbsStore.Delete(lbs)
-	assert.Equal(t, err, nil)
-	lbProvider = vpcService.getLBProvider(false)
-	assert.Equal(t, AVILB, lbProvider)
-	patch.Reset()
 }
 
 func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {

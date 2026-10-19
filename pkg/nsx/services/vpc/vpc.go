@@ -1127,7 +1127,7 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	ncName := common.SystemVPCNetworkConfigurationName
 	netConfig, found, err := s.GetVPCNetworkConfig(ncName)
 	if err != nil {
-		return "", err
+		return NoneLB, err
 	}
 	if !found {
 		log.Info("Get LB provider", "No system NetworkConfig found", ncName)
@@ -1136,45 +1136,60 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 
 	vpcConnectivityProfile, err := s.GetVpcConnectivityProfileWithRetry(netConfig)
 	if err != nil {
-		return "", err
+		return NoneLB, err
 	}
 
 	// NSX LB can work when Service gateway is enabled
 	serviceGatewayEnable := IsServiceGatewayEnabled(vpcConnectivityProfile)
-	globalLbProvider = s.getLBProvider(serviceGatewayEnable)
+	provider, err := s.getLBProvider(serviceGatewayEnable)
+	if err != nil {
+		log.Error(err, "Failed to determine LB provider")
+		return NoneLB, err
+	}
+	globalLbProvider = provider
 	log.Info("Get LB provider", "provider", globalLbProvider)
 	return globalLbProvider, nil
 }
 
-func (s *VPCService) getLBProvider(edgeEnable bool) LBProvider {
-	// if no Alb endpoint found, return nsx-lb
-	// if found, and nsx lbs found, return nsx-lb
-	// else return avi
-	log.Info("Checking lb provider")
-	if s.Service.NSXConfig.UseAVILoadBalancer {
-		albEndpointFound := false
-		if err := retry.OnError(retry.DefaultBackoff, func(err error) bool {
-			if err == nil {
-				return false
-			}
-			if errors.Is(err, nsxutil.HttpCommonError) {
-				return true
-			} else {
-				return false
-			}
-		}, func() error {
-			return GetAlbEndpoint(s.NSXClient.Cluster)
-		}); err == nil {
-			albEndpointFound = true
+func (s *VPCService) checkALBEndpoint() (bool, error) {
+	probeErr := GetAlbEndpoint(s.NSXClient.Cluster)
+	if probeErr == nil {
+		return true, nil
+	}
+
+	// HTTP 404 indicates the ALB endpoint is absent. However, if NSX status is DOWN,
+	// the 404 may be from an unready gateway or transient state; recheck once healthy.
+	if errors.Is(probeErr, nsxutil.HttpNotFoundError) {
+		if s.NSXClient.Cluster.Health() == nsx.RED {
+			return false, fmt.Errorf("NSX cluster status is DOWN, will recheck ALB endpoint once healthy")
 		}
-		if albEndpointFound && len(s.LbsStore.List()) == 0 {
-			return AVILB
+		return false, nil
+	}
+
+	// All other errors (TCP timeouts, TLS handshakes, HTTP 5xx, connection resets)
+	// are treated as transient failures. Return error to trigger controller requeue.
+	return false, probeErr
+}
+
+func (s *VPCService) getLBProvider(edgeEnable bool) (LBProvider, error) {
+	useAVI := s.Service.NSXConfig.UseAVILoadBalancer
+	lbsCount := len(s.LbsStore.List())
+	log.Info("Checking LB provider", "useAVI", useAVI, "lbsCount", lbsCount,
+		"serviceGatewayEnabled", edgeEnable)
+
+	if useAVI && lbsCount == 0 {
+		albEndpointFound, err := s.checkALBEndpoint()
+		if err != nil {
+			return NoneLB, err
+		}
+		if albEndpointFound {
+			return AVILB, nil
 		}
 	}
 	if edgeEnable {
-		return NSXLB
+		return NSXLB, nil
 	}
-	return NoneLB
+	return NoneLB, nil
 }
 
 func (s *VPCService) GetNetworkStackFromVPCPath(vpcPath string) (v1alpha1.NetworkStackType, error) {
