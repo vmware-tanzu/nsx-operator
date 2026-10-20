@@ -32,7 +32,7 @@ spec:
       name: RecordType
       type: string
     - description: FQDN of DNS record
-      jsonPath: .spec.fqdn
+      jsonPath: .status.fqdn
       name: FQDN
       type: string
     name: v1alpha1
@@ -67,11 +67,6 @@ spec:
                 x-kubernetes-validations:
                 - message: DomainName is immutable after creation
                   rule: self == oldSelf
-              fqdn:
-                description: |-
-                  FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.
-                  This field is read-only and must not be set in create or update requests.
-                type: string
               recordName:
                 description: RecordName specifies the hostname portion of the FQDN
                   (e.g., "api" for "api.coke.com").
@@ -168,6 +163,10 @@ spec:
                   - type
                   type: object
                 type: array
+              fqdn:
+                description: FQDN is the system-computed fully qualified domain name,
+                  formed by combining RecordName with DomainName.
+                type: string
             type: object
         type: object
     served: true

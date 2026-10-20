@@ -46,15 +46,14 @@ type DNSRecordSpec struct {
 	// +kubebuilder:default=300
 	// +optional
 	TTL *int32 `json:"ttl,omitempty"`
-
-	// FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.
-	// This field is read-only and must not be set in create or update requests.
-	// +optional
-	FQDN string `json:"fqdn,omitempty"`
 }
 
 // DNSRecordStatus defines the observed state of DNSRecord.
 type DNSRecordStatus struct {
+	// FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.
+	// +optional
+	FQDN string `json:"fqdn,omitempty"`
+
 	// Conditions represents the latest available observations of the DNSRecord's current state.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -68,7 +67,7 @@ type DNSRecordStatus struct {
 // +kubebuilder:printcolumn:name="DomainName",type="string",JSONPath=".spec.domainName",description="Domain name of DNS record"
 // +kubebuilder:printcolumn:name="RecordName",type="string",JSONPath=".spec.recordName",description="Record name"
 // +kubebuilder:printcolumn:name="RecordType",type="string",JSONPath=".spec.recordType",description="Record type"
-// +kubebuilder:printcolumn:name="FQDN",type="string",JSONPath=".spec.fqdn",description="FQDN of DNS record"
+// +kubebuilder:printcolumn:name="FQDN",type="string",JSONPath=".status.fqdn",description="FQDN of DNS record"
 
 // DNSRecord is the Schema for the DNS record API.
 type DNSRecord struct {
