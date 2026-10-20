@@ -454,7 +454,7 @@ func (r *GatewayReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&v1alpha1.NetworkInfo{},
 			handler.EnqueueRequestsFromMapFunc(r.networkInfoToGatewayDNSRequests),
-			builder.WithPredicates(predicateNetworkInfoAllowedDNSDomainsChanged()),
+			builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged()),
 		)
 
 	if r.apiResources.listenerSetEnabled {

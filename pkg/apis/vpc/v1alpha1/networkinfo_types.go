@@ -18,15 +18,15 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 
-// NetworkInfo is used to report the network information for a namespace.
+// NetworkInfo is used to report the network information for a Namespace.
 // +kubebuilder:resource:path=networkinfos
 type NetworkInfo struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	VPCs []VPCState `json:"vpcs"`
-	// AllowedDNSDomains specifies the permitted DNS domain names in the namespace.
-	AllowedDNSDomains []string `json:"allowedDNSDomains,omitempty"`
+	// AllowedDNSRecordDomains specifies the permitted domain names for DNS records created in the Namespace.
+	AllowedDNSRecordDomains []string `json:"allowedDNSRecordDomains,omitempty"`
 }
 
 // +kubebuilder:object:root=true

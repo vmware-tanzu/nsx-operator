@@ -569,8 +569,8 @@ func TestServiceLbReconciler_CollectGarbage_table(t *testing.T) {
 	}
 }
 
-func TestPredicateNetworkInfoAllowedDNSDomainsChanged(t *testing.T) {
-	p := predicateNetworkInfoAllowedDNSDomainsChanged()
+func TestPredicateNetworkInfoAllowedDNSRecordDomainsChanged(t *testing.T) {
+	p := predicateNetworkInfoAllowedDNSRecordDomainsChanged()
 
 	assert.False(t, p.Create(event.CreateEvent{}))
 	assert.False(t, p.Delete(event.DeleteEvent{}))
@@ -591,14 +591,14 @@ func TestPredicateNetworkInfoAllowedDNSDomainsChanged(t *testing.T) {
 		},
 		{
 			name: "domains same",
-			old:  &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"a"}},
-			new:  &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"a"}},
+			old:  &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"a"}},
+			new:  &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"a"}},
 			want: false,
 		},
 		{
 			name: "domains changed",
-			old:  &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"a"}},
-			new:  &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"b"}},
+			old:  &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"a"}},
+			new:  &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"b"}},
 			want: true,
 		},
 	}

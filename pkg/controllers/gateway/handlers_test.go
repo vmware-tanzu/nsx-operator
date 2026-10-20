@@ -62,12 +62,12 @@ func TestPredicateFuncsRouteDNS(t *testing.T) {
 	}
 }
 
-func TestPredicateNetworkInfoAllowedDNSDomainsChanged(t *testing.T) {
-	p := predicateNetworkInfoAllowedDNSDomainsChanged()
+func TestPredicateNetworkInfoAllowedDNSRecordDomainsChanged(t *testing.T) {
+	p := predicateNetworkInfoAllowedDNSRecordDomainsChanged()
 
 	niEmpty := &v1alpha1.NetworkInfo{VPCs: []v1alpha1.VPCState{}}
-	niDomains1 := &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.com"}}
-	niDomains2 := &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.org"}}
+	niDomains1 := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}}
+	niDomains2 := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.org"}}
 
 	tests := []struct {
 		name string

@@ -550,7 +550,7 @@ func TestHasPodOrVMDefaultSubnets(t *testing.T) {
 	assert.False(t, hasVMDefaultSubnets(subnets))
 }
 
-func TestSetNetworkInfoVPCStatus_AllowedDNSDomains(t *testing.T) {
+func TestSetNetworkInfoVPCStatus_AllowedDNSRecordDomains(t *testing.T) {
 	ctx := context.TODO()
 	scheme := clientgoscheme.Scheme
 	v1alpha1.AddToScheme(scheme)
@@ -568,13 +568,13 @@ func TestSetNetworkInfoVPCStatus_AllowedDNSDomains(t *testing.T) {
 	require.NoError(t, kubeClient.Get(ctx, apitypes.NamespacedName{Namespace: "ns1", Name: "ni1"}, networkInfoCR))
 	require.Len(t, networkInfoCR.VPCs, 1)
 	assert.Equal(t, "vpc-a", networkInfoCR.VPCs[0].Name)
-	assert.Equal(t, domains, networkInfoCR.AllowedDNSDomains)
+	assert.Equal(t, domains, networkInfoCR.AllowedDNSRecordDomains)
 
 	// Clearing domains while keeping VPC state requires explicit second arg (nil slice).
 	state2 := &v1alpha1.VPCState{Name: "vpc-a"}
 	setNetworkInfoVPCStatus(kubeClient, ctx, networkInfoCR, metav1.Now(), state2, []string(nil))
 	require.NoError(t, kubeClient.Get(ctx, apitypes.NamespacedName{Namespace: "ns1", Name: "ni1"}, networkInfoCR))
-	assert.Nil(t, networkInfoCR.AllowedDNSDomains)
+	assert.Nil(t, networkInfoCR.AllowedDNSRecordDomains)
 }
 
 func TestGetVPCCreationFailureCondition(t *testing.T) {

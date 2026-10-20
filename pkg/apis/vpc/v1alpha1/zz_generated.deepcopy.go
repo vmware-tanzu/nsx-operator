@@ -485,8 +485,8 @@ func (in *NetworkInfo) DeepCopyInto(out *NetworkInfo) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.AllowedDNSDomains != nil {
-		in, out := &in.AllowedDNSDomains, &out.AllowedDNSDomains
+	if in.AllowedDNSRecordDomains != nil {
+		in, out := &in.AllowedDNSRecordDomains, &out.AllowedDNSRecordDomains
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}

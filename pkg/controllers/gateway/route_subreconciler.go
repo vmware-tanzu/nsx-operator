@@ -635,7 +635,7 @@ func (r *genericRouteReconciler[PT, T, PI]) registerWatcher(mgr ctrl.Manager, op
 		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			return networkInfoToRouteDNSRequests[T, PI](ctx, r.client, obj, r.kind, r.newList())
 		}),
-		builder.WithPredicates(predicateNetworkInfoAllowedDNSDomainsChanged()),
+		builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged()),
 	)
 
 	return b.Complete(r)

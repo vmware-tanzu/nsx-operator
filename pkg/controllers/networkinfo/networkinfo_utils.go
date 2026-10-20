@@ -35,11 +35,11 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	}
 	createdVPC := args[0].(*v1alpha1.VPCState)
 
-	var allowedDNSDomains []string
+	var allowedDNSRecordDomains []string
 	updateAllowedDomains := false
 	if len(args) >= 2 {
 		if d, ok := args[1].([]string); ok {
-			allowedDNSDomains = append([]string(nil), d...)
+			allowedDNSRecordDomains = append([]string(nil), d...)
 			updateAllowedDomains = true
 		}
 	}
@@ -55,10 +55,10 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 
 	domainsEqual := true
 	if updateAllowedDomains {
-		currentDomains := append([]string(nil), networkInfo.AllowedDNSDomains...)
+		currentDomains := append([]string(nil), networkInfo.AllowedDNSRecordDomains...)
 		slices.Sort(currentDomains)
-		slices.Sort(allowedDNSDomains)
-		domainsEqual = slices.Equal(currentDomains, allowedDNSDomains)
+		slices.Sort(allowedDNSRecordDomains)
+		domainsEqual = slices.Equal(currentDomains, allowedDNSRecordDomains)
 	}
 
 	if reflect.DeepEqual(*existingVPC, *createdVPC) && domainsEqual {
@@ -66,7 +66,7 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	}
 	networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
 	if updateAllowedDomains {
-		networkInfo.AllowedDNSDomains = allowedDNSDomains
+		networkInfo.AllowedDNSRecordDomains = allowedDNSRecordDomains
 	}
 	if err := client.Update(ctx, networkInfo); err != nil {
 		log.Error(err, "Failed to update NetworkInfo VPC status", "NetworkInfo", networkInfo.Name)
