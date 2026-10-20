@@ -365,6 +365,9 @@ func getNetworkInfoWithCondition(t *testing.T, ns, networkInfoName string, condi
 		}
 		return condition(networkInfo)
 	})
+	if err != nil {
+		testData.logNamespaceWaitDiagnostics(ns, nil)
+	}
 	require.NoError(t, err, "waiting for NetworkInfo %s/%s, last object: %+v", ns, networkInfoName, networkInfo)
 	return networkInfo
 }
@@ -392,21 +395,26 @@ func getVPCPathFromVPCNetworkConfiguration(t *testing.T, ncName, vpcName string)
 }
 
 func assureVPCNetworkConfigurationStatusEmpty(t *testing.T, ncName string) {
+	t.Helper()
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
+	var lastVPCs []v1alpha1.VPCInfo
+	var lastGetErr error
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, ncName, v1.GetOptions{})
+		lastGetErr = err
 		if err != nil {
 			log.Trace("Check VPCNetworkConfiguration status", "error", err)
 			return false, fmt.Errorf("error when getting VPCNetworkConfiguration %s: %v", ncName, err)
 		}
-		if len(resp.Status.VPCs) == 0 {
+		lastVPCs = resp.Status.VPCs
+		if len(lastVPCs) == 0 {
 			return true, nil
 		}
 		log.Trace("Waiting for VPCNetworkConfiguration status to be empty", "ncName", ncName, "currentVPCs", resp.Status.VPCs)
 		return false, nil
 	})
-	require.NoError(t, err)
+	require.NoError(t, err, "waiting for VPCNetworkConfiguration %s status to be empty; last VPCs: %+v; last GET error: %v", ncName, lastVPCs, lastGetErr)
 }
 
 func deleteVPCNetworkConfiguration(t *testing.T, ncName string) {

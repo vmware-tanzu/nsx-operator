@@ -774,50 +774,6 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 		log.Info("There is no VPCs found in store, skipping deletion of NSX VPC", "Namespace", ns)
 		return nil
 	}
-	// Resolve the configuration before deleting VPCs from the store so failed
-	// lookups can be retried without losing the VPC-to-configuration association.
-	vpcPaths := sets.New[string]()
-	for _, nsxVPC := range staleVPCs {
-		if nsxVPC.Path != nil {
-			vpcPaths.Insert(*nsxVPC.Path)
-		}
-	}
-	ncNames := sets.New[string]()
-	vpcNetConfig, err := r.Service.GetVPCNetworkConfigByNamespace(ns)
-	if apierrors.IsNotFound(err) {
-		// Namespace deletion also removes its NetworkConfig annotation. Recover
-		// the association from the exact VPC paths recorded in configuration status.
-		configs := &v1alpha1.VPCNetworkConfigurationList{}
-		if err := r.Client.List(ctx, configs); err != nil {
-			return fmt.Errorf("failed to list VPCNetworkConfigurations for Namespace %s: %w", ns, err)
-		}
-		for _, nc := range configs.Items {
-			for _, vpcInfo := range nc.Status.VPCs {
-				if vpcPaths.Has(vpcInfo.VPCPath) {
-					ncNames.Insert(nc.Name)
-					break
-				}
-			}
-		}
-	} else if err != nil {
-		return fmt.Errorf("failed to get VPCNetworkConfig for Namespace %s: %w", ns, err)
-	} else if vpcNetConfig != nil {
-		ncNames.Insert(vpcNetConfig.Name)
-	}
-	aliveVPCsByNC := make(map[string][]*model.Vpc, ncNames.Len())
-	for ncName := range ncNames {
-		aliveVPCs, err := r.listVPCsByNetworkConfigName(ncName)
-		if err != nil {
-			return fmt.Errorf("failed to list alive VPCs for VPCNetworkConfiguration %s: %w", ncName, err)
-		}
-		aliveVPCsByNC[ncName] = nil
-		for _, nsxVPC := range aliveVPCs {
-			if nsxVPC.Path == nil || !vpcPaths.Has(*nsxVPC.Path) {
-				aliveVPCsByNC[ncName] = append(aliveVPCsByNC[ncName], nsxVPC)
-			}
-		}
-	}
-
 	var deleteErrs []error
 	for _, nsxVPC := range staleVPCs {
 		if nsxVPC.Path == nil {
@@ -832,10 +788,14 @@ func (r *NetworkInfoReconciler) deleteVPCs(ctx context.Context, staleVPCs []*mod
 	if len(deleteErrs) > 0 {
 		return fmt.Errorf("multiple errors occurred while deleting VPCs: %v", deleteErrs)
 	}
-	for ncName, aliveVPCs := range aliveVPCsByNC {
-		updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx, r.Client, ncName, func(string) ([]*model.Vpc, error) {
-			return aliveVPCs, nil
-		})
+	// Update the VPCNetworkConfiguration Status
+	vpcNetConfig, err := r.Service.GetVPCNetworkConfigByNamespace(ns)
+	if err != nil {
+		log.Error(err, "Failed to get VPCNetworkConfig", "Namespace", ns)
+		return nil
+	}
+	if vpcNetConfig != nil {
+		updateVPCNetworkConfigurationStatusWithAliveVPCs(ctx, r.Client, vpcNetConfig.Name, r.listVPCsByNetworkConfigName)
 	}
 	return nil
 }

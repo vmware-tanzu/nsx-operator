@@ -11,8 +11,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var (
@@ -74,7 +77,7 @@ func TestLoadBalancer(t *testing.T) {
 func waitForIngressReady(t *testing.T, ingressName string, ns string) string {
 	var ip string
 	_, err := testData.ingressWaitFor(120*time.Second, ns, ingressName, func(ingress *networkingv1.Ingress) (bool, error) {
-		if len(ingress.Status.LoadBalancer.Ingress) > 0 {
+		if len(ingress.Status.LoadBalancer.Ingress) > 0 && ingress.Status.LoadBalancer.Ingress[0].IP != "" {
 			ip = ingress.Status.LoadBalancer.Ingress[0].IP
 			log.Info("Ingress is ready", "ingress", ingressName, "namespace", ns, "ip", ip)
 			return true, nil
@@ -144,12 +147,60 @@ func createPodAndWaitingRunning(t *testing.T, podName string, ns string) {
 		t.Fatalf("Failed to create source pod: %v", err)
 	}
 	_, err = testData.podWaitFor(resourceReadyTime, podName, ns, func(pod *corev1.Pod) (bool, error) {
-		return pod.Status.Phase == corev1.PodRunning, nil
+		if pod.Status.Phase != corev1.PodRunning {
+			return false, nil
+		}
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodReady {
+				return condition.Status == corev1.ConditionTrue, nil
+			}
+		}
+		return false, nil
 	})
 	if err != nil {
 		log.Error(err, "create pod", "pod", podName, "namespace", ns)
 		t.Fatalf("Failed to create pod: %v", err)
 	}
+	require.NoError(t, waitForHTTPEndpointReady(ns, podName, containerName, "127.0.0.1", port, resourceReadyTime),
+		"Pod %s/%s must be serving HTTP before testing load balancer traffic", ns, podName)
+}
+
+func waitForServiceBackendReady(t *testing.T, backend backendSvc) {
+	t.Helper()
+	pod, err := testData.clientset.CoreV1().Pods(backend.namespace).Get(context.Background(), backend.podName, metav1.GetOptions{})
+	require.NoError(t, err)
+	lastObservation := "no EndpointSlices observed"
+	err = wait.PollUntilContextTimeout(context.Background(), time.Second, resourceReadyTime, true, func(ctx context.Context) (bool, error) {
+		slices, err := testData.clientset.DiscoveryV1().EndpointSlices(backend.namespace).List(ctx, metav1.ListOptions{
+			LabelSelector: discoveryv1.LabelServiceName + "=" + backend.name,
+		})
+		if err != nil {
+			return false, err
+		}
+		lastObservation = fmt.Sprintf("%d EndpointSlices without a ready TCP endpoint for Pod %s (%s)", len(slices.Items), pod.Name, pod.UID)
+		for _, slice := range slices.Items {
+			matchingPort := false
+			for _, endpointPort := range slice.Ports {
+				if endpointPort.Port != nil && *endpointPort.Port == backend.targetPort &&
+					endpointPort.Protocol != nil && *endpointPort.Protocol == corev1.ProtocolTCP {
+					matchingPort = true
+					break
+				}
+			}
+			if !matchingPort {
+				continue
+			}
+			for _, endpoint := range slice.Endpoints {
+				if endpoint.TargetRef != nil && endpoint.TargetRef.UID == pod.UID && len(endpoint.Addresses) > 0 &&
+					endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready &&
+					(endpoint.Conditions.Terminating == nil || !*endpoint.Conditions.Terminating) {
+					return true, nil
+				}
+			}
+		}
+		return false, nil
+	})
+	require.NoError(t, err, "Service %s/%s backend must be ready: %s", backend.namespace, backend.name, lastObservation)
 }
 
 // GetNthIPFromCIDR parses an IPv4 CIDR (e.g., "192.168.0.32/27") and returns the nth IP address (0-based index).
@@ -212,6 +263,7 @@ func testUpdateSvcIP(t *testing.T, lbNs, podNs, sourcePodName string) {
 	svc := createDedicateIPService(t, coffeeSvc, "")
 	coffeeSvcIP, err := waitForService(coffeeSvc.namespace, coffeeSvc.name, "")
 	require.NoError(t, err)
+	waitForServiceBackendReady(t, coffeeSvc)
 	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, coffeeSvcIP, coffeeSvc.port, true), "Service traffic should work")
 
 	ipAllocationName := "coffee-ip"
@@ -273,6 +325,8 @@ func testIngress(t *testing.T, lbNs, podNs, sourcePodName string) {
 	// Create backened pod
 	createPodAndWaitingRunning(t, teaSvc.podName, teaSvc.namespace)
 	createPodAndWaitingRunning(t, defaultSvc.podName, defaultSvc.namespace)
+	waitForServiceBackendReady(t, teaSvc)
+	waitForServiceBackendReady(t, defaultSvc)
 
 	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, teaSvcIP, teaSvc.port, true), "Service traffic should work")
 

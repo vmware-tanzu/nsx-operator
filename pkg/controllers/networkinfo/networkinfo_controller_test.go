@@ -1869,10 +1869,7 @@ func TestNetworkInfoReconciler_DeleteNetworkInfo(t *testing.T) {
 		{
 			name: "Delete NetworkInfo with delete stale VPC error",
 			existingNamespace: &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "testNamespace", UID: "fakeNamespaceUID",
-					Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "testNetworkConfig"},
-				},
+				ObjectMeta: metav1.ObjectMeta{Name: "testNamespace", UID: "fakeNamespaceUID"},
 			},
 			prepareFuncs: func(r *NetworkInfoReconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCsByNamespace", func(_ *vpc.VPCService, _ string) []*model.Vpc {
