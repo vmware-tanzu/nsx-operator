@@ -238,3 +238,48 @@ func TestNsxConfig_GetServiceSize(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_Mode(t *testing.T) {
+	// Default mode
+	cfg := NewNSXOpertorConfig()
+	assert.Equal(t, ModeVPC, cfg.GetMode())
+	assert.True(t, cfg.IsVPCMode())
+	assert.False(t, cfg.IsAntreaNSXOnly())
+
+	// Empty string defaults to VPC
+	cfg.DefaultConfig.Mode = ""
+	assert.Equal(t, ModeVPC, cfg.GetMode())
+	assert.True(t, cfg.IsVPCMode())
+	assert.False(t, cfg.IsAntreaNSXOnly())
+
+	// Explicit VPC mode (case-insensitive)
+	cfg.DefaultConfig.Mode = "vpc"
+	assert.Nil(t, cfg.validateMode())
+	assert.Equal(t, ModeVPC, cfg.GetMode())
+	assert.True(t, cfg.IsVPCMode())
+	assert.False(t, cfg.IsAntreaNSXOnly())
+
+	// antreaNSXOnly mode (canonical)
+	cfg.DefaultConfig.Mode = ModeAntreaNSXOnly
+	cfg.CoeConfig.EnableVPCNetwork = true
+	cfg.K8sConfig.EnableAntreaNSXInterworking = false
+	assert.Nil(t, cfg.validateMode())
+	assert.Equal(t, ModeAntreaNSXOnly, cfg.GetMode())
+	assert.True(t, cfg.IsAntreaNSXOnly())
+	assert.False(t, cfg.IsVPCMode())
+	assert.False(t, cfg.CoeConfig.EnableVPCNetwork)
+	assert.True(t, cfg.K8sConfig.EnableAntreaNSXInterworking)
+
+	// antreaNSXOnly variants
+	for _, modeVariant := range []string{"antreaNSXOnly", "Antrea-NSX-Only", "antrea-nsx-only", "antreansxonly"} {
+		cfg.DefaultConfig.Mode = modeVariant
+		assert.True(t, cfg.IsAntreaNSXOnly(), "expected %s to be antreaNSXOnly", modeVariant)
+		assert.False(t, cfg.IsVPCMode(), "expected %s to not be VPCMode", modeVariant)
+		assert.Nil(t, cfg.validateMode())
+		assert.Equal(t, ModeAntreaNSXOnly, cfg.GetMode())
+	}
+
+	// Invalid mode
+	cfg.DefaultConfig.Mode = "invalid_mode"
+	assert.NotNil(t, cfg.validateMode())
+}
