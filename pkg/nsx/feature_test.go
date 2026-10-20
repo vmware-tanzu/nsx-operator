@@ -103,3 +103,18 @@ func TestRestoreVifFeatureEnabled(t *testing.T) {
 		assert.False(t, RestoreVifFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
 	})
 }
+
+func TestPodV2FeatureEnabled(t *testing.T) {
+	tr := true
+	f := false
+	nsxClient := &Client{}
+
+	t.Run("basic", func(t *testing.T) {
+		assert.False(t, PodV2FeatureEnabled(nil, &config.NSXOperatorConfig{}))
+		assert.False(t, PodV2FeatureEnabled(nsxClient, nil))
+		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: nil}))
+		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: &config.K8sConfig{}}))
+		assert.True(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: &config.K8sConfig{PodV2: &tr}}))
+		assert.False(t, PodV2FeatureEnabled(nsxClient, &config.NSXOperatorConfig{K8sConfig: &config.K8sConfig{PodV2: &f}}))
+	})
+}

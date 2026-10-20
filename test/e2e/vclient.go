@@ -356,13 +356,15 @@ func handleHTTPResponse(response *http.Response, result interface{}) (int, error
 	}
 
 	var err error
+	bodyBytes, _ := io.ReadAll(response.Body)
+	defer response.Body.Close()
 	switch statusCode {
 	case http.StatusNotFound:
 		err = util.HttpNotFoundError
 	case http.StatusBadRequest:
 		err = util.HttpBadRequest
 	default:
-		err = fmt.Errorf("HTTP response with errorcode %d", response.StatusCode)
+		err = fmt.Errorf("HTTP response with errorcode %d: %s", response.StatusCode, string(bodyBytes))
 	}
 	return statusCode, err
 }

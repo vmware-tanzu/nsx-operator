@@ -24,6 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -66,6 +67,10 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	r.StatusUpdater.IncreaseSyncTotal()
 
+	if nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+		return r.reconcilePodV2(ctx, req)
+	}
+
 	pod := &v1.Pod{}
 	if err := r.Client.Get(ctx, req.NamespacedName, pod); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -84,6 +89,162 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return common.ResultNormal, nil
 	}
 
+	return r.reconcileLegacy(ctx, req, pod)
+}
+
+// reconcilePodV2 handles pod reconciliation when Pod 2.0 (pod_v2) is enabled.
+// For Pod 2.0, the Pod controller only creates/manages the SubnetPort CR, while
+// the SubnetPort controller takes care of the NSX SubnetPort lifecycle.
+func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	pod := &v1.Pod{}
+	if err := r.Client.Get(ctx, req.NamespacedName, pod); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
+			return common.ResultNormal, nil
+		}
+		log.Error(err, "Unable to fetch Pod", "Pod", req.NamespacedName)
+		return common.ResultNormal, err
+	}
+
+	if common.PodIsDeleted(pod) {
+		subnetPort, err := common.GetSubnetPortForPod(ctx, r.Client, pod)
+		if err != nil {
+			log.Error(err, "Failed to get SubnetPort CR for Pod deletion check", "Namespace", pod.Namespace, "Name", pod.Name)
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+			return common.ResultNormal, err
+		}
+		if subnetPort != nil {
+			log.Info("Proactively deleting SubnetPort CR for deleted/terminal Pod", "Namespace", pod.Namespace, "PodName", pod.Name, "SubnetPortName", subnetPort.Name)
+			if err := r.Client.Delete(ctx, subnetPort); err != nil && !apierrors.IsNotFound(err) {
+				log.Error(err, "Failed to proactively delete SubnetPort CR", "Namespace", pod.Namespace, "Name", subnetPort.Name)
+				r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+				return common.ResultNormal, err
+			}
+		} else {
+			log.Warn("SubnetPort CR is already deleted", "Namespace", pod.Namespace, "PodName", pod.Name)
+		}
+		r.StatusUpdater.DeleteSuccess(req.NamespacedName, pod)
+		return common.ResultNormal, nil
+	}
+
+	if !pod.DeletionTimestamp.IsZero() {
+		log.Info("Pod is terminating, skipping SubnetPort CR creation", "Pod", req.NamespacedName)
+		return common.ResultNormal, nil
+	}
+
+	r.StatusUpdater.IncreaseUpdateTotal()
+
+	subnetPort, err := common.GetSubnetPortForPod(ctx, r.Client, pod)
+	if err != nil {
+		log.Error(err, "Failed to fetch SubnetPort CR for Pod", "Namespace", pod.Namespace, "Name", pod.Name)
+		r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+		return common.ResultNormal, err
+	}
+
+	if subnetPort != nil {
+		r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
+		return common.ResultNormal, nil
+	}
+
+	subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.Client, pod.Namespace, servicecommon.DefaultPodNetwork)
+	if err != nil {
+		log.Error(err, "Failed to get default SubnetSet for namespace", "Namespace", pod.Namespace)
+		r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+		return common.ResultNormal, err
+	}
+
+	var interfaceIPType v1alpha1.IPAddressType
+	if subnetSet.Spec.IPAddressType != "" {
+		interfaceIPType, err = subnetport.GetDefaultInterfaceIPType(subnetSet.Spec.IPAddressType, subnetSet.Spec.IPAddressType)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+			return common.ResultNormal, err
+		}
+	} else if r.restoreMode {
+		// Legacy SubnetSets omit IPAddressType, and restore skips their spec updates.
+		// Match the IPv4 fallback used by SubnetPort restore.
+		interfaceIPType = v1alpha1.IPAddressTypeIPv4
+	} else {
+		err = fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
+		r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+		return common.ResultNormal, err
+	}
+
+	// Bound name collision retries per reconcile; the controller retries on error.
+	const maxCreateAttempts = 2
+	var createErr error
+	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
+		spName := common.GenerateSubnetPortName(pod, attempt)
+		subnetPort = &v1alpha1.SubnetPort{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      spName,
+				Namespace: pod.Namespace,
+			},
+			Spec: v1alpha1.SubnetPortSpec{
+				SubnetSet:       subnetSet.Name,
+				InterfaceIPType: interfaceIPType,
+				// Pods do not support DHCP, so request static allocation even on mixed-mode Subnets.
+				StaticIPAllocationType: v1alpha1.StaticIPAllocationType(interfaceIPType),
+			},
+		}
+
+		// Keep cascading cleanup without blocking foreground Pod deletion on the CR.
+		if err := ctrl.SetControllerReference(pod, subnetPort, r.Scheme, controllerutil.WithBlockOwnerDeletion(false)); err != nil {
+			log.Error(err, "Failed to set ControllerReference on SubnetPort CR")
+			r.StatusUpdater.UpdateFail(ctx, pod, err, "", nil)
+			return common.ResultNormal, err
+		}
+
+		createErr = r.Client.Create(ctx, subnetPort)
+		if createErr == nil {
+			log.Info("Successfully created SubnetPort CR for Pod", "Namespace", pod.Namespace, "SubnetPortName", spName, "PodName", pod.Name)
+			break
+		}
+		if !apierrors.IsAlreadyExists(createErr) {
+			log.Error(createErr, "Failed to create SubnetPort CR", "Namespace", pod.Namespace, "SubnetPortName", spName, "PodName", pod.Name)
+			r.StatusUpdater.UpdateFail(ctx, pod, createErr, "", nil)
+			return common.ResultNormal, createErr
+		}
+		// Create writes to the API server before the informer necessarily observes
+		// it. Check the live object before treating AlreadyExists as a name collision.
+		reader := r.APIReader
+		if reader == nil {
+			reader = r.Client
+		}
+		existing := &v1alpha1.SubnetPort{}
+		if err := reader.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: spName}, existing); err != nil {
+			return common.ResultNormal, err
+		}
+		if metav1.IsControlledBy(existing, pod) {
+			r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
+			return common.ResultNormal, nil
+		}
+		// A previous reconcile may have created a random fallback that the cache
+		// has not observed yet. Find it before choosing another random name.
+		ports := &v1alpha1.SubnetPortList{}
+		if err := reader.List(ctx, ports, client.InNamespace(pod.Namespace)); err != nil {
+			return common.ResultNormal, err
+		}
+		for i := range ports.Items {
+			if metav1.IsControlledBy(&ports.Items[i], pod) {
+				r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
+				return common.ResultNormal, nil
+			}
+		}
+		log.Warn("SubnetPort CR name is owned by another object", "attempt", attempt, "SubnetPortName", spName, "Namespace", pod.Namespace, "PodName", pod.Name)
+	}
+	if createErr != nil {
+		createErr = fmt.Errorf("failed to create SubnetPort CR after %d name collisions: %w", maxCreateAttempts, createErr)
+		log.Error(createErr, "Failed to create SubnetPort CR after retries", "Namespace", pod.Namespace, "PodName", pod.Name)
+		r.StatusUpdater.UpdateFail(ctx, pod, createErr, "", nil)
+		return common.ResultNormal, createErr
+	}
+
+	r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
+	return common.ResultNormal, nil
+}
+
+func (r *PodReconciler) reconcileLegacy(ctx context.Context, req ctrl.Request, pod *v1.Pod) (ctrl.Result, error) {
 	if !common.PodIsDeleted(pod) {
 		if pod.DeletionTimestamp != nil {
 			log.Info("Pod is terminating, skipping SubnetPort creation or update", "Pod", req.NamespacedName)
@@ -138,11 +299,15 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		r.StatusUpdater.UpdateSuccess(ctx, pod, nil)
 		if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 			// Update restore status on Pod to notify Spherelet for NSX version < 9.2
+			reader := client.Reader(r.Client)
+			if r.APIReader != nil {
+				reader = r.APIReader
+			}
 			retry.OnError(util.K8sClientRetry, func(err error) bool {
 				log.Error(err, "Failed to update restore status on Pod", "Namespace", pod.Namespace, "Pod", pod.Name)
 				return err != nil
 			}, func() error {
-				return setReconfigureNicStatus(r.Client, ctx, pod)
+				return common.SetReconfigureNicStatus(r.Client, reader, ctx, pod)
 			})
 		}
 	} else {
@@ -191,92 +356,15 @@ func updatePodAnnotationForPortState(ctx context.Context, client client.Client, 
 	return nil
 }
 
-// Set PodNetworkReconfigRequired condition to true in Pod to inform spherelet the SubnetPort is restored with another vif ID
-func setReconfigureNicStatus(client client.Client, ctx context.Context, obj client.Object) error {
-	pod := obj.(*v1.Pod)
-	newConditions := []v1.PodCondition{
-		{
-			Type:               v1.PodConditionType("PodNetworkReconfigRequired"),
-			Status:             v1.ConditionTrue,
-			Reason:             "ReconfigureNic",
-			LastTransitionTime: metav1.Now(),
-		},
-	}
-	return updatePodStatusConditions(client, ctx, pod, newConditions)
-}
-
-func updatePodStatusConditions(client client.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
-	conditionsUpdated := false
-	for i := range newConditions {
-		if mergePodStatusCondition(pod, &newConditions[i]) {
-			conditionsUpdated = true
-		}
-	}
-
-	if conditionsUpdated {
-		err := client.Status().Update(ctx, pod)
-		if err != nil {
-			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
-			return err
-		}
-		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
-			"New Conditions", newConditions)
-	}
-	return nil
-}
-
-func mergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
-	matchedCondition := getExistingConditionOfType(newCondition.Type, pod.Status.Conditions)
-
-	if isConditionSemanticEqual(matchedCondition, newCondition) {
-		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
-		return false
-	}
-
-	if matchedCondition != nil {
-		matchedCondition.Reason = newCondition.Reason
-		matchedCondition.Message = newCondition.Message
-		matchedCondition.Status = newCondition.Status
-		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
-	} else {
-		pod.Status.Conditions = append(pod.Status.Conditions, *newCondition)
-	}
-	return true
-}
-
-func getExistingConditionOfType(conditionType v1.PodConditionType, existingConditions []v1.PodCondition) *v1.PodCondition {
-	for i := range existingConditions {
-		if existingConditions[i].Type == conditionType {
-			return &existingConditions[i]
-		}
-	}
-	return nil
-}
-
-// isConditionSemanticEqual checks if two pod conditions are semantically equal.
-func isConditionSemanticEqual(matchedCondition, newCondition *v1.PodCondition) bool {
-	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
-}
-
 func (r *PodReconciler) GetNodeByName(nodeName string) (*model.HostTransportNode, error) {
-	nodes := r.NodeServiceReader.GetNodeByName(nodeName)
-	if len(nodes) == 0 {
-		return nil, fmt.Errorf("node %s not found", nodeName)
-	}
-	if len(nodes) > 1 {
-		var nodeIDs []string
-		for _, node := range nodes {
-			nodeIDs = append(nodeIDs, *node.UniqueId)
-		}
-		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
-	}
-	return nodes[0], nil
+	return common.GetNodeByName(r.NodeServiceReader, nodeName)
 }
 
 // setupWithManager sets up the controller with the Manager.
 func (r *PodReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Pod{}).
+		Owns(&v1alpha1.SubnetPort{}).
 		WithEventFilter(PredicateFuncsPod).
 		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
@@ -394,8 +482,8 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 		if store != nil && store.Indexer != nil {
 			if nsxSubnetPort := store.GetByKey(elem); nsxSubnetPort != nil &&
 				r.SubnetPortService.NSXClient != nil &&
-				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && r.isStatefulSetSubnetPort(nsxSubnetPort) {
-				log.Info("Skipping pod GC for StatefulSet pod subnet port", "NSXSubnetPortID", elem, "statefulset-uid", r.getStsUID(nsxSubnetPort))
+				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && common.IsStatefulSetSubnetPort(nsxSubnetPort) {
+				log.Info("Skipping pod GC for StatefulSet pod subnet port", "NSXSubnetPortID", elem, "statefulset-uid", common.GetStsUID(nsxSubnetPort))
 				continue
 			}
 		}
