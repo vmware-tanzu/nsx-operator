@@ -10,6 +10,7 @@ import (
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,6 +19,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestIsNamespaceGroupSupported(t *testing.T) {
@@ -129,6 +131,7 @@ func TestUpdateNativeTargetExpressions(t *testing.T) {
 func TestUpdateNativePeerExpressions(t *testing.T) {
 	service := &SecurityPolicyService{
 		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "cluster-a"}},
 			NSXClient: &nsx.Client{
 				NsxConfig: &config.NSXOperatorConfig{},
 			},
@@ -187,6 +190,184 @@ func TestUpdateNativePeerExpressions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, added)
 	assert.Greater(t, condCount, 0)
+}
+
+func TestUpdateNativePeerExpressionsMixedInValidation(t *testing.T) {
+	service := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "cluster-a"}},
+		},
+	}
+	for _, tc := range []struct {
+		name            string
+		namespaceValues []string
+		workloadValues  []string
+		wantCriteria    int
+		wantError       bool
+	}{
+		{name: "both In within criteria limit", namespaceValues: []string{"prod", "staging"}, workloadValues: []string{"api", "worker"}, wantError: true},
+		{name: "both In exceed criteria limit", namespaceValues: []string{"prod", "staging", "dev"}, workloadValues: []string{"api", "worker"}, wantError: true},
+		{name: "namespace In only", namespaceValues: []string{"prod", "staging"}, wantCriteria: 2},
+		{name: "workload In only", workloadValues: []string{"api", "worker"}, wantCriteria: 2},
+	} {
+		for _, workload := range []string{"pod", "vm"} {
+			t.Run(tc.name+"/"+workload, func(t *testing.T) {
+				namespaceSelector := &v1.LabelSelector{}
+				if len(tc.namespaceValues) > 0 {
+					namespaceSelector.MatchExpressions = []v1.LabelSelectorRequirement{
+						{Key: "environment", Operator: v1.LabelSelectorOpIn, Values: tc.namespaceValues},
+					}
+				}
+				workloadSelector := &v1.LabelSelector{}
+				if len(tc.workloadValues) > 0 {
+					workloadSelector.MatchExpressions = []v1.LabelSelectorRequirement{
+						{Key: "role", Operator: v1.LabelSelectorOpIn, Values: tc.workloadValues},
+					}
+				}
+				peer := &v1alpha1.SecurityPolicyPeer{NamespaceSelector: namespaceSelector}
+				if workload == "pod" {
+					peer.PodSelector = workloadSelector
+				} else {
+					peer.VMSelector = workloadSelector
+				}
+				group := &model.Group{}
+				added, total, err := service.updateNativePeerExpressions(&v1alpha1.SecurityPolicy{}, peer, group)
+				if tc.wantError {
+					var validationErr *nsxutil.ValidationError
+					require.ErrorAs(t, err, &validationErr)
+					assert.Equal(t, "operator 'In' is set in both Pod/VM selector and NamespaceSelector", validationErr.Desc)
+					assert.Zero(t, added)
+					assert.Zero(t, total)
+					assert.Empty(t, group.Expression)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantCriteria, added)
+				assert.Len(t, group.Expression, 2*tc.wantCriteria-1)
+			})
+		}
+	}
+}
+
+func TestUpdateNativePeerExpressionsNamespaceClusterScope(t *testing.T) {
+	for _, vpcMode := range []bool{false, true} {
+		networkMode := "non-VPC"
+		clusterScope := common.TagScopeNCPCluster
+		if vpcMode {
+			networkMode = "VPC"
+			clusterScope = common.TagScopeCluster
+		}
+		t.Run(networkMode, func(t *testing.T) {
+			service := &SecurityPolicyService{
+				Service: common.Service{
+					NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "cluster-a"}},
+				},
+				VPCMode: vpcMode,
+			}
+			for _, tc := range []struct {
+				name     string
+				selector *v1.LabelSelector
+				values   []string
+			}{
+				{name: "empty", selector: &v1.LabelSelector{}, values: []string{""}},
+				{name: "matchLabels", selector: &v1.LabelSelector{MatchLabels: map[string]string{"env": "prod"}}, values: []string{"prod"}},
+				{name: "In", selector: &v1.LabelSelector{MatchExpressions: []v1.LabelSelectorRequirement{
+					{Key: "env", Operator: v1.LabelSelectorOpIn, Values: []string{"prod", "staging"}},
+				}}, values: []string{"prod", "staging"}},
+				{name: "In empty value", selector: &v1.LabelSelector{MatchExpressions: []v1.LabelSelectorRequirement{
+					{Key: "env", Operator: v1.LabelSelectorOpIn, Values: []string{""}},
+				}}, values: []string{""}},
+				{name: "In empty and non-empty values", selector: &v1.LabelSelector{MatchExpressions: []v1.LabelSelectorRequirement{
+					{Key: "env", Operator: v1.LabelSelectorOpIn, Values: []string{"", "prod"}},
+				}}, values: []string{"", "prod"}},
+			} {
+				for _, workload := range []string{"namespace", "pod", "vm"} {
+					t.Run(tc.name+"/"+workload, func(t *testing.T) {
+						peer := &v1alpha1.SecurityPolicyPeer{NamespaceSelector: tc.selector}
+						workloadConditions := 0
+						if workload == "pod" {
+							peer.PodSelector = &v1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}
+							workloadConditions = 2 // app label and NodeType
+						} else if workload == "vm" {
+							peer.VMSelector = &v1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}
+							workloadConditions = 2
+						}
+						group := &model.Group{}
+						added, total, err := service.updateNativePeerExpressions(&v1alpha1.SecurityPolicy{}, peer, group)
+						require.NoError(t, err)
+						require.Equal(t, len(tc.values), added)
+						require.Len(t, group.Expression, 2*added-1)
+						conditionsPerBranch := 1 + workloadConditions // cluster condition
+						if tc.name != "empty" {
+							conditionsPerBranch++ // namespace label condition
+						}
+						assert.Equal(t, added*conditionsPerBranch, total)
+						for i, value := range tc.values {
+							branch := group.Expression[2*i]
+							conditions := []data.DataValue{branch}
+							if conditionsPerBranch > 1 {
+								expressions, err := branch.List("expressions")
+								require.NoError(t, err)
+								conditions = expressions.List()
+								for j := 1; j < len(conditions); j += 2 {
+									assert.Equal(t, service.buildConjOperator("AND"), conditions[j])
+								}
+							}
+							assert.Contains(t, conditions, service.buildNativeNamespaceCondition(clusterScope, "cluster-a", "EQUALS"))
+							if tc.name != "empty" {
+								assert.Contains(t, conditions, service.buildNativeNamespaceCondition("env", value, "EQUALS"))
+							}
+							if i > 0 {
+								assert.Equal(t, service.buildConjOperator("OR"), group.Expression[2*i-1])
+							}
+						}
+					})
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateNativePeerExpressionsWorkloadInEmptyValue(t *testing.T) {
+	service := &SecurityPolicyService{
+		Service: common.Service{
+			NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "cluster-a"}},
+		},
+	}
+	for _, tc := range []struct {
+		name   string
+		values []string
+	}{
+		{name: "empty value", values: []string{""}},
+		{name: "empty and non-empty values", values: []string{"", "prod"}},
+	} {
+		for _, workload := range []string{"pod", "vm"} {
+			t.Run(tc.name+"/"+workload, func(t *testing.T) {
+				selector := &v1.LabelSelector{MatchExpressions: []v1.LabelSelectorRequirement{
+					{Key: "env", Operator: v1.LabelSelectorOpIn, Values: tc.values},
+				}}
+				peer := &v1alpha1.SecurityPolicyPeer{NamespaceSelector: &v1.LabelSelector{}}
+				if workload == "pod" {
+					peer.PodSelector = selector
+				} else {
+					peer.VMSelector = selector
+				}
+				group := &model.Group{}
+				added, total, err := service.updateNativePeerExpressions(&v1alpha1.SecurityPolicy{}, peer, group)
+				require.NoError(t, err)
+				require.Equal(t, len(tc.values), added)
+				require.Len(t, group.Expression, 2*added-1)
+				assert.Equal(t, 3*added, total) // cluster, NodeType, and env in every branch
+				for i, value := range tc.values {
+					expressions, err := group.Expression[2*i].List("expressions")
+					require.NoError(t, err)
+					assert.Contains(t, expressions.List(), service.buildNativeCondition(
+						common.MemberTypeVirtualMachine, "K8sTag/env|"+value, "EQUALS", "EQUALS",
+					))
+				}
+			})
+		}
+	}
 }
 
 func TestBuildNativeSecurityPolicy(t *testing.T) {

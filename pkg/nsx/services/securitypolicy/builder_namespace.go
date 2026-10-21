@@ -279,12 +279,10 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 			return 0, 0, err
 		}
 		nsInExpr = nsIn
-		if len(nsConds) == 0 && nsIn == nil && peer.NamespaceSelector.Size() == 0 {
-			// Empty namespace selector means "all namespaces" — add cluster-scoped namespace condition
-			nsConds = append(nsConds, service.buildNativeNamespaceCondition(
-				getScopeCluserTag(service), getCluster(service), "EQUALS",
-			))
-		}
+		// Namespace labels are not cluster-unique. Scope every selector branch to this cluster.
+		allBaseConditions = append(allBaseConditions, service.buildNativeNamespaceCondition(
+			getScopeCluserTag(service), getCluster(service), "EQUALS",
+		))
 		allBaseConditions = append(allBaseConditions, nsConds...)
 	} else {
 		// No namespace selector: scope to the SecurityPolicy's own namespace
@@ -316,6 +314,13 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 		allBaseConditions = append(allBaseConditions, service.buildNativeVMTypeCondition(vmType))
 	}
 
+	// Preserve the legacy restriction before expanding selector values into criteria.
+	if nsInExpr != nil && len(nsInExpr.Values) > 0 && vmInExpr != nil && len(vmInExpr.Values) > 0 {
+		return 0, 0, &nsxutil.ValidationError{
+			Desc: "operator 'In' is set in both Pod/VM selector and NamespaceSelector",
+		}
+	}
+
 	nsVals := []string{""}
 	if nsInExpr != nil && len(nsInExpr.Values) > 0 {
 		nsVals = nsInExpr.Values
@@ -332,14 +337,15 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 	for _, nsVal := range nsVals {
 		for _, vmVal := range vmVals {
 			branchConds := append([]*data.StructValue{}, allBaseConditions...)
-			if nsVal != "" {
+			// Empty strings are valid In values; only skip the placeholder when no In values exist.
+			if nsInExpr != nil && len(nsInExpr.Values) > 0 {
 				branchConds = append(branchConds, service.buildNativeCondition(
 					common.MemberTypeNamespace,
 					fmt.Sprintf("%s|%s", nsInExpr.Key, nsVal),
 					"EQUALS", "EQUALS",
 				))
 			}
-			if vmVal != "" {
+			if vmInExpr != nil && len(vmInExpr.Values) > 0 {
 				branchConds = append(branchConds, service.buildNativeCondition(
 					common.MemberTypeVirtualMachine,
 					fmt.Sprintf("%s|%s", vmInExpr.Key, vmVal),
