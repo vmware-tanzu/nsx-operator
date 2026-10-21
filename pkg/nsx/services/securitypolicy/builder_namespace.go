@@ -5,6 +5,7 @@ package securitypolicy
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,7 +33,10 @@ func (service *SecurityPolicyService) isNamespaceGroupSupported() bool {
 // buildNativeCondition builds a Condition expression for inventory-based groups.
 // The NSX API uses: resource_type=Condition, member_type, key=Tag, operator, value=scope|tag, scope_operator.
 func (service *SecurityPolicyService) buildNativeCondition(memberType, value, operator, scopeOp string) *data.StructValue {
-	return service.buildExpression("Condition", memberType, value, "Tag", operator, scopeOp)
+	condition := service.buildExpression("Condition", memberType, value, "Tag", operator, scopeOp)
+	// Native inventory member types require an explicit operator, including scope-only negation.
+	condition.Fields()["operator"] = data.NewStringValue(operator)
+	return condition
 }
 
 // buildNativeNamespaceCondition builds a Namespace tag condition for the given memberType.
@@ -50,15 +54,26 @@ func (service *SecurityPolicyService) buildNativeVMTypeCondition(vmType string) 
 	return service.buildExpression("Condition", common.MemberTypeVirtualMachine, vmType, "NodeType", "EQUALS", "EQUALS")
 }
 
-// buildNativeNestedExpression wraps a list of conditions.
+// buildNativeNestedExpression validates the per-criteria condition limit and wraps the conditions.
 // If there is only 1 condition, return it directly without a NestedExpression wrapper.
 // If there are multiple conditions, wrap them into a NestedExpression with AND conjunctions.
-func (service *SecurityPolicyService) buildNativeNestedExpression(conditions []*data.StructValue) *data.StructValue {
+func (service *SecurityPolicyService) buildNativeNestedExpression(conditions []*data.StructValue) (*data.StructValue, error) {
 	if len(conditions) == 0 {
-		return nil
+		return nil, nil
+	}
+	memberTypes := sets.New[string]()
+	for _, condition := range conditions {
+		memberType, err := condition.StringField("member_type")
+		if err != nil {
+			return nil, err
+		}
+		memberTypes.Insert(memberType)
+	}
+	if _, _, err := service.validateSelectorExpressions(len(conditions), 0, 0, memberTypes.Len() > 1); err != nil {
+		return nil, err
 	}
 	if len(conditions) == 1 {
-		return conditions[0]
+		return conditions[0], nil
 	}
 
 	expressions := data.NewListValue()
@@ -74,31 +89,48 @@ func (service *SecurityPolicyService) buildNativeNestedExpression(conditions []*
 			"resource_type": data.NewStringValue("NestedExpression"),
 			"expressions":   expressions,
 		},
-	)
+	), nil
 }
 
-func formatNativeTagScope(key string, memberType string) string {
+func formatNativeTagScope(key string, memberType string) (string, error) {
+	labelKey := key
+	key = util.NormalizeLabelKey(key, func(value string) string {
+		return util.Sha1(value)[:common.HashLength]
+	})
 	if memberType == common.MemberTypeVirtualMachine && !strings.HasPrefix(key, "K8sTag/") {
 		key = fmt.Sprintf("K8sTag/%s", key)
 	}
 	if len(key) > common.MaxTagScopeLength {
-		return key[:common.MaxTagScopeLength]
+		return "", &nsxutil.ValidationError{
+			Desc: fmt.Sprintf("label key %q produces a %s tag scope of length %d, exceeding NSX limit of %d", labelKey, memberType, len(key), common.MaxTagScopeLength),
+		}
 	}
-	return key
+	return key, nil
 }
 
 // buildNativeMatchLabelsConditions converts matchLabels into a list of tag conditions for the given memberType.
-func (service *SecurityPolicyService) buildNativeMatchLabelsConditions(matchLabels map[string]string, memberType string) []*data.StructValue {
+func (service *SecurityPolicyService) buildNativeMatchLabelsConditions(matchLabels map[string]string, memberType string) ([]*data.StructValue, error) {
+	normalizedLabels := *util.NormalizeLabels(&matchLabels)
+	keys := make([]string, 0, len(normalizedLabels))
+	for k := range normalizedLabels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var conditions []*data.StructValue
-	for k, v := range *util.NormalizeLabels(&matchLabels) {
-		tagScope := formatNativeTagScope(k, memberType)
+	for _, k := range keys {
+		v := normalizedLabels[k]
+		tagScope, err := formatNativeTagScope(k, memberType)
+		if err != nil {
+			return nil, err
+		}
 		conditions = append(conditions, service.buildNativeCondition(
 			memberType,
 			fmt.Sprintf("%s|%s", tagScope, v),
 			"EQUALS", "EQUALS",
 		))
 	}
-	return conditions
+	return conditions, nil
 }
 
 // buildNativeSelectorConditions builds conditions for a LabelSelector (matchLabels + matchExpressions)
@@ -110,22 +142,32 @@ func (service *SecurityPolicyService) buildNativeSelectorConditions(
 		return nil, nil, nil
 	}
 
-	if len(selector.MatchExpressions) > 0 {
-		if _, err := service.validateSelectorOpIn(selector.MatchExpressions, selector.MatchLabels); err != nil {
+	matchExpressions := *service.mergeSelectorMatchExpression(selector.MatchExpressions)
+	if len(matchExpressions) > 0 {
+		if _, err := service.validateSelectorOpIn(matchExpressions, selector.MatchLabels); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	var baseConditions []*data.StructValue
+	baseConditions, err := service.buildNativeMatchLabelsConditions(selector.MatchLabels, memberType)
+	if err != nil {
+		return nil, nil, err
+	}
 	var inExpr *v1.LabelSelectorRequirement
 
-	baseConditions = append(baseConditions, service.buildNativeMatchLabelsConditions(selector.MatchLabels, memberType)...)
-
-	for i := range selector.MatchExpressions {
-		expr := selector.MatchExpressions[i]
-		tagScope := formatNativeTagScope(expr.Key, memberType)
+	for _, expr := range matchExpressions {
+		tagScope, err := formatNativeTagScope(expr.Key, memberType)
+		if err != nil {
+			return nil, nil, err
+		}
 		switch expr.Operator {
 		case v1.LabelSelectorOpIn:
+			// An empty intersection cannot match anything; never drop this restriction.
+			if len(expr.Values) == 0 {
+				return nil, nil, &nsxutil.ValidationError{
+					Desc: fmt.Sprintf("operator 'In' for key %s has no matching values", expr.Key),
+				}
+			}
 			exprCopy := expr
 			exprCopy.Key = tagScope
 			inExpr = &exprCopy
@@ -143,10 +185,10 @@ func (service *SecurityPolicyService) buildNativeSelectorConditions(
 				"EQUALS", "EQUALS",
 			))
 		case v1.LabelSelectorOpDoesNotExist:
-			baseConditions = append(baseConditions, service.buildExpression(
-				"Condition", memberType,
+			baseConditions = append(baseConditions, service.buildNativeCondition(
+				memberType,
 				fmt.Sprintf("%s|", tagScope),
-				"Tag", "", "NOTEQUALS",
+				"EQUALS", "NOTEQUALS",
 			))
 		default:
 			return nil, nil, &nsxutil.ValidationError{
@@ -206,7 +248,10 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 	totalConds := 0
 
 	if inExpr == nil || len(inExpr.Values) == 0 {
-		nested := service.buildNativeNestedExpression(baseConditions)
+		nested, err := service.buildNativeNestedExpression(baseConditions)
+		if err != nil {
+			return 0, 0, err
+		}
 		if nested != nil {
 			service.appendOperatorIfNeeded(&group.Expression, "OR")
 			group.Expression = append(group.Expression, nested)
@@ -221,7 +266,10 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 				fmt.Sprintf("%s|%s", inExpr.Key, val),
 				"EQUALS", "EQUALS",
 			))
-			nested := service.buildNativeNestedExpression(branchConds)
+			nested, err := service.buildNativeNestedExpression(branchConds)
+			if err != nil {
+				return 0, 0, err
+			}
 			if nested != nil {
 				service.appendOperatorIfNeeded(&group.Expression, "OR")
 				group.Expression = append(group.Expression, nested)
@@ -248,6 +296,7 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 	}
 
 	// Handle IPBlocks
+	ipBlockCriteria := 0
 	if len(peer.IPBlocks) > 0 {
 		addresses := data.NewListValue()
 		for _, block := range peer.IPBlocks {
@@ -262,10 +311,11 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 			},
 		)
 		group.Expression = append(group.Expression, blockExpression)
+		ipBlockCriteria = 1
 	}
 
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector == nil {
-		return 0, 0, nil
+		return ipBlockCriteria, ipBlockCriteria, nil
 	}
 
 	var allBaseConditions []*data.StructValue
@@ -352,7 +402,10 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 					"EQUALS", "EQUALS",
 				))
 			}
-			nested := service.buildNativeNestedExpression(branchConds)
+			nested, err := service.buildNativeNestedExpression(branchConds)
+			if err != nil {
+				return 0, 0, err
+			}
 			if nested != nil {
 				service.appendOperatorIfNeeded(&group.Expression, "OR")
 				group.Expression = append(group.Expression, nested)
@@ -362,7 +415,7 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 		}
 	}
 
-	return addedCount, totalConds, nil
+	return addedCount + ipBlockCriteria, totalConds + ipBlockCriteria, nil
 }
 
 // buildNativePolicyGroup builds the policy-level applied-to group using inventory-based expressions.
@@ -677,7 +730,9 @@ func (service *SecurityPolicyService) buildNativeRuleAndGroups(
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		ruleGroups = append(ruleGroups, nsxRuleAppliedGroup)
+		if nsxRuleAppliedGroup != nil {
+			ruleGroups = append(ruleGroups, nsxRuleAppliedGroup)
+		}
 		nsxRule.Scope = []string{nsxRuleAppliedGroupPath}
 	}
 	return nsxRules, ruleGroups, nsxGroupShares, nil
@@ -754,7 +809,7 @@ func (service *SecurityPolicyService) buildNativeSecurityPolicy(
 		}
 
 		for _, item := range buildGroupShares {
-			if item != nil && item.share != nil && item.share.Id != nil {
+			if item != nil && item.share != nil && item.share.Id != nil && item.shareGroup != nil {
 				if !shareIDs.Has(*item.share.Id) {
 					shareIDs.Insert(*item.share.Id)
 					nsxGroupShares = append(nsxGroupShares, *item)

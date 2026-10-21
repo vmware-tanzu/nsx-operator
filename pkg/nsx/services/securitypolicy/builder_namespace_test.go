@@ -165,8 +165,10 @@ func TestUpdateNativePeerExpressions(t *testing.T) {
 		},
 	}
 	grpIP := &model.Group{}
-	_, _, err = service.updateNativePeerExpressions(sp, peerIP, grpIP)
+	added, condCount, err := service.updateNativePeerExpressions(sp, peerIP, grpIP)
 	require.NoError(t, err)
+	assert.Equal(t, 1, added)
+	assert.Equal(t, 1, condCount)
 	assert.NotEmpty(t, grpIP.Expression)
 
 	// PodSelector only (no namespaceSelector) -> same-namespace defaulting
@@ -174,7 +176,7 @@ func TestUpdateNativePeerExpressions(t *testing.T) {
 		PodSelector: &v1.LabelSelector{MatchLabels: map[string]string{"app": "client"}},
 	}
 	grpPodOnly := &model.Group{}
-	added, condCount, err := service.updateNativePeerExpressions(sp, peerPodOnly, grpPodOnly)
+	added, condCount, err = service.updateNativePeerExpressions(sp, peerPodOnly, grpPodOnly)
 	require.NoError(t, err)
 	assert.Equal(t, 1, added)
 	// Expect 3 conditions: same-namespace UID + K8sTag/app=client + NodeType=POD
@@ -285,10 +287,11 @@ func TestUpdateNativePeerExpressionsNamespaceClusterScope(t *testing.T) {
 					t.Run(tc.name+"/"+workload, func(t *testing.T) {
 						peer := &v1alpha1.SecurityPolicyPeer{NamespaceSelector: tc.selector}
 						workloadConditions := 0
-						if workload == "pod" {
+						switch workload {
+						case "pod":
 							peer.PodSelector = &v1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}
 							workloadConditions = 2 // app label and NodeType
-						} else if workload == "vm" {
+						case "vm":
 							peer.VMSelector = &v1.LabelSelector{MatchLabels: map[string]string{"app": "web"}}
 							workloadConditions = 2
 						}
