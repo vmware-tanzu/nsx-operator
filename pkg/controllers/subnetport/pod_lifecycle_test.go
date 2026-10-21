@@ -164,7 +164,10 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 		savedState, gatewayOnly                    bool
 		readyMismatch                              bool
 	}{
-		{name: "realized", ownerUID: "pod-uid", realized: true, wantRestore: true},
+		{name: "realized", v2mode: true, ownerUID: "pod-uid", realized: true, wantRestore: true},
+		{name: "legacy-mac-v2-disabled", ownerUID: "pod-uid", realized: true},
+		{name: "saved-cr-state-v2-disabled", ownerUID: "pod-uid", savedState: true},
+		{name: "ready-mismatch-v2-disabled", ownerUID: "pod-uid", realized: true, readyMismatch: true},
 		{name: "not-realized", ownerUID: "pod-uid"},
 		{name: "not-realized-v2-unset", ownerUID: "pod-uid", v2mode: true},
 		{name: "not-realized-v2-none", ownerUID: "pod-uid", v2mode: true, staticAlloc: v1alpha1.StaticIPAllocationTypeNone},
@@ -173,13 +176,13 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 		{name: "saved-cr-state-none", ownerUID: "pod-uid", v2mode: true, staticAlloc: v1alpha1.StaticIPAllocationTypeNone, savedState: true, wantRestore: true},
 		{name: "saved-cr-state-static", ownerUID: "pod-uid", v2mode: true, staticAlloc: v1alpha1.StaticIPAllocationTypeIPv4, savedState: true, wantRestore: true},
 		{name: "gateway-only", ownerUID: "pod-uid", v2mode: true, gatewayOnly: true},
-		{name: "terminal", ownerUID: "pod-uid", realized: true, terminal: true},
+		{name: "terminal", v2mode: true, ownerUID: "pod-uid", realized: true, terminal: true},
 		{name: "terminal-v2", ownerUID: "pod-uid", v2mode: true, terminal: true},
-		{name: "terminating", ownerUID: "pod-uid", realized: true, terminating: true},
+		{name: "terminating", v2mode: true, ownerUID: "pod-uid", realized: true, terminating: true},
 		{name: "terminating-v2", ownerUID: "pod-uid", v2mode: true, savedState: true, terminating: true},
-		{name: "terminating-ready-mismatch", ownerUID: "pod-uid", realized: true, terminating: true, readyMismatch: true},
-		{name: "replacement-owner", ownerUID: "old-pod", realized: true, wantError: true},
-		{name: "ready-but-attachment-mismatch", ownerUID: "pod-uid", realized: true, wantRestore: true, readyMismatch: true},
+		{name: "terminating-ready-mismatch", v2mode: true, ownerUID: "pod-uid", realized: true, terminating: true, readyMismatch: true},
+		{name: "replacement-owner", v2mode: true, ownerUID: "old-pod", realized: true, wantError: true},
+		{name: "ready-but-attachment-mismatch", v2mode: true, ownerUID: "pod-uid", realized: true, wantRestore: true, readyMismatch: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()

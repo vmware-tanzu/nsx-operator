@@ -865,6 +865,10 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 	for _, subnetport := range subnetPortList.Items {
 		isPodOwned := common.GetPodNameForSubnetPort(&subnetport) != ""
 		if isPodOwned {
+			// With Pod V2 disabled, the Pod controller owns Pod port restoration.
+			if !nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+				continue
+			}
 			pod, err := common.GetPodForSubnetPort(context.TODO(), r.APIReader, &subnetport)
 			if err != nil {
 				if apierrors.IsNotFound(err) {
@@ -877,12 +881,6 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 			}
 
 			hasLegacyMAC := pod.Annotations[servicecommon.AnnotationPodMAC] != ""
-			isPodV2 := nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig)
-			// Backward compatibility: allow restore if legacy MAC annotation exists (Pod V1)
-			// or if we're in Pod V2 mode. Skip pods that belong to neither.
-			if !hasLegacyMAC && !isPodV2 {
-				continue
-			}
 
 			if !nsxSubnetPortCRIDs.Has(string(subnetport.UID)) || subnetport.Status.Attachment.ID == "" || !common.IsObjectReady(subnetport.Status.Conditions) {
 				hasSavedState := hasIPAddress(subnetport.Status.NetworkInterfaceConfig.IPAddresses) || subnetport.Status.NetworkInterfaceConfig.MACAddress != ""
