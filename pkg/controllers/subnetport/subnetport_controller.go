@@ -421,10 +421,8 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *SubnetPortReconciler) resolvePodTransportNode(subnetPort *v1alpha1.SubnetPort, pod *v1.Pod, spKey types.NamespacedName) (string, error) {
-	var nodeName string
-	if subnetPort.Annotations != nil {
-		nodeName = subnetPort.Annotations[servicecommon.AnnotationESXHostName]
-	}
+	hostName := subnetPort.Annotations[servicecommon.AnnotationESXHostName]
+	nodeName := hostName
 	if nodeName == "" {
 		nodeName = pod.Spec.NodeName
 	}
@@ -433,6 +431,13 @@ func (r *SubnetPortReconciler) resolvePodTransportNode(subnetPort *v1alpha1.Subn
 		return "", nil
 	}
 	node, err := common.GetNodeByName(r.NodeServiceReader, nodeName)
+	var notFound *common.NodeNotFoundError
+	if hostName == "" && nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && errors.As(err, &notFound) {
+		// A virtual node name need not identify an ESX host. The host annotation
+		// can supply context_id after the port and its network status are ready.
+		log.Info("Pod node has no matching transport node, proceeding without context_id", "SubnetPort", spKey, "Pod", pod.Name, "Node", nodeName)
+		return "", nil
+	}
 	if err == nil && (node == nil || node.UniqueId == nil || *node.UniqueId == "") {
 		return "", fmt.Errorf("transport node %s has no unique ID", nodeName)
 	}

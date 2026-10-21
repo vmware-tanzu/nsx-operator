@@ -1025,6 +1025,15 @@ func GenerateSubnetPortName(pod *v1.Pod, attempt int) string {
 	return fmt.Sprintf("%s-%s", podNamePrefix, rand.String(suffixLength))
 }
 
+// NodeNotFoundError indicates that no transport node matches the node name.
+type NodeNotFoundError struct {
+	NodeName string
+}
+
+func (e *NodeNotFoundError) Error() string {
+	return fmt.Sprintf("node %s not found", e.NodeName)
+}
+
 // GetNodeByName returns the HostTransportNode for a node name using the NodeServiceReader.
 func GetNodeByName(nodeServiceReader servicecommon.NodeServiceReader, nodeName string) (*model.HostTransportNode, error) {
 	if nodeServiceReader == nil {
@@ -1032,7 +1041,7 @@ func GetNodeByName(nodeServiceReader servicecommon.NodeServiceReader, nodeName s
 	}
 	nodes := nodeServiceReader.GetNodeByName(nodeName)
 	if len(nodes) == 0 {
-		return nil, fmt.Errorf("node %s not found", nodeName)
+		return nil, &NodeNotFoundError{NodeName: nodeName}
 	}
 	if len(nodes) > 1 {
 		var nodeIDs []string

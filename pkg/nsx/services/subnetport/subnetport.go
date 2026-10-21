@@ -190,6 +190,11 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		// The existing port's attachment ID should not be changed in any case.
 		if existingSubnetPort.Attachment != nil {
 			nsxSubnetPort.Attachment.Id = existingSubnetPort.Attachment.Id
+			if sp, ok := obj.(*v1alpha1.SubnetPort); ok && controllercommon.GetPodNameForSubnetPort(sp) != "" &&
+				contextID == "" && nsx.PodV2FeatureEnabled(service.NSXClient, service.NSXConfig) {
+				// An unresolved Pod host must not clear a context already on the port.
+				nsxSubnetPort.Attachment.ContextId = existingSubnetPort.Attachment.ContextId
+			}
 		}
 		nsxSubnetPort.AddressBindings = mergeSubnetPortAddressBinding(existingSubnetPort.AddressBindings, nsxSubnetPort.AddressBindings)
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
