@@ -107,19 +107,132 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
 		r.StatusUpdater.IncreaseUpdateTotal()
 
-		old_status := subnetPort.Status.DeepCopy()
-		isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, staticIPAllocationType, err := r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
-		if subnetSetLock != nil {
-			defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
-		}
-		if isParentResourceTerminating {
-			err = errors.New("parent resource is terminating, SubnetPort cannot be created")
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
-			return common.ResultNormal, err
-		}
-		if err != nil {
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+		// Keep the source CR superseded if its destination has taken over or has been recreated
+		// (e.g. during cpVM migration or after restore where attachment IDs diverge).
+		// If supersession lookup fails, propagate the error to requeue and prevent allocation of retired backend resources.
+		if isSuperseded, err := r.isPortSuperseded(subnetPort, nil); err != nil {
+			log.Error(err, "failed to check supersession for SubnetPort, requeuing", "SubnetPort", req.NamespacedName)
 			return common.ResultRequeue, err
+		} else if isSuperseded {
+			log.Info("SubnetPort's port has been reused or superseded by another SubnetPort CR, skipping reconciliation",
+				"SubnetPort", req.NamespacedName, "UID", subnetPort.UID)
+			return common.ResultNormal, nil
+		}
+
+		old_status := subnetPort.Status.DeepCopy()
+
+		var isExisting bool
+		var isParentResourceTerminating bool
+		var nsxSubnetPath string
+		var subnetSetUID *types.UID
+		var subnetSetLock *sync.RWMutex
+		var interfaceIPType v1alpha1.IPAddressType
+		var staticIPAllocationType v1alpha1.StaticIPAllocationType
+		var err error
+		var isReusedPort bool
+		var reusedPort *model.VpcSubnetPort
+
+		existingSubnetPort, _ := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
+		// Supervisor 2.0 cpVM port reuse:
+		// When migrating control plane VMs (e.g. kube-system cpVM to a tenant VPC namespace),
+		// the destination SubnetPort CR carries AnnotationReusePort referencing "<source-namespace>/<source-name>".
+		// Instead of creating a new NSX SubnetPort and allocating a new IP/MAC, the existing NSX SubnetPort
+		// is reused with its IP address, MAC address, attachment ID, and logical switch preserved.
+		if reusePort, ok := subnetPort.Annotations[servicecommon.AnnotationReusePort]; ok {
+			if !r.isSupportReusePortEnabled() {
+				log.Info("SubnetPort has reuse-port annotation but support_reuse_port is disabled, falling back to port creation",
+					"SubnetPort", req.NamespacedName, "reusePort", reusePort)
+			} else if !util.IsCPVM(subnetPort.Labels) {
+				log.Info("SubnetPort has reuse-port annotation but is not a cpVM SubnetPort, ignoring reuse-port",
+					"SubnetPort", req.NamespacedName)
+			} else {
+				oldNs, oldName, parseErr := util.ParseReusePortAnnotation(reusePort)
+				if parseErr != nil {
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, parseErr, "Invalid reuse-port annotation", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+					return common.ResultNormal, parseErr
+				}
+				if existingSubnetPort != nil {
+					reusedPort = existingSubnetPort
+				} else {
+					existingPorts := r.SubnetPortService.ListVMSubnetPortByName(oldNs, oldName)
+					if len(existingPorts) == 0 || existingPorts[0].Id == nil || *existingPorts[0].Id == "" ||
+						existingPorts[0].ParentPath == nil || *existingPorts[0].ParentPath == "" {
+						if r.restoreMode && len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses) > 0 && subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
+							log.Info("Reused port not found in store in restore mode, falling through to normal status-based restoration",
+								"SubnetPort", req.NamespacedName, "reusePort", reusePort)
+						} else {
+							err = fmt.Errorf("reused port %s not found in runtime store", reusePort)
+							r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Reused port not found", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+							return common.ResultRequeue, err
+						}
+					} else {
+						reusedPort = existingPorts[0]
+					}
+				}
+				if reusedPort != nil {
+					nsxSubnetPath = *reusedPort.ParentPath
+					isExisting = true
+					isReusedPort = true
+					log.Info("NSX SubnetPort will be reused on the existing NSX Subnet, its tags and display name will be updated with the new SubnetPort CR metadata",
+						"SubnetPort", req.NamespacedName, "UID", subnetPort.UID,
+						"reusePort", reusePort, "subnetPath", nsxSubnetPath, "reusedPortID", *reusedPort.Id)
+				}
+			}
+		}
+
+		if !isReusedPort && util.IsCPVM(subnetPort.Labels) {
+			// Rollback and disaster restore recovery:
+			// During upgrade/migration rollback or full cluster restore, pre-upgrade origin CRs are restored
+			// without AnnotationReusePort. Check if this cpVM SubnetPort has an existing backend port tracked by
+			// TagScopeOriginCRUID or matching attachment ID where the previous post-upgrade owner has been wiped/deleted.
+			// If orphaned, reclaim the backend port and realign its ownership tags to this restored CR.
+			// Ownership recovery must proceed even when support_reuse_port is disabled so restored pre-upgrade
+			// origin CRs can reclaim their orphaned ports without IP collision or premature port recreation.
+			var candidatePort *model.VpcSubnetPort
+			if portByOrigin := r.SubnetPortService.GetSubnetPortByOriginUID(subnetPort.GetUID()); portByOrigin != nil {
+				candidatePort = portByOrigin
+			} else if subnetPort.Status.Attachment.ID != "" {
+				candidatePort = r.SubnetPortService.GetSubnetPortByAttachmentID(subnetPort.Status.Attachment.ID)
+			}
+			if candidatePort != nil && candidatePort.ParentPath != nil && *candidatePort.ParentPath != "" {
+				portName := nsxutil.FindTag(candidatePort.Tags, servicecommon.TagScopeSubnetPortCRName)
+				portNS := nsxutil.FindTag(candidatePort.Tags, servicecommon.TagScopeVMNamespace)
+				portCRUID := nsxutil.FindTag(candidatePort.Tags, servicecommon.TagScopeSubnetPortCRUID)
+				isOrphaned := false
+				if r.Client != nil && portNS != "" && portName != "" {
+					currentCR := &v1alpha1.SubnetPort{}
+					getErr := r.Client.Get(ctx, types.NamespacedName{Namespace: portNS, Name: portName}, currentCR)
+					if apierrors.IsNotFound(getErr) || (getErr == nil && !currentCR.DeletionTimestamp.IsZero()) || (getErr == nil && portCRUID != "" && string(currentCR.UID) != portCRUID) {
+						isOrphaned = true
+					}
+				} else if portCRUID != "" && portCRUID != string(subnetPort.UID) {
+					isOrphaned = true
+				}
+				if isOrphaned {
+					log.Info("Detected restore scenario for cpVM SubnetPort, realigning port tags to restored CR",
+						"SubnetPort", req.NamespacedName, "UID", subnetPort.UID, "OriginUID", subnetPort.UID, "PortID", *candidatePort.Id)
+					reusedPort = candidatePort
+					nsxSubnetPath = *candidatePort.ParentPath
+					isExisting = true
+					isReusedPort = true
+				}
+			}
+		}
+
+		if !isReusedPort {
+			isExisting, isParentResourceTerminating, nsxSubnetPath, subnetSetUID, subnetSetLock, interfaceIPType, staticIPAllocationType, err = r.CheckAndGetSubnetPathForSubnetPort(ctx, subnetPort)
+			if subnetSetLock != nil {
+				defer common.RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
+			}
+			if isParentResourceTerminating {
+				err = errors.New("parent resource is terminating, SubnetPort cannot be created")
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+				return common.ResultNormal, err
+			}
+			if err != nil {
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get NSX resource path from Subnet", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+				return common.ResultRequeue, err
+			}
 		}
 		if !isExisting {
 			// staticIPAllocationType is the value actually resolved and used by Allocate above,
@@ -200,7 +313,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return common.ResultRequeue, err
 			}
 		}
-		nsxSubnetPortState, err := r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
+		var nsxSubnetPortState *model.SegmentPortState
+		if isReusedPort {
+			nsxSubnetPortState, err = r.SubnetPortService.ReuseSubnetPort(subnetPort, reusedPort, nsxSubnet)
+		} else {
+			nsxSubnetPortState, err = r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, "", labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
+		}
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			if nsxutil.IsRealizeStateError(err) {
@@ -327,6 +445,16 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	} else {
 		r.StatusUpdater.IncreaseDeleteTotal()
+		// If supersession lookup fails, propagate the error to requeue and avoid premature or unsafe deletion.
+		if isSuperseded, err := r.isPortSuperseded(subnetPort, nil); err != nil {
+			log.Error(err, "failed to check supersession for SubnetPort deletion, requeuing", "SubnetPort", req.NamespacedName)
+			return common.ResultRequeue, err
+		} else if isSuperseded {
+			log.Info("SubnetPort's port has been reused or superseded by another SubnetPort CR, skipping NSX port deletion",
+				"SubnetPort", req.NamespacedName, "UID", subnetPort.UID)
+			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
+			return common.ResultNormal, nil
+		}
 		vpcSubnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
 		if err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
@@ -334,6 +462,19 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultRequeue, err
 		}
 		if vpcSubnetPort != nil {
+			if (util.IsCPVM(subnetPort.Labels) || isCpvmPort(vpcSubnetPort)) && r.Client != nil {
+				subnetPortList := &v1alpha1.SubnetPortList{}
+				if err := r.Client.List(ctx, subnetPortList); err != nil {
+					log.Error(err, "failed to list SubnetPort CRs during SubnetPort deletion", "SubnetPort", req.NamespacedName)
+					return common.ResultRequeue, err
+				}
+				if r.isPortReferencedByReusePort(vpcSubnetPort, subnetPortList.Items) {
+					log.Info("Preserving cpVM SubnetPort because it is referenced by reuse-port annotation",
+						"PortID", *vpcSubnetPort.Id, "SubnetPort", req.NamespacedName)
+					r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
+					return common.ResultNormal, nil
+				}
+			}
 			if err = r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); err != nil {
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
 				setAddressBindingStatusBySubnetPort(r.Client, ctx, subnetPort, r.SubnetPortService, metav1.Now(), subnetPortRealizationError, false)
@@ -537,9 +678,23 @@ func subnetAssociatedResourceIndexFunc(obj client.Object) []string {
 func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns string, name string) error {
 	// NamespacedName is a unique identity in store as only one worker can deal with the NamespacedName at a time
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
+	if len(nsxSubnetPorts) == 0 {
+		return nil
+	}
+
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	if err := r.Client.List(ctx, subnetPortList); err != nil {
+		log.Error(err, "Failed to list SubnetPort CRs during deleteSubnetPortByName", "Namespace", ns, "Name", name)
+		return err
+	}
 
 	var externalIpAddress *string
 	for _, nsxSubnetPort := range nsxSubnetPorts {
+		if r.isPortReferencedByReusePort(nsxSubnetPort, subnetPortList.Items) {
+			log.Info("Preserving cpVM SubnetPort because it is referenced by reuse-port annotation",
+				"PortID", *nsxSubnetPort.Id, "Namespace", ns, "Name", name)
+			continue
+		}
 		if nsxSubnetPort.ExternalAddressBinding != nil && nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != nil && *nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress != "" {
 			externalIpAddress = nsxSubnetPort.ExternalAddressBinding.ExternalIpAddress
 		}
@@ -555,6 +710,321 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 	}
 	log.Info("Successfully deleted nsxSubnetPort", "Namespace", ns, "Name", name)
 	return nil
+}
+
+func (r *SubnetPortReconciler) isSupportReusePortEnabled() bool {
+	if r == nil || r.SubnetPortService == nil {
+		return false
+	}
+	return r.SubnetPortService.IsSupportReusePortEnabled()
+}
+
+// isPortReused checks if the NSX SubnetPort associated with the CR's attachment ID
+// has been reused by another SubnetPort CR (e.g. during cpVM migration).
+// When true:
+// - Reconcile skips processing for this CR so it does not revert tags or interfere with the new owner.
+// - CR deletion skips physical NSX port deletion so the live cpVM port remains active for the new owner.
+// Exceptions where isPortReused returns false:
+// 1. Destination CR actively recovering ownership of the referenced source port during takeover/restore.
+// 2. Pre-upgrade origin CR during rollback/restore when the post-upgrade owner has been wiped/deleted from Kubernetes.
+func (r *SubnetPortReconciler) isPortReused(subnetPort *v1alpha1.SubnetPort) bool {
+	if subnetPort == nil || subnetPort.Status.Attachment.ID == "" {
+		return false
+	}
+	if !util.IsCPVM(subnetPort.Labels) {
+		return false
+	}
+	if r.SubnetPortService == nil || r.SubnetPortService.SubnetPortStore == nil {
+		return false
+	}
+	port := r.SubnetPortService.GetSubnetPortByAttachmentID(subnetPort.Status.Attachment.ID)
+	if port == nil {
+		return false
+	}
+	portCRUID := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRUID)
+	if portCRUID != "" && portCRUID == string(subnetPort.UID) {
+		return false
+	}
+	portCRName := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName)
+	portNS := nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace)
+	if portCRName == subnetPort.Name && portNS == subnetPort.Namespace {
+		return false
+	}
+
+	// If this SubnetPort is a destination CR reusing another port (has reuse-port annotation),
+	// check if the backend port currently holds the referenced source port's metadata (e.g. following
+	// an NSX restore from a backup predating migration, or prior to takeover completing).
+	// In that case, this port is the pre-migration source port that this CR is designated to reuse;
+	// this CR is the destination recovering backend ownership, NOT a superseded source.
+	if reusePort, ok := subnetPort.Annotations[servicecommon.AnnotationReusePort]; ok {
+		if oldNs, oldName, err := util.ParseReusePortAnnotation(reusePort); err == nil {
+			if portCRName == oldName && portNS == oldNs {
+				return false
+			}
+			existingPorts := r.SubnetPortService.ListVMSubnetPortByName(oldNs, oldName)
+			if len(existingPorts) > 0 && existingPorts[0].Id != nil && port.Id != nil && *existingPorts[0].Id == *port.Id {
+				return false
+			}
+		}
+	}
+
+	// If this SubnetPort is the pre-upgrade origin CR (origin_cr_uid matches subnetPort.UID),
+	// check if the post-upgrade CR (current owner) has been wiped by restore/rollback.
+	// If the current owning CR no longer exists in Kubernetes (or is terminating or has different UID),
+	// the port is NOT considered actively reused, allowing this origin CR to reconcile and realign the port.
+	originCRUID := nsxutil.FindTag(port.Tags, servicecommon.TagScopeOriginCRUID)
+	if originCRUID == string(subnetPort.UID) || originCRUID == "" {
+		if r.Client != nil && portNS != "" && portCRName != "" {
+			currentCR := &v1alpha1.SubnetPort{}
+			getErr := r.Client.Get(context.Background(), types.NamespacedName{Namespace: portNS, Name: portCRName}, currentCR)
+			if apierrors.IsNotFound(getErr) || (getErr == nil && !currentCR.DeletionTimestamp.IsZero()) || (getErr == nil && portCRUID != "" && string(currentCR.UID) != portCRUID) {
+				return false
+			}
+		}
+	}
+
+	if portCRUID != "" {
+		return portCRUID != string(subnetPort.UID)
+	}
+	// Fallback to CR name and VM namespace if CR UID tag is not present
+	if portCRName != "" && portNS != "" {
+		return portCRName != subnetPort.Name || portNS != subnetPort.Namespace
+	}
+	return false
+}
+
+func (r *SubnetPortReconciler) getBackendPortForCR(sp *v1alpha1.SubnetPort) *model.VpcSubnetPort {
+	if r == nil || r.SubnetPortService == nil || sp == nil {
+		return nil
+	}
+	if sp.Status.Attachment.ID != "" {
+		if port := r.SubnetPortService.GetSubnetPortByAttachmentID(sp.Status.Attachment.ID); port != nil {
+			return port
+		}
+	}
+	if r.SubnetPortService.SubnetPortStore != nil {
+		if port, _ := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(sp.GetUID()); port != nil {
+			return port
+		}
+	}
+	ports := r.SubnetPortService.ListVMSubnetPortByName(sp.Namespace, sp.Name)
+	if len(ports) > 0 {
+		return ports[0]
+	}
+	return nil
+}
+
+func (r *SubnetPortReconciler) bothCRsOwnDistinctBackendPorts(sourceCR, destCR *v1alpha1.SubnetPort) bool {
+	destPort := r.getBackendPortForCR(destCR)
+	if destPort == nil || destPort.Id == nil {
+		return false
+	}
+
+	// Verify destPort does not carry source's origin_cr_uid (which indicates migration/takeover)
+	destOriginUID := nsxutil.FindTag(destPort.Tags, servicecommon.TagScopeOriginCRUID)
+	if destOriginUID == string(sourceCR.UID) {
+		return false
+	}
+	// Verify destPort does not carry source's CR UID
+	destPortCRUID := nsxutil.FindTag(destPort.Tags, servicecommon.TagScopeSubnetPortCRUID)
+	if destPortCRUID != "" && destPortCRUID == string(sourceCR.UID) {
+		return false
+	}
+	// Verify destPort does not carry source's attachment ID
+	if sourceCR.Status.Attachment.ID != "" && destPort.Attachment != nil && destPort.Attachment.Id != nil &&
+		*destPort.Attachment.Id == sourceCR.Status.Attachment.ID {
+		return false
+	}
+	// Verify destPort does not carry source's CR name and namespace
+	destPortName := nsxutil.FindTag(destPort.Tags, servicecommon.TagScopeSubnetPortCRName)
+	destPortNS := nsxutil.FindTag(destPort.Tags, servicecommon.TagScopeVMNamespace)
+	if destPortName == sourceCR.Name && destPortNS == sourceCR.Namespace {
+		return false
+	}
+
+	// Verify destPort is owned by destCR
+	destMatches := (destPortCRUID != "" && destPortCRUID == string(destCR.UID)) ||
+		(destCR.Status.Attachment.ID != "" && destPort.Attachment != nil && destPort.Attachment.Id != nil && *destPort.Attachment.Id == destCR.Status.Attachment.ID) ||
+		(destPortName == destCR.Name && destPortNS == destCR.Namespace)
+	if !destMatches {
+		return false
+	}
+
+	sourcePort := r.getBackendPortForCR(sourceCR)
+	if sourcePort == nil || sourcePort.Id == nil {
+		return false
+	}
+
+	// If both resolve to the same NSX port, they do not own distinct ports.
+	if *sourcePort.Id == *destPort.Id {
+		return false
+	}
+	// Verify sourcePort is owned by sourceCR
+	sourceUID := nsxutil.FindTag(sourcePort.Tags, servicecommon.TagScopeSubnetPortCRUID)
+	sourceName := nsxutil.FindTag(sourcePort.Tags, servicecommon.TagScopeSubnetPortCRName)
+	sourceNS := nsxutil.FindTag(sourcePort.Tags, servicecommon.TagScopeVMNamespace)
+	sourceMatches := (sourceUID != "" && sourceUID == string(sourceCR.UID)) ||
+		(sourceUID == "" && sourceName == sourceCR.Name && sourceNS == sourceCR.Namespace)
+	return sourceMatches
+}
+
+func (r *SubnetPortReconciler) bothCRsHaveDistinctIPs(sourceCR, destCR *v1alpha1.SubnetPort) bool {
+	if sourceCR == nil || destCR == nil {
+		return false
+	}
+	if len(sourceCR.Status.NetworkInterfaceConfig.IPAddresses) == 0 ||
+		len(destCR.Status.NetworkInterfaceConfig.IPAddresses) == 0 {
+		return false
+	}
+	sourceIPs := sets.New[string]()
+	for _, ip := range sourceCR.Status.NetworkInterfaceConfig.IPAddresses {
+		cleanIP := strings.Split(strings.TrimSpace(ip.IPAddress), "/")[0]
+		if cleanIP != "" {
+			sourceIPs.Insert(cleanIP)
+		}
+	}
+	if sourceIPs.Len() == 0 {
+		return false
+	}
+	for _, ip := range destCR.Status.NetworkInterfaceConfig.IPAddresses {
+		cleanIP := strings.Split(strings.TrimSpace(ip.IPAddress), "/")[0]
+		if cleanIP != "" && sourceIPs.Has(cleanIP) {
+			return false
+		}
+	}
+	return true
+}
+
+// isPortSuperseded checks if a SubnetPort's backend port has been reused by another SubnetPort CR,
+// or if the SubnetPort is a source CR that has been superseded by an active cpVM destination CR
+// carrying the reuse-port annotation. If subnetPorts is not provided, it is dynamically listed from the cluster.
+// Returns (true, nil) if superseded, (false, nil) if not superseded, or (false, err) if listing SubnetPorts fails.
+func (r *SubnetPortReconciler) isPortSuperseded(subnetPort *v1alpha1.SubnetPort, subnetPorts []v1alpha1.SubnetPort) (bool, error) {
+	if subnetPort == nil {
+		return false, nil
+	}
+	if r.isPortReused(subnetPort) {
+		return true, nil
+	}
+	if !util.IsCPVM(subnetPort.Labels) {
+		return false, nil
+	}
+
+	// Check if backend port has completed migration metadata (origin_cr_uid pointing to this source CR)
+	// and is currently owned by another active CR.
+	if r.SubnetPortService != nil {
+		if migratedPort := r.SubnetPortService.GetSubnetPortByOriginUID(subnetPort.GetUID()); migratedPort != nil {
+			destCRUID := nsxutil.FindTag(migratedPort.Tags, servicecommon.TagScopeSubnetPortCRUID)
+			destCRName := nsxutil.FindTag(migratedPort.Tags, servicecommon.TagScopeSubnetPortCRName)
+			destCRNS := nsxutil.FindTag(migratedPort.Tags, servicecommon.TagScopeVMNamespace)
+			if destCRUID != "" && destCRUID != string(subnetPort.UID) {
+				if destCRNS != "" && destCRName != "" {
+					var activeDestCR *v1alpha1.SubnetPort
+					if r.Client != nil {
+						cr := &v1alpha1.SubnetPort{}
+						if getErr := r.Client.Get(context.Background(), types.NamespacedName{Namespace: destCRNS, Name: destCRName}, cr); getErr == nil {
+							activeDestCR = cr
+						}
+					} else {
+						for i := range subnetPorts {
+							if subnetPorts[i].Namespace == destCRNS && subnetPorts[i].Name == destCRName {
+								activeDestCR = &subnetPorts[i]
+								break
+							}
+						}
+					}
+					if activeDestCR != nil && activeDestCR.DeletionTimestamp.IsZero() && string(activeDestCR.UID) == destCRUID {
+						return true, nil
+					}
+				}
+			}
+		}
+	}
+
+	if len(subnetPorts) == 0 && r.Client != nil {
+		spList := &v1alpha1.SubnetPortList{}
+		if err := r.Client.List(context.Background(), spList); err != nil {
+			log.Error(err, "failed to list SubnetPorts for supersession check", "SubnetPort", subnetPort.Name)
+			return false, err
+		}
+		subnetPorts = spList.Items
+	}
+	for _, sp := range subnetPorts {
+		if !sp.ObjectMeta.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if !util.IsCPVM(sp.Labels) {
+			continue
+		}
+		if reusePort, ok := sp.Annotations[servicecommon.AnnotationReusePort]; ok {
+			if oldNs, oldName, err := util.ParseReusePortAnnotation(reusePort); err == nil {
+				if oldNs == subnetPort.Namespace && oldName == subnetPort.Name {
+					// Destination IP status alone is not evidence of takeover when both CRs demonstrably own different ports
+					// or have distinct allocated IPs.
+					if r.bothCRsOwnDistinctBackendPorts(subnetPort, &sp) {
+						continue
+					}
+					if r.bothCRsHaveDistinctIPs(subnetPort, &sp) {
+						continue
+					}
+					// Supersession needs evidence of actual takeover.
+					// Destination CR has acquired IP status from takeover.
+					if len(sp.Status.NetworkInterfaceConfig.IPAddresses) > 0 {
+						return true, nil
+					}
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
+// isPortReferencedByReusePort checks if a SubnetPort is referenced by an active cpVM SubnetPort CR with reuse-port annotation,
+// or matched by an active cpVM CR's attachment ID. This is used during garbage collection and CR deletion
+// to protect the physical NSX SubnetPort from being deleted while an active cpVM CR depends on it.
+func (r *SubnetPortReconciler) isPortReferencedByReusePort(port *model.VpcSubnetPort, subnetPorts []v1alpha1.SubnetPort) bool {
+	if port == nil {
+		return false
+	}
+	portName := nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName)
+	portNS := nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace)
+
+	for _, sp := range subnetPorts {
+		if !sp.ObjectMeta.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if !util.IsCPVM(sp.Labels) {
+			continue
+		}
+		// Skip superseded source SubnetPort CRs so their stale attachment ID does not
+		// prevent cleanup when the active destination CR is deleted.
+		if superseded, _ := r.isPortSuperseded(&sp, subnetPorts); superseded {
+			continue
+		}
+		if r.isSupportReusePortEnabled() {
+			if reusePort, ok := sp.Annotations[servicecommon.AnnotationReusePort]; ok {
+				if oldNs, oldName, err := util.ParseReusePortAnnotation(reusePort); err == nil {
+					if portNS != "" && portName != "" && oldNs == portNS && oldName == portName {
+						return true
+					}
+				}
+			}
+		}
+		if sp.Status.Attachment.ID != "" && port.Attachment != nil && port.Attachment.Id != nil &&
+			*port.Attachment.Id == sp.Status.Attachment.ID {
+			return true
+		}
+	}
+	return false
+}
+
+// isCpvmPort reports whether a backend VpcSubnetPort represents a Control Plane VM (cpVM) port.
+// It checks for LabelCPVM tag or TagScopeOriginCRUID tag (which is present on migrated/reclaimed cpVM ports).
+func isCpvmPort(port *model.VpcSubnetPort) bool {
+	if port == nil {
+		return false
+	}
+	return nsxutil.FindTag(port.Tags, servicecommon.LabelCPVM) == "true" || nsxutil.FindTag(port.Tags, servicecommon.TagScopeOriginCRUID) != ""
 }
 
 // setupWithManager sets up the controller with the Manager.
@@ -652,6 +1122,16 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 		return restoreList, err
 	}
 	for _, subnetport := range subnetPortList.Items {
+		// Skip SubnetPort if it is pending deletion
+		if !subnetport.ObjectMeta.DeletionTimestamp.IsZero() {
+			continue
+		}
+		// Skip superseded source SubnetPort whose port has been reused by another SubnetPort CR
+		if superseded, _ := r.isPortSuperseded(&subnetport, subnetPortList.Items); superseded {
+			log.Info("Excluding superseded source SubnetPort from restore list",
+				"Namespace", subnetport.Namespace, "Name", subnetport.Name, "UID", subnetport.UID)
+			continue
+		}
 		if len(subnetport.Status.NetworkInterfaceConfig.IPAddresses) > 0 {
 			// Restore a SubnetPort if SubnetPort CR has status updated but no corresponding NSX SubnetPort in cache
 			if !nsxSubnetPortCRIDs.Has(string(subnetport.GetUID())) {
@@ -780,17 +1260,39 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 		log.Trace("There is no SubnetPort in store")
 	}
 
-	crSubnetPortIDsSet, err := r.SubnetPortService.ListSubnetPortIDsFromCRs(ctx)
-	if err != nil {
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	if err := r.Client.List(ctx, subnetPortList); err != nil {
+		log.Error(err, "failed to list SubnetPort CR for GC")
 		return err
+	}
+
+	crSubnetPortIDsSet := r.SubnetPortService.ListSubnetPortIDsFromSubnetPorts(subnetPortList.Items)
+
+	subnetPortUIDSet := sets.New[string]()
+	for _, sp := range subnetPortList.Items {
+		subnetPortUIDSet.Insert(string(sp.UID))
 	}
 
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(crSubnetPortIDsSet)
 	for elem := range diffSet {
+		port := r.SubnetPortService.GetSubnetPortByID(elem)
+		if port != nil && isCpvmPort(port) {
+			originUID := nsxutil.FindTag(port.Tags, servicecommon.TagScopeOriginCRUID)
+			if originUID != "" && subnetPortUIDSet.Has(originUID) {
+				log.Info("Preserving cpVM SubnetPort during GC because origin CR exists in cluster",
+					"PortID", elem, "OriginUID", originUID)
+				continue
+			}
+		}
+		if port != nil && r.isPortReferencedByReusePort(port, subnetPortList.Items) {
+			log.Info("Preserving cpVM SubnetPort during GC because it is referenced by reuse-port annotation",
+				"PortID", elem)
+			continue
+		}
 		log.Debug("GC collected SubnetPort CR", "UID", elem)
 		r.StatusUpdater.IncreaseDeleteTotal()
-		err = r.SubnetPortService.DeleteSubnetPortById(elem)
+		err := r.SubnetPortService.DeleteSubnetPortById(elem)
 		if err != nil {
 			errList = append(errList, err)
 			r.StatusUpdater.IncreaseDeleteFailTotal()
@@ -799,10 +1301,6 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 		}
 	}
 	addressBindingUIDSet, err := r.getAddressBindingCRUIDSet(ctx)
-	if err != nil {
-		return err
-	}
-	subnetPortUIDSet, err := r.getSubnetPortCRUIDSet(ctx)
 	if err != nil {
 		return err
 	}
@@ -1006,9 +1504,33 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		existing = true
 		return
 	}
+	if util.IsCPVM(subnetPort.Labels) {
+		portByOrigin, _ := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByOriginUID(subnetPort.GetUID())
+		if portByOrigin != nil && portByOrigin.ParentPath != nil && len(*portByOrigin.ParentPath) > 0 {
+			portName := nsxutil.FindTag(portByOrigin.Tags, servicecommon.TagScopeSubnetPortCRName)
+			portNS := nsxutil.FindTag(portByOrigin.Tags, servicecommon.TagScopeVMNamespace)
+			portCRUID := nsxutil.FindTag(portByOrigin.Tags, servicecommon.TagScopeSubnetPortCRUID)
+			isOrphaned := false
+			if r.Client != nil && portNS != "" && portName != "" {
+				currentCR := &v1alpha1.SubnetPort{}
+				getErr := r.Client.Get(ctx, types.NamespacedName{Namespace: portNS, Name: portName}, currentCR)
+				if apierrors.IsNotFound(getErr) || (getErr == nil && !currentCR.DeletionTimestamp.IsZero()) || (getErr == nil && portCRUID != "" && string(currentCR.UID) != portCRUID) {
+					isOrphaned = true
+				}
+			} else if portCRUID != "" && portCRUID != string(subnetPort.UID) {
+				isOrphaned = true
+			}
+			if isOrphaned {
+				subnetPath = *portByOrigin.ParentPath
+				log.Info("Detected restore scenario for cpVM SubnetPort in CheckAndGetSubnetPathForSubnetPort", "subnetPort.UID", subnetPort.UID, "subnetPath", subnetPath)
+				existing = true
+				return
+			}
+		}
+	}
 	if r.restoreMode {
 		// For restore case, SubnetPort will be created on the Subnet with matching CIDR
-		if subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
+		if len(subnetPort.Status.NetworkInterfaceConfig.IPAddresses) > 0 && subnetPort.Status.NetworkInterfaceConfig.IPAddresses[0].Gateway != "" {
 			subnetPath, err = r.getSubnetBySubnetPort(subnetPort, subnetCR)
 			if err != nil {
 				log.Error(err, "Failed to find Subnet for restored SubnetPort", "SubnetPort", subnetPort)
@@ -1373,18 +1895,6 @@ func (r *SubnetPortReconciler) getAddressBindingCRUIDSet(ctx context.Context) (s
 		addressBindingCRUIDSet.Insert(string(ab.UID))
 	}
 	return addressBindingCRUIDSet, nil
-}
-
-func (r *SubnetPortReconciler) getSubnetPortCRUIDSet(ctx context.Context) (sets.Set[string], error) {
-	subnetPortCRUIDSet := sets.New[string]()
-	subnetPortList := &v1alpha1.SubnetPortList{}
-	if err := r.Client.List(ctx, subnetPortList); err != nil {
-		return nil, err
-	}
-	for _, sp := range subnetPortList.Items {
-		subnetPortCRUIDSet.Insert(string(sp.UID))
-	}
-	return subnetPortCRUIDSet, nil
 }
 
 func (r *SubnetPortReconciler) collectAddressBindingGarbage(ctx context.Context, namespace, ipAddress *string) {
