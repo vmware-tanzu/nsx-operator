@@ -455,12 +455,12 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-client.yaml")
-	_ = applyYAML(yamlPath, nsClient)
 	defer deleteYAML(yamlPath, nsClient)
+	require.NoError(t, applyYAML(yamlPath, nsClient), "Failed to create named-port client resources")
 
 	yamlPath, _ = filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-web.yaml")
-	_ = applyYAML(yamlPath, nsWeb)
 	defer deleteYAML(yamlPath, nsWeb)
+	require.NoError(t, applyYAML(yamlPath, nsWeb), "Failed to create named-port server resources")
 
 	clientA := "client"
 	webA := "web"
@@ -493,22 +493,28 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 }
 
 func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(context.Background(), spName, v1.GetOptions{})
-		log.Trace("Get resources", "SecurityPolicies", resp, "Namespace", ns, "Name", spName)
+	t.Helper()
+	var lastPolicy *v1alpha1.SecurityPolicy
+	err := wait.PollUntilContextTimeout(context.Background(), time.Second, defaultTimeout, true, func(ctx context.Context) (bool, error) {
+		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, spName, v1.GetOptions{})
 		if err != nil {
-			return false, fmt.Errorf("error when waiting for  %s", spName)
+			if errors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("get SecurityPolicy %s/%s: %w", ns, spName, err)
 		}
+		lastPolicy = resp
 		for _, con := range resp.Status.Conditions {
 			if con.Type == v1alpha1.Ready {
-				return true, nil
+				return con.Status == corev1.ConditionTrue, nil
 			}
 		}
 		return false, nil
 	})
-	require.NoError(t, err)
+	if err != nil && lastPolicy != nil {
+		t.Logf("SecurityPolicy %s/%s generation=%d last conditions=%+v", ns, spName, lastPolicy.Generation, lastPolicy.Status.Conditions)
+	}
+	require.NoError(t, err, "SecurityPolicy %s/%s must reach Ready=True", ns, spName)
 }
 
 // testNetworkPolicyMultipleIn verifies that multiple In expressions on the same key are properly intersected.
@@ -521,8 +527,8 @@ func testNetworkPolicyMultipleIn(t *testing.T) {
 
 	// Create pods
 	podPath, _ := filepath.Abs("./manifest/testNetworkPolicy/np_multiple_in_pods.yaml")
+	defer deleteYAML(podPath, ns)
 	require.NoError(t, applyYAML(podPath, ns))
-	defer deleteYAML(podPath, "")
 
 	frontend := "frontend"
 	backend := "backend"
@@ -531,13 +537,13 @@ func testNetworkPolicyMultipleIn(t *testing.T) {
 
 	// Wait for pods
 	_, err := testData.podWaitForIPs(defaultTimeout, frontend, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", frontend)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", frontend)
 	_, err = testData.podWaitForIPs(defaultTimeout, backend, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", backend)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", backend)
 	_, err = testData.podWaitForIPs(defaultTimeout, db, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", db)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", db)
 	iPs, err := testData.podWaitForIPs(defaultTimeout, target, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", target)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", target)
 
 	// Test traffic before policy
 	require.True(t, checkTrafficByCurl(ns, frontend, frontend, iPs.ipv4.String(), podPort, true), "Traffic should work before policy")

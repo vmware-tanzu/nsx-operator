@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -150,6 +151,14 @@ func TestPreCreatedVPC(t *testing.T) {
 						log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", path)
 					}
 				}()
+				namespaceDeleted := false
+				defer func() {
+					if !namespaceDeleted {
+						if err := deleteVPCNamespace(nsName, useVCAPI); err != nil {
+							t.Errorf("Failed to clean up pre-created VPC namespace %s: %v", nsName, err)
+						}
+					}
+				}()
 				var profilePath string
 				if tt.noProfile {
 					profilePath = ""
@@ -181,7 +190,8 @@ func TestPreCreatedVPC(t *testing.T) {
 					log.Info("Pod for the LoadBalancer Service in the Namespace is ready", "Namespace", nsName, "Pod", podName)
 				}
 
-				deleteVPCNamespace(nsName, useVCAPI)
+				require.NoError(t, deleteVPCNamespace(nsName, useVCAPI), "Pre-created VPC namespace should be deleted")
+				namespaceDeleted = true
 				_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
 				require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
 			})
@@ -257,26 +267,23 @@ func testPodToLBService(t *testing.T, nsName string) {
 	log.Info("NSX resources for the LoadBalancer Service are removed")
 }
 
-func deleteVPCNamespace(nsName string, usingVCAPI bool) {
+func deleteVPCNamespace(nsName string, usingVCAPI bool) error {
 	if usingVCAPI {
-		if err := testData.vcClient.deleteNamespace(nsName); err != nil {
-			log.Error(err, "Failed to delete Namespace on VCenter", "namespace", nsName)
-		}
-		return
+		return testData.deleteVCNamespace(nsName)
 	}
 
-	vpcConfigName := fmt.Sprintf("%s-vpcconfig-%s", nsName, getRandomString())
-	deleteVPCNamespaceOnK8s(nsName, vpcConfigName)
+	return deleteVPCNamespaceOnK8s(nsName, precreatedVPCConfigName(nsName))
 }
 
-func deleteVPCNamespaceOnK8s(nsName string, vpcConfigName string) {
+func deleteVPCNamespaceOnK8s(nsName string, vpcConfigName string) error {
 	ctx := context.Background()
 	if err := testData.deleteNamespace(nsName, nsDeleteTime); err != nil {
-		log.Error(err, "Failed to delete VPCNetworkConfiguration", "name", vpcConfigName)
+		return fmt.Errorf("delete namespace %s: %w", nsName, err)
 	}
-	if err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(ctx, vpcConfigName, metav1.DeleteOptions{}); err != nil {
-		log.Error(err, "Failed to delete VPCNetworkConfiguration %s", "name", vpcConfigName)
+	if err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(ctx, vpcConfigName, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+		return fmt.Errorf("delete VPCNetworkConfiguration %s: %w", vpcConfigName, err)
 	}
+	return nil
 }
 
 func setupVPC(tb testing.TB, enableNat bool, createLb bool, noProfile bool) (string, string, string) {
@@ -302,8 +309,12 @@ func createVPCNamespace(nsName, projectPath, profilePath, vpcPath string, privat
 		return testData.createPreVPCNamespaceByVCenter(nsName, vpcPath)
 	}
 
-	vpcConfigName := fmt.Sprintf("%s-vpcconfig-%s", nsName, getRandomString())
-	return createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vpcPath, privateIPs)
+	return createVPCNamespaceOnK8s(nsName, precreatedVPCConfigName(nsName), projectPath, profilePath, vpcPath, privateIPs)
+}
+
+func precreatedVPCConfigName(nsName string) string {
+	// The namespace already contains a random suffix. Reuse it for exact cleanup.
+	return nsName + "-vpcconfig"
 }
 
 func createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vpcPath string, privateIPs []string) error {
@@ -553,9 +564,9 @@ func (data *TestData) createPreVPCNamespaceByVCenter(nsName, vpcPath string) err
 		return true, nil
 	})
 	if getErr != nil {
-		data.vcClient.deleteNamespace(nsName)
-		return fmt.Errorf("failed to create Namespace on VCenter, delete it: %v", err)
+		return fmt.Errorf("failed to observe created Namespace %s on VCenter: %w", nsName, getErr)
 	}
 
-	return nil
+	// VC accepting the namespace does not mean its Kubernetes networking is ready.
+	return data.waitForVCNamespaceNetworkReady(ctx, nsName)
 }
