@@ -2,6 +2,7 @@ package subnetport
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -177,5 +178,54 @@ func TestPodV2SubnetPortBeforeHostAnnotation(t *testing.T) {
 			require.Equal(t, attachmentID, *port.Attachment.Id)
 			require.Equal(t, 3, backend.patches)
 		})
+	}
+}
+
+func TestPodSubnetPortSkipsTerminalOrTerminatingOwner(t *testing.T) {
+	for _, restoreMode := range []bool{false, true} {
+		for _, tc := range []struct {
+			name        string
+			phase       corev1.PodPhase
+			terminating bool
+		}{
+			{name: "succeeded", phase: corev1.PodSucceeded},
+			{name: "failed", phase: corev1.PodFailed},
+			{name: "terminating", phase: corev1.PodRunning, terminating: true},
+		} {
+			t.Run(fmt.Sprintf("%s/restore=%v", tc.name, restoreMode), func(t *testing.T) {
+				ctx := context.Background()
+				scheme := runtime.NewScheme()
+				require.NoError(t, corev1.AddToScheme(scheme))
+				require.NoError(t, v1alpha1.AddToScheme(scheme))
+				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "pod-uid"}, Status: corev1.PodStatus{Phase: tc.phase}}
+				if tc.terminating {
+					now := metav1.Now()
+					pod.DeletionTimestamp = &now
+					pod.Finalizers = []string{"test-finalizer"}
+				}
+				sp := &v1alpha1.SubnetPort{
+					ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: "ns", OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: pod.Name, UID: pod.UID}}},
+					Status: v1alpha1.SubnetPortStatus{
+						Attachment:             v1alpha1.PortAttachment{ID: "existing-attachment"},
+						NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{MACAddress: "02:50:56:00:00:01", IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.10/24"}}},
+					},
+				}
+				api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, sp).WithStatusSubresource(sp).Build()
+				cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}, K8sConfig: &config.K8sConfig{PodV2: servicecommon.Bool(true)}}
+				r := &SubnetPortReconciler{Client: api, restoreMode: restoreMode, Recorder: fakeRecorder{}}
+				r.StatusUpdater = common.NewStatusUpdater(api, cfg, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+				patches := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort, func(*SubnetPortReconciler, context.Context, *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+					t.Fatal("inactive owner must be skipped before subnet allocation or NSX port updates")
+					return false, false, "", nil, nil, "", "", nil
+				})
+				defer patches.Reset()
+				result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(sp)})
+				require.NoError(t, err)
+				require.Equal(t, common.ResultNormal, result)
+				latest := &v1alpha1.SubnetPort{}
+				require.NoError(t, api.Get(ctx, client.ObjectKeyFromObject(sp), latest), "CR cleanup remains with the Pod controller")
+				require.Equal(t, sp.Status, latest.Status)
+			})
+		}
 	}
 }
