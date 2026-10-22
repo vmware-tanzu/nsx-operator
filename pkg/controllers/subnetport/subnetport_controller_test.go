@@ -1177,7 +1177,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	// Restore case with dhcp SubnetPort
 	t.Run("restore dhcp", func(t *testing.T) {
 		sp := &v1alpha1.SubnetPort{}
-		vm := &vmv1alpha1.VirtualMachine{}
 		r.restoreMode = true
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
@@ -1195,7 +1194,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
 			return "subnet-path", nil
 		})
-		k8sClient.EXPECT().Get(ctx, gomock.Any(), vm).Return(nil).Do(
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.AssignableToTypeOf(&vmv1alpha1.VirtualMachine{})).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 				v1vm := obj.(*vmv1alpha1.VirtualMachine)
 				v1vm.ObjectMeta = metav1.ObjectMeta{
@@ -1206,7 +1205,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 					},
 				}
 				return nil
-			})
+			}).Times(2)
 		defer patchesGetSubnetByIP.Reset()
 		originalK8sClientRetry := pkgutil.K8sClientRetry
 		pkgutil.K8sClientRetry = wait.Backoff{Steps: 1, Duration: time.Millisecond}
@@ -1278,7 +1277,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 	t.Run("restore dhcp with webhook dryrun failure", func(t *testing.T) {
 		sp := &v1alpha1.SubnetPort{}
-		vm := &vmv1alpha1.VirtualMachine{}
 		r.restoreMode = true
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
@@ -1296,7 +1294,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
 			return "subnet-path", nil
 		})
-		k8sClient.EXPECT().Get(ctx, gomock.Any(), vm).Return(nil).Do(
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.AssignableToTypeOf(&vmv1alpha1.VirtualMachine{})).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 				v1vm := obj.(*vmv1alpha1.VirtualMachine)
 				v1vm.ObjectMeta = metav1.ObjectMeta{
@@ -1307,7 +1305,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 					},
 				}
 				return nil
-			}).Times(retry.DefaultRetry.Steps)
+			}).Times(1 + retry.DefaultRetry.Steps)
 		defer patchesGetSubnetByIP.Reset()
 		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any(), client.DryRunAll).Return(fmt.Errorf("webhook no route to host")).Times(retry.DefaultRetry.Steps)
 

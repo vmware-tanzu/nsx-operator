@@ -386,7 +386,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 						log.Error(err, "Failed to update restore annotation on SubnetPort", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
 						return err != nil
 					}, func() error {
-						return common.UpdateReconfigureNicAnnotation(r.Client, ctx, subnetPort, "cpvm")
+						return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, subnetPort, "cpvm")
 					})
 				}
 			}
@@ -395,7 +395,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					log.Error(err, "Failed to update restore annotation on VM", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "VM", vm.Name)
 					return err != nil
 				}, func() error {
-					return common.UpdateReconfigureNicAnnotation(r.Client, ctx, vm, nicName)
+					return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, vm, nicName)
 				})
 			}
 			if pod != nil {
@@ -1625,43 +1625,15 @@ func (r *SubnetPortReconciler) checkVMWebhookReady(ctx context.Context, vm *vmv1
 	if vm == nil {
 		return nil
 	}
-	key := types.NamespacedName{Namespace: vm.Namespace, Name: vm.Name}
-	currentVM := vm.DeepCopy()
-	firstAttempt := true
+	reader := client.Reader(r.Client)
+	if r.APIReader != nil {
+		reader = r.APIReader
+	}
 	return retry.OnError(retry.DefaultRetry, func(err error) bool {
 		log.Warn("Retrying dryrun check for VM admission webhook readiness", "Namespace", vm.Namespace, "VM", vm.Name, "error", err)
 		return err != nil
 	}, func() error {
-		if !firstAttempt {
-			currentVM = &vmv1alpha1.VirtualMachine{}
-			var err error
-			if r.APIReader != nil {
-				err = r.APIReader.Get(ctx, key, currentVM)
-			} else {
-				err = r.Client.Get(ctx, key, currentVM)
-			}
-			if err != nil {
-				return err
-			}
-		}
-		firstAttempt = false
-		anno := currentVM.GetAnnotations()
-		if anno == nil {
-			anno = make(map[string]string)
-		}
-		restoreValue, ok := anno[servicecommon.AnnotationReconfigureNic]
-		if ok {
-			if restoreValue == "" || nicName == "true" {
-				restoreValue = nicName
-			} else if !strings.Contains(restoreValue, nicName) {
-				restoreValue += fmt.Sprintf(", %s", nicName)
-			}
-		} else {
-			restoreValue = nicName
-		}
-		anno[servicecommon.AnnotationReconfigureNic] = restoreValue
-		currentVM.SetAnnotations(anno)
-		return r.Client.Update(ctx, currentVM, client.DryRunAll)
+		return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, vm.DeepCopy(), nicName, client.DryRunAll)
 	})
 }
 
