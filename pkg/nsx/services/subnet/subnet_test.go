@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -2447,6 +2448,184 @@ func TestRemoveSubnetFromCache(t *testing.T) {
 			assert.Equal(t, tt.expectedCache, service.NSXSubnetCache)
 		})
 	}
+}
+
+func TestAddAndRemoveSharedSubnetToResourceMap(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+		},
+	}
+
+	resKey := "res-1"
+	sub1 := types.NamespacedName{Namespace: "ns1", Name: "sub1"}
+	sub2 := types.NamespacedName{Namespace: "ns1", Name: "sub2"}
+
+	// Add first subnet
+	service.AddSharedSubnetToResourceMap(resKey, sub1)
+	assert.True(t, service.HasSharedSubnetResource(resKey))
+	assert.Equal(t, 1, service.SharedSubnetResourceMap[resKey].Len())
+	assert.True(t, service.SharedSubnetResourceMap[resKey].Has(sub1))
+
+	// Add second subnet to same resource
+	service.AddSharedSubnetToResourceMap(resKey, sub2)
+	assert.Equal(t, 2, service.SharedSubnetResourceMap[resKey].Len())
+	assert.True(t, service.SharedSubnetResourceMap[resKey].Has(sub2))
+
+	// Remove first subnet
+	service.RemoveSharedSubnetFromResourceMap(resKey, sub1)
+	assert.True(t, service.HasSharedSubnetResource(resKey))
+	assert.Equal(t, 1, service.SharedSubnetResourceMap[resKey].Len())
+	assert.False(t, service.SharedSubnetResourceMap[resKey].Has(sub1))
+	assert.True(t, service.SharedSubnetResourceMap[resKey].Has(sub2))
+
+	// Remove second subnet - map entry should be deleted
+	service.RemoveSharedSubnetFromResourceMap(resKey, sub2)
+	assert.False(t, service.HasSharedSubnetResource(resKey))
+	_, exists := service.SharedSubnetResourceMap[resKey]
+	assert.False(t, exists)
+
+	// Remove from non-existent key should not panic
+	service.RemoveSharedSubnetFromResourceMap("non-existent", sub1)
+}
+
+func TestGetSharedSubnetResourceMapSnapshot(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+		},
+	}
+
+	// Test empty snapshot
+	emptySnapshot := service.GetSharedSubnetResourceMapSnapshot()
+	assert.NotNil(t, emptySnapshot)
+	assert.Equal(t, 0, len(emptySnapshot))
+
+	// Add entries to service
+	resKey := "res-1"
+	sub1 := types.NamespacedName{Namespace: "ns1", Name: "sub1"}
+	service.AddSharedSubnetToResourceMap(resKey, sub1)
+
+	snapshot := service.GetSharedSubnetResourceMapSnapshot()
+	assert.Equal(t, 1, len(snapshot))
+	assert.True(t, snapshot[resKey].Has(sub1))
+
+	// Mutating the snapshot shouldn't affect the original map
+	sub2 := types.NamespacedName{Namespace: "ns1", Name: "sub2"}
+	snapshot[resKey].Insert(sub2)
+	snapshot["res-2"] = sets.New(sub2)
+
+	assert.False(t, service.SharedSubnetResourceMap[resKey].Has(sub2))
+	assert.False(t, service.HasSharedSubnetResource("res-2"))
+
+	// Mutating the original map shouldn't affect the snapshot
+	sub3 := types.NamespacedName{Namespace: "ns1", Name: "sub3"}
+	service.AddSharedSubnetToResourceMap(resKey, sub3)
+	assert.False(t, snapshot[resKey].Has(sub3))
+}
+
+func TestGetNSXSubnetCacheKeys(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			NSXSubnetCache: make(map[string]struct {
+				Subnet     *model.VpcSubnet
+				StatusList []model.VpcSubnetStatus
+			}),
+		},
+	}
+
+	// Empty cache returns empty slice
+	assert.Empty(t, service.GetNSXSubnetCacheKeys())
+
+	// Populate cache
+	service.UpdateNSXSubnetCache("res-1", &model.VpcSubnet{}, nil)
+	service.UpdateNSXSubnetCache("res-2", &model.VpcSubnet{}, nil)
+
+	keys := service.GetNSXSubnetCacheKeys()
+	assert.ElementsMatch(t, []string{"res-1", "res-2"}, keys)
+}
+
+func TestHasSharedSubnetResource(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+		},
+	}
+
+	assert.False(t, service.HasSharedSubnetResource("res-1"))
+	service.AddSharedSubnetToResourceMap("res-1", types.NamespacedName{Namespace: "ns1", Name: "sub1"})
+	assert.True(t, service.HasSharedSubnetResource("res-1"))
+	assert.False(t, service.HasSharedSubnetResource("res-2"))
+}
+
+func TestSharedSubnetConcurrentAccess(t *testing.T) {
+	service := &SubnetService{
+		SharedSubnetData: SharedSubnetData{
+			NSXSubnetCache: make(map[string]struct {
+				Subnet     *model.VpcSubnet
+				StatusList []model.VpcSubnetStatus
+			}),
+			SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+		},
+	}
+
+	done := make(chan bool)
+	workers := 8
+	iterations := 100
+
+	for i := 0; i < workers; i++ {
+		workerID := i
+		go func() {
+			for j := 0; j < iterations; j++ {
+				cycle := j / 5
+				resKey := fmt.Sprintf("res-%d", (workerID+cycle)%4)
+				sn := types.NamespacedName{Namespace: "ns", Name: fmt.Sprintf("sub-%d", workerID)}
+
+				switch j % 5 {
+				case 0:
+					service.AddSharedSubnetToResourceMap(resKey, sn)
+				case 1:
+					service.RemoveSharedSubnetFromResourceMap(resKey, sn)
+				case 2:
+					snapshot := service.GetSharedSubnetResourceMapSnapshot()
+					for _, set := range snapshot {
+						_ = set.Len()
+					}
+				case 3:
+					_ = service.HasSharedSubnetResource(resKey)
+					service.UpdateNSXSubnetCache(resKey, &model.VpcSubnet{}, nil)
+				case 4:
+					keys := service.GetNSXSubnetCacheKeys()
+					for _, k := range keys {
+						if !service.HasSharedSubnetResource(k) {
+							service.RemoveSubnetFromCache(k, "test")
+						}
+					}
+				}
+			}
+			done <- true
+		}()
+	}
+
+	for i := 0; i < workers; i++ {
+		<-done
+	}
+
+	// Clean up all entries and assert final empty state
+	for w := 0; w < workers; w++ {
+		sn := types.NamespacedName{Namespace: "ns", Name: fmt.Sprintf("sub-%d", w)}
+		for r := 0; r < 4; r++ {
+			service.RemoveSharedSubnetFromResourceMap(fmt.Sprintf("res-%d", r), sn)
+		}
+	}
+	assert.Empty(t, service.GetSharedSubnetResourceMapSnapshot(), "SharedSubnetResourceMap should be empty after removing all subnets")
+
+	for _, k := range service.GetNSXSubnetCacheKeys() {
+		if !service.HasSharedSubnetResource(k) {
+			service.RemoveSubnetFromCache(k, "cleanup")
+		}
+	}
+	assert.Empty(t, service.GetNSXSubnetCacheKeys(), "NSXSubnetCache should be empty after cleanup")
 }
 
 func TestSubnetService_CreateOrUpdateSubnet_ConnectivityState(t *testing.T) {
