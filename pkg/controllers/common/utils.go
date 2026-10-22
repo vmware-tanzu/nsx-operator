@@ -13,6 +13,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -22,6 +23,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/metrics"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -484,6 +486,79 @@ func UpdateReconfigureNicAnnotation(client k8sclient.Client, ctx context.Context
 	return nil
 }
 
+// SetReconfigureNicStatus sets PodNetworkReconfigRequired condition to true on Pod to inform spherelet the SubnetPort is restored with another vif ID.
+func SetReconfigureNicStatus(client k8sclient.Client, reader k8sclient.Reader, ctx context.Context, pod *v1.Pod) error {
+	// Each retry must start from persisted state, not a Pod mutated by a failed update.
+	latestPod := &v1.Pod{}
+	if err := reader.Get(ctx, k8sclient.ObjectKeyFromObject(pod), latestPod); err != nil {
+		return err
+	}
+	if latestPod.UID != pod.UID {
+		return fmt.Errorf("Pod %s/%s UID changed from %s to %s", pod.Namespace, pod.Name, pod.UID, latestPod.UID)
+	}
+	newConditions := []v1.PodCondition{
+		{
+			Type:               v1.PodConditionType("PodNetworkReconfigRequired"),
+			Status:             v1.ConditionTrue,
+			Reason:             "ReconfigureNic",
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+	return UpdatePodStatusConditions(client, ctx, latestPod, newConditions)
+}
+
+func UpdatePodStatusConditions(client k8sclient.Client, ctx context.Context, pod *v1.Pod, newConditions []v1.PodCondition) error {
+	conditionsUpdated := false
+	for i := range newConditions {
+		if MergePodStatusCondition(pod, &newConditions[i]) {
+			conditionsUpdated = true
+		}
+	}
+
+	if conditionsUpdated {
+		err := client.Status().Update(ctx, pod)
+		if err != nil {
+			log.Error(err, "Failed to update Pod status", "Name", pod.Name, "Namespace", pod.Namespace)
+			return err
+		}
+		log.Trace("Updated pod", "Name", pod.Name, "Namespace", pod.Namespace,
+			"New Conditions", newConditions)
+	}
+	return nil
+}
+
+func MergePodStatusCondition(pod *v1.Pod, newCondition *v1.PodCondition) bool {
+	matchedCondition := GetExistingPodConditionOfType(newCondition.Type, pod.Status.Conditions)
+
+	if isPodConditionSemanticEqual(matchedCondition, newCondition) {
+		log.Trace("Conditions already match", "New Condition", newCondition, "Existing Condition", matchedCondition)
+		return false
+	}
+
+	if matchedCondition != nil {
+		matchedCondition.Reason = newCondition.Reason
+		matchedCondition.Message = newCondition.Message
+		matchedCondition.Status = newCondition.Status
+		matchedCondition.LastTransitionTime = newCondition.LastTransitionTime
+	} else {
+		pod.Status.Conditions = append(pod.Status.Conditions, *newCondition)
+	}
+	return true
+}
+
+func GetExistingPodConditionOfType(conditionType v1.PodConditionType, existingConditions []v1.PodCondition) *v1.PodCondition {
+	for i := range existingConditions {
+		if existingConditions[i].Type == conditionType {
+			return &existingConditions[i]
+		}
+	}
+	return nil
+}
+
+func isPodConditionSemanticEqual(matchedCondition, newCondition *v1.PodCondition) bool {
+	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
+}
+
 func GetSubnetByIP(subnets []*model.VpcSubnet, ip net.IP) (string, error) {
 	for _, subnet := range subnets {
 		for _, cidr := range subnet.IpAddresses {
@@ -868,4 +943,129 @@ func ValidateIPBlockNamesTransition(oldBlocks, newBlocks []string, oldType, newT
 // IsConditionSemanticEqual checks if two conditions are semantically equal.
 func IsConditionSemanticEqual(matchedCondition, newCondition *v1alpha1.Condition) bool {
 	return matchedCondition != nil && matchedCondition.Status == newCondition.Status && matchedCondition.Reason == newCondition.Reason && matchedCondition.Message == newCondition.Message
+}
+
+// GetPodNameForSubnetPort returns the owner Pod's name for a SubnetPort, or empty if not owned by a Pod.
+func GetPodNameForSubnetPort(subnetPort *v1alpha1.SubnetPort) string {
+	if subnetPort == nil {
+		return ""
+	}
+	for _, ref := range subnetPort.GetOwnerReferences() {
+		if ref.Kind == "Pod" {
+			return ref.Name
+		}
+	}
+	return ""
+}
+
+// GetPodForSubnetPort resolves the owner by UID as well as name. A replacement Pod
+// with the same name must not inherit an orphaned SubnetPort's reconciliation.
+func GetPodForSubnetPort(ctx context.Context, reader k8sclient.Reader, subnetPort *v1alpha1.SubnetPort) (*v1.Pod, error) {
+	if subnetPort == nil {
+		return nil, nil
+	}
+	for _, ref := range subnetPort.OwnerReferences {
+		if ref.Kind != "Pod" {
+			continue
+		}
+		pod := &v1.Pod{}
+		if err := reader.Get(ctx, types.NamespacedName{Namespace: subnetPort.Namespace, Name: ref.Name}, pod); err != nil {
+			return nil, err
+		}
+		if pod.UID != ref.UID {
+			return nil, fmt.Errorf("SubnetPort %s/%s owner Pod %s UID changed from %s to %s", subnetPort.Namespace, subnetPort.Name, ref.Name, ref.UID, pod.UID)
+		}
+		return pod, nil
+	}
+	return nil, nil
+}
+
+// GetSubnetPortForPod searches for the SubnetPort CR associated with the given Pod via ownerReferences.
+func GetSubnetPortForPod(ctx context.Context, c k8sclient.Client, pod *v1.Pod) (*v1alpha1.SubnetPort, error) {
+	if pod == nil {
+		return nil, nil
+	}
+	subnetPortList := &v1alpha1.SubnetPortList{}
+	spIndexValue := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
+	err := c.List(ctx, subnetPortList, k8sclient.MatchingFields{util.SubnetPortNamespacePodIndexKey: spIndexValue})
+	if err != nil {
+		return nil, err
+	}
+	for _, sp := range subnetPortList.Items {
+		for _, ref := range sp.GetOwnerReferences() {
+			if ref.Kind == "Pod" && ref.UID == pod.UID {
+				return &sp, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// GenerateSubnetPortName generates a SubnetPort name following the naming convention:
+// Attempt 0: <pod_name>-<pod_uid[:5]>
+// Attempt >= 1: <pod_name>-<random_5_chars>
+// Keep the Pod name prefix within 57 characters, matching VirtualNetworkInterface.
+func GenerateSubnetPortName(pod *v1.Pod, attempt int) string {
+	const suffixLength = 5
+	const maxPodNameLength = 57
+	podNamePrefix := pod.Name
+	if len(podNamePrefix) > maxPodNameLength {
+		podNamePrefix = podNamePrefix[:maxPodNameLength]
+	}
+	// Truncation must not leave an invalid DNS label before the suffix.
+	podNamePrefix = strings.TrimRight(podNamePrefix, "-.")
+
+	if attempt == 0 {
+		uidShort := string(pod.UID)
+		if len(uidShort) > suffixLength {
+			uidShort = uidShort[:suffixLength]
+		}
+		return fmt.Sprintf("%s-%s", podNamePrefix, uidShort)
+	}
+	return fmt.Sprintf("%s-%s", podNamePrefix, rand.String(suffixLength))
+}
+
+// NodeNotFoundError indicates that no transport node matches the node name.
+type NodeNotFoundError struct {
+	NodeName string
+}
+
+func (e *NodeNotFoundError) Error() string {
+	return fmt.Sprintf("node %s not found", e.NodeName)
+}
+
+// GetNodeByName returns the HostTransportNode for a node name using the NodeServiceReader.
+func GetNodeByName(nodeServiceReader servicecommon.NodeServiceReader, nodeName string) (*model.HostTransportNode, error) {
+	if nodeServiceReader == nil {
+		return nil, fmt.Errorf("nodeServiceReader is nil")
+	}
+	nodes := nodeServiceReader.GetNodeByName(nodeName)
+	if len(nodes) == 0 {
+		return nil, &NodeNotFoundError{NodeName: nodeName}
+	}
+	if len(nodes) > 1 {
+		var nodeIDs []string
+		for _, node := range nodes {
+			if node == nil || node.UniqueId == nil {
+				nodeIDs = append(nodeIDs, "<nil>")
+				continue
+			}
+			nodeIDs = append(nodeIDs, *node.UniqueId)
+		}
+		return nil, fmt.Errorf("multiple node IDs found for node %s: %v", nodeName, nodeIDs)
+	}
+	return nodes[0], nil
+}
+
+// GetStsUID retrieves the StatefulSet UID tag from a VpcSubnetPort.
+func GetStsUID(nsxSubnetPort *model.VpcSubnetPort) string {
+	if nsxSubnetPort == nil {
+		return ""
+	}
+	return nsxutil.FindTag(nsxSubnetPort.Tags, servicecommon.TagScopeStatefulSetUID)
+}
+
+// IsStatefulSetSubnetPort checks if a VpcSubnetPort has a StatefulSet UID tag.
+func IsStatefulSetSubnetPort(nsxSubnetPort *model.VpcSubnetPort) bool {
+	return GetStsUID(nsxSubnetPort) != ""
 }

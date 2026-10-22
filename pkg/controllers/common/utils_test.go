@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,6 +37,47 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
+
+func TestGetPodForSubnetPortOwnerIdentity(t *testing.T) {
+	t.Run("nil-subnetport", func(t *testing.T) {
+		pod, err := GetPodForSubnetPort(context.Background(), nil, nil)
+		require.NoError(t, err)
+		require.Nil(t, pod)
+	})
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	pod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "current-uid"}}
+	api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod).Build()
+	for _, tc := range []struct {
+		name    string
+		owners  []metav1.OwnerReference
+		wantPod bool
+		wantErr string
+	}{
+		{name: "no-owner"},
+		{name: "vm-owner", owners: []metav1.OwnerReference{{Kind: "VirtualMachine", Name: pod.Name, UID: pod.UID}}},
+		{name: "matching-owner", owners: []metav1.OwnerReference{{Kind: "Pod", Name: pod.Name, UID: pod.UID}}, wantPod: true},
+		{name: "pod-after-other-owner", owners: []metav1.OwnerReference{{Kind: "Other", Name: "other"}, {Kind: "Pod", Name: pod.Name, UID: pod.UID}}, wantPod: true},
+		{name: "replacement", owners: []metav1.OwnerReference{{Kind: "Pod", Name: pod.Name, UID: "old-uid"}}, wantErr: "UID changed"},
+		{name: "missing", owners: []metav1.OwnerReference{{Kind: "Pod", Name: "missing", UID: pod.UID}}, wantErr: "not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: pod.Namespace, OwnerReferences: tc.owners}}
+			got, err := GetPodForSubnetPort(context.Background(), api, sp)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.wantPod {
+				require.NotNil(t, got)
+				require.Equal(t, pod.UID, got.UID)
+			} else {
+				require.Nil(t, got)
+			}
+		})
+	}
+}
 
 func TestGetVirtualMachineNameForSubnetPort(t *testing.T) {
 	type args struct {
@@ -1860,4 +1902,131 @@ func TestRequeueResultFromReconcileError(t *testing.T) {
 			assert.Equal(t, tt.expected, res)
 		})
 	}
+}
+
+func TestGetPodNameForSubnetPort(t *testing.T) {
+	assert.Equal(t, "", GetPodNameForSubnetPort(nil))
+
+	spNoOwner := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sp-1",
+		},
+	}
+	assert.Equal(t, "", GetPodNameForSubnetPort(spNoOwner))
+
+	spPodOwner := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "sp-1",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Kind: "Pod",
+					Name: "pod-1",
+					UID:  "uid-1",
+				},
+			},
+		},
+	}
+	assert.Equal(t, "pod-1", GetPodNameForSubnetPort(spPodOwner))
+}
+
+func TestGenerateSubnetPortName(t *testing.T) {
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "my-long-pod-name-exceeding-twenty-characters",
+			UID:  "12345678-abcd-1234-abcd-1234567890ab",
+		},
+	}
+	assert.Equal(t, pod.Name+"-12345", GenerateSubnetPortName(pod, 0))
+	for _, attempt := range []int{1, 2} {
+		name := GenerateSubnetPortName(pod, attempt)
+		assert.True(t, strings.HasPrefix(name, pod.Name+"-"))
+		assert.Len(t, name, len(pod.Name)+6)
+		assert.Empty(t, validation.IsDNS1123Subdomain(name))
+	}
+
+	for _, tc := range []struct{ name, prefix string }{
+		{"abcdefghijklmnopqrs.worker", "abcdefghijklmnopqrs.worker"},
+		{strings.Repeat("a", 57), strings.Repeat("a", 57)},
+		{strings.Repeat("a", 58), strings.Repeat("a", 57)},
+		{strings.Repeat("a", 253), strings.Repeat("a", 57)},
+		{strings.Repeat("a", 56) + ".worker", strings.Repeat("a", 56)},
+		{strings.Repeat("a", 56) + "-worker", strings.Repeat("a", 56)},
+	} {
+		pod.Name = tc.name
+		assert.Equal(t, tc.prefix+"-12345", GenerateSubnetPortName(pod, 0))
+		for _, attempt := range []int{0, 1} {
+			name := GenerateSubnetPortName(pod, attempt)
+			assert.True(t, strings.HasPrefix(name, tc.prefix+"-"))
+			assert.Len(t, name, len(tc.prefix)+6)
+			assert.Empty(t, validation.IsDNS1123Subdomain(name))
+		}
+	}
+}
+
+type fakeNodeServiceReader struct {
+	nodes map[string][]*model.HostTransportNode
+}
+
+func (f *fakeNodeServiceReader) GetNodeByName(nodeName string) []*model.HostTransportNode {
+	return f.nodes[nodeName]
+}
+
+func TestGetNodeByName(t *testing.T) {
+	_, err := GetNodeByName(nil, "node1")
+	assert.Error(t, err)
+
+	mockReader := &fakeNodeServiceReader{
+		nodes: map[string][]*model.HostTransportNode{
+			"node1": {
+				{UniqueId: servicecommon.String("id-1")},
+			},
+			"node2": {
+				{UniqueId: servicecommon.String("id-2a")},
+				{UniqueId: servicecommon.String("id-2b")},
+			},
+		},
+	}
+
+	node, err := GetNodeByName(mockReader, "node1")
+	assert.NoError(t, err)
+	assert.Equal(t, "id-1", *node.UniqueId)
+
+	_, err = GetNodeByName(mockReader, "node2")
+	assert.Error(t, err)
+
+	_, err = GetNodeByName(mockReader, "node3")
+	assert.Error(t, err)
+
+	for _, tc := range []struct {
+		name string
+		node *model.HostTransportNode
+	}{
+		{name: "nil-node"},
+		{name: "missing-uuid", node: &model.HostTransportNode{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockReader.nodes[tc.name] = []*model.HostTransportNode{
+				{UniqueId: servicecommon.String("id-valid")}, tc.node,
+			}
+			node, err := GetNodeByName(mockReader, tc.name)
+			require.Nil(t, node)
+			require.EqualError(t, err, fmt.Sprintf("multiple node IDs found for node %s: [id-valid <nil>]", tc.name))
+		})
+	}
+}
+
+func TestStatefulSetSubnetPortHelpers(t *testing.T) {
+	assert.False(t, IsStatefulSetSubnetPort(nil))
+	assert.Equal(t, "", GetStsUID(nil))
+
+	port := &model.VpcSubnetPort{
+		Tags: []model.Tag{
+			{
+				Scope: servicecommon.String(servicecommon.TagScopeStatefulSetUID),
+				Tag:   servicecommon.String("sts-uid-123"),
+			},
+		},
+	}
+	assert.True(t, IsStatefulSetSubnetPort(port))
+	assert.Equal(t, "sts-uid-123", GetStsUID(port))
 }

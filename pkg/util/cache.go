@@ -1,6 +1,7 @@
 package util
 
 const SubnetPortNamespaceVMIndexKey = "index/SubnetPort/NamespaceVM"
+const SubnetPortNamespacePodIndexKey = "index/SubnetPort/NamespacePod"
 const AddressBindingNamespaceVMIndexKey = "index/AddressBinding/NamespaceVM"
 
 const AddressBindingIPAddressAllocationNameIndexKey = "spec.ipAddressAllocationName"
