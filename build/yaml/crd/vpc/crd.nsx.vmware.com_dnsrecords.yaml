@@ -32,7 +32,7 @@ spec:
       name: RecordType
       type: string
     - description: FQDN of DNS record
-      jsonPath: .spec.fqdn
+      jsonPath: .status.fqdn
       name: FQDN
       type: string
     name: v1alpha1
@@ -67,20 +67,9 @@ spec:
                 x-kubernetes-validations:
                 - message: DomainName is immutable after creation
                   rule: self == oldSelf
-              fqdn:
-                description: |-
-                  FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.
-                  This field is read-only and must not be set in create or update requests.
-                type: string
-              ipAddress:
-                description: IPAddress is the IP address being mapped by a PTR record.
-                  Only applicable when RecordType is PTR.
-                type: string
               recordName:
-                description: |-
-                  RecordName specifies the DNS record name or, for PTR records, the host-octet label.
-                  For A/AAAA/CNAME: the hostname portion of the FQDN (e.g., "api" for "api.coke.com").
-                  For PTR: the host octet of the IP address (e.g., "10" for 10.0.0.10).
+                description: RecordName specifies the hostname portion of the FQDN
+                  (e.g., "api" for "api.coke.com").
                 maxLength: 255
                 type: string
               recordType:
@@ -88,10 +77,6 @@ spec:
                 enum:
                 - A
                 - AAAA
-                - CNAME
-                - PTR
-                - NS
-                - TXT
                 type: string
                 x-kubernetes-validations:
                 - message: RecordType is immutable after creation
@@ -117,12 +102,6 @@ spec:
             - recordType
             - recordValues
             type: object
-            x-kubernetes-validations:
-            - message: ipAddress can only be set when recordType is PTR
-              rule: '!has(self.ipAddress) || self.recordType == ''PTR'''
-            - message: CNAME and PTR records must have exactly one value
-              rule: '(self.recordType in [''CNAME'', ''PTR'']) ? size(self.recordValues)
-                == 1 : true'
           status:
             description: DNSRecordStatus defines the observed state of DNSRecord.
             properties:
@@ -184,6 +163,10 @@ spec:
                   - type
                   type: object
                 type: array
+              fqdn:
+                description: FQDN is the system-computed fully qualified domain name,
+                  formed by combining RecordName with DomainName.
+                type: string
             type: object
         type: object
     served: true
