@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -990,3 +992,199 @@ func TestHandleNSXSubnetError(t *testing.T) {
 		})
 	}
 }
+
+func TestSyncPortConfigsForNamespaceSubnet(t *testing.T) {
+	ctx := context.Background()
+	ps1ID := "port-config-1"
+	ps2ID := "port-config-2"
+	psOldID := "port-config-orphan"
+	assocRes := "proj-1:vpc-1:subnet-1"
+
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared-subnet-1",
+			Namespace: "ns-test",
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: assocRes,
+			},
+		},
+	}
+
+	orphanCR := &v1alpha1.SubnetPortSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      psOldID,
+			Namespace: "ns-test",
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: fmt.Sprintf("%s:%s", assocRes, psOldID),
+			},
+		},
+		Spec: v1alpha1.SubnetPortSettingSpec{
+			SubnetName: "shared-subnet-1",
+		},
+		Status: v1alpha1.SubnetPortSettingStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Type:   v1alpha1.Ready,
+					Status: corev1.ConditionTrue,
+				},
+			},
+		},
+	}
+
+	existingCR := &v1alpha1.SubnetPortSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ps1ID,
+			Namespace: "ns-test",
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: fmt.Sprintf("%s:%s", assocRes, ps1ID),
+			},
+		},
+		Spec: v1alpha1.SubnetPortSettingSpec{
+			SubnetName: "shared-subnet-1",
+		},
+	}
+
+	r := createFakeSubnetReconciler([]client.Object{subnetCR, orphanCR, existingCR})
+
+	portSettings := []model.VpcSubnetPortSetting{
+		{Id: &ps1ID},
+		{Id: &ps2ID},
+	}
+	nsxIDs := sets.New[string](ps1ID, ps2ID)
+
+	err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxIDs, assocRes)
+	assert.NoError(t, err)
+
+	// Verify ps-1 exists and condition updated to Ready
+	ps1CR := &v1alpha1.SubnetPortSetting{}
+	err = r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-test", Name: ps1ID}, ps1CR)
+	assert.NoError(t, err)
+	assert.Equal(t, "shared-subnet-1", ps1CR.Spec.SubnetName)
+	assert.NotEmpty(t, ps1CR.Status.Conditions)
+	assert.Equal(t, v1alpha1.Ready, ps1CR.Status.Conditions[0].Type)
+	assert.Equal(t, corev1.ConditionTrue, ps1CR.Status.Conditions[0].Status)
+
+	// Verify ps-2 is newly created with Ready condition and AnnotationAssociatedResource
+	ps2CR := &v1alpha1.SubnetPortSetting{}
+	err = r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-test", Name: ps2ID}, ps2CR)
+	assert.NoError(t, err)
+	assert.Equal(t, "shared-subnet-1", ps2CR.Spec.SubnetName)
+	assert.Equal(t, fmt.Sprintf("%s:%s", assocRes, ps2ID), ps2CR.Annotations[common.AnnotationAssociatedResource])
+	assert.NotEmpty(t, ps2CR.Status.Conditions)
+	assert.Equal(t, v1alpha1.Ready, ps2CR.Status.Conditions[0].Type)
+	assert.Equal(t, corev1.ConditionTrue, ps2CR.Status.Conditions[0].Status)
+
+	// Verify orphan CR (psOldID) is deleted
+	orphanCheck := &v1alpha1.SubnetPortSetting{}
+	err = r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-test", Name: psOldID}, orphanCheck)
+	assert.Error(t, err)
+}
+
+func TestSyncPortConfigs_NameConflict_FallbackGenerateName(t *testing.T) {
+	ctx := context.Background()
+	psID := "default"
+	assocRes := "proj-1:vpc-1:subnet-2"
+
+	// Subnet-2 being synced
+	subnetCR2 := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared-subnet-2",
+			Namespace: "ns-test",
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: assocRes,
+			},
+		},
+	}
+
+	// Another existing CR already occupies name "default" for subnet-1
+	existingCRFromSubnet1 := &v1alpha1.SubnetPortSetting{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      psID,
+			Namespace: "ns-test",
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1:default",
+			},
+		},
+		Spec: v1alpha1.SubnetPortSettingSpec{
+			SubnetName: "shared-subnet-1",
+		},
+	}
+
+	r := createFakeSubnetReconciler([]client.Object{subnetCR2, existingCRFromSubnet1})
+
+	portSettings := []model.VpcSubnetPortSetting{
+		{Id: &psID},
+	}
+	nsxIDs := sets.New[string](psID)
+
+	err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR2, portSettings, nsxIDs, assocRes)
+	assert.NoError(t, err)
+
+	// Verify list of SubnetPortSettings in ns-test
+	list := &v1alpha1.SubnetPortSettingList{}
+	err = r.Client.List(ctx, list, client.InNamespace("ns-test"))
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(list.Items))
+
+	var subnet2CR *v1alpha1.SubnetPortSetting
+	for i := range list.Items {
+		if list.Items[i].Spec.SubnetName == "shared-subnet-2" {
+			subnet2CR = &list.Items[i]
+			break
+		}
+	}
+	assert.NotNil(t, subnet2CR)
+	assert.True(t, strings.HasPrefix(subnet2CR.Name, "default-"))
+	assert.Equal(t, fmt.Sprintf("%s:%s", assocRes, psID), subnet2CR.Annotations[common.AnnotationAssociatedResource])
+}
+
+func TestGenerateValidPortSettingName(t *testing.T) {
+	// Valid DNS-1123 name
+	validName := "valid-port-setting-1"
+	assert.Equal(t, validName, generateValidPortSettingName(validName))
+
+	// Invalid name with underscore or uppercase
+	invalidName := "Invalid_Port_Setting_1"
+	generated := generateValidPortSettingName(invalidName)
+	assert.NotEqual(t, invalidName, generated)
+	assert.True(t, strings.HasPrefix(generated, "port-setting-"))
+}
+
+func TestPollAndSyncPortConfigs(t *testing.T) {
+	ctx := context.Background()
+	psID := "port-config-test"
+	assocRes := "proj-1:vpc-1:subnet-1"
+
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "shared-subnet-1",
+			Namespace: "ns-test",
+		},
+	}
+
+	r := createFakeSubnetReconciler([]client.Object{subnetCR})
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListPortSettingsByAssociatedResource",
+		func(_ *subnetservice.SubnetService, _ string) ([]model.VpcSubnetPortSetting, error) {
+			return []model.VpcSubnetPortSetting{
+				{Id: &psID},
+			}, nil
+		})
+	defer patches.Reset()
+
+	namespacedNames := sets.New[types.NamespacedName](
+		types.NamespacedName{Namespace: "ns-test", Name: "shared-subnet-1"},
+	)
+
+	r.pollAndSyncPortConfigs(ctx, assocRes, namespacedNames)
+
+	// Verify SubnetPortSetting was created
+	createdCR := &v1alpha1.SubnetPortSetting{}
+	err := r.Client.Get(ctx, types.NamespacedName{Namespace: "ns-test", Name: psID}, createdCR)
+	assert.NoError(t, err)
+	assert.Equal(t, "shared-subnet-1", createdCR.Spec.SubnetName)
+	assert.NotEmpty(t, createdCR.Status.Conditions)
+	assert.Equal(t, v1alpha1.Ready, createdCR.Status.Conditions[0].Type)
+	assert.Equal(t, corev1.ConditionTrue, createdCR.Status.Conditions[0].Status)
+}
+

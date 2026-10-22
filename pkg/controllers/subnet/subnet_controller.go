@@ -355,6 +355,9 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 		return ResultRequeue, err
 	}
 
+	// Synchronize PortConfigs for this shared Subnet on-demand
+	r.syncPortConfigsOnDemand(ctx, subnetCR, associatedResource)
+
 	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ResultNormal, nil
 }
@@ -680,3 +683,21 @@ func (r *SubnetReconciler) CollectGarbage(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR *v1alpha1.Subnet, associatedResource string) {
+	portSettings, err := r.SubnetService.ListPortSettingsByAssociatedResource(associatedResource)
+	if err != nil {
+		log.Warn("Failed to list PortConfigs for shared Subnet during on-demand sync", "Subnet", subnetCR.Name, "err", err)
+		return
+	}
+	nsxPortSettingIDs := sets.New[string]()
+	for _, ps := range portSettings {
+		if ps.Id != nil && *ps.Id != "" {
+			nsxPortSettingIDs.Insert(*ps.Id)
+		}
+	}
+	if err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource); err != nil {
+		log.Error(err, "Failed to sync PortConfigs for Subnet on-demand", "Subnet", subnetCR.Name)
+	}
+}
+
