@@ -5,6 +5,7 @@ package dnsrecord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -124,23 +125,39 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	case v1alpha1.DNSRecordTypeA, v1alpha1.DNSRecordTypeAAAA:
 	default:
 		err := fmt.Errorf("unsupported DNS record type %q: only A and AAAA are supported", obj.Spec.RecordType)
-		r.StatusUpdater.UpdateFail(ctx, obj, err, "DNS record type validation failed", setDNSRecordReadyStatusFalse)
+		if statusErr := r.updateFailureStatus(ctx, obj, err, "DNS record type validation failed"); statusErr != nil {
+			return ResultRequeue, statusErr
+		}
+		return ResultNormal, nil
+	}
+
+	if obj.Spec.TTL != nil && (*obj.Spec.TTL < dns.MinRecordTTL || *obj.Spec.TTL > dns.MaxRecordTTL) {
+		err := fmt.Errorf("DNS record TTL must be between %d and %d seconds, got %d", dns.MinRecordTTL, dns.MaxRecordTTL, *obj.Spec.TTL)
+		if statusErr := r.updateFailureStatus(ctx, obj, err, "DNS record TTL validation failed"); statusErr != nil {
+			return ResultRequeue, statusErr
+		}
 		return ResultNormal, nil
 	}
 
 	computedFQDN := calculateFQDN(obj.Spec.RecordName, obj.Spec.DomainName)
+	if strings.HasPrefix(computedFQDN, "*.") {
+		err := fmt.Errorf("wildcard DNS names are not supported: %q", computedFQDN)
+		if statusErr := r.updateFailureStatus(ctx, obj, err, "DNS record name validation failed"); statusErr != nil {
+			return ResultRequeue, statusErr
+		}
+		return ResultNormal, nil
+	}
 	if obj.Status.FQDN != computedFQDN {
 		obj.Status.FQDN = computedFQDN
 		if err := r.Client.Status().Update(ctx, obj); err != nil {
 			log.Error(err, "Failed to update FQDN on DNSRecord CR", "DNSRecord", req.NamespacedName)
-			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to update FQDN", setDNSRecordReadyStatusFalse)
-			return ResultRequeue, err
+			statusErr := r.updateFailureStatus(ctx, obj, err, "Failed to update FQDN")
+			return ResultRequeue, errors.Join(err, statusErr)
 		}
 	}
 
 	if r.Service == nil {
-		r.StatusUpdater.UpdateSuccess(ctx, obj, setDNSRecordReadyStatusTrue)
-		return ResultNormal, nil
+		return r.updateSuccessStatus(ctx, obj)
 	}
 
 	ttl := int32(dns.DefaultRecordTtL)
@@ -163,23 +180,27 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	rows, _, err := r.Service.ValidateEndpointsByZone(obj.Namespace, owner, []*extdns.Endpoint{ep})
 	if err != nil {
 		log.Error(err, "Failed to validate DNSRecord against DNS zones", "DNSRecord", req.NamespacedName)
-		r.StatusUpdater.UpdateFail(ctx, obj, err, "DNS zone validation failed", setDNSRecordReadyStatusFalse)
-		return ResultRequeue, err
+		statusErr := r.updateFailureStatus(ctx, obj, err, "DNS zone validation failed")
+		return ResultRequeue, errors.Join(err, statusErr)
+	}
+
+	if len(rows) != 1 {
+		err := fmt.Errorf("expected one validated DNS record, got %d", len(rows))
+		statusErr := r.updateFailureStatus(ctx, obj, err, "DNS zone validation returned no record")
+		return ResultRequeue, errors.Join(err, statusErr)
 	}
 
 	batch := dns.NewOwnerScopedAggregatedRouteDNS(owner, rows)
 	if _, err := r.Service.CreateOrUpdateRecords(ctx, batch); err != nil {
 		log.Error(err, "Failed to sync DNSRecord to NSX", "DNSRecord", req.NamespacedName)
-		r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to create or update DNS record on NSX", setDNSRecordReadyStatusFalse)
-		return ResultRequeue, err
+		statusErr := r.updateFailureStatus(ctx, obj, err, "Failed to create or update DNS record on NSX")
+		return ResultRequeue, errors.Join(err, statusErr)
 	}
 
-	r.StatusUpdater.UpdateSuccess(ctx, obj, setDNSRecordReadyStatusTrue)
-	return ResultNormal, nil
+	return r.updateSuccessStatus(ctx, obj)
 }
 
-func setDNSRecordReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
-	record := obj.(*v1alpha1.DNSRecord)
+func setDNSRecordReadyStatusTrue(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, transitionTime metav1.Time) error {
 	cond := metav1.Condition{
 		Type:               string(v1alpha1.Ready),
 		Status:             metav1.ConditionTrue,
@@ -188,11 +209,10 @@ func setDNSRecordReadyStatusTrue(client client.Client, ctx context.Context, obj 
 		ObservedGeneration: record.Generation,
 		LastTransitionTime: transitionTime,
 	}
-	updateDNSRecordStatusConditions(client, ctx, record, cond)
+	return updateDNSRecordStatusConditions(k8sClient, ctx, record, cond)
 }
 
-func setDNSRecordReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, _ ...interface{}) {
-	record := obj.(*v1alpha1.DNSRecord)
+func setDNSRecordReadyStatusFalse(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, transitionTime metav1.Time, err error) error {
 	cond := metav1.Condition{
 		Type:               string(v1alpha1.Ready),
 		Status:             metav1.ConditionFalse,
@@ -201,17 +221,34 @@ func setDNSRecordReadyStatusFalse(client client.Client, ctx context.Context, obj
 		ObservedGeneration: record.Generation,
 		LastTransitionTime: transitionTime,
 	}
-	updateDNSRecordStatusConditions(client, ctx, record, cond)
+	return updateDNSRecordStatusConditions(k8sClient, ctx, record, cond)
 }
 
-func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, cond metav1.Condition) {
-	if meta.SetStatusCondition(&record.Status.Conditions, cond) {
-		if err := k8sClient.Status().Update(ctx, record); err != nil {
-			log.Error(err, "Failed to update DNSRecord status", "Name", record.Name, "Namespace", record.Namespace)
-		} else {
-			log.Info("Updated DNSRecord status", "Name", record.Name, "Namespace", record.Namespace, "Status", record.Status)
-		}
+func (r *DNSRecordReconciler) updateFailureStatus(ctx context.Context, obj *v1alpha1.DNSRecord, err error, message string) error {
+	r.StatusUpdater.UpdateFail(ctx, obj, err, message, nil)
+	return setDNSRecordReadyStatusFalse(r.Client, ctx, obj, metav1.Now(), err)
+}
+
+func (r *DNSRecordReconciler) updateSuccessStatus(ctx context.Context, obj *v1alpha1.DNSRecord) (ctrl.Result, error) {
+	if err := setDNSRecordReadyStatusTrue(r.Client, ctx, obj, metav1.Now()); err != nil {
+		return ResultRequeue, err
 	}
+	r.StatusUpdater.UpdateSuccess(ctx, obj, nil)
+	return ResultNormal, nil
+}
+
+func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, cond metav1.Condition) error {
+	updated := record.DeepCopy()
+	if !meta.SetStatusCondition(&updated.Status.Conditions, cond) {
+		return nil
+	}
+	if err := k8sClient.Status().Update(ctx, updated); err != nil {
+		log.Error(err, "Failed to update DNSRecord status", "Name", record.Name, "Namespace", record.Namespace)
+		return err
+	}
+	*record = *updated
+	log.Info("Updated DNSRecord status", "Name", record.Name, "Namespace", record.Namespace, "Status", record.Status)
+	return nil
 }
 
 func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
@@ -250,6 +287,7 @@ func (r *DNSRecordReconciler) CollectGarbage(ctx context.Context) error {
 
 	ownersByKind := r.Service.ListRecordOwnerResource()
 	cachedDNSRecords := ownersByKind[dns.ResourceKindDNSRecord]
+	var gcErrors []error
 	for nn := range cachedDNSRecords {
 		if crdNames.Has(nn) {
 			continue
@@ -258,11 +296,12 @@ func (r *DNSRecordReconciler) CollectGarbage(ctx context.Context) error {
 		r.StatusUpdater.IncreaseDeleteTotal()
 		if _, err := r.Service.DeleteRecordByOwnerNN(ctx, dns.ResourceKindDNSRecord, nn.Namespace, nn.Name); err != nil {
 			r.StatusUpdater.IncreaseDeleteFailTotal()
+			gcErrors = append(gcErrors, fmt.Errorf("failed to delete stale DNSRecord %s: %w", nn, err))
 		} else {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
-	return nil
+	return errors.Join(gcErrors...)
 }
 
 func (r *DNSRecordReconciler) RestoreReconcile() error {
