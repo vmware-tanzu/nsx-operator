@@ -312,12 +312,16 @@ func (s *BindingService) deleteSubnetConnectionBindingMaps(bindingMaps []*model.
 		log.Info("No existing SubnetConnectionBindingMaps found in the store")
 		return nil
 	}
-	markForDelete := true
+	// Keep cached realized resources unchanged until their NSX deletion succeeds.
+	// A failed batch must not leave active cache entries marked for deletion.
+	toDelete := make([]*model.SubnetConnectionBindingMap, 0, len(bindingMaps))
 	for _, bm := range bindingMaps {
-		bm.MarkedForDelete = &markForDelete
+		copy := *bm
+		copy.MarkedForDelete = Bool(true)
+		toDelete = append(toDelete, &copy)
 	}
 
-	return s.builder.PagingUpdateResources(context.TODO(), bindingMaps, servicecommon.DefaultHAPIChildrenCount, s.NSXClient, func(deletedObjs []*model.SubnetConnectionBindingMap) {
+	return s.builder.PagingUpdateResources(context.TODO(), toDelete, servicecommon.DefaultHAPIChildrenCount, s.NSXClient, func(deletedObjs []*model.SubnetConnectionBindingMap) {
 		s.BindingStore.DeleteMultipleObjects(deletedObjs)
 	})
 }

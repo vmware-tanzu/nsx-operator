@@ -31,8 +31,8 @@ func (s *BindingService) ReconcileVlanTrafficTag(bindingMap *v1alpha1.SubnetConn
 	}
 
 	// Status survives NSX restore and its VLAN is already used by secondary
-	// NIC configurations. During restore, validate it as a fixed allocation before consulting
-	// the NSX cache, including when retrying against NSX after a conflict.
+	// NIC configurations. During restore, validate it as a fixed allocation
+	// before consulting the NSX cache, including retries after a conflict.
 	if s.restoreMode && bindingMap.Status.VLANTrafficTag != nil {
 		vlan := *bindingMap.Status.VLANTrafficTag
 		if err := vlanPoolSvc.ValidateManualVlan(parentSubnetPaths, vlan, string(bindingMap.UID), fromNSX); err != nil {
@@ -114,14 +114,28 @@ func (ls *localStore) Apply(_ interface{}) error {
 	return nil
 }
 
-func (s *BindingService) listBindingMapsByParentSubnetPath(parentSubnetPath string) ([]*model.SubnetConnectionBindingMap, error) {
+//go:noinline
+func (s *BindingService) listBindingMapsByParentSubnetPath(subnetPath string) ([]*model.SubnetConnectionBindingMap, error) {
+	return s.listBindingMapsBySubnetPath(subnetPath, true)
+}
+
+//go:noinline
+func (s *BindingService) listBindingMapsByChildSubnetPath(subnetPath string) ([]*model.SubnetConnectionBindingMap, error) {
+	return s.listBindingMapsBySubnetPath(subnetPath, false)
+}
+
+func (s *BindingService) listBindingMapsBySubnetPath(subnetPath string, parent bool) ([]*model.SubnetConnectionBindingMap, error) {
 	if s == nil || s.NSXClient == nil || s.NSXClient.QueryClient == nil {
 		return nil, fmt.Errorf("NSX query client is not initialized")
 	}
 
-	pathEscaped := strings.ReplaceAll(parentSubnetPath, "/", "\\/")
-	queryParam := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((subnet_path:%s AND NOT subnet_association:BRANCH) OR (parent_path:%s AND subnet_association:BRANCH))",
-		servicecommon.ResourceType, ResourceTypeSubnetConnectionBindingMap, pathEscaped, pathEscaped)
+	pathEscaped := strings.ReplaceAll(subnetPath, "/", "\\/")
+	trunkField, branchField := "subnet_path", "parent_path"
+	if !parent {
+		trunkField, branchField = "parent_path", "subnet_path"
+	}
+	queryParam := fmt.Sprintf("%s:%s AND marked_for_delete:false AND ((%s:%s AND NOT subnet_association:BRANCH) OR (%s:%s AND subnet_association:BRANCH))",
+		servicecommon.ResourceType, ResourceTypeSubnetConnectionBindingMap, trunkField, pathEscaped, branchField, pathEscaped)
 
 	store := &localStore{ResourceStore: servicecommon.ResourceStore{
 		Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),

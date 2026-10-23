@@ -184,12 +184,14 @@ func TestBindingMapCRUID(t *testing.T) {
 	assert.Equal(t, "", uid2)
 }
 
-func TestReconcileVlanTrafficTagPreservesStatus(t *testing.T) {
+func TestReconcileVlanTrafficTagStatusByMode(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		cachedVlan int64
 		conflict   bool
 		fromNSX    bool
+		normalMode bool
+		expected   int64
 	}{
 		{name: "missing after restore"},
 		{name: "mismatched cache", cachedVlan: 1},
@@ -197,9 +199,14 @@ func TestReconcileVlanTrafficTagPreservesStatus(t *testing.T) {
 		{name: "cache conflict", conflict: true},
 		{name: "NSX retry", fromNSX: true},
 		{name: "NSX conflict", fromNSX: true, conflict: true},
+		{name: "normal mode allocates after clearing spec", normalMode: true, expected: 100},
+		{name: "normal mode reuses cache after clearing spec", normalMode: true, cachedVlan: 1, expected: 1},
+		{name: "normal mode ignores status conflict", normalMode: true, conflict: true, expected: 100},
+		{name: "normal mode NSX retry can reallocate", normalMode: true, fromNSX: true, conflict: true, expected: 100},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &BindingService{BindingStore: SetupStore()}
+			svc.SetRestoreMode(!tc.normalMode)
 			binding := &v1alpha1.SubnetConnectionBindingMap{
 				ObjectMeta: metav1.ObjectMeta{UID: "binding-uid"},
 				Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: Int64(2)},
@@ -232,13 +239,17 @@ func TestReconcileVlanTrafficTagPreservesStatus(t *testing.T) {
 				defer patches.Reset()
 			}
 			got, err := svc.ReconcileVlanTrafficTag(binding, 100, []string{"/parent"}, tc.fromNSX)
-			if tc.conflict {
+			if tc.conflict && !tc.normalMode {
 				require.Error(t, err)
 				assert.True(t, vlanpool.IsVlanAllocationError(err))
 				assert.Zero(t, got)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, int64(2), got)
+				expected := int64(2)
+				if tc.normalMode {
+					expected = tc.expected
+				}
+				assert.Equal(t, expected, got)
 			}
 		})
 	}
@@ -247,6 +258,7 @@ func TestReconcileVlanTrafficTagPreservesStatus(t *testing.T) {
 func TestReconcileVlanTrafficTagAfterRestoreOrder(t *testing.T) {
 	for _, order := range [][]int64{{2, 1}, {1, 2}} {
 		svc := &BindingService{BindingStore: SetupStore()}
+		svc.SetRestoreMode(true)
 		for _, vlan := range order {
 			binding := &v1alpha1.SubnetConnectionBindingMap{
 				Status: v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: Int64(vlan)},
