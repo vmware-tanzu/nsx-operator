@@ -28,10 +28,11 @@ import (
 )
 
 var (
-	log                = logger.Log
-	MarkedForDelete    = true
-	ResourceTypeSubnet = common.ResourceTypeSubnet
-	SubnetTypeError    = errors.New("unsupported type") //nolint:staticcheck // ST1012: public var exported before naming convention was enforced
+	log                      = logger.Log
+	MarkedForDelete          = true
+	ResourceTypeSubnet       = common.ResourceTypeSubnet
+	SubnetTypeError          = errors.New("unsupported type") //nolint:staticcheck // ST1012: public var exported before naming convention was enforced
+	ErrSubnetNotFoundInStore = errors.New("NSX subnet not found in store")
 )
 
 // SharedSubnetData contains data related to shared subnets
@@ -438,7 +439,7 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 func (service *SubnetService) GetSubnetByKey(key string) (*model.VpcSubnet, error) {
 	nsxSubnet := service.SubnetStore.GetByKey(key)
 	if nsxSubnet == nil {
-		return nil, errors.New("NSX subnet not found in store")
+		return nil, ErrSubnetNotFoundInStore
 	}
 	return nsxSubnet, nil
 }
