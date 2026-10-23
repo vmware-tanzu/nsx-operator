@@ -223,7 +223,7 @@ func (service *SecurityPolicyService) updateNativeTargetExpressions(
 		selector = target.VMSelector
 		vmType = common.VMTypeRegular
 	} else {
-		return 0, 0, nil
+		vmType = common.VMTypePod
 	}
 
 	var baseConditions []*data.StructValue

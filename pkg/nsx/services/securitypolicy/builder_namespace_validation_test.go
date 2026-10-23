@@ -366,3 +366,54 @@ func TestNativeMatchLabelsDeterministicOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeSelectorMatchExpressionDeterministicOrder(t *testing.T) {
+	service := &SecurityPolicyService{}
+	exprs := []v1.LabelSelectorRequirement{
+		{Key: "z-app", Operator: v1.LabelSelectorOpNotIn, Values: []string{"web", "api"}},
+		{Key: "a-tier", Operator: v1.LabelSelectorOpNotIn, Values: []string{"frontend"}},
+		{Key: "m-env", Operator: v1.LabelSelectorOpExists},
+		{Key: "b-region", Operator: v1.LabelSelectorOpDoesNotExist},
+	}
+	merged1 := service.mergeSelectorMatchExpression(exprs)
+	require.Len(t, *merged1, 4)
+
+	for i := 0; i < 10; i++ {
+		merged2 := service.mergeSelectorMatchExpression(exprs)
+		require.Len(t, *merged2, 4)
+		for j := range *merged1 {
+			assert.Equal(t, (*merged1)[j].Key, (*merged2)[j].Key)
+			assert.Equal(t, (*merged1)[j].Operator, (*merged2)[j].Operator)
+		}
+	}
+}
+
+func TestNativeEmptyTargetExpressions(t *testing.T) {
+	service := &SecurityPolicyService{Service: common.Service{
+		NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "cluster-a"}},
+	}}
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(&service.Service), "GetNamespaceUID", func(_ *common.Service, _ string) types.UID { return "ns-uid" })
+	defer patch.Reset()
+
+	sp := &v1alpha1.SecurityPolicy{
+		ObjectMeta: v1.ObjectMeta{Name: "sp-empty-target", Namespace: "default", UID: "sp-uid"},
+		Spec: v1alpha1.SecurityPolicySpec{
+			AppliedTo: []v1alpha1.SecurityPolicyTarget{
+				{}, // Empty target
+			},
+		},
+	}
+
+	group := &model.Group{}
+	addedCount, totalConds, err := service.updateNativeTargetExpressions(sp, &sp.Spec.AppliedTo[0], group)
+	require.NoError(t, err)
+	assert.Equal(t, 1, addedCount)
+	assert.Equal(t, 2, totalConds)
+	assert.NotEmpty(t, group.Expression)
+
+	policyGroup, path, err := service.buildNativePolicyGroup(sp, "sp_created_for", nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, path)
+	require.NotNil(t, policyGroup)
+	assert.NotEmpty(t, policyGroup.Expression)
+}
