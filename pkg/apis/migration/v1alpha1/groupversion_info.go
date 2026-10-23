@@ -2,7 +2,7 @@
    SPDX-License-Identifier: Apache-2.0 */
 
 // +kubebuilder:object:generate=true
-// +groupName=iaas.vmware.com
+// +groupName=migration.vmware.com
 
 // Package v1alpha1 defines the Supervisor network transition API.
 package v1alpha1
@@ -15,7 +15,7 @@ import (
 
 var (
 	// GroupVersion identifies the network transition API version.
-	GroupVersion = schema.GroupVersion{Group: "iaas.vmware.com", Version: "v1alpha1"}
+	GroupVersion = schema.GroupVersion{Group: "migration.vmware.com", Version: "v1alpha1"}
 	// SchemeBuilder registers network transition resources.
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
 	// AddToScheme registers network transition resources in a scheme.

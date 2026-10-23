@@ -6,9 +6,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.5
-  name: namespacenetworktransitions.iaas.vmware.com
+  name: namespacenetworktransitions.migration.vmware.com
 spec:
-  group: iaas.vmware.com
+  group: migration.vmware.com
   names:
     kind: NamespaceNetworkTransition
     listKind: NamespaceNetworkTransitionList

@@ -1,10 +1,10 @@
 # API Reference
 
 ## Packages
-- [iaas.vmware.com/v1alpha1](#iaasvmwarecomv1alpha1)
+- [migration.vmware.com/v1alpha1](#migrationvmwarecomv1alpha1)
 
 
-## iaas.vmware.com/v1alpha1
+## migration.vmware.com/v1alpha1
 
 Package v1alpha1 defines Supervisor migration orchestration and network resource transfer APIs.
 
@@ -95,7 +95,7 @@ ControlPlaneNetworkTransition requests Stage 1 infrastructure transition and Sta
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `apiVersion` _string_ | `iaas.vmware.com/v1alpha1` | | |
+| `apiVersion` _string_ | `migration.vmware.com/v1alpha1` | | |
 | `kind` _string_ | `ControlPlaneNetworkTransition` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[ControlPlaneNetworkTransitionSpec](#controlplanenetworktransitionspec)_ | spec describes the requested transition. |  |  |
@@ -234,7 +234,7 @@ NamespaceNetworkTransition requests Stage 2 migration of an explicit namespace b
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `apiVersion` _string_ | `iaas.vmware.com/v1alpha1` | | |
+| `apiVersion` _string_ | `migration.vmware.com/v1alpha1` | | |
 | `kind` _string_ | `NamespaceNetworkTransition` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[NamespaceNetworkTransitionSpec](#namespacenetworktransitionspec)_ | spec describes the requested transition. |  |  |

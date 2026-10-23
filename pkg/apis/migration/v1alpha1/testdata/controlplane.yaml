@@ -3,7 +3,7 @@
 
 # Reference: Confluence page 2586034708, version 146, sections 4.1 and 4.2.
 # Adaptation: workflow handles are recorded per VDN; redundant status summaries are omitted.
-apiVersion: iaas.vmware.com/v1alpha1
+apiVersion: migration.vmware.com/v1alpha1
 kind: ControlPlaneNetworkTransition
 metadata:
   name: supervisor-vds-to-vpc

@@ -1,14 +1,14 @@
 # Supervisor network migration container
 
 The Supervisor migration framework runs as a separate process/container in the
-NCP Pod. It owns the cluster-scoped `iaas.vmware.com/v1alpha1` resources
+NCP Pod. It owns the cluster-scoped `migration.vmware.com/v1alpha1` resources
 `ControlPlaneNetworkTransition` and `NamespaceNetworkTransition`.
 
 ## Framework and services
 
 - `cmd_migration`: independent controller manager; no normal NSX controllers,
   webhook servers, `electMaster` calls, or `nsx-operator-role` label changes.
-- `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in iaas.vmware.com/v1alpha1.
+- `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.vmware.com/v1alpha1.
 - `pkg/migration/controllers`: controller registration and observation of both
   transition kinds. Reconciliation leaves spec, status, and external resources unchanged.
 - `pkg/migration.Operator.NSX`: lazy `pkg/nsx/services/migration.Service`, reusing
@@ -118,7 +118,7 @@ Never duplicate normal NSX controllers or delete active VPC/LB/SNAT resources.
 it is not implemented by this scaffold. Container co-location does not replace
 these recovery contracts or protect against Pod replacement.
 
-The two orchestration CRDs use `iaas.vmware.com/v1alpha1`; resource transfer
+The two orchestration CRDs use `migration.vmware.com/v1alpha1`; resource transfer
 uses the separate `NetworkResourceTransition` API and remains an NSX Operator
 responsibility. The leader-election
 lease keeps its historical name across the API group change.

@@ -33,7 +33,7 @@ func TestInputAdmission(t *testing.T) {
 			if stage == "namespaces" {
 				kind, key = "namespacenetworktransitions", "tenantSubnets"
 			}
-			raw, err := os.ReadFile("../../../../build/yaml/crd/migration/iaas.vmware.com_" + kind + ".yaml")
+			raw, err := os.ReadFile("../../../../build/yaml/crd/migration/migration.vmware.com_" + kind + ".yaml")
 			require.NoError(t, err)
 			var crd extensionsv1.CustomResourceDefinition
 			require.NoError(t, yaml.Unmarshal(raw, &crd))

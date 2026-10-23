@@ -19,7 +19,7 @@ type Reconciler struct {
 	Object  client.Object
 }
 
-// +kubebuilder:rbac:groups=iaas.vmware.com,resources=controlplanenetworktransitions;namespacenetworktransitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=migration.vmware.com,resources=controlplanenetworktransitions;namespacenetworktransitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=vmware-system-nsx
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 

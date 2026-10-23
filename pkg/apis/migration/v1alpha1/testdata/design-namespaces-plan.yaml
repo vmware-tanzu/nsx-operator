@@ -1,5 +1,6 @@
 # Confluence page 2586034708, version 146. Controller output snapshot.
-apiVersion: iaas.vmware.com/v1alpha1
+# Adaptation: orchestration API group is migration.vmware.com.
+apiVersion: migration.vmware.com/v1alpha1
 kind: NamespaceNetworkTransition
 metadata:
   generation: 5

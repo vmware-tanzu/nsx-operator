@@ -14,7 +14,7 @@ rules:
   - create
   - patch
 - apiGroups:
-  - iaas.vmware.com
+  - migration.vmware.com
   resources:
   - controlplanenetworktransitions
   - namespacenetworktransitions
