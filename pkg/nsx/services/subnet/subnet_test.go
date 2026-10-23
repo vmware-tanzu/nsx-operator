@@ -4617,3 +4617,37 @@ func TestSubnetService_IPBlockPathsToNames(t *testing.T) {
 		})
 	}
 }
+
+func TestSharedSubnetResourceMapLifecycle(t *testing.T) {
+	resource := "project:vpc:shared"
+	first := types.NamespacedName{Namespace: "team-a", Name: "shared"}
+	second := types.NamespacedName{Namespace: "team-b", Name: "shared"}
+	tests := []struct {
+		name     string
+		remove   []types.NamespacedName
+		expected sets.Set[types.NamespacedName]
+	}{
+		{"share across namespaces and deduplicate", nil, sets.New(first, second)},
+		{"remove one namespace preserves the other", []types.NamespacedName{first}, sets.New(second)},
+		{"remove absent reference is harmless", []types.NamespacedName{first, first}, sets.New(second)},
+		{"remove final reference removes resource", []types.NamespacedName{first, second}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetService{SharedSubnetData: SharedSubnetData{
+				SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+			}}
+			service.AddSharedSubnetToResourceMap(resource, first)
+			service.AddSharedSubnetToResourceMap(resource, second)
+			service.AddSharedSubnetToResourceMap(resource, first)
+			service.RemoveSharedSubnetFromResourceMap("missing", second)
+			for _, name := range tt.remove {
+				service.RemoveSharedSubnetFromResourceMap(resource, name)
+			}
+			require.Equal(t, tt.expected, service.SharedSubnetResourceMap[resource])
+			if tt.expected == nil {
+				require.Empty(t, service.SharedSubnetResourceMap)
+			}
+		})
+	}
+}
