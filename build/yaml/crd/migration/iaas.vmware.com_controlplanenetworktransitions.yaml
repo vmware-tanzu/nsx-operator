@@ -1,0 +1,524 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: controlplanenetworktransitions.iaas.vmware.com
+spec:
+  group: iaas.vmware.com
+  names:
+    kind: ControlPlaneNetworkTransition
+    listKind: ControlPlaneNetworkTransitionList
+    plural: controlplanenetworktransitions
+    shortNames:
+    - cpnt
+    singular: controlplanenetworktransition
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.action
+      name: Action
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ControlPlaneNetworkTransition requests Stage 1 infrastructure
+          transition and Stage 3 finalization.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec describes the requested transition.
+            properties:
+              action:
+                description: action selects the operation to reconcile. Operations
+                  never auto-advance.
+                enum:
+                - EVALUATE
+                - PLAN
+                - DERIVE
+                - EXECUTE
+                - ROLLBACK
+                - COMMIT
+                - FINALIZE
+                type: string
+              nsxProjectId:
+                description: |-
+                  nsxProjectId selects a pre-existing NSX project; omission selects the default project.
+                  Once supplied, the ID cannot be changed or removed. Omission is fixed when planning starts.
+                maxLength: 256
+                minLength: 1
+                type: string
+              sourceMode:
+                description: sourceMode is the source network stack.
+                enum:
+                - VSPHERE_VDS
+                minLength: 1
+                type: string
+              targetLbProvider:
+                description: |-
+                  targetLbProvider selects AVI or NSX_LB as the desired target load balancer provider.
+                  If omitted, evaluation resolves an unambiguous supported target or requests input.
+                  The resolved selection is bound to the reviewed plan and cannot change after planning starts.
+                enum:
+                - AVI
+                - NSX_LB
+                maxLength: 32
+                minLength: 1
+                type: string
+              targetMode:
+                description: targetMode is the target network stack.
+                enum:
+                - NSX_VPC
+                minLength: 1
+                type: string
+              userInputs:
+                description: |-
+                  userInputs supplies administrator-provided migration parameters.
+                  Supplied values cannot be changed or removed; missing values may be added before planning starts.
+                properties:
+                  aviConfig:
+                    description: aviConfig supplies Avi configuration when either
+                      the source or target provider is AVI.
+                    properties:
+                      legacyVipRanges:
+                        description: legacyVipRanges supplies existing VIP address
+                          ranges for an AVI source.
+                        items:
+                          maxLength: 128
+                          minLength: 1
+                          type: string
+                        maxItems: 1000
+                        type: array
+                        x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                        - message: existing values cannot be removed or changed
+                          rule: '[self.transformMapEntry(i, s, {s: true})].all(values,
+                            oldSelf.all(s, s in values))'
+                      newFrontendDvpgs:
+                        description: newFrontendDvpgs identifies Avi target frontend
+                          networks, validated against the legacy frontend DVS.
+                        items:
+                          maxLength: 256
+                          minLength: 1
+                          type: string
+                        maxItems: 1000
+                        type: array
+                        x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                        - message: existing values cannot be removed or changed
+                          rule: '[self.transformMapEntry(i, s, {s: true})].all(values,
+                            oldSelf.all(s, s in values))'
+                      newVipRanges:
+                        description: newVipRanges supplies VIP CIDRs or address ranges
+                          when the target is AVI.
+                        items:
+                          maxLength: 128
+                          minLength: 1
+                          type: string
+                        maxItems: 1000
+                        type: array
+                        x-kubernetes-list-type: set
+                        x-kubernetes-validations:
+                        - message: existing values cannot be removed or changed
+                          rule: '[self.transformMapEntry(i, s, {s: true})].all(values,
+                            oldSelf.all(s, s in values))'
+                    type: object
+                    x-kubernetes-validations:
+                    - message: legacyVipRanges cannot be removed once supplied
+                      rule: '!has(oldSelf.legacyVipRanges) || has(self.legacyVipRanges)'
+                    - message: newVipRanges cannot be removed once supplied
+                      rule: '!has(oldSelf.newVipRanges) || has(self.newVipRanges)'
+                    - message: newFrontendDvpgs cannot be removed once supplied
+                      rule: '!has(oldSelf.newFrontendDvpgs) || has(self.newFrontendDvpgs)'
+                  cpVmServiceSubnets:
+                    description: cpVmServiceSubnets supplies addressing for DHCP-backed
+                      control plane and service networks.
+                    items:
+                      description: SubnetInput supplies existing addressing for a
+                        DHCP-backed source VDN.
+                      properties:
+                        dhcpRange:
+                          description: dhcpRange describes the existing inclusive
+                            DHCP pool, not free-IP inventory.
+                          properties:
+                            end:
+                              description: end is the last IP address in the range.
+                              maxLength: 45
+                              minLength: 1
+                              type: string
+                              x-kubernetes-validations:
+                              - message: end must be a plain IP address
+                                rule: isIP(self)
+                            start:
+                              description: start is the first IP address in the range.
+                              maxLength: 45
+                              minLength: 1
+                              type: string
+                              x-kubernetes-validations:
+                              - message: start must be a plain IP address
+                                rule: isIP(self)
+                          type: object
+                        gatewayAddress:
+                          description: gatewayAddress supplies a plain gateway IP
+                            address without a prefix length.
+                          maxLength: 45
+                          minLength: 1
+                          type: string
+                          x-kubernetes-validations:
+                          - message: gatewayAddress must be a plain IP address
+                            rule: isIP(self)
+                        subnetCidr:
+                          description: subnetCidr optionally asserts the CIDR derived
+                            from the DHCP range and mask.
+                          maxLength: 49
+                          minLength: 1
+                          type: string
+                          x-kubernetes-validations:
+                          - message: subnetCidr must be a valid CIDR
+                            rule: isCIDR(self)
+                        subnetMask:
+                          description: subnetMask is a contiguous dotted-decimal IPv4
+                            mask used to derive the subnet CIDR.
+                          maxLength: 15
+                          minLength: 1
+                          pattern: ^((255[.])*(254|252|248|240|224|192|128|0)([.]0)*|255[.]255[.]255[.]255)$
+                          type: string
+                          x-kubernetes-validations:
+                          - message: subnetMask must be a contiguous IPv4 mask in
+                              dotted-decimal form
+                            rule: isIP(self)
+                        vdn:
+                          description: vdn identifies a discovered source virtual
+                            distributed network within the Supervisor.
+                          maxLength: 256
+                          minLength: 1
+                          type: string
+                      required:
+                      - vdn
+                      type: object
+                      x-kubernetes-validations:
+                      - message: gatewayAddress cannot change once supplied
+                        rule: '!has(oldSelf.gatewayAddress) || (has(self.gatewayAddress)
+                          && self.gatewayAddress == oldSelf.gatewayAddress)'
+                      - message: subnetMask cannot change once supplied
+                        rule: '!has(oldSelf.subnetMask) || (has(self.subnetMask) &&
+                          self.subnetMask == oldSelf.subnetMask)'
+                      - message: subnetCidr cannot change once supplied
+                        rule: '!has(oldSelf.subnetCidr) || (has(self.subnetCidr) &&
+                          self.subnetCidr == oldSelf.subnetCidr)'
+                      - message: dhcpRange cannot be removed once supplied
+                        rule: '!has(oldSelf.dhcpRange) || has(self.dhcpRange)'
+                      - message: dhcpRange.start cannot change once supplied
+                        rule: '!has(oldSelf.dhcpRange) || !has(oldSelf.dhcpRange.start)
+                          || (has(self.dhcpRange) && has(self.dhcpRange.start) &&
+                          self.dhcpRange.start == oldSelf.dhcpRange.start)'
+                      - message: dhcpRange.end cannot change once supplied
+                        rule: '!has(oldSelf.dhcpRange) || !has(oldSelf.dhcpRange.end)
+                          || (has(self.dhcpRange) && has(self.dhcpRange.end) && self.dhcpRange.end
+                          == oldSelf.dhcpRange.end)'
+                    maxItems: 1000
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - vdn
+                    x-kubernetes-list-type: map
+                    x-kubernetes-validations:
+                    - message: existing subnet inputs cannot be removed
+                      rule: '[self.transformMapEntry(i, s, {s.vdn: true})].all(ids,
+                        oldSelf.all(s, s.vdn in ids))'
+                  legacyLbFrontendDvpgs:
+                    description: legacyLbFrontendDvpgs identifies frontend port groups
+                      for AVI or HAProxy sources; FLB discovers its backing.
+                    items:
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    maxItems: 1000
+                    type: array
+                    x-kubernetes-list-type: set
+                    x-kubernetes-validations:
+                    - message: existing values cannot be removed or changed
+                      rule: '[self.transformMapEntry(i, s, {s: true})].all(values,
+                        oldSelf.all(s, s in values))'
+                type: object
+                x-kubernetes-validations:
+                - message: cpVmServiceSubnets cannot be removed once supplied
+                  rule: '!has(oldSelf.cpVmServiceSubnets) || has(self.cpVmServiceSubnets)'
+                - message: legacyLbFrontendDvpgs cannot be removed once supplied
+                  rule: '!has(oldSelf.legacyLbFrontendDvpgs) || has(self.legacyLbFrontendDvpgs)'
+                - message: aviConfig cannot be removed once supplied
+                  rule: '!has(oldSelf.aviConfig) || has(self.aviConfig)'
+            required:
+            - action
+            - sourceMode
+            - targetMode
+            type: object
+            x-kubernetes-validations:
+            - message: COMMIT is a namespace operation
+              rule: self.action != 'COMMIT'
+            - message: nsxProjectId cannot change once supplied
+              rule: '!has(oldSelf.nsxProjectId) || (has(self.nsxProjectId) && self.nsxProjectId
+                == oldSelf.nsxProjectId)'
+            - message: userInputs cannot be removed once supplied
+              rule: '!has(oldSelf.userInputs) || has(self.userInputs)'
+          status:
+            description: status reports observed progress.
+            properties:
+              actionGeneration:
+                description: |-
+                  actionGeneration is the desired-state generation checkpointed for lastAction.
+                  It stays unchanged when a newer request is blocked, so previous success cannot satisfy that request.
+                format: int64
+                minimum: 1
+                type: integer
+              actionState:
+                description: actionState reports whether lastAction is running, succeeded,
+                  or failed.
+                enum:
+                - Running
+                - Succeeded
+                - Failed
+                type: string
+              conditions:
+                description: conditions report the current operation's readiness and
+                  failures.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              detectedSourceLbProvider:
+                description: detectedSourceLbProvider identifies the discovered source
+                  load balancer provider.
+                enum:
+                - AVI
+                - HAPROXY
+                - VSPHERE_FOUNDATION
+                maxLength: 32
+                minLength: 1
+                type: string
+              irreversibleAction:
+                description: |-
+                  irreversibleAction identifies the action whose point of no return has been persisted.
+                  It is set only after prerequisite checks and before irreversible external changes.
+                  Once set, only that action may be resumed and this checkpoint cannot be cleared.
+                enum:
+                - COMMIT
+                - FINALIZE
+                type: string
+              lastAction:
+                description: lastAction identifies the most recently checkpointed
+                  operation, regardless of outcome.
+                enum:
+                - EVALUATE
+                - PLAN
+                - DERIVE
+                - EXECUTE
+                - ROLLBACK
+                - COMMIT
+                - FINALIZE
+                type: string
+              loadBalancerVpcPath:
+                description: loadBalancerVpcPath is the full path of the load balancer
+                  VPC.
+                maxLength: 1024
+                minLength: 1
+                type: string
+              nsxWorkflows:
+                description: nsxWorkflows records the exact external workflow handle
+                  for each source VDN.
+                items:
+                  description: NSXWorkflowStatus records a resumable NSX conversion
+                    workflow for one source VDN.
+                  properties:
+                    vdn:
+                      description: vdn identifies the source virtual distributed network
+                        for this workflow.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    workflowId:
+                      description: workflowId is the persisted NSX handle used for
+                        retries, rollback, and cleanup.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                  required:
+                  - vdn
+                  - workflowId
+                  type: object
+                maxItems: 1000
+                type: array
+                x-kubernetes-list-map-keys:
+                - vdn
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: |-
+                  observedGeneration is the desired-state generation last inspected, even if its action was blocked.
+                  It indicates status freshness and does not mean the action ran or succeeded.
+                format: int64
+                minimum: 1
+                type: integer
+              phase:
+                description: phase describes current progress; Blocked means prerequisites
+                  or handlers are unavailable.
+                maxLength: 64
+                minLength: 1
+                type: string
+              primaryVpcPath:
+                description: primaryVpcPath is the full path of the infrastructure
+                  VPC.
+                maxLength: 1024
+                minLength: 1
+                type: string
+              requiredInputs:
+                description: requiredInputs describe administrator inputs required
+                  before proceeding.
+                items:
+                  description: RequiredInput describes administrator input needed
+                    to proceed.
+                  properties:
+                    description:
+                      description: description explains how to supply the input.
+                      maxLength: 4096
+                      minLength: 1
+                      type: string
+                    key:
+                      description: key identifies the missing input.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                  required:
+                  - description
+                  - key
+                  type: object
+                maxItems: 1000
+                type: array
+                x-kubernetes-list-map-keys:
+                - key
+                x-kubernetes-list-type: map
+              targetLbProvider:
+                description: targetLbProvider identifies the resolved and validated
+                  AVI or NSX_LB target provider.
+                enum:
+                - AVI
+                - NSX_LB
+                maxLength: 32
+                minLength: 1
+                type: string
+              targetNsxProject:
+                description: targetNsxProject is the full path of the resolved pre-existing
+                  NSX project.
+                maxLength: 1024
+                minLength: 1
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: targetLbProvider cannot change after planning starts
+          rule: '!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction
+            in [''PLAN'', ''DERIVE'', ''EXECUTE'', ''ROLLBACK'', ''FINALIZE'']) ||
+            (has(self.spec.targetLbProvider) == has(oldSelf.spec.targetLbProvider)
+            && (!has(oldSelf.spec.targetLbProvider) || self.spec.targetLbProvider
+            == oldSelf.spec.targetLbProvider))'
+        - message: nsxProjectId cannot change after planning starts
+          rule: '!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction
+            in [''PLAN'', ''DERIVE'', ''EXECUTE'', ''ROLLBACK'', ''FINALIZE'']) ||
+            (has(self.spec.nsxProjectId) == has(oldSelf.spec.nsxProjectId) && (!has(oldSelf.spec.nsxProjectId)
+            || self.spec.nsxProjectId == oldSelf.spec.nsxProjectId))'
+        - message: userInputs cannot change after planning starts
+          rule: '!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction
+            in [''PLAN'', ''DERIVE'', ''EXECUTE'', ''ROLLBACK'', ''FINALIZE'']) ||
+            (has(self.spec.userInputs) == has(oldSelf.spec.userInputs) && (!has(oldSelf.spec.userInputs)
+            || self.spec.userInputs == oldSelf.spec.userInputs))'
+        - message: an irreversible checkpoint cannot change or be cleared; only its
+            action may be resumed
+          rule: '!has(oldSelf.status) || !has(oldSelf.status.irreversibleAction) ||
+            (has(self.status) && has(self.status.irreversibleAction) && self.status.irreversibleAction
+            == oldSelf.status.irreversibleAction && self.spec.action == oldSelf.status.irreversibleAction)'
+        - message: an irreversible checkpoint requires the corresponding spec.action
+          rule: '!has(self.status) || !has(self.status.irreversibleAction) || self.spec.action
+            == self.status.irreversibleAction'
+        - message: the infrastructure transition must be named supervisor-vds-to-vpc
+          rule: self.metadata.name == 'supervisor-vds-to-vpc'
+    served: true
+    storage: true
+    subresources:
+      status: {}
