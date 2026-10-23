@@ -466,6 +466,9 @@ func TestDeleteMultiSubnetConnectionBindingMapsByCRs(t *testing.T) {
 			err = svc.DeleteMultiSubnetConnectionBindingMapsByCRs(sets.New[string](tc.bindingCRIDs...))
 			if tc.expErr != "" {
 				require.EqualError(t, err, tc.expErr)
+				for _, obj := range svc.BindingStore.List() {
+					assert.Nil(t, obj.(*model.SubnetConnectionBindingMap).MarkedForDelete, "failed deletion must preserve realized cache entries")
+				}
 			} else {
 				require.NoError(t, err)
 			}

@@ -1461,3 +1461,597 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 
 	return NewReconciler(mgr, subnetService, bindingService)
 }
+
+func TestGetPreferredVlan(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns VLANExtension.VLANID as preference even when binding has status", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+			Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(201)},
+		}
+		childSubnet := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{Name: "sub-1", Namespace: "ns-1"},
+			Status: v1alpha1.SubnetStatus{
+				VLANExtension: v1alpha1.VLANExtension{VLANID: 300},
+			},
+		}
+		r := createFakeReconciler(bm, childSubnet)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(300), preferred)
+	})
+
+	t.Run("returns -1 when child subnet has no extension even when binding has status", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+			Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(201)},
+		}
+		childSubnet := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{Name: "sub-1", Namespace: "ns-1"},
+		}
+		r := createFakeReconciler(bm, childSubnet)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(-1), preferred)
+	})
+
+	t.Run("returns -1 when status.vlanTrafficTag is nil and child subnet has no extension", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+		}
+		childSubnet := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{Name: "sub-1", Namespace: "ns-1"},
+		}
+		r := createFakeReconciler(bm, childSubnet)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(-1), preferred)
+	})
+
+	t.Run("returns -1 when child subnet not found even when binding has status", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+			Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(201)},
+		}
+		r := createFakeReconciler(bm)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(-1), preferred)
+	})
+
+	t.Run("returns -1 when status.vlanTrafficTag is nil and child subnet not found", func(t *testing.T) {
+		bm := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
+		}
+		r := createFakeReconciler(bm)
+		preferred := r.getPreferredVlan(ctx, bm)
+		assert.Equal(t, int64(-1), preferred)
+	})
+}
+
+func TestRestoreReconcile(t *testing.T) {
+	bmWithStatus := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "bm-restore", Namespace: "ns-1", UID: "bm-restore-uid"},
+		Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1", TargetSubnetName: "sub-target"},
+		Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(105)},
+	}
+
+	t.Run("restore list excludes terminating CR", func(t *testing.T) {
+		binding := bmWithStatus.DeepCopy()
+		now := metav1.Now()
+		binding.DeletionTimestamp = &now
+		binding.Finalizers = []string{"test/finalizer"}
+		r := createFakeReconciler(binding)
+		list, err := r.getRestoreList()
+		require.NoError(t, err)
+		assert.Empty(t, list)
+	})
+
+	t.Run("restore cleans terminating owners even with no active CRs", func(t *testing.T) {
+		binding := bmWithStatus.DeepCopy()
+		now := metav1.Now()
+		binding.DeletionTimestamp = &now
+		binding.Finalizers = []string{"test/finalizer"}
+		r := createFakeReconciler(binding)
+		prepared := false
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "ValidateRestoreBindings",
+			func(_ *subnetbinding.BindingService, plans []subnetbinding.RestoreBindingPlan, deleting sets.Set[string]) (sets.Set[string], error) {
+				prepared = true
+				assert.Empty(t, plans)
+				assert.Equal(t, sets.New[string](string(binding.UID)), deleting)
+				return deleting, nil
+			})
+		defer patches.Reset()
+		require.NoError(t, r.RestoreReconcile())
+		assert.True(t, prepared)
+	})
+
+	t.Run("missing dependency fails restore", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		err := r.RestoreReconcile()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot prepare restore")
+		assert.False(t, r.restoreMode)
+	})
+
+	t.Run("cleanup failure stops restore", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "ValidateRestoreBindings",
+			func(_ *subnetbinding.BindingService, _ []subnetbinding.RestoreBindingPlan, _ sets.Set[string]) (sets.Set[string], error) {
+				return nil, fmt.Errorf("failed to release outdated binding VLANs: NSX delete failed")
+			})
+		patches.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, _ context.Context, _ *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+			return "/child", []string{"/parent"}, nil
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to release outdated binding VLANs")
+		assert.False(t, r.restoreMode)
+		// The service must also return to normal allocation after failure.
+		vlan, err := r.SubnetBindingService.ReconcileVlanTrafficTag(bmWithStatus, 100, []string{"/parent"}, false)
+		require.NoError(t, err)
+		assert.Equal(t, int64(100), vlan)
+	})
+
+	t.Run("terminating CR is deleted without dependency validation", func(t *testing.T) {
+		binding := bmWithStatus.DeepCopy()
+		now := metav1.Now()
+		binding.DeletionTimestamp = &now
+		binding.Finalizers = []string{"test/finalizer"}
+		r := createFakeReconciler(binding)
+		deleted := false
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "DeleteSubnetConnectionBindingMapsByCRName",
+			func(_ *subnetbinding.BindingService, name, namespace string) error {
+				assert.Equal(t, binding.Name, name)
+				assert.Equal(t, binding.Namespace, namespace)
+				deleted = true
+				return nil
+			})
+		defer patches.Reset()
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}})
+		require.NoError(t, err)
+		assert.Equal(t, controllerscommon.ResultNormal, result)
+		assert.True(t, deleted)
+	})
+
+	t.Run("getRestoreList error", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.Client), "List", func(_ client.Client, _ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+			return fmt.Errorf("k8s list failed")
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get SubnetConnectionBindingMap restore list")
+	})
+
+	t.Run("success when restore list is empty", func(t *testing.T) {
+		r := createFakeReconciler()
+		err := r.RestoreReconcile()
+		assert.NoError(t, err)
+	})
+
+	t.Run("restore list includes CR when not in store and has status.vlanTrafficTag", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		list, err := r.getRestoreList()
+		assert.NoError(t, err)
+		assert.Equal(t, []types.NamespacedName{{Namespace: "ns-1", Name: "bm-restore"}}, list)
+	})
+
+	t.Run("restore list excludes unrealized manual CR without status", func(t *testing.T) {
+		bmManual := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-manual", Namespace: "ns-1", UID: "bm-manual-uid"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1", TargetSubnetName: "sub-target", VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(200)},
+		}
+		r := createFakeReconciler(bmManual)
+		list, err := r.getRestoreList()
+		assert.NoError(t, err)
+		assert.Empty(t, list)
+		require.NoError(t, r.RestoreReconcile())
+	})
+
+	t.Run("restore list includes CR when in store but VLAN tag mismatches", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		existingBM := &model.SubnetConnectionBindingMap{
+			Id:             common.String("nsx-bm-1"),
+			Path:           common.String("/orgs/default/projects/default/vpcs/vpc-1/subnets/sub-1/subnet-connection-binding-maps/nsx-bm-1"),
+			VlanTrafficTag: v1alpha1.VLANTrafficTagPtr(999),
+			Tags: []model.Tag{
+				{Scope: common.String(common.TagScopeSubnetBindingCRUID), Tag: common.String("bm-restore-uid")},
+			},
+		}
+		r.SubnetBindingService.BindingStore.Apply(existingBM)
+		list, err := r.getRestoreList()
+		assert.NoError(t, err)
+		assert.Equal(t, []types.NamespacedName{{Namespace: "ns-1", Name: "bm-restore"}}, list)
+	})
+
+	t.Run("restore list includes matching VLAN to reconcile topology changes", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		existingBM := &model.SubnetConnectionBindingMap{
+			Id:             common.String("nsx-bm-1"),
+			Path:           common.String("/orgs/default/projects/default/vpcs/vpc-1/subnets/sub-1/subnet-connection-binding-maps/nsx-bm-1"),
+			VlanTrafficTag: v1alpha1.VLANTrafficTagPtr(105),
+			Tags: []model.Tag{
+				{Scope: common.String(common.TagScopeSubnetBindingCRUID), Tag: common.String("bm-restore-uid")},
+			},
+		}
+		r.SubnetBindingService.BindingStore.Apply(existingBM)
+		list, err := r.getRestoreList()
+		assert.NoError(t, err)
+		assert.Equal(t, []types.NamespacedName{{Namespace: "ns-1", Name: "bm-restore"}}, list)
+	})
+
+	t.Run("restore list excludes CR when neither status nor spec has VLAN tag", func(t *testing.T) {
+		bmNoVlan := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "bm-novlan", Namespace: "ns-1", UID: "bm-novlan-uid"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1", TargetSubnetName: "sub-target"},
+		}
+		r := createFakeReconciler(bmNoVlan)
+		list, err := r.getRestoreList()
+		assert.NoError(t, err)
+		assert.Empty(t, list)
+	})
+
+	t.Run("success when reconcile succeeds for restore items", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *Reconciler, _ context.Context, _ ctrl.Request) (ctrl.Result, error) {
+			return controllerscommon.ResultNormal, nil
+		})
+		patches.ApplyPrivateMethod(reflect.TypeOf(r), "releaseOutdatedBindings", func(_ *Reconciler, _ []types.NamespacedName) error { return nil })
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.NoError(t, err)
+	})
+
+	t.Run("error when reconcile fails for restore items", func(t *testing.T) {
+		r := createFakeReconciler(bmWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *Reconciler, _ context.Context, _ ctrl.Request) (ctrl.Result, error) {
+			return controllerscommon.ResultNormal, fmt.Errorf("reconcile failed")
+		})
+		patches.ApplyPrivateMethod(reflect.TypeOf(r), "releaseOutdatedBindings", func(_ *Reconciler, _ []types.NamespacedName) error { return nil })
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "errors found in SubnetConnectionBindingMap restore")
+	})
+
+	t.Run("prevents VLAN swap across multiple CRs during restore reconcile", func(t *testing.T) {
+		// Simulates Bug: scbm-sub4-1 had VLAN 2, scbm-sub5-1 had VLAN 1.
+		// Alphabetically, scbm-sub4-1 is listed first.
+		bmSub4 := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "scbm-sub4-1", Namespace: "ns-1", UID: "uid-sub4"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "child-sub4", TargetSubnetName: "subnet-noip-2"},
+			Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(2)},
+		}
+		bmSub5 := &v1alpha1.SubnetConnectionBindingMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "scbm-sub5-1", Namespace: "ns-1", UID: "uid-sub5"},
+			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "child-sub5", TargetSubnetName: "subnet-noip-2"},
+			Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(1)},
+		}
+		childSub4 := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "child-sub4", Namespace: "ns-1"}}
+		childSub5 := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "child-sub5", Namespace: "ns-1"}}
+
+		r := createFakeReconciler(bmSub4, bmSub5, childSub4, childSub5)
+		list, err := r.getRestoreList()
+		assert.NoError(t, err)
+		assert.Len(t, list, 2)
+
+		// Restore mode preserves status VLANs even when no preferred VLAN is available.
+		r.SubnetBindingService.SetRestoreMode(true)
+		defer r.SubnetBindingService.SetRestoreMode(false)
+		pref4 := r.getPreferredVlan(context.Background(), bmSub4)
+		pref5 := r.getPreferredVlan(context.Background(), bmSub5)
+		assert.Equal(t, int64(-1), pref4)
+		assert.Equal(t, int64(-1), pref5)
+		vlan4, err := r.SubnetBindingService.ReconcileVlanTrafficTag(bmSub4, pref4, []string{"/parent"}, false)
+		require.NoError(t, err)
+		vlan5, err := r.SubnetBindingService.ReconcileVlanTrafficTag(bmSub5, pref5, []string{"/parent"}, false)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), vlan4, "scbm-sub4-1 must preserve VLAN 2")
+		assert.Equal(t, int64(1), vlan5, "scbm-sub5-1 must preserve VLAN 1")
+	})
+}
+
+func TestRestoreReleasesExchangedVlans(t *testing.T) {
+	bindingA := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns-1", UID: "uid-a"},
+		Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(2)},
+	}
+	bindingB := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: "ns-1", UID: "uid-b"},
+		Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(1)},
+	}
+	r := createFakeReconciler(bindingA, bindingB)
+	for i, binding := range []*v1alpha1.SubnetConnectionBindingMap{bindingA, bindingB} {
+		require.NoError(t, r.SubnetBindingService.BindingStore.Apply(&model.SubnetConnectionBindingMap{
+			Id:             common.String(binding.Name),
+			Path:           common.String("/orgs/default/projects/default/vpcs/vpc-1/subnets/child/subnet-connection-binding-maps/" + binding.Name),
+			SubnetPath:     common.String("/parent"),
+			VlanTrafficTag: common.Int64(int64(i + 1)),
+			Tags:           []model.Tag{{Scope: common.String(common.TagScopeSubnetBindingCRUID), Tag: common.String(string(binding.UID))}},
+		}))
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "DeleteMultiSubnetConnectionBindingMapsByCRs",
+		func(svc *subnetbinding.BindingService, uids sets.Set[string]) error {
+			assert.Equal(t, sets.New[string]("uid-a", "uid-b"), uids)
+			for uid := range uids {
+				svc.BindingStore.DeleteMultipleObjects(svc.BindingStore.GetBindingsByBindingMapCRUID(uid))
+			}
+			return nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, _ context.Context, binding *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+		return "/child-" + binding.Name, []string{"/parent"}, nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "ValidateRestoreBindings", func(svc *subnetbinding.BindingService, plans []subnetbinding.RestoreBindingPlan, deleting sets.Set[string]) (sets.Set[string], error) {
+		assert.Len(t, plans, 2)
+		return sets.New[string]("uid-a", "uid-b"), nil
+	})
+	defer patches.Reset()
+	list, err := r.getRestoreList()
+	require.NoError(t, err)
+	require.NoError(t, r.releaseOutdatedBindings(list))
+	r.SubnetBindingService.SetRestoreMode(true)
+	defer r.SubnetBindingService.SetRestoreMode(false)
+	for _, binding := range []*v1alpha1.SubnetConnectionBindingMap{bindingA, bindingB} {
+		vlan, err := r.SubnetBindingService.ReconcileVlanTrafficTag(binding, -1, []string{"/parent"}, false)
+		require.NoError(t, err)
+		assert.Equal(t, *binding.Status.VLANTrafficTag, vlan)
+	}
+}
+
+func TestRestorePlanningIgnoresTerminatingTopology(t *testing.T) {
+	now := metav1.Now()
+	old := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "old", Namespace: "ns-1", UID: "old-uid", DeletionTimestamp: &now, Finalizers: []string{"test/finalizer"}},
+	}
+	binding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "active", Namespace: "ns-1", UID: "active-uid"},
+		Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "child", TargetSubnetName: "parent"},
+		Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(7)},
+	}
+	child := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "ns-1", UID: "child-uid"}}
+	parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: "ns-1", UID: "parent-uid"}}
+	r := createFakeReconciler(old, binding, child, parent)
+	const prefix = "/orgs/default/projects/default/vpcs/vpc-1/subnets/"
+	childPath, parentPath := prefix+"child", prefix+"parent"
+	// The future trunk is still a branch of a terminating binding in the backup.
+	require.NoError(t, r.SubnetBindingService.BindingStore.Apply(&model.SubnetConnectionBindingMap{
+		Id: common.String("old"), Path: common.String(parentPath + "/subnet-connection-binding-maps/old"),
+		ParentPath: common.String(parentPath), SubnetPath: common.String(prefix + "old-trunk"),
+		VlanTrafficTag: common.Int64(7),
+		Tags:           []model.Tag{{Scope: common.String(common.TagScopeSubnetBindingCRUID), Tag: common.String(string(old.UID))}},
+	}))
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet",
+		func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
+			path := childPath
+			if uid == string(parent.UID) {
+				path = parentPath
+			}
+			return []*model.VpcSubnet{{Path: common.String(path)}}
+		})
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(r.SubnetBindingService), "listBindingMapsByParentSubnetPath",
+		func(s *subnetbinding.BindingService, path string) ([]*model.SubnetConnectionBindingMap, error) {
+			return s.GetSubnetConnectionBindingMapsByParentSubnet(path), nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(r.SubnetBindingService), "listBindingMapsByChildSubnetPath",
+		func(s *subnetbinding.BindingService, path string) ([]*model.SubnetConnectionBindingMap, error) {
+			return s.GetSubnetConnectionBindingMapsByChildSubnet(path), nil
+		})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "DeleteMultiSubnetConnectionBindingMapsByCRs",
+		func(s *subnetbinding.BindingService, uids sets.Set[string]) error {
+			assert.Equal(t, sets.New[string](string(old.UID)), uids)
+			for uid := range uids {
+				s.BindingStore.DeleteMultipleObjects(s.BindingStore.GetBindingsByBindingMapCRUID(uid))
+			}
+			return nil
+		})
+	_, _, dependencyErr := r.validateDependency(context.Background(), binding)
+	require.NotNil(t, dependencyErr, "normal mode must still reject the existing conflicting role")
+	list, err := r.getRestoreList()
+	require.NoError(t, err)
+	require.NoError(t, r.releaseOutdatedBindings(list))
+	assert.False(t, r.restorePlanning)
+	_, _, dependencyErr = r.validateDependency(context.Background(), binding)
+	require.Nil(t, dependencyErr)
+}
+
+func TestBindingMapDeletionPredicate(t *testing.T) {
+	before := &v1alpha1.SubnetConnectionBindingMap{}
+	after := before.DeepCopy()
+	now := metav1.Now()
+	after.DeletionTimestamp = &now
+	assert.True(t, PredicateFuncsForBindingMaps.Update(event.UpdateEvent{ObjectOld: before, ObjectNew: after}))
+	assert.False(t, PredicateFuncsForBindingMaps.Update(event.UpdateEvent{ObjectOld: after, ObjectNew: after.DeepCopy()}))
+}
+
+func TestRestoreSnapshotChangesAbortBeforeDeletion(t *testing.T) {
+	binding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns-1", UID: "a-uid", Generation: 1},
+		Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(2)},
+	}
+	r := createFakeReconciler(binding)
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency",
+		func(_ *Reconciler, _ context.Context, _ *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+			return "/child", []string{"/parent"}, nil
+		})
+	defer patches.Reset()
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "ValidateRestoreBindings",
+		func(_ *subnetbinding.BindingService, _ []subnetbinding.RestoreBindingPlan, _ sets.Set[string]) (sets.Set[string], error) {
+			current := binding.DeepCopy()
+			require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}, current))
+			current.Spec.VLANTrafficTag = common.Int64(3)
+			current.Generation++
+			require.NoError(t, r.Client.Update(context.Background(), current))
+			return sets.New[string](string(binding.UID)), nil
+		})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "DeleteMultiSubnetConnectionBindingMapsByCRs",
+		func(_ *subnetbinding.BindingService, _ sets.Set[string]) error {
+			t.Fatal("changed snapshot must not delete existing resources")
+			return nil
+		})
+	err := r.releaseOutdatedBindings([]types.NamespacedName{{Namespace: binding.Namespace, Name: binding.Name}})
+	require.ErrorContains(t, err, "replan required")
+}
+
+func TestRestoreExecutesValidatedSnapshot(t *testing.T) {
+	for _, scenario := range []string{"success", "changed spec", "replaced CR", "changed dependencies", "changed during apply", "status failure", "unplanned"} {
+		t.Run(scenario, func(t *testing.T) {
+			binding := &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns-1", UID: "a-uid", Generation: 1},
+				Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(2)},
+			}
+			r := createFakeReconciler(binding)
+			key := types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}
+			r.restoreMode = true
+			r.restorePlans = map[types.NamespacedName]subnetbinding.RestoreBindingPlan{key: {Binding: binding.DeepCopy(), SubnetPath: "/child", TargetSubnetPaths: []string{"/parent"}}}
+			if scenario == "unplanned" {
+				r.restorePlans = nil
+			}
+			if scenario == "changed spec" {
+				current := binding.DeepCopy()
+				require.NoError(t, r.Client.Get(context.Background(), key, current))
+				current.Spec.VLANTrafficTag = common.Int64(3)
+				require.NoError(t, r.Client.Update(context.Background(), current))
+			}
+			if scenario == "replaced CR" {
+				current := binding.DeepCopy()
+				require.NoError(t, r.Client.Get(context.Background(), key, current))
+				require.NoError(t, r.Client.Delete(context.Background(), current))
+				replacement := binding.DeepCopy()
+				replacement.UID = "replacement-uid"
+				replacement.ResourceVersion = ""
+				require.NoError(t, r.Client.Create(context.Background(), replacement))
+			}
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency",
+				func(_ *Reconciler, _ context.Context, _ *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+					if scenario == "changed dependencies" {
+						return "/child", []string{"/new-parent"}, nil
+					}
+					return "/child", []string{"/parent"}, nil
+				})
+			defer patches.Reset()
+			applied := false
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
+				func(_ *subnetbinding.BindingService, actual *v1alpha1.SubnetConnectionBindingMap, preferred int64, path string, targets []string) (int64, error) {
+					applied = true
+					assert.Equal(t, binding.UID, actual.UID)
+					assert.Equal(t, int64(-1), preferred)
+					assert.Equal(t, "/child", path)
+					assert.Equal(t, []string{"/parent"}, targets)
+					if scenario == "changed during apply" {
+						current := binding.DeepCopy()
+						require.NoError(t, r.Client.Get(context.Background(), key, current))
+						current.Spec.VLANTrafficTag = common.Int64(3)
+						require.NoError(t, r.Client.Update(context.Background(), current))
+					}
+					return 2, nil
+				})
+			if scenario == "status failure" {
+				patches.ApplyFunc(updateBindingMapCondition, func(_ client.Client, _ context.Context, _ *v1alpha1.SubnetConnectionBindingMap, _ v1alpha1.Condition) error {
+					return fmt.Errorf("status unavailable")
+				})
+			}
+			_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+			if scenario == "success" {
+				require.NoError(t, err)
+				assert.True(t, applied)
+			} else {
+				require.Error(t, err)
+				assert.Equal(t, scenario == "status failure" || scenario == "changed during apply", applied)
+			}
+		})
+	}
+}
+
+func TestStatusUpdateRejectsChangedSnapshot(t *testing.T) {
+	for _, scenario := range []string{"replacement", "generation", "spec"} {
+		t.Run(scenario, func(t *testing.T) {
+			original := &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns-1", UID: "old-uid", Generation: 1},
+			}
+			current := original.DeepCopy()
+			switch scenario {
+			case "replacement":
+				current.UID = "new-uid"
+			case "generation":
+				current.Generation++
+			case "spec":
+				current.Spec.VLANTrafficTag = common.Int64(3)
+			}
+			r := createFakeReconciler(current)
+			original.Status.VLANTrafficTag = common.Int64(2)
+			err := updateBindingMapCondition(r.Client, context.Background(), original, v1alpha1.Condition{Type: v1alpha1.Ready, Status: corev1.ConditionTrue})
+			require.ErrorContains(t, err, "changed before status update")
+			got := &v1alpha1.SubnetConnectionBindingMap{}
+			require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: current.Namespace, Name: current.Name}, got))
+			assert.Equal(t, current.Status, got.Status)
+		})
+	}
+}
+
+func TestLegacyManualRestoreSurvivesFailedRebuild(t *testing.T) {
+	binding := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy", Namespace: "ns-1", UID: "legacy-uid"},
+		Spec:       v1alpha1.SubnetConnectionBindingMapSpec{VLANTrafficTag: common.Int64(2)},
+	}
+	r := createFakeReconciler(binding)
+	const child = "/orgs/default/projects/default/vpcs/vpc-1/subnets/child"
+	const parent = "/orgs/default/projects/default/vpcs/vpc-1/subnets/parent"
+	require.NoError(t, r.SubnetBindingService.BindingStore.Apply(&model.SubnetConnectionBindingMap{
+		Id: common.String("legacy"), Path: common.String(child + "/subnet-connection-binding-maps/legacy"),
+		ParentPath: common.String(child), SubnetPath: common.String(parent), VlanTrafficTag: common.Int64(1),
+		Tags: []model.Tag{{Scope: common.String(common.TagScopeSubnetBindingCRUID), Tag: common.String(string(binding.UID))}},
+	}))
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency",
+		func(_ *Reconciler, _ context.Context, _ *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+			return child, []string{parent}, nil
+		})
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(r.SubnetBindingService), "listBindingMapsByParentSubnetPath",
+		func(s *subnetbinding.BindingService, path string) ([]*model.SubnetConnectionBindingMap, error) {
+			return s.GetSubnetConnectionBindingMapsByParentSubnet(path), nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(r.SubnetBindingService), "listBindingMapsByChildSubnetPath",
+		func(s *subnetbinding.BindingService, path string) ([]*model.SubnetConnectionBindingMap, error) {
+			return s.GetSubnetConnectionBindingMapsByChildSubnet(path), nil
+		})
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "DeleteMultiSubnetConnectionBindingMapsByCRs",
+		func(s *subnetbinding.BindingService, uids sets.Set[string]) error {
+			for uid := range uids {
+				s.BindingStore.DeleteMultipleObjects(s.BindingStore.GetBindingsByBindingMapCRUID(uid))
+			}
+			return nil
+		})
+	fail := true
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
+		func(_ *subnetbinding.BindingService, snapshot *v1alpha1.SubnetConnectionBindingMap, _ int64, _ string, _ []string) (int64, error) {
+			require.NotNil(t, snapshot.Status.VLANTrafficTag)
+			assert.Equal(t, int64(1), *snapshot.Status.VLANTrafficTag, "checkpoint records the observed VLAN, not the unrealized desired VLAN")
+			if fail {
+				return 0, fmt.Errorf("NSX unavailable")
+			}
+			return 2, nil
+		})
+	require.Error(t, r.RestoreReconcile())
+	assert.Empty(t, r.SubnetBindingService.BindingStore.GetBindingsByBindingMapCRUID(string(binding.UID)))
+	current := &v1alpha1.SubnetConnectionBindingMap{}
+	key := types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}
+	require.NoError(t, r.Client.Get(context.Background(), key, current))
+	require.NotNil(t, current.Status.VLANTrafficTag)
+	assert.Equal(t, int64(1), *current.Status.VLANTrafficTag)
+	require.NotEmpty(t, current.Status.Conditions)
+	assert.Equal(t, "RestoreFailed", current.Status.Conditions[0].Reason)
+	list, err := r.getRestoreList()
+	require.NoError(t, err)
+	assert.Equal(t, []types.NamespacedName{key}, list)
+	fail = false
+	require.NoError(t, r.RestoreReconcile())
+	require.NoError(t, r.Client.Get(context.Background(), key, current))
+	assert.Equal(t, int64(2), *current.Status.VLANTrafficTag)
+	assert.Equal(t, corev1.ConditionTrue, current.Status.Conditions[0].Status)
+}

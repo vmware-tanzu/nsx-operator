@@ -12,6 +12,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	search_mocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/searchclient"
@@ -183,6 +184,92 @@ func TestBindingMapCRUID(t *testing.T) {
 	assert.Equal(t, "", uid2)
 }
 
+func TestReconcileVlanTrafficTagStatusByMode(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		cachedVlan int64
+		conflict   bool
+		fromNSX    bool
+		normalMode bool
+		expected   int64
+	}{
+		{name: "missing after restore"},
+		{name: "mismatched cache", cachedVlan: 1},
+		{name: "matching cache", cachedVlan: 2},
+		{name: "cache conflict", conflict: true},
+		{name: "NSX retry", fromNSX: true},
+		{name: "NSX conflict", fromNSX: true, conflict: true},
+		{name: "normal mode allocates after clearing spec", normalMode: true, expected: 100},
+		{name: "normal mode reuses cache after clearing spec", normalMode: true, cachedVlan: 1, expected: 1},
+		{name: "normal mode ignores status conflict", normalMode: true, conflict: true, expected: 100},
+		{name: "normal mode NSX retry can reallocate", normalMode: true, fromNSX: true, conflict: true, expected: 100},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &BindingService{BindingStore: SetupStore()}
+			svc.SetRestoreMode(!tc.normalMode)
+			binding := &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{UID: "binding-uid"},
+				Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: Int64(2)},
+			}
+			addBinding := func(id, uid string, vlan int64) {
+				require.NoError(t, svc.BindingStore.Apply(&model.SubnetConnectionBindingMap{
+					Id:             String(id),
+					Path:           String("/orgs/default/projects/default/vpcs/vpc-1/subnets/child/subnet-connection-binding-maps/" + id),
+					SubnetPath:     String("/parent"),
+					VlanTrafficTag: Int64(vlan),
+					Tags:           []model.Tag{{Scope: String(common.TagScopeSubnetBindingCRUID), Tag: String(uid)}},
+				}))
+			}
+			if tc.cachedVlan != 0 {
+				addBinding("existing", string(binding.UID), tc.cachedVlan)
+			}
+			if tc.conflict {
+				addBinding("other", "other-uid", 2)
+			}
+			if tc.fromNSX {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(svc), "CollectUsedVlansOnParentSubnetsFromNSX",
+					func(_ *BindingService, paths []string, excludeUID string) (sets.Set[int], error) {
+						assert.Equal(t, []string{"/parent"}, paths)
+						assert.Equal(t, string(binding.UID), excludeUID)
+						if tc.conflict {
+							return sets.New[int](2), nil
+						}
+						return sets.New[int](), nil
+					})
+				defer patches.Reset()
+			}
+			got, err := svc.ReconcileVlanTrafficTag(binding, 100, []string{"/parent"}, tc.fromNSX)
+			if tc.conflict && !tc.normalMode {
+				require.Error(t, err)
+				assert.True(t, vlanpool.IsVlanAllocationError(err))
+				assert.Zero(t, got)
+			} else {
+				require.NoError(t, err)
+				expected := int64(2)
+				if tc.normalMode {
+					expected = tc.expected
+				}
+				assert.Equal(t, expected, got)
+			}
+		})
+	}
+}
+
+func TestReconcileVlanTrafficTagAfterRestoreOrder(t *testing.T) {
+	for _, order := range [][]int64{{2, 1}, {1, 2}} {
+		svc := &BindingService{BindingStore: SetupStore()}
+		svc.SetRestoreMode(true)
+		for _, vlan := range order {
+			binding := &v1alpha1.SubnetConnectionBindingMap{
+				Status: v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: Int64(vlan)},
+			}
+			got, err := svc.ReconcileVlanTrafficTag(binding, -1, []string{"/parent"}, false)
+			require.NoError(t, err)
+			assert.Equal(t, vlan, got)
+		}
+	}
+}
+
 func TestReconcileVlanTrafficTag(t *testing.T) {
 	bm1 := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -195,6 +282,7 @@ func TestReconcileVlanTrafficTag(t *testing.T) {
 			TargetSubnetName: "subnet-parent-1",
 			VLANTrafficTag:   v1alpha1.VLANTrafficTagPtr(201),
 		},
+		Status: v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: Int64(200)},
 	}
 	bm2 := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: metav1.ObjectMeta{
