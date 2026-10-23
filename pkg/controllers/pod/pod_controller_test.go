@@ -256,7 +256,7 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.VpcSubnet{}, nil
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, bool, error) {
+					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
 						return &model.SegmentPortState{
 							RealizedBindings: []model.AddressBindingEntry{
 								{
@@ -303,7 +303,9 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 						return &model.VpcSubnet{}, nil
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string) (*model.SegmentPortState, bool, error) {
+					func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool) (*model.SegmentPortState, bool, error) {
+						assert.False(t, isVmSubnetPort)
+						assert.True(t, restoreMode)
 						return &model.SegmentPortState{
 							RealizedBindings: []model.AddressBindingEntry{
 								{
@@ -314,8 +316,18 @@ func TestPodReconciler_Reconcile(t *testing.T) {
 							},
 						}, false, nil
 					})
-				patches.ApplyFunc(common.UpdateReconfigureNicAnnotation, func(client client.Client, ctx context.Context, obj client.Object, value string) error {
-					assert.Equal(t, "true", value)
+				statusUpdates := 0
+				t.Cleanup(func() {
+					assert.Equal(t, 1, statusUpdates)
+				})
+				patches.ApplyFunc(updatePodStatusConditions, func(c client.Client, ctx context.Context, pod *v1.Pod, conditions []v1.PodCondition) error {
+					statusUpdates++
+					if assert.Len(t, conditions, 1) {
+						assert.Equal(t, v1.PodConditionType("PodNetworkReconfigRequired"), conditions[0].Type)
+						assert.Equal(t, v1.ConditionTrue, conditions[0].Status)
+						assert.Equal(t, "ReconfigureNic", conditions[0].Reason)
+						assert.False(t, conditions[0].LastTransitionTime.IsZero())
+					}
 					return nil
 				})
 				return patches

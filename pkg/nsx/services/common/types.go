@@ -66,6 +66,7 @@ const (
 	LabelDefaultSubnetSet              string = "nsxoperator.vmware.com/default-subnetset-for"
 	LabelDefaultNetwork                string = "nsx.vmware.com/default-network"
 	LabelImageFetcher                  string = "iaas.vmware.com/image-fetcher"
+	LabelVksClusterName                string = "cluster.x-k8s.io/cluster-name"
 	LabelDefaultVMSubnetSet            string = "VirtualMachine"
 	LabelDefaultPodSubnetSet           string = "Pod"
 	DefaultVMNetwork                   string = "vm"
