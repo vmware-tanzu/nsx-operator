@@ -6,29 +6,29 @@ package migration
 
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 	migrationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/migration"
 )
 
-// Operator owns migration controller registration and lazy NSX connectivity.
-// Action execution is implemented separately in UBMWM-12405.
+// Operator owns only migration controllers, not normal NSX resource reconciliation.
+// Register concrete handlers using NSX before SetupWithManager and manager startup.
+// No external migration handlers are implemented in this framework.
 type Operator struct {
-	Enabled bool
-	NSX     *migrationservice.Service
+	Engine *transition.Engine
+	NSX    *migrationservice.Service
 }
 
-// New constructs a disabled-by-default framework without contacting NSX.
+// New constructs a disabled-by-default dispatcher with lazy shared NSX connectivity.
 func New(enabled bool) *Operator {
-	return &Operator{Enabled: enabled, NSX: migrationservice.NewService()}
+	return &Operator{Engine: &transition.Engine{Enabled: enabled}, NSX: migrationservice.NewService()}
 }
 
-// SetupWithManager registers watches for the two orchestration APIs.
+// SetupWithManager registers both transition kinds with a common dispatcher.
 func (o *Operator) SetupWithManager(mgr ctrl.Manager) error {
-	for _, object := range []client.Object{&api.ControlPlaneNetworkTransition{}, &api.NamespaceNetworkTransition{}} {
-		r := &controllers.Reconciler{Client: mgr.GetClient(), Enabled: o.Enabled, Object: object}
+	for _, stage := range []transition.Stage{transition.Infrastructure, transition.Namespaces} {
+		r := &controllers.Reconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Engine: o.Engine, Stage: stage}
 		if err := r.SetupWithManager(mgr); err != nil {
 			return err
 		}

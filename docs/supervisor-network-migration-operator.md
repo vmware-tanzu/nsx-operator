@@ -4,35 +4,43 @@ The Supervisor migration framework runs as a separate process/container in the
 NCP Pod. It owns the cluster-scoped `migration.vmware.com/v1alpha1` resources
 `ControlPlaneNetworkTransition` and `NamespaceNetworkTransition`.
 
+## Branch scope
+
+This branch, `topic/xl018891/UBMWM-12405`, builds on
+`topic/xl018891/supervisor-network-migration-operator`. It adds action dispatch,
+persisted execution checkpoints, infrastructure/namespace dependency gates,
+and irreversible commit/finalize guards for
+[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
+The base branch retains the manager, observational watches, lazy NSX connectivity,
+CRD definitions, and packaging. Concrete external migration handlers are still pending.
+
 ## Framework and services
 
 - `cmd_migration`: independent controller manager; no normal NSX controllers,
   webhook servers, `electMaster` calls, or `nsx-operator-role` label changes.
 - `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.vmware.com/v1alpha1.
-- `pkg/migration/controllers`: controller registration and observation of both
-  transition kinds. Reconciliation leaves spec, status, and external resources unchanged.
+- `pkg/migration/controllers` and `pkg/migration/transition`: live dependency gates,
+  action checkpoints, early rollback, and irreversible commit/finalize recovery.
 - `pkg/migration.Operator.NSX`: lazy `pkg/nsx/services/migration.Service`, reusing
   `pkg/config` and `nsx.GetClient`. Register concrete action handlers with this
   provider before manager startup. Client instances, token refresh, connection
   pools, and rate-limit budgets are process-local, not shared between containers.
 
-Migration observation defaults to disabled. `--enable-network-migration` enables
-controller observation only. The framework does not dispatch actions, update
-status, checkpoint execution, or enforce cross-resource dependencies. Those
-behaviors and their tests are isolated on `topic/xl018891/UBMWM-12405` for
-[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
-Startup does not load NSX configuration or contact NSX. Missing configuration or
-failed client initialization can be retried by future handlers. Migration startup
-must not depend solely on `HasVPCNamespaces()`, because a VDS Supervisor may not
-have any VPC namespaces before migration preparation.
+Migration dispatch defaults to disabled. Enabling `--enable-network-migration`
+reports `ActionNotImplemented` for valid actions: no external migration handlers
+ship yet. Disabled startup does not load NSX configuration or contact NSX. Missing
+configuration or failed client initialization can be retried by future handlers.
+Migration startup must not depend solely on `HasVPCNamespaces()`, because a VDS
+Supervisor may not have any VPC namespaces before migration preparation.
 
-The CRDs define `EVALUATE`, `PLAN`, `DERIVE`, `EXECUTE`, and `ROLLBACK`; namespace
+Both stages use `EVALUATE`, `PLAN`, `DERIVE`, `EXECUTE`, and `ROLLBACK`; namespace
 batches additionally support `COMMIT`, and infrastructure supports `FINALIZE`.
-Status fields define the contract for future execution and recovery, including
-`lastAction`, `actionState`, `actionGeneration`, and `irreversibleAction`. CRD
-validation remains part of the API definitions; no execution checkpoints are
-written by this branch. Namespace status defines `name`, `phase`, `reason`, and
-`message`; milestones are batch conditions, and counters follow spec membership.
+`lastAction`, `actionState`, and `actionGeneration` record accepted work. A handler
+returns `CheckpointIrreversible` only after prerequisite checks, then waits for
+persisted `status.irreversibleAction` before irreversible external changes. That
+checkpoint is immutable and closes rollback. Exact workflow IDs remain durable.
+Namespace status contains `name`, `phase`, `reason`, and `message`; milestones are batch
+conditions, and counters are derived using batch membership from spec.
 
 ## Design contract
 
@@ -47,10 +55,9 @@ bounds, unknown VDNs and conflicts between batches, belong to the concrete
 handlers, which have not shipped.
 
 `status.nsxWorkflows` is a map list keyed by `vdn`, retaining the exact
-`workflowId` for recovery. The execution contract specifies `InfraTransitionComplete`
-and the matching condition for infrastructure, and `Completed` for namespace
-execution. It specifies `Finalized` for infrastructure finalization and `Committed`
-for namespace commit. Execution is implemented separately under UBMWM-12405.
+`workflowId` for recovery. Infrastructure execution reports `InfraTransitionComplete`
+and the matching condition; namespace execution reports `Completed`. Infrastructure
+finalization reports `Finalized`; namespace commit reports `Committed`.
 The checked-in `design-*.yaml` test fixtures retain all five current design output
 examples. Apply the samples under `build/yaml/samples/migration` to begin with
 `EVALUATE`, then request each subsequent action after its prerequisites succeed.
@@ -110,9 +117,8 @@ packaging change, not by this repository alone.
 
 Concrete handlers still need a durable fenced mutation lock, finalizers and
 admission protection, current NSX ownership/consumer checks, reviewed plan and
-resource provenance records, and approval/onboarding checks. UBMWM-12405 owns action dispatch, persisted execution checkpoints, dependency
-gates, and commit/finalize guards. Concrete handlers must recheck dependencies
-under the durable lock.
+resource provenance records, and approval/onboarding checks. Recheck dependencies
+under that lock; the dispatcher's process mutex only serializes its controllers.
 Never duplicate normal NSX controllers or delete active VPC/LB/SNAT resources.
 `NetworkResourceTransition` support is a prerequisite for real cutover handlers;
 it is not implemented by this scaffold. Container co-location does not replace

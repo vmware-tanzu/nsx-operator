@@ -44,7 +44,7 @@ func registerFlags(flags *flag.FlagSet) (*options, error) {
 		namespace = "vmware-system-nsx"
 	}
 	opts := &options{}
-	flags.BoolVar(&opts.enabled, "enable-network-migration", false, "Enable migration controller observation (action execution is pending UBMWM-12405)")
+	flags.BoolVar(&opts.enabled, "enable-network-migration", false, "Enable migration dispatch (no external migration handlers are implemented)")
 	flags.StringVar(&opts.namespace, "leader-election-namespace", namespace, "Namespace for the migration operator's independent lease")
 	return opts, nil
 }
