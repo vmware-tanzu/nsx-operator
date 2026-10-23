@@ -6,6 +6,7 @@ package securitypolicy
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -104,6 +105,10 @@ func getRuleDestinationPeers(rule *v1alpha1.SecurityPolicyRule) []v1alpha1.Secur
 }
 
 func (service *SecurityPolicyService) buildSecurityPolicy(obj *v1alpha1.SecurityPolicy, createdFor string, vpcInfo *common.VPCResourceInfo, isDefaultProject bool) (*model.SecurityPolicy, *[]model.Group, *[]GroupShare, error) {
+	if service.isNamespaceGroupSupported() {
+		return service.buildNativeSecurityPolicy(obj, createdFor, vpcInfo, isDefaultProject)
+	}
+
 	var nsxRules []model.Rule
 	var nsxGroups []model.Group
 	var nsxShareGroups []model.Group
@@ -1259,7 +1264,14 @@ func (service *SecurityPolicyService) addOperatorIfNeeded(expressions *data.List
 }
 
 func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels map[string]string, memberType string, expressions *data.ListValue) {
-	for k, v := range *util.NormalizeLabels(&matchLabels) {
+	normalizedLabels := *util.NormalizeLabels(&matchLabels)
+	keys := make([]string, 0, len(normalizedLabels))
+	for k := range normalizedLabels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := normalizedLabels[k]
 		service.addOperatorIfNeeded(expressions, "AND")
 		expression := service.buildExpression(
 			"Condition", memberType,
@@ -1286,7 +1298,6 @@ func (service *SecurityPolicyService) updateExpressionsMatchLabels(matchLabels m
 //     => {key: k1, operator: In, values: [a2, a3]}
 func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressions []v1.LabelSelectorRequirement) *[]v1.LabelSelectorRequirement {
 	mergedMatchExpressions := make([]v1.LabelSelectorRequirement, 0)
-	var mergedSelector v1.LabelSelectorRequirement
 	labelSelectorMap := map[v1.LabelSelectorOperator]map[string][]string{}
 
 	for _, d := range matchExpressions {
@@ -1312,12 +1323,33 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 		}
 	}
 
-	for key, value := range labelSelectorMap {
-		for subKey, subValue := range value {
-			mergedSelector.Values = subValue
-			mergedSelector.Operator = key
-			mergedSelector.Key = subKey
-			mergedMatchExpressions = append(mergedMatchExpressions, mergedSelector)
+	operators := make([]string, 0, len(labelSelectorMap))
+	for op := range labelSelectorMap {
+		operators = append(operators, string(op))
+	}
+	sort.Strings(operators)
+
+	for _, opStr := range operators {
+		op := v1.LabelSelectorOperator(opStr)
+		subMap := labelSelectorMap[op]
+		subKeys := make([]string, 0, len(subMap))
+		for k := range subMap {
+			subKeys = append(subKeys, k)
+		}
+		sort.Strings(subKeys)
+
+		for _, subKey := range subKeys {
+			subValue := subMap[subKey]
+			if op == v1.LabelSelectorOpNotIn {
+				// Set union does not preserve order. Copy before sorting to avoid mutating the selector.
+				subValue = append([]string(nil), subValue...)
+				sort.Strings(subValue)
+			}
+			mergedMatchExpressions = append(mergedMatchExpressions, v1.LabelSelectorRequirement{
+				Key:      subKey,
+				Operator: op,
+				Values:   subValue,
+			})
 		}
 	}
 
