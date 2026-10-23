@@ -167,8 +167,8 @@ func TestUpdateNativePeerExpressions(t *testing.T) {
 	grpIP := &model.Group{}
 	added, condCount, err := service.updateNativePeerExpressions(sp, peerIP, grpIP)
 	require.NoError(t, err)
-	assert.Equal(t, 1, added)
-	assert.Equal(t, 1, condCount)
+	assert.Zero(t, added) // IP expressions do not consume condition criteria.
+	assert.Zero(t, condCount)
 	assert.NotEmpty(t, grpIP.Expression)
 
 	// PodSelector only (no namespaceSelector) -> same-namespace defaulting

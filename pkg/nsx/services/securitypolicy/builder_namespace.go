@@ -295,8 +295,7 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 		}
 	}
 
-	// Handle IPBlocks
-	ipBlockCriteria := 0
+	// IPAddressExpression has a separate capacity limit and does not count toward condition criteria.
 	if len(peer.IPBlocks) > 0 {
 		addresses := data.NewListValue()
 		for _, block := range peer.IPBlocks {
@@ -311,11 +310,10 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 			},
 		)
 		group.Expression = append(group.Expression, blockExpression)
-		ipBlockCriteria = 1
 	}
 
 	if peer.PodSelector == nil && peer.VMSelector == nil && peer.NamespaceSelector == nil {
-		return ipBlockCriteria, ipBlockCriteria, nil
+		return 0, 0, nil
 	}
 
 	var allBaseConditions []*data.StructValue
@@ -415,7 +413,7 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 		}
 	}
 
-	return addedCount + ipBlockCriteria, totalConds + ipBlockCriteria, nil
+	return addedCount, totalConds, nil
 }
 
 // buildNativePolicyGroup builds the policy-level applied-to group using inventory-based expressions.

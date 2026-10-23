@@ -1340,6 +1340,11 @@ func (service *SecurityPolicyService) mergeSelectorMatchExpression(matchExpressi
 
 		for _, subKey := range subKeys {
 			subValue := subMap[subKey]
+			if op == v1.LabelSelectorOpNotIn {
+				// Set union does not preserve order. Copy before sorting to avoid mutating the selector.
+				subValue = append([]string(nil), subValue...)
+				sort.Strings(subValue)
+			}
 			mergedMatchExpressions = append(mergedMatchExpressions, v1.LabelSelectorRequirement{
 				Key:      subKey,
 				Operator: op,

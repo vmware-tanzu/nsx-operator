@@ -311,12 +311,15 @@ func TestNativeIPBlocksCriteriaLimits(t *testing.T) {
 	actionAllow := v1alpha1.RuleActionAllow
 	dirIn := v1alpha1.RuleDirectionIn
 	for _, tc := range []struct {
-		name      string
-		peerCount int
-		wantError bool
+		name          string
+		peerCount     int
+		selectorCount int
+		wantError     bool
 	}{
-		{name: "5 IPBlock peers at limit", peerCount: 5, wantError: false},
-		{name: "6 IPBlock peers exceed limit", peerCount: 6, wantError: true},
+		{name: "5 IPBlock peers", peerCount: 5},
+		{name: "6 IPBlock peers", peerCount: 6},
+		{name: "IPBlocks with 5 condition criteria", peerCount: 6, selectorCount: 5},
+		{name: "IPBlocks with 6 condition criteria", peerCount: 1, selectorCount: 6, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var peers []v1alpha1.SecurityPolicyPeer
@@ -327,22 +330,57 @@ func TestNativeIPBlocksCriteriaLimits(t *testing.T) {
 					},
 				})
 			}
+			for i := 0; i < tc.selectorCount; i++ {
+				peers = append(peers, v1alpha1.SecurityPolicyPeer{PodSelector: &v1.LabelSelector{}})
+			}
 			rule := &v1alpha1.SecurityPolicyRule{
 				Action:    &actionAllow,
 				Direction: &dirIn,
 				From:      peers,
 			}
 			sp.Spec.Rules = []v1alpha1.SecurityPolicyRule{*rule}
-			_, _, _, err := service.buildNativeRulePeerGroup(sp, rule, 0, "rule-base-id", true, "sp_created_for", nil, false)
+			group, _, _, err := service.buildNativeRulePeerGroup(sp, rule, 0, "rule-base-id", true, "sp_created_for", nil, false)
 			if tc.wantError {
 				var validationErr *nsxutil.ValidationError
 				require.ErrorAs(t, err, &validationErr)
-				assert.Contains(t, validationErr.Desc, fmt.Sprintf("total counts of rule source group criteria %d exceed NSX limit of 5", tc.peerCount))
+				assert.Contains(t, validationErr.Desc, fmt.Sprintf("total counts of rule source group criteria %d exceed NSX limit of 5", tc.selectorCount))
 			} else {
 				require.NoError(t, err)
+				require.NotNil(t, group)
+				require.Len(t, group.Expression, 2*(tc.peerCount+tc.selectorCount)-1)
+				for i := 0; i < tc.peerCount; i++ {
+					addresses, err := group.Expression[2*i].List("ip_addresses")
+					require.NoError(t, err)
+					require.Equal(t, 1, len(addresses.List()))
+				}
 			}
 		})
 	}
+}
+
+func TestNativeMergedNotInGroupDeterministicOrder(t *testing.T) {
+	service := &SecurityPolicyService{Service: common.Service{
+		NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "cluster-a"}},
+	}}
+	selector := &v1.LabelSelector{MatchExpressions: []v1.LabelSelectorRequirement{
+		{Key: "env", Operator: v1.LabelSelectorOpNotIn, Values: []string{"prod", "staging"}},
+		{Key: "env", Operator: v1.LabelSelectorOpNotIn, Values: []string{"staging", "dev"}},
+	}}
+	original := selector.DeepCopy()
+	build := func() *model.Group {
+		group := &model.Group{Id: String("group")}
+		_, _, err := service.updateNativePeerExpressions(&v1alpha1.SecurityPolicy{}, &v1alpha1.SecurityPolicyPeer{NamespaceSelector: selector}, group)
+		require.NoError(t, err)
+		return group
+	}
+	first := build()
+	expressions, err := first.Expression[0].List("expressions")
+	require.NoError(t, err)
+	assert.Contains(t, expressions.List(), service.buildNativeCondition(common.MemberTypeNamespace, "env|dev,prod,staging", "NOTIN", "EQUALS"))
+	for i := 0; i < 100; i++ {
+		assert.False(t, common.CompareResource((*Group)(first), (*Group)(build())), "unchanged selectors must not trigger group updates")
+	}
+	assert.Equal(t, original, selector)
 }
 
 func TestNativeMatchLabelsDeterministicOrder(t *testing.T) {
