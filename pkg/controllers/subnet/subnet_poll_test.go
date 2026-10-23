@@ -9,17 +9,22 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
+	"github.com/vmware-tanzu/nsx-operator/test/unittests"
 )
 
 func TestHasSubnetSpecChanged(t *testing.T) {
@@ -455,7 +460,6 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 		name                string
 		originalStatus      *v1alpha1.SubnetStatus
 		originalSpec        *v1alpha1.SubnetSpec
-		updateSubnetErr     error
 		statusChanged       bool
 		specChanged         bool
 		updateClientErr     error
@@ -473,7 +477,6 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					ConnectivityState: v1alpha1.ConnectivityStateConnected,
 				},
 			},
-			updateSubnetErr: nil,
 			statusChanged:   true,
 			specChanged:     false,
 			updateClientErr: nil,
@@ -490,7 +493,6 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					ConnectivityState: v1alpha1.ConnectivityStateConnected,
 				},
 			},
-			updateSubnetErr: nil,
 			statusChanged:   false,
 			specChanged:     true,
 			updateClientErr: nil,
@@ -507,7 +509,6 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					ConnectivityState: v1alpha1.ConnectivityStateConnected,
 				},
 			},
-			updateSubnetErr:     nil,
 			statusChanged:       true,
 			specChanged:         false,
 			updateClientErr:     fmt.Errorf("update failed"),
@@ -525,29 +526,10 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					ConnectivityState: v1alpha1.ConnectivityStateConnected,
 				},
 			},
-			updateSubnetErr:     nil,
 			statusChanged:       false,
 			specChanged:         true,
 			updateClientErr:     fmt.Errorf("update failed"),
 			expectedErrContains: "failed to update shared Subnet spec",
-		},
-		{
-			name: "Subnet update error",
-			originalStatus: &v1alpha1.SubnetStatus{
-				NetworkAddresses: []string{"10.0.0.0/24"},
-				GatewayAddresses: []string{"10.0.0.1"},
-				Shared:           true,
-			},
-			originalSpec: &v1alpha1.SubnetSpec{
-				AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-					ConnectivityState: v1alpha1.ConnectivityStateConnected,
-				},
-			},
-			updateSubnetErr:     fmt.Errorf("update subnet error"),
-			statusChanged:       false,
-			specChanged:         true,
-			updateClientErr:     nil,
-			expectedErrContains: "update subnet error",
 		},
 		{
 			name: "No changes",
@@ -561,7 +543,6 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					ConnectivityState: v1alpha1.ConnectivityStateConnected,
 				},
 			},
-			updateSubnetErr: nil,
 			statusChanged:   false,
 			specChanged:     false,
 			updateClientErr: nil,
@@ -633,7 +614,7 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					return tt.specChanged
 				})
 
-			// Always mock the client methods regardless of updateSubnetErr
+			// Inject client write results for the selected update path.
 			if tt.specChanged {
 				patches.ApplyMethod(reflect.TypeOf(r.Client), "Update",
 					func(_ client.Client, _ context.Context, _ client.Object, _ ...client.UpdateOption) error {
@@ -648,12 +629,7 @@ func TestUpdateSubnetIfNeeded(t *testing.T) {
 					})
 			}
 
-			var err error
-			if tt.updateSubnetErr != nil {
-				err = tt.updateSubnetErr
-			} else {
-				err = r.updateSubnetIfNeeded(ctx, subnetCR, nsxSubnet, statusList, namespacedName)
-			}
+			err := r.updateSubnetIfNeeded(ctx, subnetCR, nsxSubnet, statusList, namespacedName)
 
 			if tt.expectedErrContains != "" {
 				assert.Error(t, err)
@@ -824,6 +800,20 @@ func TestPollAllSharedSubnets(t *testing.T) {
 
 			// Call the actual function being tested
 			r.pollAllSharedSubnets()
+			enqueued := map[string]bool{}
+			for key, value := range enqueueSubnetCalls {
+				enqueued[key.String()] = value
+			}
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "shared_subnet",
+				Component:   "subnet_controller",
+				Scenario:    "poll_shared_resources",
+				Description: "Verify shared Subnet lifecycle: poll_shared_resources",
+			})
+			guard.AssertOutput(map[string]interface{}{"result": map[string]interface{}{
+				"subnetCalls": getNSXSubnetCalls, "statusCalls": getSubnetStatusCalls,
+				"enqueued": enqueued, "cache": r.SubnetService.NSXSubnetCache,
+			}, "error": ""})
 
 			// Verify the number of unique resources
 			assert.Equal(t, tt.expectedUniqueResources, len(getNSXSubnetCalls),
@@ -987,6 +977,65 @@ func TestHandleNSXSubnetError(t *testing.T) {
 
 			// Verify the results
 			assert.Equal(t, tt.expectedUpdateCalls, updateCalls, "updateSharedSubnetWithError should be called %d times", tt.expectedUpdateCalls)
+		})
+	}
+}
+
+// Exercise the real error-to-status path, including persistence and warning events.
+func TestHandleNSXSubnetError_PreservesOriginalError(t *testing.T) {
+	for _, associatedResource := range []string{"project:vpc:subnet", "invalid-resource"} {
+		t.Run(associatedResource, func(t *testing.T) {
+			ctx := context.Background()
+			objects := []client.Object{}
+			names := sets.New[types.NamespacedName]()
+			for _, namespace := range []string{"team-a", "team-b"} {
+				names.Insert(types.NamespacedName{Namespace: namespace, Name: "shared"})
+				objects = append(objects, &v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "shared"},
+					Status: v1alpha1.SubnetStatus{
+						Shared:              true,
+						NetworkAddresses:    []string{"10.0.0.0/24"},
+						GatewayAddresses:    []string{"10.0.0.1"},
+						DHCPServerAddresses: []string{"10.0.0.2"},
+					},
+				})
+			}
+			r := createFakeSubnetReconciler(nil)
+			r.Client = fake.NewClientBuilder().WithScheme(r.Client.Scheme()).WithStatusSubresource(&v1alpha1.Subnet{}).WithObjects(objects...).Build()
+			r.StatusUpdater.Client = r.Client
+			recorder := record.NewFakeRecorder(10)
+			r.StatusUpdater.Recorder = recorder
+			deletedPaths := []string{}
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount",
+				func(_ *subnetport.SubnetPortService, path string) { deletedPaths = append(deletedPaths, path) })
+			defer patches.Reset()
+			originalErr := fmt.Errorf("NSX subnet status request failed: service unavailable")
+			r.handleNSXSubnetError(ctx, originalErr, names, associatedResource, "subnet status")
+			for name := range names {
+				actual := &v1alpha1.Subnet{}
+				require.NoError(t, r.Client.Get(ctx, name, actual))
+				require.Empty(t, actual.Status.NetworkAddresses)
+				require.Empty(t, actual.Status.GatewayAddresses)
+				require.Empty(t, actual.Status.DHCPServerAddresses)
+				require.True(t, actual.Status.Shared)
+				require.Len(t, actual.Status.Conditions, 1)
+				condition := actual.Status.Conditions[0]
+				assert.Equal(t, v1alpha1.Ready, condition.Type)
+				assert.Equal(t, corev1.ConditionFalse, condition.Status)
+				assert.Contains(t, condition.Message, originalErr.Error())
+				select {
+				case event := <-recorder.Events:
+					assert.Contains(t, event, originalErr.Error())
+					assert.Contains(t, event, "Warning")
+				default:
+					t.Error("missing failure event")
+				}
+			}
+			if associatedResource == "project:vpc:subnet" {
+				assert.Equal(t, []string{"/orgs/default/projects/project/vpcs/vpc/subnets/subnet"}, deletedPaths)
+			} else {
+				assert.Empty(t, deletedPaths)
+			}
 		})
 	}
 }

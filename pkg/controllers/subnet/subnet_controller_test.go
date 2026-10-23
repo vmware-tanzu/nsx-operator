@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 
@@ -40,6 +41,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/test/unittests"
 )
 
 func TestSubnetReconciler_GarbageCollector(t *testing.T) {
@@ -939,9 +941,17 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			patches := testCase.patches(reconciler)
 			defer patches.Reset()
 
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_controller",
+				Scenario:    "reconcile_subnet",
+				Description: fmt.Sprintf("Verify Subnet reconcile output under scenario: %s", testCase.name),
+			})
+
 			result, err := reconciler.Reconcile(ctx, testCase.req)
 			if testCase.expectErrStr != "" {
 				assert.ErrorContains(t, err, testCase.expectErrStr)
+				guard.AssertOutput(err.Error())
 			} else {
 				assert.NoError(t, err)
 			}
@@ -951,6 +961,7 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 				actualSubnetCR := &v1alpha1.Subnet{}
 				assert.NoError(t, reconciler.Client.Get(ctx, testCase.req.NamespacedName, actualSubnetCR))
 				assert.Equal(t, testCase.expectSubnetCR.Spec, actualSubnetCR.Spec)
+				guard.AssertOutput(actualSubnetCR)
 			}
 		})
 	}
@@ -1025,12 +1036,7 @@ func TestStartSubnetController(t *testing.T) {
 		{
 			name: "StartSubnetController with webhook",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-				})
-				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
-					return nil
-				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(&SubnetReconciler{}), "setupWithManager", func(_ *SubnetReconciler, mgr ctrl.Manager) error {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetReconciler{}), "StartController", func(_ *SubnetReconciler, _ ctrl.Manager, _ webhook.Server) error {
 					return nil
 				})
 				return patches
@@ -1040,12 +1046,7 @@ func TestStartSubnetController(t *testing.T) {
 			name:         "StartSubnetController return error",
 			expectErrStr: "failed to setupWithManager",
 			patches: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyFunc(common2.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
-				})
-				patches.ApplyMethod(reflect.TypeOf(&ctrl.Builder{}), "Complete", func(_ *ctrl.Builder, r reconcile.Reconciler) error {
-					return nil
-				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(&SubnetReconciler{}), "setupWithManager", func(_ *SubnetReconciler, mgr ctrl.Manager) error {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(&SubnetReconciler{}), "StartController", func(_ *SubnetReconciler, _ ctrl.Manager, _ webhook.Server) error {
 					return errors.New("failed to setupWithManager")
 				})
 				return patches
@@ -1254,15 +1255,24 @@ func TestReconcileWithSubnetConnectionBindingMaps(t *testing.T) {
 				defer patches.Reset()
 			}
 
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_controller",
+				Scenario:    "reconcile_with_binding_maps",
+				Description: fmt.Sprintf("Verify Subnet reconcile with SubnetConnectionBindingMaps output under scenario: %s", tc.name),
+			})
+
 			res, err := r.Reconcile(ctx, req)
 
 			if tc.expectErrStr != "" {
 				assert.NotNil(t, err, "Expected an error but got nil")
 				if err != nil {
 					assert.Contains(t, err.Error(), tc.expectErrStr, "Error message does not contain expected string")
+					guard.AssertOutput(err.Error())
 				}
 			} else {
 				assert.NoError(t, err)
+				guard.AssertOutput(res)
 			}
 			assert.Equal(t, tc.expectRes, res)
 		})

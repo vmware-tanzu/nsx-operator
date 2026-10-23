@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +34,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
+	"github.com/vmware-tanzu/nsx-operator/test/unittests"
 )
 
 func TestGenerateSubnetNSTags(t *testing.T) {
@@ -580,10 +582,11 @@ func TestSubnetService_UpdateSubnetSet(t *testing.T) {
 		return true
 	})
 	defer patchesNSXCheckVersion.Reset()
-	gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+	patchesTepLess := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
 		func(_ client.Client, _ string) (bool, error) {
 			return false, nil
 		})
+	defer patchesTepLess.Reset()
 	err := service.UpdateSubnetSet("ns-1", vpcSubnets, tags, &v1alpha1.SubnetSet{})
 	assert.Nil(t, err)
 }
@@ -925,6 +928,12 @@ func TestSubnetService_DeleteSubnet(t *testing.T) {
 }
 
 func TestSubnetService_RestoreSubnetSet(t *testing.T) {
+	patchesTepLess := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+		func(_ client.Client, _ string) (bool, error) {
+			return false, nil
+		})
+	defer patchesTepLess.Reset()
+
 	service := &SubnetService{
 		Service: common.Service{
 			NSXConfig: &config.NSXOperatorConfig{
@@ -1681,6 +1690,13 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			// Call the function being tested
 			service := &SubnetService{}
 			service.MapNSXSubnetToSubnetCR(subnetCR, tt.nsxSubnet)
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "shared_subnet",
+				Component:   "subnet_service",
+				Scenario:    "map_spec",
+				Description: "Verify shared Subnet lifecycle: map_spec",
+			})
+			guard.AssertOutput(map[string]interface{}{"result": subnetCR, "error": ""})
 
 			// Check the result
 			assert.Equal(t, tt.expectedSubnet.Spec.AccessMode, subnetCR.Spec.AccessMode)
@@ -1860,6 +1876,13 @@ func TestMapNSXSubnetStatusToSubnetCRStatus(t *testing.T) {
 			// Call the function being tested
 			service := &SubnetService{}
 			service.MapNSXSubnetStatusToSubnetCRStatus(subnetCR, tt.statusList)
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "shared_subnet",
+				Component:   "subnet_service",
+				Scenario:    "map_status",
+				Description: "Verify shared Subnet lifecycle: map_status",
+			})
+			guard.AssertOutput(map[string]interface{}{"result": subnetCR.Status, "error": ""})
 
 			// Check the result
 			assert.Equal(t, tt.expectedStatus.NetworkAddresses, subnetCR.Status.NetworkAddresses)
@@ -2605,9 +2628,12 @@ func TestSubnetService_CreateOrUpdateSubnet_ConnectivityState(t *testing.T) {
 				}
 				return nsxSubnet, nil
 			})
+			patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode, func(_ client.Client, _ string) (bool, error) {
+				return false, nil
+			})
 			defer patches.Reset()
 
-			_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+			res, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
 			require.NoError(t, err)
 
 			if tc.expectUpdate {
@@ -2615,6 +2641,14 @@ func TestSubnetService_CreateOrUpdateSubnet_ConnectivityState(t *testing.T) {
 			} else {
 				assert.False(t, updateCalled, "createOrUpdateSubnet should not be called when no update is needed")
 			}
+
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_service",
+				Scenario:    "create_or_update_subnet_connectivity_state",
+				Description: fmt.Sprintf("Verify CreateOrUpdateSubnet connectivity state under scenario: %s", tc.name),
+			})
+			guard.AssertOutput(res)
 		})
 	}
 }
@@ -2736,6 +2770,9 @@ func TestSubnetService_CreateOrUpdateSubnet_Consistency(t *testing.T) {
 				}
 				return nil, nil
 			})
+			patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode, func(_ client.Client, _ string) (bool, error) {
+				return false, nil
+			})
 			patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
 				return nil
 			})
@@ -2794,6 +2831,14 @@ func TestSubnetService_CreateOrUpdateSubnet_Errors(t *testing.T) {
 		_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid IPBlock name")
+
+		guard := unittests.NewGuard(t, unittests.Metadata{
+			Feature:     "subnet",
+			Component:   "subnet_service",
+			Scenario:    "create_or_update_subnet_error_invalid_ipblock",
+			Description: "Verify CreateOrUpdateSubnet error with invalid IPBlock name",
+		})
+		guard.AssertOutput(err.Error())
 	})
 
 	t.Run("excessive labels exceed max tags limit", func(t *testing.T) {
@@ -2813,6 +2858,14 @@ func TestSubnetService_CreateOrUpdateSubnet_Errors(t *testing.T) {
 		_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "tags cannot exceed maximum size 26")
+
+		guard := unittests.NewGuard(t, unittests.Metadata{
+			Feature:     "subnet",
+			Component:   "subnet_service",
+			Scenario:    "create_or_update_subnet_error_excessive_tags",
+			Description: "Verify CreateOrUpdateSubnet error when tags exceed limit",
+		})
+		guard.AssertOutput(err.Error())
 	})
 }
 
@@ -2829,14 +2882,16 @@ func TestSubnetService_CreateOrUpdateSubnet_AddressMerging(t *testing.T) {
 			Namespace: "ns1",
 		},
 		Spec: v1alpha1.SubnetSpec{
-			IPAddressType: v1alpha1.IPAddressTypeIPv4IPv6,
-			IPAddresses:   []string{"2001:db8::/64"},
-			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
-				Mode: v1alpha1.DHCPv6ConfigModeServer,
+			AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+			IPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+			IPv6PrefixLength: 64,
+			IPAddresses:      []string{"10.0.0.0/24"},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
 			},
 			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
-				GatewayAddresses:    []string{"2001:db8::1"},
-				DHCPServerAddresses: []string{"2001:db8::2"},
+				GatewayAddresses:    []string{"10.0.0.1"},
+				DHCPServerAddresses: []string{"10.0.0.2"},
 			},
 		},
 	}
@@ -2860,13 +2915,16 @@ func TestSubnetService_CreateOrUpdateSubnet_AddressMerging(t *testing.T) {
 	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
 
 	existingSubnet := &model.VpcSubnet{
-		Id:          String(subnetId),
-		DisplayName: String(subnetName),
-		Tags:        tags,
-		IpAddresses: []string{"10.0.0.0/24"},
+		Id:               String(subnetId),
+		DisplayName:      String(subnetName),
+		Tags:             tags,
+		IpAddressType:    String("IPV6"),
+		AccessMode:       String("Private"),
+		Ipv6PrefixLength: common.Int64(64),
+		IpAddresses:      []string{"2001:db8::/64"},
 		AdvancedConfig: &model.SubnetAdvancedConfig{
-			GatewayAddresses:    []string{"10.0.0.1"},
-			DhcpServerAddresses: []string{"10.0.0.2"},
+			GatewayAddresses:    []string{"2001:db8::1"},
+			DhcpServerAddresses: []string{"2001:db8::2"},
 		},
 	}
 
@@ -2899,10 +2957,17 @@ func TestSubnetService_CreateOrUpdateSubnet_AddressMerging(t *testing.T) {
 	require.NoError(t, service.SubnetStore.Apply(existingSubnet))
 
 	patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
+		assert.Equal(t, String("Public"), nsxSubnet.AccessMode)
+		assert.Equal(t, String("IPV4_IPV6"), nsxSubnet.IpAddressType)
+		assert.Nil(t, nsxSubnet.Ipv4SubnetSize)
+		assert.Equal(t, int64(64), *nsxSubnet.Ipv6PrefixLength)
 		assert.ElementsMatch(t, []string{"10.0.0.0/24", "2001:db8::/64"}, nsxSubnet.IpAddresses)
 		assert.ElementsMatch(t, []string{"10.0.0.1", "2001:db8::1"}, nsxSubnet.AdvancedConfig.GatewayAddresses)
 		assert.ElementsMatch(t, []string{"10.0.0.2", "2001:db8::2"}, nsxSubnet.AdvancedConfig.DhcpServerAddresses)
 		return nsxSubnet, nil
+	})
+	patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode, func(_ client.Client, _ string) (bool, error) {
+		return false, nil
 	})
 	patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
 		return nil
@@ -2912,8 +2977,267 @@ func TestSubnetService_CreateOrUpdateSubnet_AddressMerging(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+	res, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
 	require.NoError(t, err)
+
+	guard := unittests.NewGuard(t, unittests.Metadata{
+		Feature:     "subnet",
+		Component:   "subnet_service",
+		Scenario:    "create_or_update_subnet_address_merging",
+		Description: "Verify CreateOrUpdateSubnet dual-stack address and gateway merging",
+	})
+	guard.AssertOutput(res)
+}
+
+func TestSubnetService_CreateOrUpdateSubnet_DHCPUpdate(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	uuidStr := "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       types.UID(uuidStr),
+			Name:      "subnet1",
+			Namespace: "ns1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+			IPv4SubnetSize:   24,
+			IPv6PrefixLength: 64,
+			IPAddresses:      []string{"10.0.0.0/24", "2001:db8::/64"},
+			SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+				Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+				DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+					ReservedIPRanges: []string{"10.0.0.10-10.0.0.50"},
+				},
+			},
+			SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+				Mode: v1alpha1.DHCPv6ConfigMode(v1alpha1.DHCPv6ConfigModeServer),
+				DHCPv6ServerAdditionalConfig: v1alpha1.DHCPv6ServerAdditionalConfig{
+					ReservedIPRanges: []string{"2001:db8::10-2001:db8::50"},
+				},
+			},
+		},
+	}
+
+	basicTags := []model.Tag{
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String("ns1")},
+	}
+
+	tags := []model.Tag{
+		{Scope: String(common.TagScopeCluster), Tag: String("k8scl-one:test")},
+		{Scope: String(common.TagScopeVersion), Tag: String("1.0.0")},
+		{Scope: String(common.TagScopeSubnetCRName), Tag: String("subnet1")},
+		{Scope: String(common.TagScopeSubnetCRUID), Tag: String(uuidStr)},
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String("ns1")},
+	}
+
+	subnetId := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	subnetName := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+
+	fakeVPCPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9"
+	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
+
+	existingSubnet := &model.VpcSubnet{
+		Id:               String(subnetId),
+		DisplayName:      String(subnetName),
+		Tags:             tags,
+		IpAddressType:    String("IPV4_IPV6"),
+		IpAddresses:      []string{"10.0.0.0/24", "2001:db8::/64"},
+		Ipv4SubnetSize:   common.Int64(24),
+		Ipv6PrefixLength: common.Int64(64),
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: String("DHCP_DEACTIVATED"),
+		},
+		SubnetDhcpv6Config: &model.SubnetDhcpv6Config{
+			Mode: String("DHCP_DEACTIVATED"),
+		},
+	}
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				SubnetsClient:      &fakeSubnetsClient{},
+				SubnetStatusClient: &fakeSubnetStatusClient{},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	require.NoError(t, service.SubnetStore.Apply(existingSubnet))
+
+	updateCalled := false
+	patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
+		updateCalled = true
+		require.NotNil(t, nsxSubnet.SubnetDhcpConfig)
+		assert.Equal(t, String("DHCP_SERVER"), nsxSubnet.SubnetDhcpConfig.Mode)
+		require.NotNil(t, nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig)
+		assert.Equal(t, []string{"10.0.0.10-10.0.0.50"}, nsxSubnet.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges)
+
+		require.NotNil(t, nsxSubnet.SubnetDhcpv6Config)
+		assert.Equal(t, String("DHCP_SERVER"), nsxSubnet.SubnetDhcpv6Config.Mode)
+		require.NotNil(t, nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig)
+		assert.Equal(t, []string{"2001:db8::10-2001:db8::50"}, nsxSubnet.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges)
+		return nsxSubnet, nil
+	})
+	patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode, func(_ client.Client, _ string) (bool, error) {
+		return false, nil
+	})
+	patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return true
+	})
+	defer patches.Reset()
+
+	res, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+	require.NoError(t, err)
+	assert.True(t, updateCalled)
+
+	guard := unittests.NewGuard(t, unittests.Metadata{
+		Feature:     "subnet",
+		Component:   "subnet_service",
+		Scenario:    "create_or_update_subnet_dhcp_update",
+		Description: "Verify CreateOrUpdateSubnet DHCP and DHCPv6 dynamic configuration update",
+	})
+	guard.AssertOutput(res)
+}
+
+func TestSubnetService_CreateOrUpdateSubnet_StaticIPAllocationUpdate(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	uuidStr := "0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	subnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:       types.UID(uuidStr),
+			Name:      "subnet1",
+			Namespace: "ns1",
+		},
+		Spec: v1alpha1.SubnetSpec{
+			IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+			IPv4SubnetSize: 24,
+			IPAddresses:    []string{"10.0.0.0/24"},
+			AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+				StaticIPAllocation: v1alpha1.StaticIPAllocation{
+					Enabled:    common.Bool(true),
+					PoolRanges: []string{"10.0.0.10-10.0.0.100 "}, // with space to verify trimming
+				},
+			},
+		},
+	}
+
+	basicTags := []model.Tag{
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String("ns1")},
+	}
+
+	tags := []model.Tag{
+		{Scope: String(common.TagScopeCluster), Tag: String("k8scl-one:test")},
+		{Scope: String(common.TagScopeVersion), Tag: String("1.0.0")},
+		{Scope: String(common.TagScopeSubnetCRName), Tag: String("subnet1")},
+		{Scope: String(common.TagScopeSubnetCRUID), Tag: String(uuidStr)},
+		{Scope: String(common.TagScopeNamespaceUID), Tag: String("ns1")},
+	}
+
+	subnetId := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+	subnetName := "subnet1_0ca84a5b-b8b2-4e90-ae50-12caa5f847cf"
+
+	fakeVPCPath := "/orgs/default/projects/nsx_operator_e2e_test/vpcs/subnet-e2e_8f36f7fc-90cd-4e65-a816-daf3ecd6a0f9"
+	vpcResourceInfo, _ := common.ParseVPCResourcePath(fakeVPCPath)
+
+	existingSubnet := &model.VpcSubnet{
+		Id:             String(subnetId),
+		DisplayName:    String(subnetName),
+		Tags:           tags,
+		IpAddressType:  String("IPV4"),
+		IpAddresses:    []string{"10.0.0.0/24"},
+		Ipv4SubnetSize: common.Int64(24),
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			StaticIpAllocation: &model.StaticIpAllocation{
+				Enabled:    common.Bool(true),
+				PoolRanges: []string{"10.0.0.10-10.0.0.50"},
+			},
+		},
+	}
+
+	service := &SubnetService{
+		Service: common.Service{
+			Client: k8sClient,
+			NSXClient: &nsx.Client{
+				SubnetsClient:      &fakeSubnetsClient{},
+				SubnetStatusClient: &fakeSubnetStatusClient{},
+			},
+			NSXConfig: &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{
+					Cluster: "k8scl-one:test",
+				},
+			},
+		},
+		SubnetStore: &SubnetStore{
+			ResourceStore: common.ResourceStore{
+				Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+					common.TagScopeSubnetCRUID:    subnetIndexFunc,
+					common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+					common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+					common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+				}),
+				BindingType: model.VpcSubnetBindingType(),
+			},
+		},
+	}
+
+	require.NoError(t, service.SubnetStore.Apply(existingSubnet))
+
+	updateCalled := false
+	patches := gomonkey.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
+		updateCalled = true
+		require.NotNil(t, nsxSubnet.AdvancedConfig)
+		require.NotNil(t, nsxSubnet.AdvancedConfig.StaticIpAllocation)
+		assert.True(t, *nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled)
+		assert.Equal(t, []string{"10.0.0.10-10.0.0.100"}, nsxSubnet.AdvancedConfig.StaticIpAllocation.PoolRanges)
+		return nsxSubnet, nil
+	})
+	patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode, func(_ client.Client, _ string) (bool, error) {
+		return false, nil
+	})
+	patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
+		return nil
+	})
+	patches.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return true
+	})
+	defer patches.Reset()
+
+	res, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+	require.NoError(t, err)
+	assert.True(t, updateCalled)
+
+	guard := unittests.NewGuard(t, unittests.Metadata{
+		Feature:     "subnet",
+		Component:   "subnet_service",
+		Scenario:    "create_or_update_subnet_static_ip_allocation_update",
+		Description: "Verify CreateOrUpdateSubnet StaticIPAllocation pool ranges dynamic update",
+	})
+	guard.AssertOutput(res)
 }
 
 func TestSubnetService_CreateOrUpdateSubnet_IpBlocksUpdate(t *testing.T) {
@@ -2993,6 +3317,9 @@ func TestSubnetService_CreateOrUpdateSubnet_IpBlocksUpdate(t *testing.T) {
 		assert.Equal(t, String("IPV4_IPV6"), nsxSubnet.IpAddressType)
 		return nsxSubnet, nil
 	})
+	patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode, func(_ client.Client, _ string) (bool, error) {
+		return false, nil
+	})
 	patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
 		return nil
 	})
@@ -3001,8 +3328,16 @@ func TestSubnetService_CreateOrUpdateSubnet_IpBlocksUpdate(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+	res, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
 	require.NoError(t, err)
+
+	guard := unittests.NewGuard(t, unittests.Metadata{
+		Feature:     "subnet",
+		Component:   "subnet_service",
+		Scenario:    "create_or_update_subnet_ipblocks_update",
+		Description: "Verify CreateOrUpdateSubnet IP blocks update and type conversion",
+	})
+	guard.AssertOutput(res)
 }
 
 func TestSubnetService_CreateOrUpdateSubnet_IpBlocksPreserved(t *testing.T) {
@@ -3082,6 +3417,9 @@ func TestSubnetService_CreateOrUpdateSubnet_IpBlocksPreserved(t *testing.T) {
 		assert.Equal(t, String("updated description"), nsxSubnet.Description)
 		return nsxSubnet, nil
 	})
+	patches.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode, func(_ client.Client, _ string) (bool, error) {
+		return false, nil
+	})
 	patches.ApplyFunc((*SubnetService).checkSubnetRealizeState, func(service *SubnetService, nsxSubnet *model.VpcSubnet) error {
 		return nil
 	})
@@ -3090,8 +3428,16 @@ func TestSubnetService_CreateOrUpdateSubnet_IpBlocksPreserved(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	_, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
+	res, err := service.CreateOrUpdateSubnet(subnetCR, vpcResourceInfo, basicTags)
 	require.NoError(t, err)
+
+	guard := unittests.NewGuard(t, unittests.Metadata{
+		Feature:     "subnet",
+		Component:   "subnet_service",
+		Scenario:    "create_or_update_subnet_ipblocks_preserved",
+		Description: "Verify CreateOrUpdateSubnet IP blocks preserved on update",
+	})
+	guard.AssertOutput(res)
 }
 
 func Test_mergeIPBlocks(t *testing.T) {
@@ -3777,6 +4123,40 @@ func TestGetUpdatedSubnetSizesAndPrefixes(t *testing.T) {
 			size, prefix := getUpdatedSubnetSizesAndPrefixes(tt.existingSubnet, tt.newIpv4SubnetSize, tt.newIpv6PrefixLength, tt.newIPType)
 			assert.Equal(t, tt.expectedSize, size)
 			assert.Equal(t, tt.expectedPrefix, prefix)
+		})
+	}
+}
+
+func TestSharedSubnetResourceMapLifecycle(t *testing.T) {
+	resource := "project:vpc:shared"
+	first := types.NamespacedName{Namespace: "team-a", Name: "shared"}
+	second := types.NamespacedName{Namespace: "team-b", Name: "shared"}
+	tests := []struct {
+		name     string
+		remove   []types.NamespacedName
+		expected sets.Set[types.NamespacedName]
+	}{
+		{"share across namespaces and deduplicate", nil, sets.New(first, second)},
+		{"remove one namespace preserves the other", []types.NamespacedName{first}, sets.New(second)},
+		{"remove absent reference is harmless", []types.NamespacedName{first, first}, sets.New(second)},
+		{"remove final reference removes resource", []types.NamespacedName{first, second}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetService{SharedSubnetData: SharedSubnetData{
+				SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+			}}
+			service.AddSharedSubnetToResourceMap(resource, first)
+			service.AddSharedSubnetToResourceMap(resource, second)
+			service.AddSharedSubnetToResourceMap(resource, first)
+			service.RemoveSharedSubnetFromResourceMap("missing", second)
+			for _, name := range tt.remove {
+				service.RemoveSharedSubnetFromResourceMap(resource, name)
+			}
+			require.Equal(t, tt.expected, service.SharedSubnetResourceMap[resource])
+			if tt.expected == nil {
+				require.Empty(t, service.SharedSubnetResourceMap)
+			}
 		})
 	}
 }
