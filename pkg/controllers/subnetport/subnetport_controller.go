@@ -79,6 +79,7 @@ type SubnetPortReconciler struct {
 	Recorder                   record.EventRecorder
 	StatusUpdater              common.StatusUpdater
 	restoreMode                bool
+	vksVMWebhookFailed         bool
 }
 
 // +kubebuilder:rbac:groups=nsx.vmware.com,resources=subnetports,verbs=get;list;watch;create;update;patch;delete
@@ -177,6 +178,25 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return common.ResultRequeue, getVMErr
 			}
 			if vm != nil {
+				if r.restoreMode && !nsx.RestoreVifFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+					// In restore mode, admission webhooks on VirtualMachine (e.g. vmware-system-tkg-webhook-service)
+					// may fail if cpvm network is not yet restored. The webhook only targets cluster VMs
+					// with the 'cluster.x-k8s.io/cluster-name' label. Probe webhook readiness via dry-run
+					// before port realization to avoid failures when updating reconfigure-nic annotations later.
+					if hasVksClusterNameLabel(vm) {
+						if r.vksVMWebhookFailed {
+							log.Error(nil, "VirtualMachine admission webhook is not ready for cluster VM", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "VM", vm.Name)
+							err := fmt.Errorf("VirtualMachine admission webhook is not ready")
+							r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "VirtualMachine admission webhook is not ready", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+							return common.ResultRequeue, err
+						}
+						if err := r.checkVMWebhookReady(ctx, vm, nicName); err != nil {
+							r.vksVMWebhookFailed = true
+							r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "VirtualMachine admission webhook is not ready", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
+							return common.ResultRequeue, err
+						}
+					}
+				}
 				labels = &vm.Labels
 			}
 			if value, exists := subnetPort.Labels[servicecommon.LabelImageFetcher]; exists && value == "true" {
@@ -366,7 +386,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 						log.Error(err, "Failed to update restore annotation on SubnetPort", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name)
 						return err != nil
 					}, func() error {
-						return common.UpdateReconfigureNicAnnotation(r.Client, ctx, subnetPort, "cpvm")
+						return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, subnetPort, "cpvm")
 					})
 				}
 			}
@@ -375,7 +395,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					log.Error(err, "Failed to update restore annotation on VM", "Namespace", subnetPort.Namespace, "SubnetPort", subnetPort.Name, "VM", vm.Name)
 					return err != nil
 				}, func() error {
-					return common.UpdateReconfigureNicAnnotation(r.Client, ctx, vm, nicName)
+					return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, vm, nicName)
 				})
 			}
 			if pod != nil {
@@ -843,6 +863,7 @@ func (r *SubnetPortReconciler) RestoreReconcile() error {
 	}
 	var errorList []error
 	r.restoreMode = true
+	r.vksVMWebhookFailed = false
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
 		if err != nil || common.IsReconcileResultRequeue(result) {
@@ -1590,6 +1611,30 @@ func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort
 	}
 	log.Info("Got VirtualMachine for SubnetPort", "subnetPort.UID", subnetPort.UID, "vmName", vmName, "nicName", nicName, "labels", vm.ObjectMeta.Labels)
 	return vm, nicName, nil
+}
+
+func hasVksClusterNameLabel(vm *vmv1alpha1.VirtualMachine) bool {
+	if vm == nil || vm.Labels == nil {
+		return false
+	}
+	_, ok := vm.Labels[servicecommon.LabelVksClusterName]
+	return ok
+}
+
+func (r *SubnetPortReconciler) checkVMWebhookReady(ctx context.Context, vm *vmv1alpha1.VirtualMachine, nicName string) error {
+	if vm == nil {
+		return nil
+	}
+	reader := client.Reader(r.Client)
+	if r.APIReader != nil {
+		reader = r.APIReader
+	}
+	return retry.OnError(retry.DefaultRetry, func(err error) bool {
+		log.Warn("Retrying dryrun check for VM admission webhook readiness", "Namespace", vm.Namespace, "VM", vm.Name, "error", err)
+		return err != nil
+	}, func() error {
+		return common.UpdateReconfigureNicAnnotation(r.Client, reader, ctx, vm.DeepCopy(), nicName, client.DryRunAll)
+	})
 }
 
 func (r *SubnetPortReconciler) addressBindingMapFunc(ctx context.Context, obj client.Object) []reconcile.Request {

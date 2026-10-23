@@ -22,7 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1175,7 +1177,6 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 	// Restore case with dhcp SubnetPort
 	t.Run("restore dhcp", func(t *testing.T) {
 		sp := &v1alpha1.SubnetPort{}
-		vm := &vmv1alpha1.VirtualMachine{}
 		r.restoreMode = true
 		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
@@ -1193,16 +1194,23 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
 			return "subnet-path", nil
 		})
-		k8sClient.EXPECT().Get(ctx, gomock.Any(), vm).Return(nil).Do(
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.AssignableToTypeOf(&vmv1alpha1.VirtualMachine{})).Return(nil).Do(
 			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 				v1vm := obj.(*vmv1alpha1.VirtualMachine)
 				v1vm.ObjectMeta = metav1.ObjectMeta{
 					Name:      "vm-1",
 					Namespace: "ns-1",
+					Labels: map[string]string{
+						servicecommon.LabelVksClusterName: "cluster-1",
+					},
 				}
 				return nil
-			})
+			}).Times(2)
 		defer patchesGetSubnetByIP.Reset()
+		originalK8sClientRetry := pkgutil.K8sClientRetry
+		pkgutil.K8sClientRetry = wait.Backoff{Steps: 1, Duration: time.Millisecond}
+		defer func() { pkgutil.K8sClientRetry = originalK8sClientRetry }()
+		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any(), client.DryRunAll).Return(nil)
 		patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
 			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
 				nsxSubnet := &model.VpcSubnet{
@@ -1263,6 +1271,195 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			assert.Equal(t, "eth0", obj.GetAnnotations()[servicecommon.AnnotationReconfigureNic])
 			return nil
 		})
+		_, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, nil, ret)
+	})
+
+	t.Run("restore dhcp with webhook dryrun failure", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{}
+		r.restoreMode = true
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = dhcpSubnetPort.Status
+				v1sp.ObjectMeta = dhcpSubnetPort.ObjectMeta
+				return nil
+			}).Times(2)
+
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+			return "subnet-path", nil
+		})
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.AssignableToTypeOf(&vmv1alpha1.VirtualMachine{})).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1vm := obj.(*vmv1alpha1.VirtualMachine)
+				v1vm.ObjectMeta = metav1.ObjectMeta{
+					Name:      "vm-1",
+					Namespace: "ns-1",
+					Labels: map[string]string{
+						servicecommon.LabelVksClusterName: "cluster-1",
+					},
+				}
+				return nil
+			}).Times(1 + retry.DefaultRetry.Steps)
+		defer patchesGetSubnetByIP.Reset()
+		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any(), client.DryRunAll).Return(fmt.Errorf("webhook no route to host")).Times(retry.DefaultRetry.Steps)
+
+		patchesRestoreVifFeatureEnabled := gomonkey.ApplyFunc(nsx.RestoreVifFeatureEnabled, func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+			return false
+		})
+		defer patchesRestoreVifFeatureEnabled.Reset()
+
+		k8sClient.EXPECT().Status().Return(fakewriter)
+		res, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, common.ResultRequeue, res)
+		assert.ErrorContains(t, ret, "webhook no route to host")
+		assert.True(t, r.vksVMWebhookFailed)
+	})
+
+	t.Run("restore dhcp with prior cluster vm webhook failure fails fast", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{}
+		vm := &vmv1alpha1.VirtualMachine{}
+		r.restoreMode = true
+		r.vksVMWebhookFailed = true
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = dhcpSubnetPort.Status
+				v1sp.ObjectMeta = dhcpSubnetPort.ObjectMeta
+				return nil
+			}).Times(2)
+
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+			return "subnet-path", nil
+		})
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), vm).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1vm := obj.(*vmv1alpha1.VirtualMachine)
+				v1vm.ObjectMeta = metav1.ObjectMeta{
+					Name:      "vm-2",
+					Namespace: "ns-1",
+					Labels: map[string]string{
+						servicecommon.LabelVksClusterName: "cluster-1",
+					},
+				}
+				return nil
+			})
+		defer patchesGetSubnetByIP.Reset()
+		// Notice: Update(..., client.DryRunAll) is NOT called because it fails fast!
+
+		patchesRestoreVifFeatureEnabled := gomonkey.ApplyFunc(nsx.RestoreVifFeatureEnabled, func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+			return false
+		})
+		defer patchesRestoreVifFeatureEnabled.Reset()
+
+		k8sClient.EXPECT().Status().Return(fakewriter)
+		res, ret := r.Reconcile(ctx, req)
+		assert.Equal(t, common.ResultRequeue, res)
+		assert.ErrorContains(t, ret, "VirtualMachine admission webhook is not ready")
+	})
+
+	t.Run("restore dhcp non-cluster vm skips webhook dryrun", func(t *testing.T) {
+		sp := &v1alpha1.SubnetPort{}
+		vm := &vmv1alpha1.VirtualMachine{}
+		r.restoreMode = true
+		r.vksVMWebhookFailed = false
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = dhcpSubnetPort.Status
+				v1sp.ObjectMeta = dhcpSubnetPort.ObjectMeta
+				return nil
+			}).Times(2)
+
+		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+				return true, false, "", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
+			})
+		defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
+		patchesGetSubnetByIP := gomonkey.ApplyFunc((*SubnetPortReconciler).getSubnetBySubnetPort, func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort) (string, error) {
+			return "subnet-path", nil
+		})
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), vm).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1vm := obj.(*vmv1alpha1.VirtualMachine)
+				v1vm.ObjectMeta = metav1.ObjectMeta{
+					Name:      "vm-standalone",
+					Namespace: "ns-1",
+					Labels: map[string]string{
+						"app": "standalone-workload",
+					},
+				}
+				return nil
+			})
+		defer patchesGetSubnetByIP.Reset()
+		// Notice: Update(..., client.DryRunAll) is NOT called because non-cluster VMs skip dryrun!
+		patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+			func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+				nsxSubnet := &model.VpcSubnet{
+					Id:            ptr.To("subnet-1"),
+					RealizationId: ptr.To("realization-1"),
+					AdvancedConfig: &model.SubnetAdvancedConfig{
+						StaticIpAllocation: &model.StaticIpAllocation{
+							Enabled: servicecommon.Bool(false),
+						},
+					},
+				}
+				return nsxSubnet, nil
+			})
+		defer patchesGetSubnetByPath.Reset()
+		patchesIsSharedSubnetPath := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+			return false, nil
+		})
+		defer patchesIsSharedSubnetPath.Reset()
+		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				return dhcpPortState, nil
+			})
+		defer patchesCreateOrUpdateSubnetPort.Reset()
+		patchesSetAddressBindingStatus := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort,
+			func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService) {
+			})
+		defer patchesSetAddressBindingStatus.Reset()
+		patchesUpdateSubnetStatusOnSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).updateSubnetStatusOnSubnetPort,
+			func(r *SubnetPortReconciler, subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+				return nil
+			})
+		defer patchesUpdateSubnetStatusOnSubnetPort.Reset()
+
+		patchesGetAddressBindingBySubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).GetAddressBindingBySubnetPort, func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+			return nil
+		})
+		defer patchesGetAddressBindingBySubnetPort.Reset()
+
+		patchesRestoreVifFeatureEnabled := gomonkey.ApplyFunc(nsx.RestoreVifFeatureEnabled, func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+			return false
+		})
+		defer patchesRestoreVifFeatureEnabled.Reset()
+
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), sp).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				v1sp := obj.(*v1alpha1.SubnetPort)
+				v1sp.Status = dhcpSubnetPort.Status
+				v1sp.Status.Attachment.ID = attachmentIDAfterRestore
+				v1sp.ObjectMeta = dhcpSubnetPort.ObjectMeta
+				return nil
+			})
+		k8sClient.EXPECT().Status().Return(fakewriter)
+		k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+				return nil
+			})
+		k8sClient.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 		_, ret := r.Reconcile(ctx, req)
 		assert.Equal(t, nil, ret)
 	})

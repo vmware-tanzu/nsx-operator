@@ -455,9 +455,12 @@ func RUnlockSubnetSet(uuid types.UID, subnetSetLock *sync.RWMutex) {
 	}
 }
 
-func UpdateReconfigureNicAnnotation(client k8sclient.Client, ctx context.Context, obj k8sclient.Object, value string) error {
+func UpdateReconfigureNicAnnotation(client k8sclient.Client, reader k8sclient.Reader, ctx context.Context, obj k8sclient.Object, value string, opts ...k8sclient.UpdateOption) error {
+	if reader == nil {
+		reader = client
+	}
 	key := types.NamespacedName{Namespace: obj.GetNamespace(), Name: obj.GetName()}
-	err := client.Get(ctx, key, obj)
+	err := reader.Get(ctx, key, obj)
 	if err != nil {
 		log.Error(err, "Failed to get Object", "key", key)
 		return err
@@ -479,10 +482,15 @@ func UpdateReconfigureNicAnnotation(client k8sclient.Client, ctx context.Context
 	}
 	anno[servicecommon.AnnotationReconfigureNic] = restoreValue
 	obj.SetAnnotations(anno)
-	if err = client.Update(ctx, obj); err != nil {
+	if err = client.Update(ctx, obj, opts...); err != nil {
 		return err
 	}
-	log.Info("Update workload restore annotation", "kind", obj.GetObjectKind(), "key", key, "annotation", restoreValue)
+	updateOptions := (&k8sclient.UpdateOptions{}).ApplyOptions(opts)
+	if len(updateOptions.DryRun) > 0 {
+		log.Info("Dryrun update workload restore annotation", "kind", obj.GetObjectKind(), "key", key, "annotation", restoreValue)
+	} else {
+		log.Info("Update workload restore annotation", "kind", obj.GetObjectKind(), "key", key, "annotation", restoreValue)
+	}
 	return nil
 }
 
