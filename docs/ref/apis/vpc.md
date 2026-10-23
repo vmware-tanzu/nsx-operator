@@ -270,7 +270,7 @@ _Appears in:_
 | `recordName` _string_ | RecordName specifies the hostname portion of the FQDN (e.g., "api" for "api.coke.com"). |  | MaxLength: 255 <br />Required: \{\} <br /> |
 | `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA] <br />Required: \{\} <br /> |
 | `recordValues` _string array_ | RecordValues specifies the DNS record data values. |  | MinItems: 1 <br />Required: \{\} <br /> |
-| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 30-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 30 <br />Optional: \{\} <br /> |
 
 
 #### DNSRecordStatus

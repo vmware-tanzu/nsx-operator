@@ -463,12 +463,17 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationError(t *testing.T) 
 }
 
 func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationSuccess(t *testing.T) {
+	minTTL, maxTTL := int32(30), int32(86400)
 	for _, tc := range []struct {
 		recordType v1alpha1.DNSRecordType
 		address    string
+		ttl        *int32
+		wantTTL    int64
 	}{
-		{v1alpha1.DNSRecordTypeA, "10.0.0.1"},
-		{v1alpha1.DNSRecordTypeAAAA, "2001:db8::1"},
+		{v1alpha1.DNSRecordTypeA, "10.0.0.1", nil, 300},
+		{v1alpha1.DNSRecordTypeAAAA, "2001:db8::1", nil, 300},
+		{v1alpha1.DNSRecordTypeA, "10.0.0.1", &minTTL, 30},
+		{v1alpha1.DNSRecordTypeAAAA, "2001:db8::1", &maxTTL, 86400},
 	} {
 		t.Run(string(tc.recordType), func(t *testing.T) {
 			scheme := setupScheme()
@@ -476,6 +481,7 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationSuccess(t *testing.T
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace:  "default",
 					Name:       "valid-zone-record",
+					Generation: 1,
 					Finalizers: []string{servicecommon.DNSRecordFinalizerName},
 				},
 				Spec: v1alpha1.DNSRecordSpec{
@@ -483,6 +489,7 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationSuccess(t *testing.T
 					RecordName:   "api",
 					RecordType:   tc.recordType,
 					RecordValues: []string{tc.address},
+					TTL:          tc.ttl,
 				},
 			}
 			nsObj := &corev1.Namespace{
@@ -553,6 +560,28 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationSuccess(t *testing.T
 			require.Len(t, records, 1)
 			assert.Equal(t, string(tc.recordType), *records[0].RecordType)
 			assert.Equal(t, []string{tc.address}, records[0].RecordValues)
+			assert.Equal(t, tc.wantTTL, *records[0].Ttl)
+
+			updatedCR.Spec.RecordName = "web"
+			updatedCR.Generation++ // The fake client does not advance generation on spec updates.
+			require.NoError(t, fakeClient.Update(ctx, updatedCR))
+			require.Less(t, updatedCR.Status.Conditions[0].ObservedGeneration, updatedCR.Generation)
+			res, err = r.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.Equal(t, ResultNormal, res)
+			require.NoError(t, fakeClient.Get(ctx, req.NamespacedName, updatedCR))
+			assert.Equal(t, "web.example.com", updatedCR.Status.FQDN)
+			assert.Equal(t, updatedCR.Generation, updatedCR.Status.Conditions[0].ObservedGeneration)
+			records = dnsSvc.DNSRecordStore.GetByOwnerResourceNamespacedName(dns.ResourceKindDNSRecord, "default", "valid-zone-record")
+			require.Len(t, records, 1, "renaming must remove the old NSX record")
+			assert.Equal(t, "web", *records[0].RecordName)
+
+			require.NoError(t, fakeClient.Delete(ctx, updatedCR))
+			res, err = r.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.Equal(t, ResultNormal, res)
+			require.Empty(t, dnsSvc.DNSRecordStore.ListDNSRecords())
+			require.Error(t, fakeClient.Get(ctx, req.NamespacedName, &v1alpha1.DNSRecord{}))
 		})
 	}
 }
@@ -666,14 +695,14 @@ func TestDNSRecordReconciler_UpdateStatusConditions(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).Build()
 	ctx := context.Background()
 
-	setDNSRecordReadyStatusTrue(fakeClient, ctx, dnsRecord, metav1.Now())
+	require.NoError(t, setDNSRecordReadyStatusTrue(fakeClient, ctx, dnsRecord, metav1.Now()))
 	updated := &v1alpha1.DNSRecord{}
 	err := fakeClient.Get(ctx, client.ObjectKeyFromObject(dnsRecord), updated)
 	assert.NoError(t, err)
 	assert.Len(t, updated.Status.Conditions, 1)
 	assert.Equal(t, metav1.ConditionTrue, updated.Status.Conditions[0].Status)
 
-	setDNSRecordReadyStatusFalse(fakeClient, ctx, dnsRecord, metav1.Now(), fmt.Errorf("fake error"))
+	require.NoError(t, setDNSRecordReadyStatusFalse(fakeClient, ctx, dnsRecord, metav1.Now(), fmt.Errorf("fake error")))
 	err = fakeClient.Get(ctx, client.ObjectKeyFromObject(dnsRecord), updated)
 	assert.NoError(t, err)
 	assert.Len(t, updated.Status.Conditions, 1)

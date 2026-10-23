@@ -49,7 +49,7 @@ func testDNSRecordTypeA(t *testing.T, ns string) {
 	defer deleteYAML(yamlPath, ns)
 
 	recordName := "e2e-dnsrecord-a"
-	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
+	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 
 	assert.Equal(t, "e2e-a.example.com", dnsRecord.Status.FQDN)
 	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
@@ -63,7 +63,7 @@ func testDNSRecordTypeAAAA(t *testing.T, ns string) {
 	defer deleteYAML(yamlPath, ns)
 
 	recordName := "e2e-dnsrecord-aaaa"
-	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
+	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 
 	assert.Equal(t, "e2e-aaaa.example.com", dnsRecord.Status.FQDN)
 	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
@@ -75,7 +75,9 @@ func testDNSRecordTypeAAAA(t *testing.T, ns string) {
 	dnsRecord.Spec.TTL = &newTTL
 	updatedRecord, err := testData.crdClientset.CrdV1alpha1().DNSRecords(ns).Update(context.TODO(), dnsRecord, v1.UpdateOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, int32(1200), *updatedRecord.Spec.TTL)
+	dnsRecord = waitForDNSRecordCRReady(t, ns, recordName, updatedRecord.Generation)
+	require.NotNil(t, dnsRecord.Spec.TTL)
+	assert.Equal(t, newTTL, *dnsRecord.Spec.TTL)
 }
 
 func testDNSRecordApexRecord(t *testing.T, ns string) {
@@ -101,12 +103,13 @@ func testDNSRecordApexRecord(t *testing.T, ns string) {
 		_ = testData.crdClientset.CrdV1alpha1().DNSRecords(ns).Delete(context.TODO(), recordName, v1.DeleteOptions{})
 	}()
 
-	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
+	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 	assert.Equal(t, "example.com", dnsRecord.Status.FQDN)
 	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
 }
 
-func waitForDNSRecordCRReady(t *testing.T, ns, dnsRecordName string) *v1alpha1.DNSRecord {
+func waitForDNSRecordCRReady(t *testing.T, ns, dnsRecordName string, minimumGeneration int64) *v1alpha1.DNSRecord {
+	t.Helper()
 	log.Info("Waiting for DNSRecord CR to be ready", "ns", ns, "dnsRecordName", dnsRecordName)
 	var res *v1alpha1.DNSRecord
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
@@ -118,8 +121,11 @@ func waitForDNSRecordCRReady(t *testing.T, ns, dnsRecordName string) *v1alpha1.D
 			return false, nil
 		}
 		log.Info("DNSRecord status", "status", res.Status)
+		if res.Generation < minimumGeneration {
+			return false, nil
+		}
 		for _, con := range res.Status.Conditions {
-			if con.Type == string(v1alpha1.Ready) && con.Status == v1.ConditionTrue {
+			if con.Type == string(v1alpha1.Ready) && con.Status == v1.ConditionTrue && con.ObservedGeneration == res.Generation {
 				return true, nil
 			}
 		}
