@@ -154,12 +154,39 @@ func TestGetLBProviderPersistsDecision(t *testing.T) {
 
 func TestGetLBProviderWithoutRestoreStatus(t *testing.T) {
 	s := newLBProviderTestService(t)
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(s), "GetVpcConnectivityProfileWithRetry",
+		func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*model.VpcConnectivityProfile, error) {
+			return &model.VpcConnectivityProfile{ServiceGateway: &model.VpcServiceGatewayConfig{Enable: common.Bool(true)}}, nil
+		})
+	defer patches.Reset()
+	s.NSXConfig.UseAVILoadBalancer = false
+	provider, err := s.GetLBProvider()
+	require.NoError(t, err)
+	assert.Equal(t, NSXLB, provider)
+	stored := util.NewNSXRestoreStatus()
+	require.NoError(t, s.Client.Get(context.Background(), client.ObjectKeyFromObject(stored), stored))
+	assert.Equal(t, string(NSXLB), stored.GetAnnotations()[common.AnnotationLBProvider])
+	s.NSXConfig, s.NSXClient, s.LbsStore = nil, nil, nil
+	provider, err = s.GetLBProvider()
+	require.NoError(t, err)
+	assert.Equal(t, NSXLB, provider)
+}
+
+func TestGetLBProviderConcurrentConfigCreation(t *testing.T) {
+	s := newLBProviderTestService(t)
+	s.Client = interceptor.NewClient(s.Client.(client.WithWatch), interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			winner := providerConfig(map[string]string{common.AnnotationLBProvider: string(AVILB)})
+			if err := c.Create(ctx, winner); err != nil {
+				return err
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	})
 	s.NSXConfig, s.NSXClient, s.LbsStore = nil, nil, nil
 	provider, err := s.GetLBProvider()
-	require.True(t, apierrors.IsNotFound(err), "got %v", err)
+	require.True(t, apierrors.IsAlreadyExists(err), "got %v", err)
 	assert.Equal(t, NoneLB, provider)
-	// Once startup creates the CR, the next reconcile can use its annotation directly.
-	require.NoError(t, s.Client.Create(context.Background(), providerConfig(map[string]string{common.AnnotationLBProvider: string(AVILB)})))
 	provider, err = s.GetLBProvider()
 	require.NoError(t, err)
 	assert.Equal(t, AVILB, provider)

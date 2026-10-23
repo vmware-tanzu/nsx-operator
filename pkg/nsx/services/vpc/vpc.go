@@ -1118,8 +1118,8 @@ func IsVNAMode(profile *model.VpcConnectivityProfile) (bool, error) {
 func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
-	providerConfig := util.NewNSXRestoreStatus()
-	if err := s.Client.Get(context.Background(), types.NamespacedName{Name: providerConfig.GetName()}, providerConfig); err != nil {
+	providerConfig, err := util.GetOrCreateNSXRestoreStatus(s.Client)
+	if err != nil {
 		return NoneLB, fmt.Errorf("failed to read persisted LB provider: %w", err)
 	}
 	annotations := providerConfig.GetAnnotations()

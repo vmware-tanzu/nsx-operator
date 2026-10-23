@@ -1,14 +1,9 @@
 package common
 
 import (
-	"context"
 	"crypto/tls"
-	"fmt"
 
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -18,19 +13,11 @@ import (
 
 const NCPConfigWebhookPath = "/validate-nsx-vmware-com-v1-ncpconfig"
 
-// SetupWebhookServer also registers the shared NCPConfig validator in T1 mode.
-// Legacy T1 installations without webhook resources/RBAC keep running without it.
-func SetupWebhookServer(mgr ctrl.Manager, required bool) (webhook.Server, error) {
-	if !required {
-		installed := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-		err := mgr.GetAPIReader().Get(context.Background(), client.ObjectKey{Name: "nsx-operator-validating-webhook-configuration"}, installed)
-		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
-			log.Info("Webhook is not available in this T1 installation, skipping webhook server", "error", err)
-			return nil, nil
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to check webhook installation: %w", err)
-		}
+// SetupWebhookServer registers validators only when VPC namespaces are enabled.
+// T1 installations do not require webhook resources, certificates, or RBAC.
+func SetupWebhookServer(mgr ctrl.Manager, vpcEnabled bool) (webhook.Server, error) {
+	if !vpcEnabled {
+		return nil, nil
 	}
 	if err := util.GenerateWebhookCerts(); err != nil {
 		return nil, err

@@ -62,16 +62,16 @@ func TestNCPConfigValidator(t *testing.T) {
 		{name: "create without provider", operation: admissionv1.Create, allowed: true},
 		{name: "create with provider denied", operation: admissionv1.Create, annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}},
 		{name: "create with empty provider denied", operation: admissionv1.Create, annotations: map[string]string{servicecommon.AnnotationLBProvider: ""}},
-		{name: "add provider denied", operation: admissionv1.Update, annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}},
+		{name: "untrusted add provider denied", operation: admissionv1.Update, annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}},
 		{name: "change provider denied", operation: admissionv1.Update, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, annotations: map[string]string{servicecommon.AnnotationLBProvider: "nsx-lb"}},
 		{name: "remove provider denied", operation: admissionv1.Update, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}},
 		{name: "remove empty provider denied", operation: admissionv1.Update, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: ""}},
 		{name: "change to empty provider denied", operation: admissionv1.Update, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, annotations: map[string]string{servicecommon.AnnotationLBProvider: ""}},
 		{name: "other metadata and spec updates allowed", operation: admissionv1.Update, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi", "other": "old"}, annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi", "other": "new"}, allowed: true},
 		{name: "no provider change allowed", operation: admissionv1.Update, annotations: map[string]string{"other": "value"}, allowed: true},
-		{name: "operator and NCP may initialize", operation: admissionv1.Create, username: lbProviderWriter, annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, allowed: true},
-		{name: "operator and NCP may change", operation: admissionv1.Update, username: lbProviderWriter, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, annotations: map[string]string{servicecommon.AnnotationLBProvider: "nsx-lb"}, allowed: true},
-		{name: "operator and NCP may remove", operation: admissionv1.Update, username: lbProviderWriter, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, allowed: true},
+		{name: "operator and NCP may initialize on update", operation: admissionv1.Update, username: lbProviderWriter, annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, allowed: true},
+		{name: "operator and NCP cannot change provider", operation: admissionv1.Update, username: lbProviderWriter, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, annotations: map[string]string{servicecommon.AnnotationLBProvider: "nsx-lb"}},
+		{name: "operator and NCP cannot remove provider", operation: admissionv1.Update, username: lbProviderWriter, oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}},
 		{name: "same account in other namespace denied", operation: admissionv1.Update, username: "system:serviceaccount:other:ncp-svc-account", annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}},
 		{name: "other account in same namespace denied", operation: admissionv1.Update, username: "system:serviceaccount:vmware-system-nsx:other", annotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}},
 		{name: "other NCPConfigs unaffected", operation: admissionv1.Update, configName: "custom", oldAnnotations: map[string]string{servicecommon.AnnotationLBProvider: "avi"}, allowed: true},
@@ -145,9 +145,9 @@ func TestNCPConfigWebhookManifest(t *testing.T) {
 		assert.Contains(t, hook.MatchConditions, admissionregistrationv1.MatchCondition{
 			Name: "restore-status", Expression: "request.name == 'nsx-restore-status'",
 		})
-		// Restore runs before controller/webhook registration. Trusted writes must not call an offline webhook.
+		// Trusted restore updates must not depend on the webhook being online; provider changes enter for validation.
 		assert.Contains(t, hook.MatchConditions, admissionregistrationv1.MatchCondition{
-			Name: "untrusted-writer", Expression: "request.userInfo.username != '" + lbProviderWriter + "'",
+			Name: "untrusted-writer-or-provider-change", Expression: "request.userInfo.username != '" + lbProviderWriter + "' || (request.operation == 'UPDATE' && ((has(oldObject.metadata.annotations) && 'nsx.vmware.com/lb-provider' in oldObject.metadata.annotations) != (has(object.metadata.annotations) && 'nsx.vmware.com/lb-provider' in object.metadata.annotations) || (has(oldObject.metadata.annotations) && 'nsx.vmware.com/lb-provider' in oldObject.metadata.annotations && has(object.metadata.annotations) && 'nsx.vmware.com/lb-provider' in object.metadata.annotations && oldObject.metadata.annotations['nsx.vmware.com/lb-provider'] != object.metadata.annotations['nsx.vmware.com/lb-provider'])))",
 		})
 		return
 	}

@@ -22,9 +22,6 @@ type NCPConfigValidator struct {
 }
 
 func (v *NCPConfigValidator) Handle(_ context.Context, req admission.Request) admission.Response {
-	if req.UserInfo.Username == lbProviderWriter {
-		return admission.Allowed("")
-	}
 	nc := &unstructured.Unstructured{}
 	if err := v.decoder.Decode(req, nc); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
@@ -32,6 +29,7 @@ func (v *NCPConfigValidator) Handle(_ context.Context, req admission.Request) ad
 	if nc.GetName() != util.NSXRestoreStatus {
 		return admission.Allowed("")
 	}
+	trustedWriter := req.UserInfo.Username == lbProviderWriter
 	value, exists := nc.GetAnnotations()[servicecommon.AnnotationLBProvider]
 	switch req.Operation {
 	case admissionv1.Create:
@@ -44,9 +42,14 @@ func (v *NCPConfigValidator) Handle(_ context.Context, req admission.Request) ad
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		oldValue, oldExists := old.GetAnnotations()[servicecommon.AnnotationLBProvider]
-		if exists != oldExists || value != oldValue {
-			return admission.Denied("only nsx-operator and NCP may modify the persisted LB provider")
+		providerChanged := exists != oldExists || value != oldValue
+		if !providerChanged {
+			return admission.Allowed("")
 		}
+		if trustedWriter && !oldExists && exists {
+			return admission.Allowed("")
+		}
+		return admission.Denied("the persisted LB provider is immutable once set")
 	}
 	return admission.Allowed("")
 }
