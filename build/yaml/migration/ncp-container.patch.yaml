@@ -1,0 +1,57 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Strategic merge patch for the downstream NCP Deployment; not a standalone Deployment.
+# Replace the image with the pinned image containing the new executable.
+# Downstream packaging must additionally copy the existing NSX operator's config,
+# CA, token/credential mounts and Envoy settings when enabling real handlers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nsx-ncp
+  namespace: vmware-system-nsx
+spec:
+  template:
+    spec:
+      containers:
+        - name: supervisor-network-migration-operator
+          image: controller:latest
+          command: [/usr/local/bin/supervisor-network-migration-operator]
+          args:
+            - --health-probe-bind-address=:9924
+            - --metrics-bind-address=0
+            - --nsxconfig=/etc/nsx-operator/nsxop.ini
+          env:
+            - name: NSX_OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: migration-probe
+              containerPort: 9924
+          # Allow Kubernetes API discovery and manager startup before liveness checks.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: migration-probe
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: migration-probe
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: migration-probe
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi

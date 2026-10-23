@@ -1,0 +1,27 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: migration.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+spec:
+  sourceMode: "VSPHERE_VDS"
+  targetMode: "NSX_VPC"
+  targetLbProvider: "AVI"
+  nsxProjectId: "proj-vcfa-org-01"         # Optional: pre-created VCFA Org project; defaults to 'default'
+  action: "EVALUATE"                      # EVALUATE | PLAN | DERIVE | EXECUTE | ROLLBACK | FINALIZE
+  userInputs:
+    legacyLbFrontendDvpgs: ["dvportgroup-1010"]   # AVI/HAPROXY user input
+    aviConfig:
+      legacyVipRanges: ["192.168.90.100-192.168.90.200"]  # AVI source only
+      newVipRanges: ["192.168.100.0/24"]
+      newFrontendDvpgs: ["dvportgroup-1020"]
+    # Include for DHCP-backed control plane or Supervisor Service networks.
+    cpVmServiceSubnets:
+    - vdn: vdn-cp-services-1
+      dhcpRange:
+        start: "10.2.1.100"
+        end: "10.2.1.200"
+      subnetMask: "255.255.255.0"
+      gatewayAddress: "10.2.1.1"

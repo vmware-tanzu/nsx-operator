@@ -1,0 +1,50 @@
+# Confluence page 2586034708, version 146. Controller output snapshot.
+# Adaptation: orchestration API group is migration.vmware.com.
+apiVersion: migration.vmware.com/v1alpha1
+kind: NamespaceNetworkTransition
+metadata:
+  generation: 5
+  name: batch-ns-migration-01
+spec:
+  action: EVALUATE
+  namespaces:
+  - finance-dev
+  - finance-prod
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+status:
+  actionGeneration: 5
+  actionState: Failed
+  conditions:
+  - lastTransitionTime: '2026-10-09T15:20:00Z'
+    message: 'Found unsupported workloads in namespace ''finance-prod'': VM ''worker-sriov-01''
+      uses SR-IOV / PCI passthrough interfaces which cannot bind to NSX VPC SubnetPorts.'
+    observedGeneration: 5
+    reason: IncompatibleWorkloadDetected
+    status: 'False'
+    type: WorkloadCompatibilityEvaluated
+  - lastTransitionTime: '2026-10-09T15:20:00Z'
+    message: Subnet derivation skipped due to incompatible workload pre-check failure.
+    observedGeneration: 5
+    reason: EvaluationFailed
+    status: 'False'
+    type: SubnetsDerived
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Illustrative migration status; concrete milestones require service handlers.
+    observedGeneration: 5
+    reason: ActionFailed
+    status: 'False'
+    type: Ready
+  lastAction: EVALUATE
+  namespaceStatuses:
+  - message: All workloads compatible with SubnetPort live rebind.
+    name: finance-dev
+    phase: EvaluationPassed
+    reason: MigrationInProgress
+  - message: Namespace contains 1 incompatible VM with SR-IOV/PCI passthrough interface.
+    name: finance-prod
+    phase: EvaluationFailed
+    reason: MigrationInProgress
+  observedGeneration: 5
+  phase: Failed
+
