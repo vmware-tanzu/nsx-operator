@@ -11,6 +11,33 @@ webhooks:
     service:
       name: vmware-system-nsx-operator-webhook-service
       namespace: vmware-system-nsx
+      path: /validate-crd-nsx-vmware-com-v1alpha1-vpcnetworkconfiguration
+  failurePolicy: Fail
+  # These trusted writers must also work during restore, before the webhook is serving.
+  matchConditions:
+  - name: system-network-configuration
+    expression: "request.name == 'system'"
+  - name: untrusted-writer
+    expression: "request.userInfo.username != 'system:serviceaccount:vmware-system-nsx:ncp-svc-account'"
+  name: vpcnetworkconfiguration.validating.crd.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - crd.nsx.vmware.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - vpcnetworkconfigurations
+    scope: Cluster
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: vmware-system-nsx-operator-webhook-service
+      namespace: vmware-system-nsx
       # kubebuilder webhookpath.
       path: /validate-crd-nsx-vmware-com-v1alpha1-subnetset
   failurePolicy: Fail

@@ -44,7 +44,6 @@ var (
 	log                            = logger.Log
 	ResourceTypeVPC                = common.ResourceTypeVpc
 	NewConverter                   = common.NewConverter
-	globalLbProvider               = NoneLB
 	lbProviderMutex                = &sync.Mutex{}
 	MarkedForDelete                = true
 	EnforceRevisionCheckParam      = false
@@ -1119,11 +1118,6 @@ func IsVNAMode(profile *model.VpcConnectivityProfile) (bool, error) {
 func (s *VPCService) GetLBProvider() (LBProvider, error) {
 	lbProviderMutex.Lock()
 	defer lbProviderMutex.Unlock()
-	if globalLbProvider != NoneLB {
-		log.Debug("LB provider", "current provider", globalLbProvider)
-		return globalLbProvider, nil
-	}
-
 	ncName := common.SystemVPCNetworkConfigurationName
 	netConfig, found, err := s.GetVPCNetworkConfig(ncName)
 	if err != nil {
@@ -1133,7 +1127,14 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 		log.Info("Get LB provider", "No system NetworkConfig found", ncName)
 		return NoneLB, nil
 	}
-
+	if value, exists := netConfig.Annotations[common.AnnotationLBProvider]; exists {
+		provider := LBProvider(value)
+		if provider != AVILB && provider != NSXLB {
+			return NoneLB, fmt.Errorf("invalid persisted LB provider %q in VPCNetworkConfiguration %s", value, ncName)
+		}
+		log.Debug("Get persisted LB provider", "provider", provider)
+		return provider, nil
+	}
 	vpcConnectivityProfile, err := s.GetVpcConnectivityProfileWithRetry(netConfig)
 	if err != nil {
 		return NoneLB, err
@@ -1146,9 +1147,20 @@ func (s *VPCService) GetLBProvider() (LBProvider, error) {
 		log.Error(err, "Failed to determine LB provider")
 		return NoneLB, err
 	}
-	globalLbProvider = provider
-	log.Info("Get LB provider", "provider", globalLbProvider)
-	return globalLbProvider, nil
+	if provider == NoneLB {
+		return NoneLB, nil
+	}
+	if netConfig.Annotations == nil {
+		netConfig.Annotations = make(map[string]string)
+	}
+	netConfig.Annotations[common.AnnotationLBProvider] = string(provider)
+	// Update uses resourceVersion to prevent overwriting a concurrent provider choice.
+	// On any write failure, let reconcile retry without using an unpersisted choice.
+	if err := s.Client.Update(context.Background(), netConfig); err != nil {
+		return NoneLB, fmt.Errorf("failed to persist LB provider: %w", err)
+	}
+	log.Info("Persisted LB provider", "provider", provider)
+	return provider, nil
 }
 
 func (s *VPCService) checkALBEndpoint() (bool, error) {
