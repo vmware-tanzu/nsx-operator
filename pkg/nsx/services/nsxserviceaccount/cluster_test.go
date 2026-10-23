@@ -230,6 +230,35 @@ func TestInitializeNSXServiceAccount(t *testing.T) {
 	}
 }
 
+// createStaleSecret creates the certificate Secret as left over by a previous reconcile, owned by another UID.
+func createStaleSecret(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) {
+	assert.NoError(t, s.Client.Create(ctx, &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      obj.Name + SecretSuffix,
+			Namespace: obj.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "nsx.vmware.com/v1alpha1",
+				Kind:       "NSXServiceAccount",
+				Name:       "stale-name",
+				UID:        "stale-uid",
+			}},
+		},
+		Data: map[string][]byte{SecretCertName: []byte("old-cert"), SecretKeyName: []byte("old-key"), CAName: []byte("old-ca")},
+	}))
+}
+
+// verifyRefreshedSecret checks the stale Secret is updated in place: new credentials and owner, existing CA kept.
+func verifyRefreshedSecret(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) {
+	secret := &v1.Secret{}
+	assert.NoError(t, s.Client.Get(ctx, types.NamespacedName{Namespace: obj.Namespace, Name: obj.Name + SecretSuffix}, secret))
+	assert.NotEqual(t, "old-cert", string(secret.Data[SecretCertName]))
+	assert.NotEqual(t, "old-key", string(secret.Data[SecretKeyName]))
+	assert.Equal(t, "old-ca", string(secret.Data[CAName]))
+	assert.Equal(t, 1, len(secret.OwnerReferences))
+	assert.Equal(t, obj.Name, secret.OwnerReferences[0].Name)
+	assert.Equal(t, obj.UID, secret.OwnerReferences[0].UID)
+}
+
 func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) {
 	type args struct {
 		obj *v1alpha1.NSXServiceAccount
@@ -241,6 +270,7 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 		wantErr     bool
 		wantSecret  bool
 		expectedCR  *v1alpha1.NSXServiceAccount
+		verifyFunc  func(*testing.T, *NSXServiceAccountService, context.Context, *v1alpha1.NSXServiceAccount)
 	}{
 		{
 			name: "GenerateCertificateError",
@@ -661,6 +691,372 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 				},
 			},
 		},
+		{
+			name: "Success with existing Secret",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				assert.NoError(t, s.Client.Create(ctx, obj))
+				createStaleSecret(t, s, ctx, obj)
+				normalizedClusterName := "k8scl-one_test-ns1-name1"
+				vpcPath := "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc"
+				piId := "Id1"
+				nodeId := "clusterId1"
+				uid := "00000000-0000-0000-0000-000000000001"
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.WithCertificateClient, "Create", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+						Name: &normalizedClusterName,
+						Id:   &piId,
+						Tags: []mpmodel.Tag{{
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.ClusterControlPlane{
+						Id:      &normalizedClusterName,
+						NodeId:  &nodeId,
+						VhcPath: &vpcPath,
+						Tags: []model.Tag{{
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+				},
+			},
+			wantErr:    false,
+			wantSecret: true,
+			expectedCR: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "name1",
+					Namespace:       "ns1",
+					UID:             "00000000-0000-0000-0000-000000000001",
+					ResourceVersion: "2",
+				},
+				Spec: v1alpha1.NSXServiceAccountSpec{},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{
+						{
+							Type:    v1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionTrue,
+							Reason:  v1alpha1.ConditionReasonRealizationSuccess,
+							Message: "Success.",
+						},
+					},
+					VPCPath:        "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc",
+					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
+					ClusterID:      "clusterId1",
+					ClusterName:    "k8scl-one_test-ns1-name1",
+					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+				},
+			},
+			verifyFunc: verifyRefreshedSecret,
+		},
+		{
+			name: "Success with populated status and existing Secret",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				assert.NoError(t, s.Client.Create(ctx, obj))
+				createStaleSecret(t, s, ctx, obj)
+				// The identity recorded in status must be kept, not derived from the current configuration.
+				previousClusterName := "previous-cluster-name"
+				vpcPath := "/orgs/default/projects/previous-project/vpcs/previous-vpc"
+				piId := "Id1"
+				certId1 := "certId1"
+				certId2 := "certId2"
+				nodeId := "clusterId1"
+				uid := "00000000-0000-0000-0000-000000000001"
+				oldCert := "old-cert"
+				assert.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
+					Name:          &previousClusterName,
+					Id:            &piId,
+					CertificateId: &certId1,
+					Tags: []mpmodel.Tag{{
+						Scope: &tagScopeNSXServiceAccountCRUID,
+						Tag:   &uid,
+					}},
+				}))
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{
+					Id:          &previousClusterName,
+					NodeId:      &nodeId,
+					VhcPath:     &vpcPath,
+					Certificate: &oldCert,
+					Tags: []model.Tag{{
+						Scope: &tagScopeNSXServiceAccountCRUID,
+						Tag:   &uid,
+					}},
+				}))
+				// Only the existing PI/CCP certificates are updated, no PI/CCP is created.
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.ClusterControlPlane{
+						Id:      &previousClusterName,
+						NodeId:  &nodeId,
+						VhcPath: &vpcPath,
+						Tags: []model.Tag{{
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.CertificatesClient, "Importcertificate", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &certId2}}}, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+						Name:          &previousClusterName,
+						Id:            &piId,
+						CertificateId: &certId2,
+						Tags: []mpmodel.Tag{{
+							Scope: &tagScopeNSXServiceAccountCRUID,
+							Tag:   &uid,
+						}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Status: v1alpha1.NSXServiceAccountStatus{
+						Phase:  v1alpha1.NSXServiceAccountPhaseFailed,
+						Reason: "Error: mock error",
+						Conditions: []metav1.Condition{{
+							Type:    v1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionFalse,
+							Reason:  v1alpha1.ConditionReasonRealizationError,
+							Message: "Error: mock error",
+						}},
+						VPCPath:     "/orgs/default/projects/previous-project/vpcs/previous-vpc",
+						NSXManagers: []string{"previous-mgr:443"},
+						ClusterID:   "clusterId1",
+						ClusterName: "previous-cluster-name",
+						Secrets:     []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+					},
+				},
+			},
+			wantErr:    false,
+			wantSecret: true,
+			expectedCR: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "name1",
+					Namespace:       "ns1",
+					UID:             "00000000-0000-0000-0000-000000000001",
+					ResourceVersion: "2",
+				},
+				Spec: v1alpha1.NSXServiceAccountSpec{},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{
+						{
+							Type:    v1alpha1.ConditionTypeRealized,
+							Status:  metav1.ConditionTrue,
+							Reason:  v1alpha1.ConditionReasonRealizationSuccess,
+							Message: "Success.",
+						},
+					},
+					VPCPath:        "/orgs/default/projects/previous-project/vpcs/previous-vpc",
+					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
+					ClusterID:      "clusterId1",
+					ClusterName:    "previous-cluster-name",
+					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+				},
+			},
+			verifyFunc: verifyRefreshedSecret,
+		},
+		{
+			// e.g. NSX manager restored to a state without the PI/CCP of a non-realized NSXServiceAccount.
+			name: "Recreate missing PI and CCP with the ClusterID recorded in status",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				assert.NoError(t, s.Client.Create(ctx, obj))
+				clusterName := "previous-cluster-name"
+				piId := "Id1"
+				nodeId := "clusterId1"
+				uid := "00000000-0000-0000-0000-000000000001"
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.WithCertificateClient, "Create", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+						Name: &clusterName,
+						Id:   &piId,
+						Tags: []mpmodel.Tag{{Scope: &tagScopeNSXServiceAccountCRUID, Tag: &uid}},
+					}, nil},
+					Times: 1,
+				}})
+				// The recorded ClusterID must be handed to NSX as the CCP node ID.
+				patches.ApplyMethodFunc(s.NSXClient.ClusterControlPlanesClient, "Update",
+					func(_, _, id string, ccp model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+						assert.Equal(t, clusterName, id)
+						if assert.NotNil(t, ccp.NodeId) {
+							assert.Equal(t, nodeId, *ccp.NodeId)
+						}
+						ccp.Id = &id
+						return ccp, nil
+					})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+					Status: v1alpha1.NSXServiceAccountStatus{
+						Phase:       v1alpha1.NSXServiceAccountPhaseFailed,
+						VPCPath:     "/orgs/default/projects/previous-project/vpcs/previous-vpc",
+						ClusterID:   "clusterId1",
+						ClusterName: "previous-cluster-name",
+					},
+				},
+			},
+			wantErr:    false,
+			wantSecret: true,
+			expectedCR: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "name1",
+					Namespace:       "ns1",
+					UID:             "00000000-0000-0000-0000-000000000001",
+					ResourceVersion: "2",
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{{
+						Type:    v1alpha1.ConditionTypeRealized,
+						Status:  metav1.ConditionTrue,
+						Reason:  v1alpha1.ConditionReasonRealizationSuccess,
+						Message: "Success.",
+					}},
+					VPCPath:        "/orgs/default/projects/previous-project/vpcs/previous-vpc",
+					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
+					ClusterID:      "clusterId1",
+					ClusterName:    "previous-cluster-name",
+					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+				},
+			},
+		},
+		{
+			// PI/CCP exist but status has no ClusterID, e.g. they were created and the status update then failed.
+			// The case where status keeps its ClusterID is covered by "Success with populated status and existing Secret".
+			name: "Existing PI and CCP with empty ClusterID in status reports the existing node ID",
+			prepareFunc: func(t *testing.T, s *NSXServiceAccountService, ctx context.Context, obj *v1alpha1.NSXServiceAccount) *gomonkey.Patches {
+				assert.NoError(t, s.Client.Create(ctx, obj))
+				clusterName := "k8scl-one_test-ns1-name1"
+				vpcPath := "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc"
+				piId := "Id1"
+				certId1 := "certId1"
+				certId2 := "certId2"
+				nodeId := "clusterId1"
+				uid := "00000000-0000-0000-0000-000000000001"
+				assert.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{
+					Name:          &clusterName,
+					Id:            &piId,
+					CertificateId: &certId1,
+					Tags:          []mpmodel.Tag{{Scope: &tagScopeNSXServiceAccountCRUID, Tag: &uid}},
+				}))
+				assert.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{
+					Id:      &clusterName,
+					NodeId:  &nodeId,
+					VhcPath: &vpcPath,
+					Tags:    []model.Tag{{Scope: &tagScopeNSXServiceAccountCRUID, Tag: &uid}},
+				}))
+				// The response carries no NodeId, so the stored one must be used.
+				patches := gomonkey.ApplyMethodSeq(s.NSXClient.ClusterControlPlanesClient, "Update", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.ClusterControlPlane{
+						Id:      &clusterName,
+						VhcPath: &vpcPath,
+						Tags:    []model.Tag{{Scope: &tagScopeNSXServiceAccountCRUID, Tag: &uid}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.CertificatesClient, "Importcertificate", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &certId2}}}, nil},
+					Times:  1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{mpmodel.PrincipalIdentity{
+						Name:          &clusterName,
+						Id:            &piId,
+						CertificateId: &certId2,
+						Tags:          []mpmodel.Tag{{Scope: &tagScopeNSXServiceAccountCRUID, Tag: &uid}},
+					}, nil},
+					Times: 1,
+				}})
+				patches.ApplyMethodSeq(s.NSXClient, "NSXCheckVersion", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{true},
+					Times:  1,
+				}})
+				return patches
+			},
+			args: args{
+				obj: &v1alpha1.NSXServiceAccount{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "name1",
+						Namespace: "ns1",
+						UID:       "00000000-0000-0000-0000-000000000001",
+					},
+				},
+			},
+			wantErr:    false,
+			wantSecret: true,
+			expectedCR: &v1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "name1",
+					Namespace:       "ns1",
+					UID:             "00000000-0000-0000-0000-000000000001",
+					ResourceVersion: "2",
+				},
+				Status: v1alpha1.NSXServiceAccountStatus{
+					Phase:  "realized",
+					Reason: "Success",
+					Conditions: []metav1.Condition{{
+						Type:    v1alpha1.ConditionTypeRealized,
+						Status:  metav1.ConditionTrue,
+						Reason:  v1alpha1.ConditionReasonRealizationSuccess,
+						Message: "Success.",
+					}},
+					VPCPath:        "/orgs/default/projects/k8scl-one_test/vpcs/ns1-default-vpc",
+					NSXManagers:    []string{"mgr1:443", "mgr2:443"},
+					ProxyEndpoints: v1alpha1.NSXProxyEndpoint{},
+					ClusterID:      "clusterId1",
+					ClusterName:    "k8scl-one_test-ns1-name1",
+					Secrets:        []v1alpha1.NSXSecret{{Name: "name1-nsx-cert", Namespace: "ns1"}},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -698,9 +1094,12 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount(t *testing.T) 
 				assert.Equal(t, tt.expectedCR.Status, actualCR.Status)
 			}
 			if !tt.wantErr {
-				expectedKeys := []string{util.NormalizeId(s.getClusterName(tt.expectedCR.Namespace, tt.expectedCR.Name))}
+				expectedKeys := []string{tt.expectedCR.Status.ClusterName}
 				assert.Equal(t, expectedKeys, s.PrincipalIdentityStore.ListKeys())
 				assert.Equal(t, expectedKeys, s.ClusterControlPlaneStore.ListKeys())
+			}
+			if tt.verifyFunc != nil {
+				tt.verifyFunc(t, s, ctx, tt.args.obj)
 			}
 		})
 	}
