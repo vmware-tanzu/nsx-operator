@@ -29,6 +29,13 @@ type BindingService struct {
 	servicecommon.Service
 	BindingStore    *BindingStore
 	VlanPoolService *vlanpool.Service
+	restoreMode     bool
+}
+
+// SetRestoreMode controls preservation of status VLANs during startup restore.
+// It must be called before normal controllers are started.
+func (s *BindingService) SetRestoreMode(enabled bool) {
+	s.restoreMode = enabled
 }
 
 // InitializeService initializes SubnetConnectionBindingMap service.
@@ -111,7 +118,7 @@ func (s *BindingService) createOrUpdateBindingMapInternal(
 	subnetPath string,
 	targetSubnetPaths []string) error {
 	desiredBMmap := bindingMapsToMap(s.buildSubnetBindings(subnetBinding, vlanID, targetSubnetPaths))
-	existingBMmap := bindingMapsToMap(s.BindingStore.getBindingsByBindingMapCRUID(string(subnetBinding.UID)))
+	existingBMmap := bindingMapsToMap(s.BindingStore.GetBindingsByBindingMapCRUID(string(subnetBinding.UID)))
 	updatedBindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 	for k, v := range desiredBMmap {
 		existBindingMap, found := existingBMmap[k]
@@ -321,7 +328,7 @@ func (s *BindingService) DeleteMultiSubnetConnectionBindingMapsByCRs(bindingCRs 
 	}
 	finalBindingMaps := make([]*model.SubnetConnectionBindingMap, 0)
 	for crID := range bindingCRs {
-		bms := s.BindingStore.getBindingsByBindingMapCRUID(crID)
+		bms := s.BindingStore.GetBindingsByBindingMapCRUID(crID)
 		finalBindingMaps = append(finalBindingMaps, bms...)
 	}
 	return s.deleteSubnetConnectionBindingMaps(finalBindingMaps)

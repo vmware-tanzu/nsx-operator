@@ -1465,7 +1465,7 @@ func createFakeReconciler(objs ...client.Object) *Reconciler {
 func TestGetPreferredVlan(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("returns VLANExtension.VLANID when child subnet has extension, overriding status.vlanTrafficTag", func(t *testing.T) {
+	t.Run("returns VLANExtension.VLANID as preference even when binding has status", func(t *testing.T) {
 		bm := &v1alpha1.SubnetConnectionBindingMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
 			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
@@ -1482,7 +1482,7 @@ func TestGetPreferredVlan(t *testing.T) {
 		assert.Equal(t, int64(300), preferred)
 	})
 
-	t.Run("returns status.vlanTrafficTag when child subnet has no extension", func(t *testing.T) {
+	t.Run("returns -1 when child subnet has no extension even when binding has status", func(t *testing.T) {
 		bm := &v1alpha1.SubnetConnectionBindingMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
 			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
@@ -1493,7 +1493,7 @@ func TestGetPreferredVlan(t *testing.T) {
 		}
 		r := createFakeReconciler(bm, childSubnet)
 		preferred := r.getPreferredVlan(ctx, bm)
-		assert.Equal(t, int64(201), preferred)
+		assert.Equal(t, int64(-1), preferred)
 	})
 
 	t.Run("returns -1 when status.vlanTrafficTag is nil and child subnet has no extension", func(t *testing.T) {
@@ -1509,7 +1509,7 @@ func TestGetPreferredVlan(t *testing.T) {
 		assert.Equal(t, int64(-1), preferred)
 	})
 
-	t.Run("returns status.vlanTrafficTag when child subnet not found", func(t *testing.T) {
+	t.Run("returns -1 when child subnet not found even when binding has status", func(t *testing.T) {
 		bm := &v1alpha1.SubnetConnectionBindingMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "bm-1", Namespace: "ns-1"},
 			Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "sub-1"},
@@ -1517,7 +1517,7 @@ func TestGetPreferredVlan(t *testing.T) {
 		}
 		r := createFakeReconciler(bm)
 		preferred := r.getPreferredVlan(ctx, bm)
-		assert.Equal(t, int64(201), preferred)
+		assert.Equal(t, int64(-1), preferred)
 	})
 
 	t.Run("returns -1 when status.vlanTrafficTag is nil and child subnet not found", func(t *testing.T) {
@@ -1658,10 +1658,16 @@ func TestRestoreReconcile(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, list, 2)
 
-		// Verify getPreferredVlan preserves the exact prior VLANs and prevents swap
+		// The service preserves status VLANs even when no preferred VLAN is available.
 		pref4 := r.getPreferredVlan(context.Background(), bmSub4)
 		pref5 := r.getPreferredVlan(context.Background(), bmSub5)
-		assert.Equal(t, int64(2), pref4, "scbm-sub4-1 must preserve VLAN 2")
-		assert.Equal(t, int64(1), pref5, "scbm-sub5-1 must preserve VLAN 1")
+		assert.Equal(t, int64(-1), pref4)
+		assert.Equal(t, int64(-1), pref5)
+		vlan4, err := r.SubnetBindingService.ReconcileVlanTrafficTag(bmSub4, pref4, []string{"/parent"}, false)
+		require.NoError(t, err)
+		vlan5, err := r.SubnetBindingService.ReconcileVlanTrafficTag(bmSub5, pref5, []string{"/parent"}, false)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), vlan4, "scbm-sub4-1 must preserve VLAN 2")
+		assert.Equal(t, int64(1), vlan5, "scbm-sub5-1 must preserve VLAN 1")
 	})
 }

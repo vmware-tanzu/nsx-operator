@@ -52,6 +52,9 @@ type Reconciler struct {
 }
 
 func (r *Reconciler) RestoreReconcile() error {
+	r.SubnetBindingService.SetRestoreMode(true)
+	defer r.SubnetBindingService.SetRestoreMode(false)
+
 	restoreList, err := r.getRestoreList()
 	if err != nil {
 		err = fmt.Errorf("failed to get SubnetConnectionBindingMap restore list: %w", err)
@@ -82,7 +85,7 @@ func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
 			continue
 		}
 
-		existingBMs := r.SubnetBindingService.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
+		existingBMs := r.SubnetBindingService.BindingStore.GetBindingsByBindingMapCRUID(string(bindingMap.UID))
 		if len(existingBMs) == 0 {
 			restoreList = append(restoreList, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name})
 			continue
@@ -371,9 +374,6 @@ func (r *Reconciler) getPreferredVlan(ctx context.Context, bindingMap *v1alpha1.
 		} else {
 			log.Error(err, "Failed to get child Subnet for VLAN allocation", "Subnet", childSubnetName)
 		}
-	}
-	if preferred == -1 && bindingMap.Status.VLANTrafficTag != nil {
-		return *bindingMap.Status.VLANTrafficTag
 	}
 	return preferred
 }

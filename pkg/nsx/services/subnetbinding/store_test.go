@@ -126,7 +126,7 @@ func TestStore(t *testing.T) {
 	require.Equal(t, 1, len(bindings))
 	require.Equal(t, bm2, bindings[0])
 
-	bindings = store.getBindingsByBindingMapCRUID(string(binding1.UID))
+	bindings = store.GetBindingsByBindingMapCRUID(string(binding1.UID))
 	require.Equal(t, 2, len(bindings))
 	require.ElementsMatch(t, []*model.SubnetConnectionBindingMap{bm1, bm2}, bindings)
 
@@ -145,6 +145,6 @@ func TestStore(t *testing.T) {
 	store.Apply(&delBindingMap1)
 	store.Apply(&delBindingMap2)
 
-	bindings = store.getBindingsByBindingMapCRUID(string(binding1.UID))
+	bindings = store.GetBindingsByBindingMapCRUID(string(binding1.UID))
 	require.Equal(t, 0, len(bindings))
 }
