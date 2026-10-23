@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/go-logr/logr"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -85,6 +89,59 @@ func TestClean_InitError(t *testing.T) {
 	err := Clean(ctx, cf, &log, debug, logLevel)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "init cleanup service failed")
+}
+
+func TestClean_CancelledDuringInit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	log := logr.Discard()
+	debug := false
+	logLevel := 0
+
+	patches := gomonkey.ApplyFunc(nsx.GetClient, func(_ *config.NSXOperatorConfig) *nsx.Client {
+		return &nsx.Client{}
+	})
+	defer patches.Reset()
+
+	initStarted := make(chan struct{})
+	initCanComplete := make(chan struct{})
+
+	patches.ApplyFunc(InitializeCleanupService, func(_ *config.NSXOperatorConfig, _ *nsx.Client, _ *logr.Logger) (*CleanupService, error) {
+		close(initStarted)
+		// Wait until context cancellation happens and Clean exits
+		<-initCanComplete
+		return nil, errors.New("mock init error after cancel")
+	})
+
+	cleanDone := make(chan error, 1)
+	go func() {
+		cleanDone <- Clean(ctx, cf, &log, debug, logLevel)
+	}()
+
+	// Wait until InitializeCleanupService is running
+	<-initStarted
+
+	// Cancel context while InitializeCleanupService is in-flight
+	cancel()
+
+	// Clean should exit promptly with timeout/canceled error
+	select {
+	case err := <-cleanDone:
+		assert.Error(t, err)
+		assert.True(t, errors.Is(err, context.Canceled))
+	case <-time.After(1 * time.Second):
+		t.Fatal("Clean did not exit after context was cancelled")
+	}
+
+	// Unblock InitializeCleanupService so the background goroutine sends err to errChan.
+	// With buffered errChan (cap 1), sending does not block even though Clean already returned.
+	close(initCanComplete)
+
+	// Bounded check to ensure the background goroutine exits and does not leak/block on errChan
+	require.Eventually(t, func() bool {
+		buf := make([]byte, 64*1024)
+		n := runtime.Stack(buf, true)
+		return !strings.Contains(string(buf[:n]), "pkg/clean.Clean.func2")
+	}, 1*time.Second, 10*time.Millisecond, "background init goroutine must exit without blocking on errChan")
 }
 
 func TestClean_Cleanup(t *testing.T) {

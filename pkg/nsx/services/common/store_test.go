@@ -166,7 +166,7 @@ func Test_InitializeResourceStore(t *testing.T) {
 	}
 
 	wg := sync.WaitGroup{}
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 3)
 	wg.Add(3)
 
 	var tc *bindings.TypeConverter
@@ -189,6 +189,30 @@ func Test_InitializeResourceStore(t *testing.T) {
 	service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeRule, []model.Tag{{Tag: &mTag, Scope: &mScope}}, ruleStore)
 	assert.Empty(t, fatalErrors)
 	assert.Equal(t, []string{"11111"}, ruleStore.ListKeys())
+}
+
+func Test_PopulateResourcetoStore_Error(t *testing.T) {
+	service := Service{}
+	patch := gomonkey.ApplyMethod(reflect.TypeOf(&service), "SearchResource",
+		func(_ *Service, _ string, _ string, _ Store, _ Filter) (uint64, error) {
+			return 0, fmt.Errorf("search failed")
+		})
+	defer patch.Reset()
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	fatalErrors := make(chan error, 1)
+
+	service.PopulateResourcetoStore(&wg, fatalErrors, "testResource", "query", nil, nil)
+	wg.Wait()
+	close(fatalErrors)
+
+	var errs []error
+	for err := range fatalErrors {
+		errs = append(errs, err)
+	}
+	assert.Len(t, errs, 1)
+	assert.EqualError(t, errs[0], "search failed")
 }
 
 func TestService_SearchResource(t *testing.T) {

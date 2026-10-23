@@ -163,7 +163,6 @@ func (s *VPCService) ValidateNetworkConfig(nc *v1alpha1.VPCNetworkConfiguration)
 // InitializeVPC sync NSX resources
 func InitializeVPC(service common.Service) (*VPCService, error) {
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
 	fatalErrors := make(chan error, 2)
 
 	VPCService := &VPCService{Service: service}
@@ -186,15 +185,9 @@ func InitializeVPC(service common.Service) (*VPCService, error) {
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeVpc, nil, VPCService.VpcStore)
 	go VPCService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeLBService, nil, VPCService.LbsStore)
 
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return VPCService, err
 	}
 

@@ -35,7 +35,6 @@ func InitializeService(service common.Service, subnetPortService common.SubnetPo
 	dynamicIPReservationBuilder, _ := common.PolicyPathVpcSubnetDynamicIPReservation.NewPolicyTreeBuilder()
 	staticIPReservationBuilder, _ := common.PolicyPathVpcSubnetStaticIPReservation.NewPolicyTreeBuilder()
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
 	fatalErrors := make(chan error, 2)
 
 	ipReservationService := &IPReservationService{
@@ -50,15 +49,9 @@ func InitializeService(service common.Service, subnetPortService common.SubnetPo
 	wg.Add(2)
 	go ipReservationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeDynamicSubnetIPReservation, nil, ipReservationService.DynamicIPReservationStore)
 	go ipReservationService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeStaticSubnetIPReservation, nil, ipReservationService.StaticIPReservationStore)
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return ipReservationService, err
 	}
 

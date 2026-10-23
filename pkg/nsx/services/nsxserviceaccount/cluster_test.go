@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -201,6 +203,28 @@ func TestInitializeNSXServiceAccount(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "both_stores_fail",
+			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
+				firstWorkerFailed := make(chan struct{})
+				// Worker 1 (MPQueryClient) fails first
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(s.NSXClient.MPQueryClient), "List", func(_ *fakeMPQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mpmodel.SearchResponse, error) {
+					close(firstWorkerFailed)
+					return mpmodel.SearchResponse{}, fmt.Errorf("mock mp query error")
+				})
+				// Worker 2 (QueryClient) fails shortly after Worker 1, ensuring second sender sends after first failure
+				patches.ApplyMethod(reflect.TypeOf(s.NSXClient.QueryClient), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+					select {
+					case <-firstWorkerFailed:
+					case <-time.After(50 * time.Millisecond):
+					}
+					time.Sleep(10 * time.Millisecond)
+					return model.SearchResponse{}, fmt.Errorf("mock query error")
+				})
+				return patches
+			},
+			wantErr: true,
+		},
+		{
 			name: "success",
 			prepareFunc: func(t *testing.T, s *common.Service, ctx context.Context) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethodSeq(s.NSXClient.QueryClient, "List", []gomonkey.OutputCell{{
@@ -226,6 +250,12 @@ func TestInitializeNSXServiceAccount(t *testing.T) {
 			if !reflect.DeepEqual(got.Service, commonService) {
 				t.Errorf("InitializeNSXServiceAccount() got = %v, want %v", got.Service, commonService)
 			}
+			// Bounded check to ensure all workers exit and no goroutine leaks or blocks on fatalErrors
+			require.Eventually(t, func() bool {
+				buf := make([]byte, 64*1024)
+				n := runtime.Stack(buf, true)
+				return !strings.Contains(string(buf[:n]), "PopulateResourcetoStore")
+			}, 1*time.Second, 10*time.Millisecond, "all store initialization workers must exit without blocking on fatalErrors channel")
 		})
 	}
 }

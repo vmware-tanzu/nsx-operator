@@ -35,19 +35,14 @@ func InitializeDNSRecordService(commonService common.Service, vpcService common.
 	tags := []model.Tag{{Scope: common.String(common.TagScopeCluster), Tag: common.String(cluster)}}
 
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
 	fatalErrors := make(chan error, 1)
 
 	wg.Add(1)
 	go commonService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeDnsRecord, tags, s.DNSRecordStore)
 
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-	select {
-	case <-wgDone:
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return s, err
 	}
 

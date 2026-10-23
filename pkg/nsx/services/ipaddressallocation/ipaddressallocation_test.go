@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -91,23 +90,13 @@ func Test_InitializeIPAddressAllocationStore(t *testing.T) {
 
 	// Init failed
 	patch.Reset()
-	var callCount int32
-	patch = gomonkey.ApplyMethod(reflect.TypeOf(&commonService), "InitializeResourceStore", func(_ *common.Service, wg *sync.WaitGroup,
-		fatalErrors chan error, resourceTypeValue string, tags []model.Tag, store common.Store,
-	) {
-		defer wg.Done()
-		if atomic.AddInt32(&callCount, 1) > 1 {
-			fatalErrors <- errors.New("init failed")
-		} else {
-			return
-		}
+	patch = gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+		return model.SearchResponse{}, errors.New("init failed")
 	})
 	defer patch.Reset()
 
 	_, err = InitializeIPAddressAllocation(commonService, vpcService, true)
-	if err != nil {
-		assert.EqualError(t, err, "init failed")
-	}
+	assert.ErrorContains(t, err, "init failed")
 }
 
 func TestIPAddressAllocationService_DeleteIPAddressAllocation(t *testing.T) {

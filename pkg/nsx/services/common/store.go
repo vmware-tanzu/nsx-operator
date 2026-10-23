@@ -185,7 +185,11 @@ func (service *Service) PopulateResourcetoStore(wg *sync.WaitGroup, fatalErrors 
 	defer wg.Done()
 	count, err := service.SearchResource("", queryParam, store, filter)
 	if err != nil {
-		fatalErrors <- err
+		if fatalErrors != nil {
+			fatalErrors <- err
+		}
+		log.Error(err, "Failed to initialize store", "resourceType", resourceTypeValue)
+		return
 	}
 	log.Info("Initialized store", "resourceType", resourceTypeValue, "count", count)
 }

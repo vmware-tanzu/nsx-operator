@@ -74,7 +74,7 @@ func Clean(ctx context.Context, cf *config.NSXOperatorConfig, log *logr.Logger, 
 		return errors.Join(nsxutil.TimeoutFailed, ctx.Err())
 	}
 	// add timeout for initialization
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	var cleanupService *CleanupService
 	var err error
 	go func() {

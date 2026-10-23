@@ -47,9 +47,8 @@ func InitializeService(service servicecommon.Service) (*BindingService, error) {
 	wg.Add(1)
 	go service.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetConnectionBindingMap, nil, bindingService.BindingStore)
 	wg.Wait()
-
-	if len(fatalErrors) > 0 {
-		err := <-fatalErrors
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return bindingService, err
 	}
 

@@ -98,7 +98,7 @@ func Test_InitializeVPCStore(t *testing.T) {
 	}
 
 	wg := sync.WaitGroup{}
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 3)
 	wg.Add(3)
 
 	var tc *bindings.TypeConverter

@@ -68,8 +68,7 @@ type NSXServiceAccountService struct {
 // InitializeNSXServiceAccount sync NSX resources
 func InitializeNSXServiceAccount(service common.Service) (*NSXServiceAccountService, error) {
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 2)
 
 	wg.Add(2)
 	nsxServiceAccountService := &NSXServiceAccountService{Service: service}
@@ -77,15 +76,9 @@ func InitializeNSXServiceAccount(service common.Service) (*NSXServiceAccountServ
 	nsxServiceAccountService.SetUpStore()
 	go nsxServiceAccountService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypePrincipalIdentity, nil, nsxServiceAccountService.PrincipalIdentityStore)
 	go nsxServiceAccountService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeClusterControlPlane, nil, nsxServiceAccountService.ClusterControlPlaneStore)
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
-
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
+	wg.Wait()
+	close(fatalErrors)
+	for err := range fatalErrors {
 		return nsxServiceAccountService, err
 	}
 
