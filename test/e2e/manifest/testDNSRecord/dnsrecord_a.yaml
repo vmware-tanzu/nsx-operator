@@ -1,4 +1,4 @@
-apiVersion: vpc.nsx.vmware.com/v1alpha1
+apiVersion: crd.nsx.vmware.com/v1alpha1
 kind: DNSRecord
 metadata:
   name: e2e-dnsrecord-a

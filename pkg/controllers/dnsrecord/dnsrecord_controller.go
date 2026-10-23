@@ -120,10 +120,18 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	r.StatusUpdater.IncreaseUpdateTotal()
 
+	switch obj.Spec.RecordType {
+	case v1alpha1.DNSRecordTypeA, v1alpha1.DNSRecordTypeAAAA:
+	default:
+		err := fmt.Errorf("unsupported DNS record type %q: only A and AAAA are supported", obj.Spec.RecordType)
+		r.StatusUpdater.UpdateFail(ctx, obj, err, "DNS record type validation failed", setDNSRecordReadyStatusFalse)
+		return ResultNormal, nil
+	}
+
 	computedFQDN := calculateFQDN(obj.Spec.RecordName, obj.Spec.DomainName)
-	if obj.Spec.FQDN != computedFQDN {
-		obj.Spec.FQDN = computedFQDN
-		if err := r.Client.Update(ctx, obj); err != nil {
+	if obj.Status.FQDN != computedFQDN {
+		obj.Status.FQDN = computedFQDN
+		if err := r.Client.Status().Update(ctx, obj); err != nil {
 			log.Error(err, "Failed to update FQDN on DNSRecord CR", "DNSRecord", req.NamespacedName)
 			r.StatusUpdater.UpdateFail(ctx, obj, err, "Failed to update FQDN", setDNSRecordReadyStatusFalse)
 			return ResultRequeue, err
