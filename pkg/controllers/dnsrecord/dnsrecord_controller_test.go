@@ -12,9 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -22,6 +24,7 @@ import (
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -47,8 +50,29 @@ func newTestNSXClient(t *testing.T) *nsx.Client {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 
+	bodies := make(map[string]*model.DnsRecord)
+	var captureRecords func([]*data.StructValue, int)
+	captureRecords = func(children []*data.StructValue, depth int) {
+		for _, child := range children {
+			if depth < 2 {
+				value, errs := servicecommon.NewConverter().ConvertToGolang(child, model.ChildResourceReferenceBindingType())
+				require.Empty(t, errs)
+				captureRecords(value.(model.ChildResourceReference).Children, depth+1)
+				continue
+			}
+			value, errs := servicecommon.NewConverter().ConvertToGolang(child, model.ChildDnsRecordBindingType())
+			require.Empty(t, errs)
+			rec := value.(model.ChildDnsRecord).DnsRecord
+			if rec != nil && rec.Id != nil {
+				bodies[*rec.Id] = rec
+			}
+		}
+	}
 	orgRoot := orgrootmocks.NewMockOrgRootClient(ctrl)
-	orgRoot.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	orgRoot.EXPECT().Patch(gomock.Any(), gomock.Any()).DoAndReturn(func(root model.OrgRoot, _ *bool) error {
+		captureRecords(root.Children, 0)
+		return nil
+	}).AnyTimes()
 
 	realized := realizedmocks.NewMockRealizedEntitiesClient(ctrl)
 	st := model.GenericPolicyRealizedResource_STATE_REALIZED
@@ -60,6 +84,11 @@ func newTestNSXClient(t *testing.T) *nsx.Client {
 	dnsRec.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(orgID, projectID, recordID string) (model.DnsRecord, error) {
 			p := fmt.Sprintf("/orgs/%s/projects/%s/%s/%s", orgID, projectID, dns.DNSRecordPathSegment, recordID)
+			if rec := bodies[recordID]; rec != nil {
+				out := *rec
+				out.Path = &p
+				return out, nil
+			}
 			rid := recordID
 			return model.DnsRecord{Id: &rid, Path: &p}, nil
 		}).AnyTimes()
@@ -96,12 +125,6 @@ func TestCalculateFQDN(t *testing.T) {
 			recordName: "",
 			domainName: "example.com.",
 			want:       "example.com",
-		},
-		{
-			name:       "PTR record name",
-			recordName: "10",
-			domainName: "0.0.10.in-addr.arpa",
-			want:       "10.0.0.10.in-addr.arpa",
 		},
 		{
 			name:       "uppercase and trailing dots",
@@ -204,11 +227,93 @@ func TestDNSRecordReconciler_Reconcile_CreateAndUpdate(t *testing.T) {
 	err = fakeClient.Get(ctx, req.NamespacedName, updatedCR)
 	assert.NoError(t, err)
 	assert.NotContains(t, updatedCR.Finalizers, servicecommon.DNSRecordFinalizerName)
-	assert.Equal(t, "api.example.com", updatedCR.Spec.FQDN)
+	assert.Equal(t, "api.example.com", updatedCR.Status.FQDN)
 	assert.Len(t, updatedCR.Status.Conditions, 1)
 	assert.Equal(t, string(v1alpha1.Ready), updatedCR.Status.Conditions[0].Type)
 	assert.Equal(t, metav1.ConditionTrue, updatedCR.Status.Conditions[0].Status)
 	assert.Equal(t, "DNSRecordReady", updatedCR.Status.Conditions[0].Reason)
+	assert.Equal(t, dnsRecord.Spec, updatedCR.Spec)
+
+	updatedCR.Spec.RecordName = "web"
+	require.NoError(t, fakeClient.Update(ctx, updatedCR))
+	res, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, ResultNormal, res)
+	require.NoError(t, fakeClient.Get(ctx, req.NamespacedName, updatedCR))
+	assert.Equal(t, "web.example.com", updatedCR.Status.FQDN)
+	assert.Equal(t, "web", updatedCR.Spec.RecordName)
+}
+
+func TestDNSRecordReconciler_Reconcile_UnsupportedRecordType(t *testing.T) {
+	for _, recordType := range []v1alpha1.DNSRecordType{"CNAME", "PTR", "NS", "TXT", "MX", ""} {
+		t.Run(string(recordType), func(t *testing.T) {
+			scheme := setupScheme()
+			dnsRecord := &v1alpha1.DNSRecord{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "unsupported-record"},
+				Spec: v1alpha1.DNSRecordSpec{
+					DomainName:   "example.com",
+					RecordName:   "api",
+					RecordType:   recordType,
+					RecordValues: []string{"10.0.0.1"},
+				},
+			}
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).Build()
+			r := &DNSRecordReconciler{
+				Client: fakeClient,
+				// An unconfigured service would fail if reconciliation reached NSX processing.
+				Service:       &dns.DNSRecordService{},
+				StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
+			}
+
+			key := client.ObjectKeyFromObject(dnsRecord)
+			res, err := r.Reconcile(context.Background(), controllerruntime.Request{NamespacedName: key})
+			require.NoError(t, err)
+			assert.Equal(t, ResultNormal, res)
+
+			updated := &v1alpha1.DNSRecord{}
+			require.NoError(t, fakeClient.Get(context.Background(), key, updated))
+			cond := meta.FindStatusCondition(updated.Status.Conditions, string(v1alpha1.Ready))
+			require.NotNil(t, cond)
+			assert.Equal(t, metav1.ConditionFalse, cond.Status)
+			assert.Contains(t, cond.Message, "only A and AAAA are supported")
+			assert.Equal(t, dnsRecord.Spec, updated.Spec)
+		})
+	}
+}
+
+func TestDNSRecordReconciler_Reconcile_FQDNStatusUpdateFailure(t *testing.T) {
+	scheme := setupScheme()
+	dnsRecord := &v1alpha1.DNSRecord{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "status-failure"},
+		Spec: v1alpha1.DNSRecordSpec{
+			DomainName:   "example.com",
+			RecordName:   "api",
+			RecordType:   v1alpha1.DNSRecordTypeA,
+			RecordValues: []string{"10.0.0.1"},
+		},
+	}
+	updateErr := fmt.Errorf("status update failed")
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(context.Context, client.WithWatch, client.Object, ...client.UpdateOption) error {
+				t.Fatal("FQDN reconciliation must not update spec")
+				return nil
+			},
+			SubResourceUpdate: func(_ context.Context, _ client.Client, subresource string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
+				assert.Equal(t, "status", subresource)
+				return updateErr
+			},
+		}).Build()
+	r := &DNSRecordReconciler{
+		Client:        fakeClient,
+		Service:       &dns.DNSRecordService{},
+		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
+	}
+	res, err := r.Reconcile(context.Background(), controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(dnsRecord)})
+	assert.ErrorIs(t, err, updateErr)
+	assert.Equal(t, ResultRequeue, res)
 }
 
 func TestDNSRecordReconciler_Reconcile_Delete(t *testing.T) {
@@ -226,7 +331,6 @@ func TestDNSRecordReconciler_Reconcile_Delete(t *testing.T) {
 			RecordName:   "api",
 			RecordType:   v1alpha1.DNSRecordTypeA,
 			RecordValues: []string{"10.0.0.1"},
-			FQDN:         "api.example.com",
 		},
 	}
 
@@ -267,7 +371,6 @@ func TestDNSRecordReconciler_Reconcile_DeleteWithService(t *testing.T) {
 			RecordName:   "api",
 			RecordType:   v1alpha1.DNSRecordTypeA,
 			RecordValues: []string{"10.0.0.1"},
-			FQDN:         "api.example.com",
 		},
 	}
 
@@ -311,7 +414,6 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationError(t *testing.T) 
 			RecordName:   "test",
 			RecordType:   v1alpha1.DNSRecordTypeA,
 			RecordValues: []string{"10.0.0.1"},
-			FQDN:         "test.invalid-domain.com",
 		},
 	}
 
@@ -361,84 +463,98 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationError(t *testing.T) 
 }
 
 func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationSuccess(t *testing.T) {
-	scheme := setupScheme()
-	dnsRecord := &v1alpha1.DNSRecord{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:  "default",
-			Name:       "valid-zone-record",
-			Finalizers: []string{servicecommon.DNSRecordFinalizerName},
-		},
-		Spec: v1alpha1.DNSRecordSpec{
-			DomainName:   "example.com",
-			RecordName:   "api",
-			RecordType:   v1alpha1.DNSRecordTypeA,
-			RecordValues: []string{"10.0.0.1"},
-			FQDN:         "api.example.com",
-		},
+	for _, tc := range []struct {
+		recordType v1alpha1.DNSRecordType
+		address    string
+	}{
+		{v1alpha1.DNSRecordTypeA, "10.0.0.1"},
+		{v1alpha1.DNSRecordTypeAAAA, "2001:db8::1"},
+	} {
+		t.Run(string(tc.recordType), func(t *testing.T) {
+			scheme := setupScheme()
+			dnsRecord := &v1alpha1.DNSRecord{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace:  "default",
+					Name:       "valid-zone-record",
+					Finalizers: []string{servicecommon.DNSRecordFinalizerName},
+				},
+				Spec: v1alpha1.DNSRecordSpec{
+					DomainName:   "example.com",
+					RecordName:   "api",
+					RecordType:   tc.recordType,
+					RecordValues: []string{tc.address},
+				},
+			}
+			nsObj := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "default",
+					UID:  "default-ns-uid",
+				},
+			}
+
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord, nsObj).Build()
+
+			mockVPC := &pkgmock.MockVPCServiceProvider{}
+			nc := &v1alpha1.VPCNetworkConfiguration{
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					DNSZones: []string{"/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1"},
+				},
+			}
+			mockVPC.On("GetVPCNetworkConfigByNamespace", mock.AnythingOfType("string")).Return(nc, nil)
+
+			zoneCache := dns.NewDNSZoneCacheFromMap(map[string]string{
+				"/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1": "example.com",
+			})
+			builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
+			require.NoError(t, err)
+			nsxCfg := &config.NSXOperatorConfig{
+				CoeConfig: &config.CoeConfig{Cluster: "unit-test"},
+				NsxConfig: &config.NsxConfig{},
+			}
+			nsxClient := newTestNSXClient(t)
+
+			dnsSvc := &dns.DNSRecordService{
+				Service: servicecommon.Service{
+					Client:    fakeClient,
+					NSXConfig: nsxCfg,
+					NSXClient: nsxClient,
+				},
+				VPCService:       mockVPC,
+				DNSRecordStore:   dns.BuildDNSRecordStore(),
+				DNSZoneMap:       zoneCache,
+				DnsRecordBuilder: builder,
+			}
+
+			r := &DNSRecordReconciler{
+				Client:        fakeClient,
+				Scheme:        scheme,
+				Service:       dnsSvc,
+				StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, nsxCfg, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
+			}
+
+			ctx := context.Background()
+			req := controllerruntime.Request{
+				NamespacedName: types.NamespacedName{Namespace: "default", Name: "valid-zone-record"},
+			}
+
+			res, err := r.Reconcile(ctx, req)
+			assert.NoError(t, err)
+			assert.Equal(t, ResultNormal, res)
+
+			updatedCR := &v1alpha1.DNSRecord{}
+			err = fakeClient.Get(ctx, req.NamespacedName, updatedCR)
+			assert.NoError(t, err)
+			assert.Len(t, updatedCR.Status.Conditions, 1)
+			assert.Equal(t, string(v1alpha1.Ready), updatedCR.Status.Conditions[0].Type)
+			assert.Equal(t, metav1.ConditionTrue, updatedCR.Status.Conditions[0].Status)
+			assert.Equal(t, "DNSRecordReady", updatedCR.Status.Conditions[0].Reason)
+			assert.Equal(t, "api.example.com", updatedCR.Status.FQDN)
+			records := dnsSvc.DNSRecordStore.GetByOwnerResourceNamespacedName(dns.ResourceKindDNSRecord, "default", "valid-zone-record")
+			require.Len(t, records, 1)
+			assert.Equal(t, string(tc.recordType), *records[0].RecordType)
+			assert.Equal(t, []string{tc.address}, records[0].RecordValues)
+		})
 	}
-	nsObj := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "default",
-			UID:  "default-ns-uid",
-		},
-	}
-
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord, nsObj).Build()
-
-	mockVPC := &pkgmock.MockVPCServiceProvider{}
-	nc := &v1alpha1.VPCNetworkConfiguration{
-		Spec: v1alpha1.VPCNetworkConfigurationSpec{
-			DNSZones: []string{"/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1"},
-		},
-	}
-	mockVPC.On("GetVPCNetworkConfigByNamespace", mock.AnythingOfType("string")).Return(nc, nil)
-
-	zoneCache := dns.NewDNSZoneCacheFromMap(map[string]string{
-		"/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1": "example.com",
-	})
-	builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
-	require.NoError(t, err)
-	nsxCfg := &config.NSXOperatorConfig{
-		CoeConfig: &config.CoeConfig{Cluster: "unit-test"},
-		NsxConfig: &config.NsxConfig{},
-	}
-	nsxClient := newTestNSXClient(t)
-
-	dnsSvc := &dns.DNSRecordService{
-		Service: servicecommon.Service{
-			Client:    fakeClient,
-			NSXConfig: nsxCfg,
-			NSXClient: nsxClient,
-		},
-		VPCService:       mockVPC,
-		DNSRecordStore:   dns.BuildDNSRecordStore(),
-		DNSZoneMap:       zoneCache,
-		DnsRecordBuilder: builder,
-	}
-
-	r := &DNSRecordReconciler{
-		Client:        fakeClient,
-		Scheme:        scheme,
-		Service:       dnsSvc,
-		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, nsxCfg, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
-	}
-
-	ctx := context.Background()
-	req := controllerruntime.Request{
-		NamespacedName: types.NamespacedName{Namespace: "default", Name: "valid-zone-record"},
-	}
-
-	res, err := r.Reconcile(ctx, req)
-	assert.NoError(t, err)
-	assert.Equal(t, ResultNormal, res)
-
-	updatedCR := &v1alpha1.DNSRecord{}
-	err = fakeClient.Get(ctx, req.NamespacedName, updatedCR)
-	assert.NoError(t, err)
-	assert.Len(t, updatedCR.Status.Conditions, 1)
-	assert.Equal(t, string(v1alpha1.Ready), updatedCR.Status.Conditions[0].Type)
-	assert.Equal(t, metav1.ConditionTrue, updatedCR.Status.Conditions[0].Status)
-	assert.Equal(t, "DNSRecordReady", updatedCR.Status.Conditions[0].Reason)
 }
 
 func TestDNSRecordReconciler_CollectGarbage_WithStore(t *testing.T) {
