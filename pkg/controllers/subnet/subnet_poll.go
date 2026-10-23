@@ -204,9 +204,9 @@ func (r *SubnetReconciler) handleNSXSubnetError(ctx context.Context, err error, 
 	errorType string) {
 	log.Error(err, fmt.Sprintf("Failed to get %s", errorType), "AssociatedResource", associatedResource)
 	r.SubnetService.RemoveSubnetFromCache(associatedResource, "NSXSubnetError")
-	subnetPath, err := servicecommon.GetSubnetPathFromAssociatedResource(associatedResource)
-	if err != nil {
-		log.Error(err, "Invalid associatedResource", "associatedResource", associatedResource)
+	subnetPath, pathErr := servicecommon.GetSubnetPathFromAssociatedResource(associatedResource)
+	if pathErr != nil {
+		log.Error(pathErr, "Invalid associatedResource", "associatedResource", associatedResource)
 	} else {
 		r.SubnetPortService.DeletePortCount(subnetPath)
 	}

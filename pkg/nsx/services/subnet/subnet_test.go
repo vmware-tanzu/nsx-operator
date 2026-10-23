@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1692,6 +1693,13 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			// Call the function being tested
 			service := &SubnetService{}
 			service.MapNSXSubnetToSubnetCR(subnetCR, tt.nsxSubnet)
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "shared_subnet",
+				Component:   "subnet_service",
+				Scenario:    "map_spec",
+				Description: "Verify shared Subnet lifecycle: map_spec",
+			})
+			guard.AssertOutput(map[string]interface{}{"result": subnetCR, "error": ""})
 
 			// Check the result
 			assert.Equal(t, tt.expectedSubnet.Spec.AccessMode, subnetCR.Spec.AccessMode)
@@ -1871,6 +1879,13 @@ func TestMapNSXSubnetStatusToSubnetCRStatus(t *testing.T) {
 			// Call the function being tested
 			service := &SubnetService{}
 			service.MapNSXSubnetStatusToSubnetCRStatus(subnetCR, tt.statusList)
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "shared_subnet",
+				Component:   "subnet_service",
+				Scenario:    "map_status",
+				Description: "Verify shared Subnet lifecycle: map_status",
+			})
+			guard.AssertOutput(map[string]interface{}{"result": subnetCR.Status, "error": ""})
 
 			// Check the result
 			assert.Equal(t, tt.expectedStatus.NetworkAddresses, subnetCR.Status.NetworkAddresses)
@@ -4194,6 +4209,40 @@ func TestCreateOrUpdateSubnet_PoolRangeCapacityReset(t *testing.T) {
 				require.Equal(t, []string{"subnet-path"}, ports.paths)
 			} else {
 				require.Empty(t, ports.paths)
+			}
+		})
+	}
+}
+
+func TestSharedSubnetResourceMapLifecycle(t *testing.T) {
+	resource := "project:vpc:shared"
+	first := types.NamespacedName{Namespace: "team-a", Name: "shared"}
+	second := types.NamespacedName{Namespace: "team-b", Name: "shared"}
+	tests := []struct {
+		name     string
+		remove   []types.NamespacedName
+		expected sets.Set[types.NamespacedName]
+	}{
+		{"share across namespaces and deduplicate", nil, sets.New(first, second)},
+		{"remove one namespace preserves the other", []types.NamespacedName{first}, sets.New(second)},
+		{"remove absent reference is harmless", []types.NamespacedName{first, first}, sets.New(second)},
+		{"remove final reference removes resource", []types.NamespacedName{first, second}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetService{SharedSubnetData: SharedSubnetData{
+				SharedSubnetResourceMap: make(map[string]sets.Set[types.NamespacedName]),
+			}}
+			service.AddSharedSubnetToResourceMap(resource, first)
+			service.AddSharedSubnetToResourceMap(resource, second)
+			service.AddSharedSubnetToResourceMap(resource, first)
+			service.RemoveSharedSubnetFromResourceMap("missing", second)
+			for _, name := range tt.remove {
+				service.RemoveSharedSubnetFromResourceMap(resource, name)
+			}
+			require.Equal(t, tt.expected, service.SharedSubnetResourceMap[resource])
+			if tt.expected == nil {
+				require.Empty(t, service.SharedSubnetResourceMap)
 			}
 		})
 	}
