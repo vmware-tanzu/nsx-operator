@@ -14,6 +14,8 @@ import (
 
 const (
 	DefaultRecordTtL = 300
+	MinRecordTTL     = 30
+	MaxRecordTTL     = 86400
 )
 
 // BuildDnsRecord builds one *model.DnsRecord for row using batchOwner or row.effectiveOwner.
@@ -43,8 +45,11 @@ func (s *DNSRecordService) tagsForOwner(owner *ResourceRef) []model.Tag {
 func getRecordIDAndPathAndType(recordName, endpointRecordType, zonePath string) (string, string, string) {
 	nsxRecordType := getNSXDnsRecordType(endpointRecordType)
 	recID := strings.ReplaceAll(recordName, ".", "_")
+	// Reserve _apex for the zone apex; escape leading underscores on other names.
 	if recID == "@" {
-		recID = "apex"
+		recID = "_apex"
+	} else if strings.HasPrefix(recID, "_") {
+		recID = "_" + recID
 	}
 	// Ignore the errors returned in `parseDnsZonePath`, as it was validated in previous steps when
 	// preparing the DNS zone maps in the service.

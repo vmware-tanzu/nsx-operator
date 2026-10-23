@@ -20,12 +20,6 @@ import (
 // Standard project DNS zone: /orgs/{org}/projects/{project}/dns-services/{dnsService}/zones/{zoneId}
 var dnsZonePathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-services/([^/]+)/zones/([^/]+)$`)
 
-// Backward compatibility: project DNS forwarder zone: /orgs/{org}/projects/{project}/infra/dns-forwarder-zones/{zoneId}
-var projectDnsForwarderZonePathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/infra/dns-forwarder-zones/([^/]+)$`)
-
-// Backward compatibility: infra DNS forwarder zone: /infra/dns-forwarder-zones/{zoneId}
-var infraDnsForwarderZonePathRe = regexp.MustCompile(`^/infra/dns-forwarder-zones/([^/]+)$`)
-
 // parseDnsZonePath splits a Policy zone path into org, project, DNS service, and zone ID.
 func parseDnsZonePath(zonePath string) (orgID, projectID, dnsServiceID, zoneID string, err error) {
 	p := strings.TrimSpace(zonePath)
@@ -35,13 +29,10 @@ func parseDnsZonePath(zonePath string) (orgID, projectID, dnsServiceID, zoneID s
 	if matches := dnsZonePathRe.FindStringSubmatch(p); len(matches) == 5 {
 		return matches[1], matches[2], matches[3], matches[4], nil
 	}
-	if matches := projectDnsForwarderZonePathRe.FindStringSubmatch(p); len(matches) == 4 {
-		return matches[1], matches[2], "infra", matches[3], nil
+	if strings.Contains(p, "/dns-forwarder-zones/") {
+		return "", "", "", "", fmt.Errorf("DNS forwarder zones are not supported for DNS records: %q; expected a DnsZone path under /orgs/{org}/projects/{project}/dns-services/{dns-service}/zones/{zone}", zonePath)
 	}
-	if matches := infraDnsForwarderZonePathRe.FindStringSubmatch(p); len(matches) == 2 {
-		return "default", "default", "infra", matches[1], nil
-	}
-	return "", "", "", "", fmt.Errorf("invalid DNS zone path %q: expected /orgs/{org}/projects/{project}/dns-services/{dns-service}/zones/{zone} or /orgs/{org}/projects/{project}/infra/dns-forwarder-zones/{zone} or /infra/dns-forwarder-zones/{zone}", zonePath)
+	return "", "", "", "", fmt.Errorf("invalid DNS zone path %q: expected /orgs/{org}/projects/{project}/dns-services/{dns-service}/zones/{zone}", zonePath)
 }
 
 // endpointDNSNameIsWildcard reports whether dnsName requests a wildcard apex record (e.g. "*.example.com").
@@ -137,6 +128,10 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 
 	dnsZoneDomainMapping := make(map[string]string)
 	for _, p := range dnsZonePaths {
+		// Validate cached paths too, including entries produced by older versions.
+		if _, _, _, _, err := parseDnsZonePath(p); err != nil {
+			return nil, err
+		}
 		domain, found := s.DNSZoneMap.get(p)
 		if found {
 			log.Debug("DNS zone domain resolved from cache", "path", p, "domain", domain)
@@ -161,44 +156,6 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 }
 
 func (s *DNSRecordService) getDNSZoneFromNSX(zonePath string) (*model.DnsZone, error) {
-	p := strings.TrimSpace(zonePath)
-	if matches := projectDnsForwarderZonePathRe.FindStringSubmatch(p); len(matches) == 4 {
-		orgID, projectID, zoneID := matches[1], matches[2], matches[3]
-		if s.NSXClient != nil && s.NSXClient.ProjectDnsForwarderZonesClient != nil {
-			fz, err := s.NSXClient.ProjectDnsForwarderZonesClient.Get(orgID, projectID, zoneID)
-			if err != nil {
-				return nil, nsxutil.TransNSXApiError(err)
-			}
-			var domain string
-			if len(fz.DnsDomainNames) > 0 {
-				domain = fz.DnsDomainNames[0]
-			}
-			return &model.DnsZone{
-				Id:            fz.Id,
-				DisplayName:   fz.DisplayName,
-				DnsDomainName: &domain,
-			}, nil
-		}
-	}
-	if matches := infraDnsForwarderZonePathRe.FindStringSubmatch(p); len(matches) == 2 {
-		zoneID := matches[1]
-		if s.NSXClient != nil && s.NSXClient.InfraDnsForwarderZonesClient != nil {
-			fz, err := s.NSXClient.InfraDnsForwarderZonesClient.Get(zoneID)
-			if err != nil {
-				return nil, nsxutil.TransNSXApiError(err)
-			}
-			var domain string
-			if len(fz.DnsDomainNames) > 0 {
-				domain = fz.DnsDomainNames[0]
-			}
-			return &model.DnsZone{
-				Id:            fz.Id,
-				DisplayName:   fz.DisplayName,
-				DnsDomainName: &domain,
-			}, nil
-		}
-	}
-
 	orgID, projectID, dnsServiceID, zoneID, err := parseDnsZonePath(zonePath)
 	if err != nil {
 		return nil, err
