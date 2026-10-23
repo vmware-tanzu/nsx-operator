@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/clock"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -42,7 +43,6 @@ var (
 		servicecommon.DefaultPodNetwork: servicecommon.LabelDefaultPodSubnetSet,
 		servicecommon.DefaultVMNetwork:  servicecommon.LabelDefaultVMSubnetSet,
 	}
-	GCStartupDelay = 10 * time.Minute
 )
 
 func IsSharedSubnetPath(ctx context.Context, client k8sclient.Client, path string, ns string) (bool, error) {
@@ -320,29 +320,19 @@ func NumReconcile() int {
 }
 
 func GenericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+	genericGarbageCollector(cancel, timeout, f, clock.RealClock{})
+}
+
+func genericGarbageCollector(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error, gcClock clock.WithTicker) {
 	ctx := context.Background()
-
-	if GCStartupDelay > 0 {
-		select {
-		case <-cancel:
-			return
-		case <-time.After(GCStartupDelay):
-		}
-	}
-
-	// Run the first garbage collection immediately after the startup delay
-	if err := f(ctx); err != nil {
-		log.Error(err, "failed to run initial garbage collection")
-	}
-
-	ticker := time.NewTicker(timeout)
+	ticker := gcClock.NewTicker(timeout)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-cancel:
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			f(ctx)
 		}
 	}

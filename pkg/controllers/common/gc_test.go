@@ -3,87 +3,93 @@ package common
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/clock"
+	clocktesting "k8s.io/utils/clock/testing"
 )
 
 func TestGenericGarbageCollector(t *testing.T) {
-	// Save original startup delay and restore it afterwards
-	origDelay := GCStartupDelay
-	defer func() {
-		GCStartupDelay = origDelay
-	}()
+	for _, tc := range []struct {
+		name             string
+		cancelBeforeTick bool
+	}{
+		{name: "periodic collection"},
+		{name: "cancel before first tick", cancelBeforeTick: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const interval = 10 * time.Millisecond
+			gcClock := &gcTestClock{
+				FakeClock: clocktesting.NewFakeClock(time.Unix(0, 0)),
+				ready:     make(chan struct{}),
+			}
+			calls := make(chan struct{}, 1)
+			cancel := make(chan bool)
+			done := make(chan struct{})
+			stop := sync.OnceFunc(func() { close(cancel) })
+			go func() {
+				genericGarbageCollector(cancel, interval, func(context.Context) error {
+					select {
+					case calls <- struct{}{}:
+					default:
+					}
+					return nil
+				}, gcClock)
+				close(done)
+			}()
+			t.Cleanup(func() {
+				stop()
+				waitForGCSignal(t, done, "GC did not exit after cancellation")
+			})
 
-	// Set startup delay to 0 for testing immediate execution
-	GCStartupDelay = 0
+			// Synchronize with the first select, so scheduler delays cannot hide an immediate call.
+			waitForGCSignal(t, gcClock.ready, "GC did not start waiting for ticks")
+			assert.Empty(t, calls, "GC should not run immediately")
+			gcClock.Step(interval - time.Nanosecond)
+			assert.Empty(t, calls, "GC should not run before its interval")
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	var calledCount int32
-	f := func(ctx context.Context) error {
-		val := atomic.AddInt32(&calledCount, 1)
-		if val == 1 {
-			wg.Done()
-		}
-		return nil
+			if tc.cancelBeforeTick {
+				stop()
+				waitForGCSignal(t, done, "GC did not exit after cancellation")
+				gcClock.Step(2 * interval)
+				assert.Empty(t, calls, "GC should not run after cancellation")
+				return
+			}
+			gcClock.Step(time.Nanosecond)
+			waitForGCSignal(t, calls, "GC did not run on the first tick")
+			gcClock.Step(interval)
+			waitForGCSignal(t, calls, "GC did not run on the next tick")
+		})
 	}
-
-	cancel := make(chan bool)
-	done := make(chan struct{})
-
-	// Run GenericGarbageCollector with a short interval
-	go func() {
-		GenericGarbageCollector(cancel, 10*time.Millisecond, f)
-		close(done)
-	}()
-
-	// Wait for the first immediate call to complete
-	wg.Wait()
-
-	// Wait a bit more to see if it ticks again
-	time.Sleep(25 * time.Millisecond)
-
-	assert.GreaterOrEqual(t, int(atomic.LoadInt32(&calledCount)), 2, "GC should have run at least twice (initial + ticks)")
-
-	close(cancel)
-	<-done
 }
 
-func TestGenericGarbageCollector_WithDelay(t *testing.T) {
-	origDelay := GCStartupDelay
-	defer func() {
-		GCStartupDelay = origDelay
-	}()
-
-	// Set a short startup delay of 50ms for testing
-	GCStartupDelay = 50 * time.Millisecond
-
-	var calledCount int32
-	f := func(ctx context.Context) error {
-		atomic.AddInt32(&calledCount, 1)
-		return nil
+func waitForGCSignal(t *testing.T, signal <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatal(message)
 	}
+}
 
-	cancel := make(chan bool)
-	done := make(chan struct{})
+type gcTestClock struct {
+	*clocktesting.FakeClock
+	ready chan struct{}
+}
 
-	go func() {
-		GenericGarbageCollector(cancel, 10*time.Millisecond, f)
-		close(done)
-	}()
+func (c *gcTestClock) NewTicker(interval time.Duration) clock.Ticker {
+	return &gcTestTicker{Ticker: c.FakeClock.NewTicker(interval), ready: c.ready}
+}
 
-	// Immediately after starting, it should not have run yet due to the startup delay
-	time.Sleep(10 * time.Millisecond)
-	assert.Equal(t, int32(0), atomic.LoadInt32(&calledCount), "GC should not have run during the startup delay")
+type gcTestTicker struct {
+	clock.Ticker
+	ready chan struct{}
+	once  sync.Once
+}
 
-	// Wait for the startup delay (50ms) to pass
-	time.Sleep(60 * time.Millisecond)
-	assert.GreaterOrEqual(t, int(atomic.LoadInt32(&calledCount)), 1, "GC should have run at least once after the startup delay")
-
-	close(cancel)
-	<-done
+func (t *gcTestTicker) C() <-chan time.Time {
+	t.once.Do(func() { close(t.ready) })
+	return t.Ticker.C()
 }
