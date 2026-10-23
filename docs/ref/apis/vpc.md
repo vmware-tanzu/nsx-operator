@@ -267,12 +267,10 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `domainName` _string_ | DomainName specifies the DNS domain for this record. |  | MaxLength: 255 <br />Required: \{\} <br /> |
-| `recordName` _string_ | RecordName specifies the DNS record name or, for PTR records, the host-octet label.<br />For A/AAAA/CNAME: the hostname portion of the FQDN (e.g., "api" for "api.coke.com").<br />For PTR: the host octet of the IP address (e.g., "10" for 10.0.0.10). |  | MaxLength: 255 <br />Required: \{\} <br /> |
-| `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA CNAME PTR NS TXT] <br />Required: \{\} <br /> |
+| `recordName` _string_ | RecordName specifies the hostname portion of the FQDN (e.g., "api" for "api.coke.com"). |  | MaxLength: 255 <br />Required: \{\} <br /> |
+| `recordType` _[DNSRecordType](#dnsrecordtype)_ | RecordType specifies the DNS record type. |  | Enum: [A AAAA] <br />Required: \{\} <br /> |
 | `recordValues` _string array_ | RecordValues specifies the DNS record data values. |  | MinItems: 1 <br />Required: \{\} <br /> |
-| `ipAddress` _string_ | IPAddress is the IP address being mapped by a PTR record. Only applicable when RecordType is PTR. |  | Optional: \{\} <br /> |
 | `ttl` _integer_ | TTL specifies the Time-To-Live in seconds for this DNS record.<br />Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes). | 300 | Maximum: 86400 <br />Minimum: 0 <br />Optional: \{\} <br /> |
-| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName.<br />This field is read-only and must not be set in create or update requests. |  | Optional: \{\} <br /> |
 
 
 #### DNSRecordStatus
@@ -288,6 +286,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining RecordName with DomainName. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions represents the latest available observations of the DNSRecord's current state. |  | Optional: \{\} <br /> |
 
 
@@ -306,10 +305,6 @@ _Appears in:_
 | --- | --- |
 | `A` |  |
 | `AAAA` |  |
-| `CNAME` |  |
-| `PTR` |  |
-| `NS` |  |
-| `TXT` |  |
 
 
 #### IPAddressAllocation

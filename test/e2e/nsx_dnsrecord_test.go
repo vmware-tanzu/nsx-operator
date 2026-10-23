@@ -32,9 +32,9 @@ func TestDNSRecord(t *testing.T) {
 			StartParallel(t)
 			testDNSRecordTypeA(t, ns)
 		})
-		RunSubtest(t, "testDNSRecordTypeCNAME", func(t *testing.T) {
+		RunSubtest(t, "testDNSRecordTypeAAAA", func(t *testing.T) {
 			StartParallel(t)
-			testDNSRecordTypeCNAME(t, ns)
+			testDNSRecordTypeAAAA(t, ns)
 		})
 		RunSubtest(t, "testDNSRecordApexRecord", func(t *testing.T) {
 			StartParallel(t)
@@ -51,23 +51,24 @@ func testDNSRecordTypeA(t *testing.T, ns string) {
 	recordName := "e2e-dnsrecord-a"
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
 
-	assert.Equal(t, "e2e-a.example.com", dnsRecord.Spec.FQDN)
+	assert.Equal(t, "e2e-a.example.com", dnsRecord.Status.FQDN)
 	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
 	assert.Equal(t, v1alpha1.DNSRecordTypeA, dnsRecord.Spec.RecordType)
 	assert.Equal(t, []string{"10.0.0.100"}, dnsRecord.Spec.RecordValues)
 }
 
-func testDNSRecordTypeCNAME(t *testing.T, ns string) {
-	yamlPath, _ := filepath.Abs("./manifest/testDNSRecord/dnsrecord_cname.yaml")
+func testDNSRecordTypeAAAA(t *testing.T, ns string) {
+	yamlPath, _ := filepath.Abs("./manifest/testDNSRecord/dnsrecord_aaaa.yaml")
 	require.NoError(t, applyYAML(yamlPath, ns))
 	defer deleteYAML(yamlPath, ns)
 
-	recordName := "e2e-dnsrecord-cname"
+	recordName := "e2e-dnsrecord-aaaa"
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
 
-	assert.Equal(t, "e2e-cname.example.com", dnsRecord.Spec.FQDN)
+	assert.Equal(t, "e2e-aaaa.example.com", dnsRecord.Status.FQDN)
 	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
-	assert.Equal(t, v1alpha1.DNSRecordTypeCNAME, dnsRecord.Spec.RecordType)
+	assert.Equal(t, v1alpha1.DNSRecordTypeAAAA, dnsRecord.Spec.RecordType)
+	assert.Equal(t, []string{"2001:db8::100"}, dnsRecord.Spec.RecordValues)
 
 	// Update TTL and verify
 	newTTL := int32(1200)
@@ -101,7 +102,7 @@ func testDNSRecordApexRecord(t *testing.T, ns string) {
 	}()
 
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName)
-	assert.Equal(t, "example.com", dnsRecord.Spec.FQDN)
+	assert.Equal(t, "example.com", dnsRecord.Status.FQDN)
 	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
 }
 
