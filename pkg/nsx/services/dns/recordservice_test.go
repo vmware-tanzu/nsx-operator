@@ -268,6 +268,11 @@ func TestValidateEndpointsByZone_table(t *testing.T) {
 			ns:     "n", eps: []*extdns.Endpoint{ep}, errSub: "failed to find VPCNetworkConfiguration",
 		},
 		{
+			name: "VPCNetworkConfiguration_not_found",
+			nc:   nil,
+			ns:   "n", eps: []*extdns.Endpoint{ep}, errSub: "VPCNetworkConfiguration for the Namespace n does not exist",
+		},
+		{
 			name:  "wildcard_dns_name_skipped",
 			nc:    testVPCNetworkConfiguration(),
 			ns:    "tenant",
@@ -430,6 +435,7 @@ func dnsRecordStructValue(t *testing.T, rec model.DnsRecord) *data.StructValue {
 
 func TestInitializeDNSRecordService_table(t *testing.T) {
 	cfg := &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "unit-test"}}
+	require.NoError(t, v1alpha1.AddToScheme(clientgoscheme.Scheme))
 	fc := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build()
 	vpcM := &pkgmock.MockVPCServiceProvider{}
 
@@ -565,7 +571,7 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				Client:    fc,
 				NSXConfig: cfg,
 				NSXClient: tt.setupMock(t, ctrl),
-			}, vpcM)
+			}, vpcM, fc)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

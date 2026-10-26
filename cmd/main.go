@@ -206,7 +206,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
 		}
-		dnsRecordService, err := dns.InitializeDNSRecordService(commonService, vpcService)
+		dnsRecordService, err := dns.InitializeDNSRecordService(commonService, vpcService, reconcilerMgr.GetAPIReader())
 		if err != nil {
 			log.Error(err, "Failed to initialize DNS record service", "controller", "DNS")
 			os.Exit(1)

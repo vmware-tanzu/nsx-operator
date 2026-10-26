@@ -7,9 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 
+	"golang.org/x/net/idna"
+
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,6 +50,8 @@ const (
 	ReasonDNSRecordReady            = "DNSRecordReady"
 	ReasonDNSRecordFailed           = "DNSRecordFailed"
 	ReasonDNSRecordValidationFailed = "DNSRecordValidationFailed"
+	networkConfigRetryNamespace     = "_dnsconfig"
+	networkInfoRetryNamespace       = "_dnsnetworkinfo"
 )
 
 // DNSRecordReconciler reconciles a DNSRecord object
@@ -92,6 +98,12 @@ func NewDNSRecordReconciler(mgr ctrl.Manager, dnsRecordService *dns.DNSRecordSer
 }
 
 func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if req.Namespace == networkConfigRetryNamespace {
+		return r.reconcileNetworkConfig(ctx, req.Name)
+	}
+	if req.Namespace == networkInfoRetryNamespace {
+		return r.reconcileNetworkInfo(ctx, req.Name)
+	}
 	obj := &v1alpha1.DNSRecord{}
 	log.Info("reconciling DNSRecord CR", "dnsrecord", req.NamespacedName)
 	r.StatusUpdater.IncreaseSyncTotal()
@@ -122,40 +134,40 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	r.StatusUpdater.IncreaseUpdateTotal()
+	if config.IsPerNamespaceProvidersSupported() {
+		namespace := &corev1.Namespace{}
+		err := r.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, namespace)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ResultRequeue, fmt.Errorf("fetching Namespace %s for DNSRecord: %w", obj.Namespace, err)
+		}
+		if apierrors.IsNotFound(err) || !config.IsVPCNamespace(namespace) {
+			validationErr := fmt.Errorf("Namespace %s is not an active VPC Namespace", obj.Namespace)
+			return r.rejectInvalidRecord(ctx, obj, validationErr, "DNSRecord Namespace validation failed")
+		}
+	}
 
 	switch obj.Spec.RecordType {
 	case v1alpha1.DNSRecordTypeA, v1alpha1.DNSRecordTypeAAAA:
 	default:
 		err := fmt.Errorf("unsupported DNS record type %q: only A and AAAA are supported", obj.Spec.RecordType)
-		if statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordValidationFailed, err, "DNS record type validation failed"); statusErr != nil {
-			return ResultRequeue, statusErr
-		}
-		return ResultNormal, nil
+		return r.rejectInvalidRecord(ctx, obj, err, "DNS record type validation failed")
 	}
 
 	if obj.Spec.TTL != nil && (*obj.Spec.TTL < dns.MinRecordTTL || *obj.Spec.TTL > dns.MaxRecordTTL) {
 		err := fmt.Errorf("DNS record TTL must be between %d and %d seconds, got %d", dns.MinRecordTTL, dns.MaxRecordTTL, *obj.Spec.TTL)
-		if statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordValidationFailed, err, "DNS record TTL validation failed"); statusErr != nil {
-			return ResultRequeue, statusErr
-		}
-		return ResultNormal, nil
+		return r.rejectInvalidRecord(ctx, obj, err, "DNS record TTL validation failed")
+	}
+	if err := validateRecordValues(obj.Spec.RecordType, obj.Spec.RecordValues); err != nil {
+		return r.rejectInvalidRecord(ctx, obj, err, "DNS record value validation failed")
 	}
 
 	computedFQDN := calculateFQDN(obj.Spec.RecordName, obj.Spec.DomainName)
 	if strings.HasPrefix(computedFQDN, "*.") {
 		err := fmt.Errorf("wildcard DNS names are not supported: %q", computedFQDN)
-		if statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordValidationFailed, err, "DNS record name validation failed"); statusErr != nil {
-			return ResultRequeue, statusErr
-		}
-		return ResultNormal, nil
+		return r.rejectInvalidRecord(ctx, obj, err, "DNS record name validation failed")
 	}
-	if obj.Status.FQDN != computedFQDN {
-		obj.Status.FQDN = computedFQDN
-		if err := r.Client.Status().Update(ctx, obj); err != nil {
-			log.Error(err, "Failed to update FQDN on DNSRecord CR", "DNSRecord", req.NamespacedName)
-			statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordFailed, err, "Failed to update FQDN")
-			return ResultRequeue, errors.Join(err, statusErr)
-		}
+	if err := validateRecordFQDN(computedFQDN); err != nil {
+		return r.rejectInvalidRecord(ctx, obj, err, "DNS record name validation failed")
 	}
 
 	ttl := int32(dns.DefaultRecordTtL)
@@ -178,6 +190,10 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	rows, _, err := r.Service.ValidateEndpointsByZone(obj.Namespace, owner, []*extdns.Endpoint{ep})
 	if err != nil {
 		log.Error(err, "Failed to validate DNSRecord against DNS zones", "DNSRecord", req.NamespacedName)
+		var validationErr *dns.DNSZoneValidationError
+		if errors.As(err, &validationErr) {
+			return r.rejectInvalidRecord(ctx, obj, err, "DNS zone validation failed")
+		}
 		statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordValidationFailed, err, "DNS zone validation failed")
 		return ResultRequeue, errors.Join(err, statusErr)
 	}
@@ -191,11 +207,80 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	batch := dns.NewOwnerScopedAggregatedRouteDNS(owner, rows)
 	if _, err := r.Service.CreateOrUpdateRecords(ctx, batch); err != nil {
 		log.Error(err, "Failed to sync DNSRecord to NSX", "DNSRecord", req.NamespacedName)
-		statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordFailed, err, "Failed to create or update DNS record on NSX")
+		reason := ReasonDNSRecordFailed
+		message := "Failed to create or update DNS record on NSX"
+		var validationErr *dns.DNSZoneValidationError
+		if errors.As(err, &validationErr) {
+			// Another owner may release the name without changing this DNSRecord.
+			// Keep retrying and preserve the previously published record meanwhile.
+			reason = ReasonDNSRecordValidationFailed
+			message = "DNS record conflict or build validation failed"
+		}
+		statusErr := r.updateFailureStatus(ctx, obj, reason, err, message)
 		return ResultRequeue, errors.Join(err, statusErr)
 	}
 
 	return r.updateSuccessStatus(ctx, obj)
+}
+
+func validateRecordValues(recordType v1alpha1.DNSRecordType, values []string) error {
+	if len(values) == 0 {
+		return fmt.Errorf("DNS record must have at least one address")
+	}
+	seen := make(map[netip.Addr]struct{}, len(values))
+	for _, value := range values {
+		addr, err := netip.ParseAddr(value)
+		if err != nil || addr.Zone() != "" ||
+			(recordType == v1alpha1.DNSRecordTypeA && !addr.Is4()) ||
+			(recordType == v1alpha1.DNSRecordTypeAAAA && (!addr.Is6() || addr.Is4In6())) {
+			return fmt.Errorf("invalid %s record address %q", recordType, value)
+		}
+		if _, exists := seen[addr]; exists {
+			return fmt.Errorf("duplicate %s record address %q", recordType, value)
+		}
+		seen[addr] = struct{}{}
+	}
+	return nil
+}
+
+func validateRecordFQDN(fqdn string) error {
+	if fqdn == "" {
+		return fmt.Errorf("DNS record FQDN must not be empty")
+	}
+	asciiLength := 0
+	for _, label := range strings.Split(fqdn, ".") {
+		if label == "" {
+			return fmt.Errorf("DNS record FQDN %q has an empty label", fqdn)
+		}
+		asciiLabel := label
+		if !strings.Contains(label, "_") {
+			var err error
+			asciiLabel, err = idna.Lookup.ToASCII(label)
+			if err != nil {
+				return fmt.Errorf("invalid DNS record FQDN label %q: %w", label, err)
+			}
+		}
+		if len(asciiLabel) > 63 {
+			return fmt.Errorf("DNS record FQDN label %q exceeds 63 bytes", label)
+		}
+		asciiLength += len(asciiLabel) + 1
+	}
+	if asciiLength-1 > 253 {
+		return fmt.Errorf("DNS record FQDN %q exceeds 253 bytes", fqdn)
+	}
+	return nil
+}
+
+func (r *DNSRecordReconciler) rejectInvalidRecord(ctx context.Context, obj *v1alpha1.DNSRecord, validationErr error, message string) (ctrl.Result, error) {
+	// A permanent validation failure must not leave an older version published.
+	if _, err := r.Service.DeleteRecordByOwnerNN(ctx, dns.ResourceKindDNSRecord, obj.Namespace, obj.Name); err != nil {
+		statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordFailed, err, "Failed to remove invalid DNS record from NSX")
+		return ResultRequeue, errors.Join(err, statusErr)
+	}
+	if err := r.updateFailureStatus(ctx, obj, ReasonDNSRecordValidationFailed, validationErr, message); err != nil {
+		return ResultRequeue, err
+	}
+	return ResultNormal, nil
 }
 
 func setDNSRecordReadyStatusTrue(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, transitionTime metav1.Time) error {
@@ -240,7 +325,10 @@ func (r *DNSRecordReconciler) updateSuccessStatus(ctx context.Context, obj *v1al
 
 func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, cond metav1.Condition) error {
 	updated := record.DeepCopy()
-	if !meta.SetStatusCondition(&updated.Status.Conditions, cond) {
+	updated.Status.FQDN = calculateFQDN(updated.Spec.RecordName, updated.Spec.DomainName)
+	fqdnChanged := updated.Status.FQDN != record.Status.FQDN
+	conditionChanged := meta.SetStatusCondition(&updated.Status.Conditions, cond)
+	if !fqdnChanged && !conditionChanged {
 		return nil
 	}
 	if err := k8sClient.Status().Update(ctx, updated); err != nil {
@@ -253,18 +341,91 @@ func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Contex
 }
 
 func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
+	vpcPredicate := common.VPCNamespacePredicate(r.Client)
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.DNSRecord{}).
+		For(&v1alpha1.DNSRecord{}, builder.WithPredicates(predicateDNSRecordDesiredStateChanged(), vpcPredicate)).
 		Watches(
 			&v1alpha1.NetworkInfo{},
 			handler.EnqueueRequestsFromMapFunc(r.networkInfoToDNSRecordRequests),
-			builder.WithPredicates(predicateNetworkInfoAllowedDNSDomainsChanged()),
+			builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged(), vpcPredicate),
 		).
-		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
+		Watches(
+			&v1alpha1.VPCNetworkConfiguration{},
+			handler.EnqueueRequestsFromMapFunc(r.networkConfigToDNSRecordRequests),
+			builder.WithPredicates(predicateNetworkConfigDNSSettingsChanged(), vpcPredicate),
+		).
+		Watches(
+			&corev1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(r.namespaceToDNSRecordRequests),
+			builder.WithPredicates(predicateNamespaceVPCProviderChanged()),
+		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).
 		Complete(r)
+}
+
+func predicateNamespaceVPCProviderChanged() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return false },
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			_, ok := e.Object.(*corev1.Namespace)
+			return ok
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNamespace, oldOK := e.ObjectOld.(*corev1.Namespace)
+			newNamespace, newOK := e.ObjectNew.(*corev1.Namespace)
+			if !oldOK || !newOK {
+				return false
+			}
+			return config.IsVPCNamespace(oldNamespace) != config.IsVPCNamespace(newNamespace) ||
+				oldNamespace.Annotations[config.VPCNetworkConfigAnnotation] != newNamespace.Annotations[config.VPCNetworkConfigAnnotation]
+		},
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
+}
+
+func (r *DNSRecordReconciler) namespaceToDNSRecordRequests(ctx context.Context, obj client.Object) []ctrl.Request {
+	namespace, ok := obj.(*corev1.Namespace)
+	if !ok || namespace == nil {
+		return nil
+	}
+	return r.dnsRecordRequestsForNamespace(ctx, namespace.Name)
+}
+
+func (r *DNSRecordReconciler) dnsRecordRequestsForNamespace(ctx context.Context, namespace string) []ctrl.Request {
+	reqs, err := r.requestsForNetworkInfo(ctx, namespace)
+	if err != nil {
+		log.Error(err, "Failed to enqueue DNSRecords after Namespace change", "Namespace", namespace)
+		return []ctrl.Request{{NamespacedName: types.NamespacedName{Namespace: networkInfoRetryNamespace, Name: namespace}}}
+	}
+	return reqs
+}
+
+func predicateDNSRecordDesiredStateChanged() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			_, ok := e.Object.(*v1alpha1.DNSRecord)
+			return ok
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			_, ok := e.Object.(*v1alpha1.DNSRecord)
+			return ok
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldRecord, oldOK := e.ObjectOld.(*v1alpha1.DNSRecord)
+			newRecord, newOK := e.ObjectNew.(*v1alpha1.DNSRecord)
+			if !oldOK || !newOK {
+				return false
+			}
+			return oldRecord.Generation != newRecord.Generation ||
+				(oldRecord.DeletionTimestamp.IsZero() && !newRecord.DeletionTimestamp.IsZero())
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			_, ok := e.Object.(*v1alpha1.DNSRecord)
+			return ok
+		},
+	}
 }
 
 func (r *DNSRecordReconciler) networkInfoToDNSRecordRequests(ctx context.Context, obj client.Object) []ctrl.Request {
@@ -272,29 +433,120 @@ func (r *DNSRecordReconciler) networkInfoToDNSRecordRequests(ctx context.Context
 	if !ok || ni == nil {
 		return nil
 	}
+	reqs, err := r.requestsForNetworkInfo(ctx, ni.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to enqueue DNSRecords for NetworkInfo change", "Namespace", ni.Namespace)
+		reqs = append(reqs, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: networkInfoRetryNamespace, Name: ni.Namespace}})
+	}
+	return reqs
+}
+
+func (r *DNSRecordReconciler) requestsForNetworkInfo(ctx context.Context, namespace string) ([]ctrl.Request, error) {
 	recordList := &v1alpha1.DNSRecordList{}
-	if err := r.Client.List(ctx, recordList, client.InNamespace(ni.Namespace)); err != nil {
-		log.Error(err, "Failed to list DNSRecords for NetworkInfo DNS domain change", "Namespace", ni.Namespace)
-		return nil
+	if err := r.Client.List(ctx, recordList, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("listing DNSRecords in Namespace %s after NetworkInfo change: %w", namespace, err)
 	}
 	var reqs []ctrl.Request
 	for i := range recordList.Items {
 		reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&recordList.Items[i])})
 	}
+	return reqs, nil
+}
+
+func (r *DNSRecordReconciler) reconcileNetworkInfo(ctx context.Context, namespace string) (ctrl.Result, error) {
+	reqs, err := r.requestsForNetworkInfo(ctx, namespace)
+	if err != nil {
+		return ResultRequeue, err
+	}
+	var reconcileErrors []error
+	for _, req := range reqs {
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			reconcileErrors = append(reconcileErrors, fmt.Errorf("reconciling DNSRecord %s: %w", req.NamespacedName, err))
+		}
+	}
+	if err := errors.Join(reconcileErrors...); err != nil {
+		return ResultRequeue, err
+	}
+	return ResultNormal, nil
+}
+
+func (r *DNSRecordReconciler) networkConfigToDNSRecordRequests(ctx context.Context, obj client.Object) []ctrl.Request {
+	nc, ok := obj.(*v1alpha1.VPCNetworkConfiguration)
+	if !ok || nc == nil {
+		return nil
+	}
+	reqs, err := r.requestsForNetworkConfig(ctx, nc.Name)
+	if err != nil {
+		log.Error(err, "Failed to enqueue DNSRecords for VPCNetworkConfiguration change", "NetworkConfig", nc.Name)
+		// A synthetic request is retried by the controller until the lookup succeeds.
+		reqs = append(reqs, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: networkConfigRetryNamespace, Name: nc.Name}})
+	}
 	return reqs
 }
 
-func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
+func (r *DNSRecordReconciler) requestsForNetworkConfig(ctx context.Context, name string) ([]ctrl.Request, error) {
+	// A configuration event may change which config a Namespace uses, including
+	// the default annotation. Looking up only current users misses old users.
+	recordList := &v1alpha1.DNSRecordList{}
+	if err := r.Client.List(ctx, recordList); err != nil {
+		return nil, fmt.Errorf("listing DNSRecords for VPCNetworkConfiguration %s: %w", name, err)
+	}
+	reqs := make([]ctrl.Request, 0, len(recordList.Items))
+	for i := range recordList.Items {
+		reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&recordList.Items[i])})
+	}
+	return reqs, nil
+}
+
+func (r *DNSRecordReconciler) reconcileNetworkConfig(ctx context.Context, name string) (ctrl.Result, error) {
+	reqs, err := r.requestsForNetworkConfig(ctx, name)
+	if err != nil {
+		return ResultRequeue, err
+	}
+	var reconcileErrors []error
+	for _, req := range reqs {
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			reconcileErrors = append(reconcileErrors, fmt.Errorf("reconciling DNSRecord %s: %w", req.NamespacedName, err))
+		}
+	}
+	if err := errors.Join(reconcileErrors...); err != nil {
+		return ResultRequeue, err
+	}
+	return ResultNormal, nil
+}
+
+func predicateNetworkConfigDNSSettingsChanged() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
-			obj, ok := e.Object.(*v1alpha1.NetworkInfo)
-			if !ok {
-				return false
-			}
-			return len(obj.AllowedDNSDomains) > 0
+			_, ok := e.Object.(*v1alpha1.VPCNetworkConfiguration)
+			return ok
 		},
-		DeleteFunc: func(event.DeleteEvent) bool {
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			_, ok := e.Object.(*v1alpha1.VPCNetworkConfiguration)
+			return ok
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNC, oldOK := e.ObjectOld.(*v1alpha1.VPCNetworkConfiguration)
+			newNC, newOK := e.ObjectNew.(*v1alpha1.VPCNetworkConfiguration)
+			return oldOK && newOK && (!slices.Equal(oldNC.Spec.DNSZones, newNC.Spec.DNSZones) ||
+				oldNC.Spec.NSXProject != newNC.Spec.NSXProject ||
+				servicecommon.IsDefaultNetworkConfigCR(oldNC) != servicecommon.IsDefaultNetworkConfigCR(newNC))
+		},
+		GenericFunc: func(event.GenericEvent) bool {
 			return false
+		},
+	}
+}
+
+func predicateNetworkInfoAllowedDNSRecordDomainsChanged() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			_, ok := e.Object.(*v1alpha1.NetworkInfo)
+			return ok
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			_, ok := e.Object.(*v1alpha1.NetworkInfo)
+			return ok
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldNI, ok1 := e.ObjectOld.(*v1alpha1.NetworkInfo)
@@ -302,7 +554,7 @@ func predicateNetworkInfoAllowedDNSDomainsChanged() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			return !slices.Equal(oldNI.AllowedDNSDomains, newNI.AllowedDNSDomains)
+			return !slices.Equal(oldNI.AllowedDNSRecordDomains, newNI.AllowedDNSRecordDomains)
 		},
 		GenericFunc: func(event.GenericEvent) bool {
 			return false

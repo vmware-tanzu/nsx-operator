@@ -3,7 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,47 +24,59 @@ func TestDNSRecord(t *testing.T) {
 
 	// Use pre-created namespace
 	ns := NsDNSRecord
+	networkInfo := getNetworkInfoWithCondition(t, ns, ns, func(ni *v1alpha1.NetworkInfo) (bool, error) {
+		return len(ni.VPCs) > 0, nil
+	})
+	require.NotEmpty(t, networkInfo.AllowedDNSRecordDomains,
+		"DNSRecord E2E requires a DNS zone in the namespace's VPCNetworkConfiguration")
+	domain := strings.TrimSuffix(networkInfo.AllowedDNSRecordDomains[0], ".")
 
 	// ParallelTests: These tests use independent DNSRecord resources and can run concurrently
 	RunSubtest(t, "ParallelTests", func(t *testing.T) {
 		RunSubtest(t, "testDNSRecordTypeA", func(t *testing.T) {
 			StartParallel(t)
-			testDNSRecordTypeA(t, ns)
+			testDNSRecordTypeA(t, ns, domain)
 		})
 		RunSubtest(t, "testDNSRecordTypeAAAA", func(t *testing.T) {
 			StartParallel(t)
-			testDNSRecordTypeAAAA(t, ns)
+			testDNSRecordTypeAAAA(t, ns, domain)
 		})
 		RunSubtest(t, "testDNSRecordApexRecord", func(t *testing.T) {
 			StartParallel(t)
-			testDNSRecordApexRecord(t, ns)
+			testDNSRecordApexRecord(t, ns, domain)
 		})
 	})
 }
 
-func testDNSRecordTypeA(t *testing.T, ns string) {
-	yamlPath, _ := filepath.Abs("./manifest/testDNSRecord/dnsrecord_a.yaml")
-	require.NoError(t, applyYAML(yamlPath, ns))
-	defer deleteYAML(yamlPath, ns)
-
+func testDNSRecordTypeA(t *testing.T, ns, domain string) {
 	recordName := "e2e-dnsrecord-a"
+	createDNSRecordForTest(t, &v1alpha1.DNSRecord{
+		ObjectMeta: v1.ObjectMeta{Name: recordName, Namespace: ns},
+		Spec: v1alpha1.DNSRecordSpec{
+			DomainName: domain, RecordName: "e2e-a",
+			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"10.0.0.100"},
+		},
+	})
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 
-	assert.Equal(t, "e2e-a.example.com", dnsRecord.Status.FQDN)
+	assert.Equal(t, "e2e-a."+domain, dnsRecord.Status.FQDN)
 	assert.Empty(t, dnsRecord.Finalizers)
 	assert.Equal(t, v1alpha1.DNSRecordTypeA, dnsRecord.Spec.RecordType)
 	assert.Equal(t, []string{"10.0.0.100"}, dnsRecord.Spec.RecordValues)
 }
 
-func testDNSRecordTypeAAAA(t *testing.T, ns string) {
-	yamlPath, _ := filepath.Abs("./manifest/testDNSRecord/dnsrecord_aaaa.yaml")
-	require.NoError(t, applyYAML(yamlPath, ns))
-	defer deleteYAML(yamlPath, ns)
-
+func testDNSRecordTypeAAAA(t *testing.T, ns, domain string) {
 	recordName := "e2e-dnsrecord-aaaa"
+	createDNSRecordForTest(t, &v1alpha1.DNSRecord{
+		ObjectMeta: v1.ObjectMeta{Name: recordName, Namespace: ns},
+		Spec: v1alpha1.DNSRecordSpec{
+			DomainName: domain, RecordName: "e2e-aaaa",
+			RecordType: v1alpha1.DNSRecordTypeAAAA, RecordValues: []string{"2001:db8::100"},
+		},
+	})
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 
-	assert.Equal(t, "e2e-aaaa.example.com", dnsRecord.Status.FQDN)
+	assert.Equal(t, "e2e-aaaa."+domain, dnsRecord.Status.FQDN)
 	assert.Empty(t, dnsRecord.Finalizers)
 	assert.Equal(t, v1alpha1.DNSRecordTypeAAAA, dnsRecord.Spec.RecordType)
 	assert.Equal(t, []string{"2001:db8::100"}, dnsRecord.Spec.RecordValues)
@@ -79,7 +91,7 @@ func testDNSRecordTypeAAAA(t *testing.T, ns string) {
 	assert.Equal(t, newTTL, *dnsRecord.Spec.TTL)
 }
 
-func testDNSRecordApexRecord(t *testing.T, ns string) {
+func testDNSRecordApexRecord(t *testing.T, ns, domain string) {
 	recordName := fmt.Sprintf("apex-dns-%s", getRandomString())
 	ttl := int32(300)
 	apexRecord := &v1alpha1.DNSRecord{
@@ -88,7 +100,7 @@ func testDNSRecordApexRecord(t *testing.T, ns string) {
 			Namespace: ns,
 		},
 		Spec: v1alpha1.DNSRecordSpec{
-			DomainName:   "example.com",
+			DomainName:   domain,
 			RecordName:   "@",
 			RecordType:   v1alpha1.DNSRecordTypeA,
 			RecordValues: []string{"10.0.0.101"},
@@ -96,15 +108,20 @@ func testDNSRecordApexRecord(t *testing.T, ns string) {
 		},
 	}
 
-	_, err := testData.crdClientset.CrdV1alpha1().DNSRecords(ns).Create(context.TODO(), apexRecord, v1.CreateOptions{})
-	require.NoError(t, err)
-	defer func() {
-		_ = testData.crdClientset.CrdV1alpha1().DNSRecords(ns).Delete(context.TODO(), recordName, v1.DeleteOptions{})
-	}()
+	createDNSRecordForTest(t, apexRecord)
 
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
-	assert.Equal(t, "example.com", dnsRecord.Status.FQDN)
+	assert.Equal(t, domain, dnsRecord.Status.FQDN)
 	assert.Empty(t, dnsRecord.Finalizers)
+}
+
+func createDNSRecordForTest(t *testing.T, obj *v1alpha1.DNSRecord) {
+	t.Helper()
+	_, err := testData.crdClientset.CrdV1alpha1().DNSRecords(obj.Namespace).Create(context.Background(), obj, v1.CreateOptions{})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testData.crdClientset.CrdV1alpha1().DNSRecords(obj.Namespace).Delete(context.Background(), obj.Name, v1.DeleteOptions{})
+	})
 }
 
 func waitForDNSRecordCRReady(t *testing.T, ns, dnsRecordName string, minimumGeneration int64) *v1alpha1.DNSRecord {

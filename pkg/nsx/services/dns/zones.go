@@ -4,6 +4,7 @@
 package dns
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -25,6 +26,9 @@ func parseDnsZonePath(zonePath string) (orgID, projectID, dnsServiceID, zoneID s
 	p := strings.TrimSpace(zonePath)
 	if p == "" {
 		return "", "", "", "", fmt.Errorf("empty DNS zone path")
+	}
+	if p != zonePath {
+		return "", "", "", "", fmt.Errorf("invalid DNS zone path %q: surrounding whitespace is not allowed", zonePath)
 	}
 	if matches := dnsZonePathRe.FindStringSubmatch(p); len(matches) == 5 {
 		return matches[1], matches[2], matches[3], matches[4], nil
@@ -83,7 +87,13 @@ func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *Reso
 		"owner", owner.GetName(), "endpoints", len(eps))
 	vpcConfig, err := s.VPCService.GetVPCNetworkConfigByNamespace(namespace)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to find VPCNetworkConfiguration for the Namespace %s", namespace)
+		if strings.Contains(err.Error(), "failed to locate default NetworkConfig") {
+			return nil, nil, &DNSZoneValidationError{Msg: fmt.Sprintf("default VPCNetworkConfiguration for the Namespace %s does not exist", namespace), Cause: err}
+		}
+		return nil, nil, fmt.Errorf("failed to find VPCNetworkConfiguration for the Namespace %s: %w", namespace, err)
+	}
+	if vpcConfig == nil {
+		return nil, nil, &DNSZoneValidationError{Msg: fmt.Sprintf("VPCNetworkConfiguration for the Namespace %s does not exist", namespace)}
 	}
 
 	allowedZones, err := s.SyncDNSZonesByVpcNetworkConfig(vpcConfig)
@@ -127,29 +137,37 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 	log.Info("Syncing DNS zones for VPCNetworkConfig", "zones", len(dnsZonePaths))
 
 	dnsZoneDomainMapping := make(map[string]string)
+	domainZonePaths := make(map[string]string)
+	normalizedZones := make(extprovider.ZoneIDName)
 	for _, p := range dnsZonePaths {
 		// Validate cached paths too, including entries produced by older versions.
 		if _, _, _, _, err := parseDnsZonePath(p); err != nil {
-			return nil, err
+			return nil, &DNSZoneValidationError{Msg: "invalid configured DNS zone path", Cause: err}
 		}
 		domain, found := s.DNSZoneMap.get(p)
-		if found {
+		if !found {
+			log.Info("Fetching DNS zone domain from NSX", "path", p)
+			zone, err := s.getDNSZoneFromNSX(p)
+			if err != nil {
+				log.Error(err, "failed to retrieve DNS zone from NSX", "path", p)
+				return nil, err
+			}
+			if zone.DnsDomainName == nil {
+				return nil, fmt.Errorf("DNS zone %s returned from NSX with no domain name", p)
+			}
+			domain = strings.TrimSpace(*zone.DnsDomainName)
+			log.Info("DNS zone domain fetched from NSX and cached", "path", p, "domain", domain)
+			s.DNSZoneMap.set(p, domain)
+		} else {
 			log.Debug("DNS zone domain resolved from cache", "path", p, "domain", domain)
-			dnsZoneDomainMapping[p] = domain
-			continue
 		}
-		log.Info("Fetching DNS zone domain from NSX", "path", p)
-		zone, err := s.getDNSZoneFromNSX(p)
-		if err != nil {
-			log.Error(err, "failed to retrieve DNS zone from NSX", "path", p)
-			return nil, err
+		// Match the same IDNA normalization used when selecting a zone for a record.
+		normalizedZones.Add(p, domain)
+		canonicalDomain := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(normalizedZones[p]), "."))
+		if existingPath, exists := domainZonePaths[canonicalDomain]; exists && existingPath != p {
+			return nil, &DNSZoneValidationError{Msg: fmt.Sprintf("DNS domain %q is configured in multiple zones: %s and %s", canonicalDomain, existingPath, p)}
 		}
-		if zone.DnsDomainName == nil {
-			return nil, fmt.Errorf("DNS zone %s returned from NSX with no domain name", p)
-		}
-		domain = strings.TrimSpace(*zone.DnsDomainName)
-		log.Info("DNS zone domain fetched from NSX and cached", "path", p, "domain", domain)
-		s.DNSZoneMap.set(p, domain)
+		domainZonePaths[canonicalDomain] = p
 		dnsZoneDomainMapping[p] = domain
 	}
 	return dnsZoneDomainMapping, nil
@@ -171,7 +189,7 @@ func (s *DNSRecordService) getDNSZoneFromNSX(zonePath string) (*model.DnsZone, e
 func generateZoneIdFromMap(allowedZones map[string]string) extprovider.ZoneIDName {
 	z := make(extprovider.ZoneIDName)
 	for zonePath, domainName := range allowedZones {
-		z.Add(zonePath, domainName)
+		z.Add(zonePath, strings.TrimSuffix(strings.TrimSpace(domainName), "."))
 	}
 	return z
 }

@@ -105,3 +105,48 @@ func TestDNSRecordApexIDDoesNotCollideWithHostname(t *testing.T) {
 		})
 	}
 }
+
+func TestDNSRecordIDDoesNotCollideAcrossNamesAndZones(t *testing.T) {
+	ordinaryID, _, _ := getRecordIDAndPathAndType("api", "A", testDNSZonePathT)
+	apexID, _, _ := getRecordIDAndPathAndType("@", "A", testDNSZonePathT)
+	require.NotEqual(t, ordinaryID, apexID)
+	require.Equal(t, "dns_", ordinaryID[:4])
+
+	zoneWithUnderscore := "/orgs/org1/projects/proj1/dns-services/ds1/zones/zone_1"
+	zoneInAnotherService := "/orgs/org1/projects/proj1/dns-services/ds2/zones/zone-t"
+	for _, recordType := range []string{"A", "AAAA"} {
+		t.Run(recordType, func(t *testing.T) {
+			paths := make(map[string]bool)
+			for _, tc := range []struct{ name, zone string }{
+				{"a.b", testDNSZonePathT},
+				{"a_b", testDNSZonePathT},
+				{"a__b", testDNSZonePathT},
+				{"a", zoneWithUnderscore},
+				{"a_zone", testDNSZonePathT},
+				{"a.b", zoneInAnotherService},
+				{"api", testDNSZonePathT},
+				{"api", zoneInAnotherService},
+			} {
+				_, path, _ := getRecordIDAndPathAndType(tc.name, recordType, tc.zone)
+				require.False(t, paths[path], "record %q in %q shares an NSX path", tc.name, tc.zone)
+				paths[path] = true
+			}
+		})
+	}
+}
+
+func TestDNSRecordLegacyIDMigratesOnReconcile(t *testing.T) {
+	_, newPath, _ := getRecordIDAndPathAndType("api", "A", testDNSZonePathT)
+	legacyPath := "/orgs/org1/projects/proj1/dns-records/api_zone-t_a"
+	record := func(path string) *model.DnsRecord {
+		return &model.DnsRecord{
+			Path: servicecommon.String(path), RecordName: servicecommon.String("api"),
+			RecordType: servicecommon.String("A"), ZonePath: servicecommon.String(testDNSZonePathT),
+		}
+	}
+	toUpsert, toRemove := compareRecords([]*model.DnsRecord{record(newPath)}, []*model.DnsRecord{record(legacyPath)})
+	require.Len(t, toUpsert, 1)
+	require.Len(t, toRemove, 1)
+	require.Equal(t, newPath, *toUpsert[0].Path)
+	require.Equal(t, legacyPath, *toRemove[0].Path)
+}
