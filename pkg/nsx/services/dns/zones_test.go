@@ -4,9 +4,12 @@
 package dns
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 )
 
 func TestZonePathForHostnameFromMap_table(t *testing.T) {
@@ -50,6 +53,13 @@ func TestZonePathForHostnameFromMap_table(t *testing.T) {
 			zones:      map[string]string{"/z": "example.com"},
 			hostname:   "EXAMPLE.COM.",
 			wantRecord: "@",
+			wantPath:   "/z",
+		},
+		{
+			name:       "zone_domain_with_trailing_dot",
+			zones:      map[string]string{"/z": "example.com."},
+			hostname:   "api.example.com",
+			wantRecord: "api",
 			wantPath:   "/z",
 		},
 		{
@@ -105,6 +115,33 @@ func TestZonePathForHostnameFromMap_table(t *testing.T) {
 	}
 }
 
+func TestSyncDNSZonesRejectsDuplicateDomain(t *testing.T) {
+	zoneA := "/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-a"
+	zoneB := "/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-b"
+	svc := &DNSRecordService{DNSZoneMap: NewDNSZoneCacheFromMap(map[string]string{
+		zoneA: "example.com",
+		zoneB: "EXAMPLE.COM.",
+	})}
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+		DNSZones: []string{zoneA, zoneB},
+	}}
+	_, err := svc.SyncDNSZonesByVpcNetworkConfig(nc)
+	require.ErrorContains(t, err, "configured in multiple zones")
+	var validationErr *DNSZoneValidationError
+	require.True(t, errors.As(err, &validationErr))
+}
+
+func TestSyncDNSZonesRejectsMalformedPath(t *testing.T) {
+	svc := &DNSRecordService{DNSZoneMap: NewDNSZoneCacheFromMap(nil)}
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+		DNSZones: []string{"/invalid/zone/path"},
+	}}
+	_, err := svc.SyncDNSZonesByVpcNetworkConfig(nc)
+	require.ErrorContains(t, err, "invalid configured DNS zone path")
+	var validationErr *DNSZoneValidationError
+	require.True(t, errors.As(err, &validationErr))
+}
+
 func TestParseDnsZonePath_table(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -136,6 +173,11 @@ func TestParseDnsZonePath_table(t *testing.T) {
 		{
 			name:    "wrong segment (vpcs instead of dns-services)",
 			path:    "/orgs/a/projects/p/vpcs/vpc1/zones/z",
+			wantErr: true,
+		},
+		{
+			name:    "surrounding whitespace",
+			path:    " /orgs/a/projects/p/dns-services/d/zones/z ",
 			wantErr: true,
 		},
 	}

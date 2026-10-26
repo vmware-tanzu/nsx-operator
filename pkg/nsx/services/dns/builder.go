@@ -1,6 +1,7 @@
 package dns
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"slices"
 	"strings"
@@ -44,20 +45,12 @@ func (s *DNSRecordService) tagsForOwner(owner *ResourceRef) []model.Tag {
 // getRecordIDAndPathAndType returns the desired DnsRecord's Id, Path, and RecordType
 func getRecordIDAndPathAndType(recordName, endpointRecordType, zonePath string) (string, string, string) {
 	nsxRecordType := getNSXDnsRecordType(endpointRecordType)
-	recID := strings.ReplaceAll(recordName, ".", "_")
-	// Reserve _apex for the zone apex; escape leading underscores on other names.
-	if recID == "@" {
-		recID = "_apex"
-	} else if strings.HasPrefix(recID, "_") {
-		recID = "_" + recID
-	}
 	// Ignore the errors returned in `parseDnsZonePath`, as it was validated in previous steps when
 	// preparing the DNS zone maps in the service.
-	orgID, projectID, _, zoneID, _ := parseDnsZonePath(zonePath)
-	recID = recID + "_" + zoneID
-	if strings.TrimSpace(nsxRecordType) != "" {
-		recID = recID + "_" + strings.ToLower(strings.TrimSpace(nsxRecordType))
-	}
+	orgID, projectID, _, _, _ := parseDnsZonePath(zonePath)
+	// DNS records are project-scoped. Include the full zone path so equal zone IDs
+	// under different DNS services cannot address the same NSX record.
+	recID := fmt.Sprintf("dns_%x", sha256.Sum256([]byte(zonePath+"\x00"+recordName+"\x00"+nsxRecordType)))
 	recordPath := fmt.Sprintf("/orgs/%s/projects/%s/%s/%s", orgID, projectID, DNSRecordPathSegment, recID)
 	return recID, recordPath, nsxRecordType
 }

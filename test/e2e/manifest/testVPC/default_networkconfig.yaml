@@ -9,6 +9,8 @@ metadata:
   annotations:
     nsx.vmware.com/default: "true"
 spec:
+  # DNSRecord E2E requires dnsZones to reference an existing NSX DNS zone.
+  # Configure that path in the testbed before running TestDNSRecord.
   defaultSubnetSize: 32
   nsxProject: /orgs/default/projects/project-quality
   privateIPs:

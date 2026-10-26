@@ -27,8 +27,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -319,7 +319,7 @@ func TestDNSRecordReconciler_Reconcile_UnsupportedRecordType(t *testing.T) {
 			r := &DNSRecordReconciler{
 				Client: fakeClient,
 				// An unconfigured service would fail if reconciliation reached NSX processing.
-				Service:       &dns.DNSRecordService{},
+				Service:       &dns.DNSRecordService{DNSRecordStore: dns.BuildDNSRecordStore()},
 				StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
 			}
 
@@ -351,6 +351,7 @@ func TestDNSRecordReconciler_Reconcile_FQDNStatusUpdateFailure(t *testing.T) {
 		},
 	}
 	updateErr := fmt.Errorf("status update failed")
+	statusUpdates := 0
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -360,17 +361,161 @@ func TestDNSRecordReconciler_Reconcile_FQDNStatusUpdateFailure(t *testing.T) {
 			},
 			SubResourceUpdate: func(_ context.Context, _ client.Client, subresource string, _ client.Object, _ ...client.SubResourceUpdateOption) error {
 				assert.Equal(t, "status", subresource)
+				statusUpdates++
 				return updateErr
 			},
 		}).Build()
+	dnsSvc, _ := setupTestDNSRecordService(t, fakeClient)
 	r := &DNSRecordReconciler{
 		Client:        fakeClient,
-		Service:       &dns.DNSRecordService{},
+		Service:       dnsSvc,
 		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
 	}
 	res, err := r.Reconcile(context.Background(), controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(dnsRecord)})
 	assert.ErrorIs(t, err, updateErr)
 	assert.Equal(t, ResultRequeue, res)
+	assert.Equal(t, 1, statusUpdates)
+}
+
+func TestDNSRecordReconciler_WritesFQDNAndConditionTogether(t *testing.T) {
+	ctx := context.Background()
+	dnsRecord := &v1alpha1.DNSRecord{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "status-once", Generation: 1},
+		Spec: v1alpha1.DNSRecordSpec{
+			DomainName: "example.com", RecordName: "api", RecordType: v1alpha1.DNSRecordTypeA,
+			RecordValues: []string{"10.0.0.1"},
+		},
+	}
+	statusUpdates := 0
+	fakeClient := fake.NewClientBuilder().WithScheme(setupScheme()).
+		WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, c client.Client, subresource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				require.Equal(t, "status", subresource)
+				statusUpdates++
+				return c.SubResource(subresource).Update(ctx, obj, opts...)
+			},
+		}).Build()
+	dnsSvc, _ := setupTestDNSRecordService(t, fakeClient)
+	r := &DNSRecordReconciler{
+		Client: fakeClient, Service: dnsSvc,
+		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
+	}
+	key := client.ObjectKeyFromObject(dnsRecord)
+	req := ctrl.Request{NamespacedName: key}
+	for _, want := range []struct {
+		name    string
+		fqdn    string
+		updates int
+	}{
+		{"initial", "api.example.com", 1},
+		{"unchanged", "api.example.com", 1},
+		{"renamed", "new.example.com", 2},
+	} {
+		t.Run(want.name, func(t *testing.T) {
+			if want.name == "renamed" {
+				current := &v1alpha1.DNSRecord{}
+				require.NoError(t, fakeClient.Get(ctx, key, current))
+				current.Spec.RecordName = "new"
+				require.NoError(t, fakeClient.Update(ctx, current))
+			}
+			res, err := r.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.Equal(t, ResultNormal, res)
+			current := &v1alpha1.DNSRecord{}
+			require.NoError(t, fakeClient.Get(ctx, key, current))
+			assert.Equal(t, want.fqdn, current.Status.FQDN)
+			cond := meta.FindStatusCondition(current.Status.Conditions, string(v1alpha1.Ready))
+			require.NotNil(t, cond)
+			assert.Equal(t, metav1.ConditionTrue, cond.Status)
+			assert.Equal(t, want.updates, statusUpdates)
+		})
+	}
+}
+
+func TestPredicateDNSRecordDesiredStateChanged(t *testing.T) {
+	p := predicateDNSRecordDesiredStateChanged()
+	oldRecord := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "api", Generation: 1}}
+	statusOnly := oldRecord.DeepCopy()
+	statusOnly.Status.FQDN = "api.example.com"
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldRecord, ObjectNew: statusOnly}))
+
+	specChanged := oldRecord.DeepCopy()
+	specChanged.Generation++
+	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldRecord, ObjectNew: specChanged}))
+
+	deleting := oldRecord.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldRecord, ObjectNew: deleting}))
+	assert.True(t, p.Create(event.CreateEvent{Object: oldRecord}))
+	assert.True(t, p.Delete(event.DeleteEvent{Object: oldRecord}))
+}
+
+func TestDNSRecordMixedModeNamespaceTransition(t *testing.T) {
+	previous := config.IsPerNamespaceProvidersSupported()
+	config.SetPerNamespaceProvidersSupportedForTest(true)
+	t.Cleanup(func() { config.SetPerNamespaceProvidersSupportedForTest(previous) })
+
+	ctx := context.Background()
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "mixed-ns", Annotations: map[string]string{config.VPCNetworkConfigAnnotation: "default"},
+	}}
+	dnsRecord := &v1alpha1.DNSRecord{
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace.Name, Name: "api", Generation: 1},
+		Spec: v1alpha1.DNSRecordSpec{
+			DomainName: "example.com", RecordName: "api", RecordType: v1alpha1.DNSRecordTypeA,
+			RecordValues: []string{"192.0.2.1"},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).
+		WithObjects(namespace, dnsRecord).Build()
+	dnsSvc, store := setupTestDNSRecordService(t, c)
+	r := &DNSRecordReconciler{Client: c, Service: dnsSvc,
+		StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(dnsRecord)}
+	result, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, ResultNormal, result)
+	require.Len(t, store.ListDNSRecords(), 1)
+
+	previousNamespace := namespace.DeepCopy()
+	namespace.Annotations = map[string]string{config.T1DefaultConfigAnnotation: "true"}
+	require.NoError(t, c.Update(ctx, namespace))
+	require.True(t, predicateNamespaceVPCProviderChanged().Update(event.UpdateEvent{ObjectOld: previousNamespace, ObjectNew: namespace}))
+	require.Equal(t, []ctrl.Request{req}, r.namespaceToDNSRecordRequests(ctx, namespace))
+
+	// Configuration events can enqueue every DNSRecord, including ones in T1 namespaces.
+	result, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, ResultNormal, result)
+	require.Empty(t, store.ListDNSRecords())
+	current := &v1alpha1.DNSRecord{}
+	require.NoError(t, c.Get(ctx, req.NamespacedName, current))
+	condition := meta.FindStatusCondition(current.Status.Conditions, string(v1alpha1.Ready))
+	require.NotNil(t, condition)
+	require.Equal(t, metav1.ConditionFalse, condition.Status)
+	require.Contains(t, condition.Message, "not an active VPC Namespace")
+
+	result, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, ResultNormal, result)
+	require.Empty(t, store.ListDNSRecords())
+}
+
+func TestPredicateNamespaceVPCProviderChangedOnConfigSwitch(t *testing.T) {
+	previous := config.IsPerNamespaceProvidersSupported()
+	config.SetPerNamespaceProvidersSupportedForTest(true)
+	t.Cleanup(func() { config.SetPerNamespaceProvidersSupportedForTest(previous) })
+
+	oldNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: "mixed-ns", Annotations: map[string]string{config.VPCNetworkConfigAnnotation: "config-a"},
+	}}
+	newNamespace := oldNamespace.DeepCopy()
+	newNamespace.Annotations[config.VPCNetworkConfigAnnotation] = "config-b"
+	require.True(t, predicateNamespaceVPCProviderChanged().Update(event.UpdateEvent{
+		ObjectOld: oldNamespace, ObjectNew: newNamespace,
+	}))
 }
 
 func TestDNSRecordReconciler_Reconcile_Delete(t *testing.T) {
@@ -534,8 +679,8 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationError(t *testing.T) 
 	}
 
 	res, err := r.Reconcile(ctx, req)
-	assert.Error(t, err)
-	assert.Equal(t, ResultRequeue, res)
+	assert.NoError(t, err)
+	assert.Equal(t, ResultNormal, res)
 
 	updatedCR := &v1alpha1.DNSRecord{}
 	err = fakeClient.Get(ctx, req.NamespacedName, updatedCR)
@@ -835,17 +980,18 @@ func TestNewDNSRecordReconciler(t *testing.T) {
 	assert.Nil(t, r2)
 }
 
-func TestPredicateNetworkInfoAllowedDNSDomainsChanged(t *testing.T) {
-	p := predicateNetworkInfoAllowedDNSDomainsChanged()
+func TestPredicateNetworkInfoAllowedDNSRecordDomainsChanged(t *testing.T) {
+	p := predicateNetworkInfoAllowedDNSRecordDomainsChanged()
 
 	assert.False(t, p.Delete(event.DeleteEvent{}))
+	assert.True(t, p.Delete(event.DeleteEvent{Object: &v1alpha1.NetworkInfo{}}))
 	assert.False(t, p.Generic(event.GenericEvent{}))
 
 	t.Run("CreateFunc", func(t *testing.T) {
 		assert.False(t, p.Create(event.CreateEvent{Object: &v1alpha1.DNSRecord{}}))
-		assert.False(t, p.Create(event.CreateEvent{Object: &v1alpha1.NetworkInfo{}}))
+		assert.True(t, p.Create(event.CreateEvent{Object: &v1alpha1.NetworkInfo{}}))
 		assert.True(t, p.Create(event.CreateEvent{
-			Object: &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.com"}},
+			Object: &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}},
 		}))
 	})
 
@@ -855,11 +1001,11 @@ func TestPredicateNetworkInfoAllowedDNSDomainsChanged(t *testing.T) {
 			ObjectNew: &v1alpha1.DNSRecord{},
 		}))
 
-		oldNI := &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.com"}}
-		sameNI := &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.com"}}
+		oldNI := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}}
+		sameNI := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}}
 		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldNI, ObjectNew: sameNI}))
 
-		changedNI := &v1alpha1.NetworkInfo{AllowedDNSDomains: []string{"example.com", "corp.local"}}
+		changedNI := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com", "corp.local"}}
 		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldNI, ObjectNew: changedNI}))
 	})
 }
@@ -895,14 +1041,94 @@ func TestNetworkInfoToDNSRecordRequests(t *testing.T) {
 	})
 
 	t.Run("client list error", func(t *testing.T) {
+		failList := true
 		errClient := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
 			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				return errors.New("list failed")
+				if failList {
+					return errors.New("list failed")
+				}
+				return client.List(ctx, list, opts...)
 			},
 		}).Build()
 		rErr := &DNSRecordReconciler{Client: errClient}
-		assert.Nil(t, rErr.networkInfoToDNSRecordRequests(context.Background(), ni))
+		reqs := rErr.networkInfoToDNSRecordRequests(context.Background(), ni)
+		require.Equal(t, []ctrl.Request{{NamespacedName: types.NamespacedName{
+			Namespace: networkInfoRetryNamespace, Name: ni.Namespace,
+		}}}, reqs)
+		_, err := rErr.Reconcile(context.Background(), reqs[0])
+		require.ErrorContains(t, err, "list failed")
+		failList = false
+		result, err := rErr.Reconcile(context.Background(), reqs[0])
+		require.NoError(t, err)
+		require.Equal(t, ResultNormal, result)
 	})
+}
+
+func TestNetworkConfigDNSZoneChangeEnqueuesRecords(t *testing.T) {
+	zoneA := "/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-a"
+	zoneB := "/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-b"
+	oldNC := &v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "network-config"},
+		Spec:       v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{zoneA}},
+	}
+	newNC := oldNC.DeepCopy()
+	newNC.Spec.DNSZones = []string{zoneB}
+	p := predicateNetworkConfigDNSSettingsChanged()
+	require.True(t, p.Update(event.UpdateEvent{ObjectOld: oldNC, ObjectNew: newNC}))
+	require.False(t, p.Update(event.UpdateEvent{ObjectOld: oldNC, ObjectNew: oldNC.DeepCopy()}))
+	defaultNC := oldNC.DeepCopy()
+	defaultNC.Annotations = map[string]string{servicecommon.AnnotationDefaultNetworkConfig: "true"}
+	require.True(t, p.Update(event.UpdateEvent{ObjectOld: oldNC, ObjectNew: defaultNC}))
+	projectNC := oldNC.DeepCopy()
+	projectNC.Spec.NSXProject = "/orgs/org1/projects/proj2"
+	require.True(t, p.Update(event.UpdateEvent{ObjectOld: oldNC, ObjectNew: projectNC}))
+
+	rec1 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"}}
+	rec2 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns2", Name: "rec2"}}
+	recOther := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "unrelated"}}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec1, rec2, recOther).Build()
+	r := &DNSRecordReconciler{Client: c}
+	reqs := r.networkConfigToDNSRecordRequests(context.Background(), newNC)
+	require.ElementsMatch(t, []ctrl.Request{
+		{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "rec1"}},
+		{NamespacedName: types.NamespacedName{Namespace: "ns2", Name: "rec2"}},
+		{NamespacedName: types.NamespacedName{Namespace: "other", Name: "unrelated"}},
+	}, reqs)
+}
+
+func TestNetworkConfigRecordListFailureIsRetried(t *testing.T) {
+	failList := true
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(ctx context.Context, reader client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*v1alpha1.DNSRecordList); ok && failList {
+				return errors.New("DNSRecord list unavailable")
+			}
+			return reader.List(ctx, list, opts...)
+		},
+	}).Build()
+	r := &DNSRecordReconciler{Client: c}
+	nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "network-config"}}
+	reqs := r.networkConfigToDNSRecordRequests(context.Background(), nc)
+	require.Equal(t, []ctrl.Request{{NamespacedName: types.NamespacedName{
+		Namespace: networkConfigRetryNamespace, Name: nc.Name,
+	}}}, reqs)
+	_, err := r.Reconcile(context.Background(), reqs[0])
+	require.ErrorContains(t, err, "DNSRecord list unavailable")
+	failList = false
+	result, err := r.Reconcile(context.Background(), reqs[0])
+	require.NoError(t, err)
+	require.Equal(t, ResultNormal, result)
+}
+
+func TestDeletedDefaultNetworkConfigEnqueuesAllDNSRecords(t *testing.T) {
+	rec := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"}}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec).Build()
+	r := &DNSRecordReconciler{
+		Client: c,
+	}
+	reqs, err := r.requestsForNetworkConfig(context.Background(), "deleted-default")
+	require.NoError(t, err)
+	require.Equal(t, []ctrl.Request{{NamespacedName: client.ObjectKeyFromObject(rec)}}, reqs)
 }
 
 func TestDNSRecordReconciler_StartController(t *testing.T) {
