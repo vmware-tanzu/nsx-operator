@@ -13,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestDNSRecord(t *testing.T) {
@@ -52,7 +51,7 @@ func testDNSRecordTypeA(t *testing.T, ns string) {
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 
 	assert.Equal(t, "e2e-a.example.com", dnsRecord.Status.FQDN)
-	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
+	assert.Empty(t, dnsRecord.Finalizers)
 	assert.Equal(t, v1alpha1.DNSRecordTypeA, dnsRecord.Spec.RecordType)
 	assert.Equal(t, []string{"10.0.0.100"}, dnsRecord.Spec.RecordValues)
 }
@@ -66,7 +65,7 @@ func testDNSRecordTypeAAAA(t *testing.T, ns string) {
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 
 	assert.Equal(t, "e2e-aaaa.example.com", dnsRecord.Status.FQDN)
-	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
+	assert.Empty(t, dnsRecord.Finalizers)
 	assert.Equal(t, v1alpha1.DNSRecordTypeAAAA, dnsRecord.Spec.RecordType)
 	assert.Equal(t, []string{"2001:db8::100"}, dnsRecord.Spec.RecordValues)
 
@@ -105,7 +104,7 @@ func testDNSRecordApexRecord(t *testing.T, ns string) {
 
 	dnsRecord := waitForDNSRecordCRReady(t, ns, recordName, 0)
 	assert.Equal(t, "example.com", dnsRecord.Status.FQDN)
-	assert.NotContains(t, dnsRecord.Finalizers, servicecommon.DNSRecordFinalizerName)
+	assert.Empty(t, dnsRecord.Finalizers)
 }
 
 func waitForDNSRecordCRReady(t *testing.T, ns, dnsRecordName string, minimumGeneration int64) *v1alpha1.DNSRecord {
