@@ -19,6 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
@@ -34,25 +36,32 @@ func TestDNSRecordReadyStatusFailureRetries(t *testing.T) {
 		recordName string
 		recordType v1alpha1.DNSRecordType
 		wantReady  metav1.ConditionStatus
+		wantReason string
 	}{
-		{"ready true", "api", v1alpha1.DNSRecordTypeA, metav1.ConditionTrue},
-		{"unsupported type", "api", "CNAME", metav1.ConditionFalse},
-		{"wildcard", "*", v1alpha1.DNSRecordTypeA, metav1.ConditionFalse},
+		{"ready true", "api", v1alpha1.DNSRecordTypeA, metav1.ConditionTrue, ReasonDNSRecordReady},
+		{"unsupported type", "api", "CNAME", metav1.ConditionFalse, ReasonDNSRecordValidationFailed},
+		{"wildcard", "*", v1alpha1.DNSRecordTypeA, metav1.ConditionFalse, ReasonDNSRecordValidationFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			obj := &v1alpha1.DNSRecord{
-				ObjectMeta: metav1.ObjectMeta{Name: "record", Namespace: "default"},
+				ObjectMeta: metav1.ObjectMeta{Name: "record", Namespace: "default", Generation: 1},
 				Spec: v1alpha1.DNSRecordSpec{
 					DomainName: "example.com", RecordName: tc.recordName,
 					RecordType: tc.recordType, RecordValues: []string{"192.0.2.1"},
 				},
 				Status: v1alpha1.DNSRecordStatus{FQDN: calculateFQDN(tc.recordName, "example.com")},
 			}
+			nsObj := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "default",
+					UID:  "default-ns-uid",
+				},
+			}
 			statusErr := errors.New("status update unavailable")
 			attempts := 0
 			c := fake.NewClientBuilder().WithScheme(setupScheme()).
-				WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).
+				WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, nsObj).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceUpdate: func(ctx context.Context, c client.Client, subresource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 						attempts++
@@ -62,8 +71,10 @@ func TestDNSRecordReadyStatusFailureRetries(t *testing.T) {
 						return c.SubResource(subresource).Update(ctx, obj, opts...)
 					},
 				}).Build()
+			dnsSvc, _ := setupTestDNSRecordService(t, c)
 			r := &DNSRecordReconciler{
 				Client:        c,
+				Service:       dnsSvc,
 				StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
 			}
 			req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
@@ -78,6 +89,7 @@ func TestDNSRecordReadyStatusFailureRetries(t *testing.T) {
 			condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
 			require.NotNil(t, condition)
 			require.Equal(t, tc.wantReady, condition.Status)
+			require.Equal(t, tc.wantReason, condition.Reason)
 			require.Equal(t, 2, attempts)
 		})
 	}
@@ -117,6 +129,7 @@ func TestDNSRecordWildcardPreservesExistingRecord(t *testing.T) {
 	condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
 	require.NotNil(t, condition)
 	require.Equal(t, metav1.ConditionFalse, condition.Status)
+	require.Equal(t, ReasonDNSRecordValidationFailed, condition.Reason)
 	require.Contains(t, condition.Message, "wildcard DNS names are not supported")
 	require.Equal(t, []*model.DnsRecord{existing}, store.ListDNSRecords())
 }
@@ -155,6 +168,7 @@ func TestDNSRecordInvalidTTLIsRejected(t *testing.T) {
 			condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
 			require.NotNil(t, condition)
 			require.Equal(t, metav1.ConditionFalse, condition.Status)
+			require.Equal(t, ReasonDNSRecordValidationFailed, condition.Reason)
 			require.Contains(t, condition.Message, "TTL must be between 30 and 86400")
 			require.Equal(t, tc.ttl, *obj.Spec.TTL, "invalid TTL must not be silently rewritten")
 		})

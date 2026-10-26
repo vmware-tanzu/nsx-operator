@@ -269,8 +269,10 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			gateway.NewGatewayReconciler(reconcilerMgr, dnsRecordService),
 			subnetbindingcontroller.NewReconciler(reconcilerMgr, subnetService, subnetBindingService),
 			subnetipreservationcontroller.NewReconciler(reconcilerMgr, subnetIPReservationService, subnetService),
-			dnsrecordcontroller.NewDNSRecordReconciler(reconcilerMgr, dnsRecordService),
 		)
+		if dnsRecordReconciler := dnsrecordcontroller.NewDNSRecordReconciler(reconcilerMgr, dnsRecordService); dnsRecordReconciler != nil {
+			reconcilerList = append(reconcilerList, dnsRecordReconciler)
+		}
 		if lbReconciler := service.NewServiceLbReconciler(reconcilerMgr, commonService, dnsRecordService); lbReconciler != nil {
 			reconcilerList = append(reconcilerList, lbReconciler)
 		}
