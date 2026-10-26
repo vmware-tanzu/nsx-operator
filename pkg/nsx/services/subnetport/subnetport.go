@@ -198,6 +198,12 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 			}
 		}
 		nsxSubnetPort.AddressBindings = mergeSubnetPortAddressBinding(existingSubnetPort.AddressBindings, nsxSubnetPort.AddressBindings)
+		// When NSX IPv6/NsxVcfaAdoptionEnhancements is not enabled, NSX does not return StaticIpAllocationType (it remains nil).
+		// If existingSubnetPort has a nil StaticIpAllocationType, set desired StaticIpAllocationType to nil as well
+		// to avoid redundant port updates. This also ensures the backward compatibility with SubnetPort existing before NSX 9.2.
+		if existingSubnetPort.StaticIpAllocationType == nil {
+			nsxSubnetPort.StaticIpAllocationType = nil
+		}
 		isChanged = servicecommon.CompareResource(SubnetPortToComparable(existingSubnetPort), SubnetPortToComparable(nsxSubnetPort))
 	}
 	// In restore mode, restore attachment id in k8s CR when NSX >= 9.2
