@@ -352,7 +352,7 @@ func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&v1alpha1.VPCNetworkConfiguration{},
 			handler.EnqueueRequestsFromMapFunc(r.networkConfigToDNSRecordRequests),
-			builder.WithPredicates(predicateNetworkConfigDNSSettingsChanged(), vpcPredicate),
+			builder.WithPredicates(predicateNetworkConfigDNSSettingsChanged()),
 		).
 		Watches(
 			&corev1.Namespace{},
@@ -460,6 +460,9 @@ func (r *DNSRecordReconciler) reconcileNetworkInfo(ctx context.Context, namespac
 	}
 	var reconcileErrors []error
 	for _, req := range reqs {
+		if ctx.Err() != nil {
+			return ResultRequeue, ctx.Err()
+		}
 		if _, err := r.Reconcile(ctx, req); err != nil {
 			reconcileErrors = append(reconcileErrors, fmt.Errorf("reconciling DNSRecord %s: %w", req.NamespacedName, err))
 		}
@@ -505,6 +508,9 @@ func (r *DNSRecordReconciler) reconcileNetworkConfig(ctx context.Context, name s
 	}
 	var reconcileErrors []error
 	for _, req := range reqs {
+		if ctx.Err() != nil {
+			return ResultRequeue, ctx.Err()
+		}
 		if _, err := r.Reconcile(ctx, req); err != nil {
 			reconcileErrors = append(reconcileErrors, fmt.Errorf("reconciling DNSRecord %s: %w", req.NamespacedName, err))
 		}

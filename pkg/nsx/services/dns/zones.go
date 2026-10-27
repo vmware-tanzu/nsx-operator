@@ -152,7 +152,7 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 				return nil, err
 			}
 			if zone.DnsDomainName == nil {
-				return nil, fmt.Errorf("DNS zone %s returned from NSX with no domain name", p)
+				return nil, &DNSZoneValidationError{Msg: fmt.Sprintf("DNS zone %s returned from NSX with no domain name", p)}
 			}
 			domain = strings.TrimSpace(*zone.DnsDomainName)
 			log.Info("DNS zone domain fetched from NSX and cached", "path", p, "domain", domain)

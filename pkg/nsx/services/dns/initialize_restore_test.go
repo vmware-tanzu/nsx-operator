@@ -4,6 +4,7 @@
 package dns
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -108,4 +109,20 @@ func TestInitializeDNSRecordServiceRestoresProjectRecords(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, svc.DNSRecordStore.ListDNSRecords(), 1)
 	require.Len(t, svc.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindDNSRecord, "ns1", "rec1"), 1)
+}
+
+type errorOrgsClient struct{ nsxpolicy.OrgsClient }
+
+func (errorOrgsClient) List(*string, *bool, *bool, *string, *int64, *bool, *string) (model.OrgListResult, error) {
+	return model.OrgListResult{}, errors.New("403 Forbidden")
+}
+
+func TestRestoreDNSRecordsBestEffortOnOrgListError(t *testing.T) {
+	svc := &DNSRecordService{
+		Service: common.Service{NSXClient: &nsx.Client{
+			OrgsClient: errorOrgsClient{}, ProjectClient: testProjectsClient{},
+		}},
+		DNSRecordStore: BuildDNSRecordStore(),
+	}
+	require.NoError(t, svc.restoreDNSRecordsFromProjects("unit-test", nil))
 }
