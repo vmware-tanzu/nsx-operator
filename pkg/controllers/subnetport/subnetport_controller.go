@@ -334,14 +334,16 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					subnetPort.Status.NetworkInterfaceConfig.MACAddress = subnetPort.Spec.AddressBindings[0].MACAddress
 				}
 			}
+			// For SubnetPort under DHCP Subnet or no ip Subnet, we should keep the MACAddress in the status for restore.
+			// when no replacement is provided from realized bindings or spec, avoiding clearing MAC upon port updates (e.g. tag update).
+			// There's a corner case that for SubnetPort under Subnet with StaticIPAllocation enabled,
+			// the SubnetPort state may be empty and it will be updated after some time.
+			// In normal mode, we should also preserve the existing MACAddress (e.g. discovered by VIF polling)
+			if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
+				subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
+			}
 			if r.restoreMode {
-				// We should not change the IP/MAC on SubnetPort in restore mode
-				// For SubnetPort under DHCP Subnet or no ip Subnet, we should keep the MACAddress in the status for restore
-				// There's a corner case that for SubnetPort under Subnet with StaticIPAllocation enabled,
-				// the SubnetPort state may be empty and it will be updated after some time
-				if subnetPort.Status.NetworkInterfaceConfig.MACAddress == "" && old_status.NetworkInterfaceConfig.MACAddress != "" {
-					subnetPort.Status.NetworkInterfaceConfig.MACAddress = old_status.NetworkInterfaceConfig.MACAddress
-				}
+				// We should not change the IP on SubnetPort in restore mode
 				subnetPort.Status.NetworkInterfaceConfig.IPAddresses = old_status.NetworkInterfaceConfig.IPAddresses
 			}
 			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)

@@ -586,7 +586,115 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			assert.Nil(t, err)
 		})
 	}
+}
 
+func TestSubnetPortService_CreateOrUpdateSubnetPort_NilStaticIpAllocationType(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+	fakePort := &fakePortClient{}
+	nsxClient := &nsx.Client{
+		QueryClient:            &fakeQueryClient{},
+		PortClient:             fakePort,
+		RealizedEntitiesClient: &fakeRealizedEntitiesClient{},
+		PortStateClient:        &fakePortStateClient{},
+		Cluster:                &nsx.Cluster{},
+		NsxConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	commonService := common.Service{
+		Client:    k8sClient,
+		NSXClient: nsxClient,
+		NSXConfig: &config.NSXOperatorConfig{
+			CoeConfig: &config.CoeConfig{
+				Cluster: "k8scl-one:test",
+			},
+		},
+	}
+	builder, _ := common.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
+	service := &SubnetPortService{
+		SubnetPortStore: &SubnetPortStore{ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(
+				keyFunc,
+				cache.Indexers{
+					common.TagScopeSubnetPortCRUID: subnetPortIndexByCRUID,
+					common.TagScopePodUID:          subnetPortIndexByPodUID,
+				}),
+			BindingType: model.VpcSubnetPortBindingType(),
+		}},
+		builder: builder,
+		Service: commonService,
+	}
+
+	subnetPortCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      subnetPortName,
+			Namespace: namespace,
+			UID:       "00000000-0000-0000-0000-000000000001",
+		},
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{
+				{
+					Reason: "SubnetPortReady",
+					Status: corev1.ConditionTrue,
+				},
+			},
+			Attachment: v1alpha1.PortAttachment{
+				ID: "fakeAttachmentId",
+			},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
+					{Gateway: "10.0.0.1"},
+				},
+			},
+		},
+	}
+
+	nsxSubnet := &model.VpcSubnet{
+		Path: &subnetPath,
+		SubnetDhcpConfig: &model.SubnetDhcpConfig{
+			Mode: common.String("DHCP_SERVER"),
+		},
+	}
+
+	k8sClient.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+		namespaceCR := obj.(*corev1.Namespace)
+		namespaceCR.UID = "ns1"
+		return nil
+	}).AnyTimes()
+
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+		return true
+	})
+	defer patches.Reset()
+
+	// Build the port as would be built initially (StaticIpAllocationType is "NONE")
+	builtPort, err := service.buildSubnetPort(subnetPortCR, nsxSubnet, "", nil, false, false, "")
+	assert.NoError(t, err)
+	assert.NotNil(t, builtPort.StaticIpAllocationType)
+	assert.Equal(t, "NONE", *builtPort.StaticIpAllocationType)
+
+	// Simulate existing port returned by NSX when IPv6 FSS is disabled (StaticIpAllocationType is nil)
+	existingPort := *builtPort
+	existingPort.StaticIpAllocationType = nil
+	err = service.SubnetPortStore.Add(&existingPort)
+	assert.NoError(t, err)
+
+	patchCalled := false
+	patches.ApplyMethod(reflect.TypeOf(fakePort), "Patch", func(_ *fakePortClient, orgId string, projId string, vpcId string, subnetId string, portId string, port model.VpcSubnetPort) error {
+		patchCalled = true
+		return nil
+	})
+
+	state, err := service.CreateOrUpdateSubnetPort(subnetPortCR, nsxSubnet, "", nil, false, false, "")
+	assert.NoError(t, err)
+	// Because existing port has StaticIpAllocationType == nil, desired port aligns it to nil.
+	// Since port is already realized and other fields match, Patch should NOT be called.
+	assert.False(t, patchCalled)
+	assert.Nil(t, state)
 }
 
 func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
