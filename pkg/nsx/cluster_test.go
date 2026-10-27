@@ -226,6 +226,31 @@ func TestCluster_enableFeature(t *testing.T) {
 	assert.False(t, nsxVersion.featureSupported(feature))
 }
 
+func TestNsxVersion_SubnetPortSetting(t *testing.T) {
+	tests := []struct {
+		version   string
+		supported bool
+	}{
+		{version: "4.2.0", supported: false},
+		{version: "9.0.0", supported: false},
+		{version: "9.1.2", supported: false},
+		{version: "9.1.99", supported: false},
+		{version: "9.2.0", supported: true},
+		{version: "9.2.0.0.12345", supported: true},
+		{version: "9.2.1", supported: true},
+		{version: "9.3.0", supported: true},
+		{version: "10.0.0", supported: true},
+		{version: "9.2", supported: false},
+		{version: "9.x.0", supported: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			version := &NsxVersion{ProductVersion: tt.version}
+			assert.Equal(t, tt.supported, version.featureSupported(SubnetPortSetting))
+		})
+	}
+}
+
 func TestCluster_validate(t *testing.T) {
 	nsxVersion := &NsxVersion{}
 	nsxVersion.ProductVersion = "12"

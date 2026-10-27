@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -263,6 +264,10 @@ func (r *SubnetReconciler) handleNSXSubnetError(ctx context.Context, err error, 
 // pollAndSyncPortConfigs regularly polls NSX PortConfigs (PortSettings) for a shared subnet
 // and synchronizes SubnetPortSetting CRs across all namespaces where the subnet is shared.
 func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associatedResource string, namespacedNames sets.Set[types.NamespacedName]) {
+	if !r.SubnetService.NSXClient.NSXCheckVersion(nsx.SubnetPortSetting) {
+		return
+	}
+
 	portSettings, err := r.SubnetService.ListPortSettingsByAssociatedResource(associatedResource)
 	if err != nil {
 		log.Warn("Failed to list PortConfigs for shared Subnet during polling", "AssociatedResource", associatedResource, "err", err)

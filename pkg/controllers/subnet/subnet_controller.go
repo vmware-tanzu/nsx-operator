@@ -30,6 +30,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
@@ -696,6 +697,10 @@ func (r *SubnetReconciler) CollectGarbage(ctx context.Context) error {
 }
 
 func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR *v1alpha1.Subnet, associatedResource string) {
+	if !r.SubnetService.NSXClient.NSXCheckVersion(nsx.SubnetPortSetting) {
+		return
+	}
+
 	portSettings, err := r.SubnetService.ListPortSettingsByAssociatedResource(associatedResource)
 	if err != nil {
 		log.Warn("Failed to list PortConfigs for shared Subnet during on-demand sync", "Subnet", subnetCR.Name, "err", err)
