@@ -24,13 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	controllerruntime "sigs.k8s.io/controller-runtime"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -402,7 +400,7 @@ func TestDNSRecordReconciler_WritesFQDNAndConditionTogether(t *testing.T) {
 		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
 	}
 	key := client.ObjectKeyFromObject(dnsRecord)
-	req := ctrl.Request{NamespacedName: key}
+	req := controllerruntime.Request{NamespacedName: key}
 	for _, want := range []struct {
 		name    string
 		fqdn    string
@@ -473,7 +471,7 @@ func TestDNSRecordMixedModeNamespaceTransition(t *testing.T) {
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	r := &DNSRecordReconciler{Client: c, Service: dnsSvc,
 		StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
-	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(dnsRecord)}
+	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(dnsRecord)}
 	result, err := r.Reconcile(ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, ResultNormal, result)
@@ -483,7 +481,7 @@ func TestDNSRecordMixedModeNamespaceTransition(t *testing.T) {
 	namespace.Annotations = map[string]string{config.T1DefaultConfigAnnotation: "true"}
 	require.NoError(t, c.Update(ctx, namespace))
 	require.True(t, predicateNamespaceVPCProviderChanged().Update(event.UpdateEvent{ObjectOld: previousNamespace, ObjectNew: namespace}))
-	require.Equal(t, []ctrl.Request{req}, r.namespaceToDNSRecordRequests(ctx, namespace))
+	require.Equal(t, []controllerruntime.Request{req}, r.namespaceToDNSRecordRequests(ctx, namespace))
 
 	// Configuration events can enqueue every DNSRecord, including ones in T1 namespaces.
 	result, err = r.Reconcile(ctx, req)
@@ -1030,7 +1028,7 @@ func TestNetworkInfoToDNSRecordRequests(t *testing.T) {
 
 	reqs := r.networkInfoToDNSRecordRequests(context.Background(), ni)
 	require.Len(t, reqs, 2)
-	assert.ElementsMatch(t, []ctrl.Request{
+	assert.ElementsMatch(t, []controllerruntime.Request{
 		{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "rec1"}},
 		{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "rec2"}},
 	}, reqs)
@@ -1052,7 +1050,7 @@ func TestNetworkInfoToDNSRecordRequests(t *testing.T) {
 		}).Build()
 		rErr := &DNSRecordReconciler{Client: errClient}
 		reqs := rErr.networkInfoToDNSRecordRequests(context.Background(), ni)
-		require.Equal(t, []ctrl.Request{{NamespacedName: types.NamespacedName{
+		require.Equal(t, []controllerruntime.Request{{NamespacedName: types.NamespacedName{
 			Namespace: networkInfoRetryNamespace, Name: ni.Namespace,
 		}}}, reqs)
 		_, err := rErr.Reconcile(context.Background(), reqs[0])
@@ -1089,7 +1087,7 @@ func TestNetworkConfigDNSZoneChangeEnqueuesRecords(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec1, rec2, recOther).Build()
 	r := &DNSRecordReconciler{Client: c}
 	reqs := r.networkConfigToDNSRecordRequests(context.Background(), newNC)
-	require.ElementsMatch(t, []ctrl.Request{
+	require.ElementsMatch(t, []controllerruntime.Request{
 		{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "rec1"}},
 		{NamespacedName: types.NamespacedName{Namespace: "ns2", Name: "rec2"}},
 		{NamespacedName: types.NamespacedName{Namespace: "other", Name: "unrelated"}},
@@ -1109,7 +1107,7 @@ func TestNetworkConfigRecordListFailureIsRetried(t *testing.T) {
 	r := &DNSRecordReconciler{Client: c}
 	nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "network-config"}}
 	reqs := r.networkConfigToDNSRecordRequests(context.Background(), nc)
-	require.Equal(t, []ctrl.Request{{NamespacedName: types.NamespacedName{
+	require.Equal(t, []controllerruntime.Request{{NamespacedName: types.NamespacedName{
 		Namespace: networkConfigRetryNamespace, Name: nc.Name,
 	}}}, reqs)
 	_, err := r.Reconcile(context.Background(), reqs[0])
@@ -1128,7 +1126,7 @@ func TestDeletedDefaultNetworkConfigEnqueuesAllDNSRecords(t *testing.T) {
 	}
 	reqs, err := r.requestsForNetworkConfig(context.Background(), "deleted-default")
 	require.NoError(t, err)
-	require.Equal(t, []ctrl.Request{{NamespacedName: client.ObjectKeyFromObject(rec)}}, reqs)
+	require.Equal(t, []controllerruntime.Request{{NamespacedName: client.ObjectKeyFromObject(rec)}}, reqs)
 }
 
 func TestDNSRecordReconciler_StartController(t *testing.T) {
@@ -1153,7 +1151,7 @@ func TestDNSRecordReconciler_GCRunnable(t *testing.T) {
 		Client:  fakeClient,
 		Service: &dns.DNSRecordService{DNSRecordStore: dns.BuildDNSRecordStore()},
 	}
-	var runnable manager.Runnable = r.gcRunnable()
+	var runnable = r.gcRunnable()
 	require.NotNil(t, runnable)
 
 	ctx, cancel := context.WithCancel(context.Background())
