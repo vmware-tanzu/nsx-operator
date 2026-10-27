@@ -27,7 +27,7 @@ func (service *SecurityPolicyService) isNamespaceGroupSupported() bool {
 	if service.NSXClient == nil || service.NSXClient.Cluster == nil {
 		return false
 	}
-	return service.NSXClient.NSXCheckVersion(nsx.NamespaceGroup)
+	return nsx.NamespaceGroupFeatureEnabled(service.NSXClient, service.NSXConfig)
 }
 
 // buildNativeCondition builds a Condition expression for inventory-based groups.

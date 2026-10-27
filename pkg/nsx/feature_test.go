@@ -74,6 +74,36 @@ func TestMacPoolDHCPFeatureEnabled(t *testing.T) {
 	})
 }
 
+func TestNamespaceGroupFeatureEnabled(t *testing.T) {
+	f := false
+	tr := true
+	nsxClient := &Client{}
+
+	t.Run("nil client", func(t *testing.T) {
+		assert.False(t, NamespaceGroupFeatureEnabled(nil, &config.NSXOperatorConfig{}))
+	})
+
+	t.Run("NSX 9.2+ with vpc_wcp_enhance opt-in", func(t *testing.T) {
+		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			return feature == NamespaceGroup
+		})
+		defer p.Reset()
+		assert.False(t, NamespaceGroupFeatureEnabled(nsxClient, nil))
+		assert.False(t, NamespaceGroupFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: nil}))
+		assert.False(t, NamespaceGroupFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
+		assert.True(t, NamespaceGroupFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &tr}}))
+		assert.False(t, NamespaceGroupFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &f}}))
+	})
+
+	t.Run("version does not support", func(t *testing.T) {
+		p := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			return false
+		})
+		defer p.Reset()
+		assert.False(t, NamespaceGroupFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &tr}}))
+	})
+}
+
 func TestRestoreVifFeatureEnabled(t *testing.T) {
 	f := false
 	tr := true

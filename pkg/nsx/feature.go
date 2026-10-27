@@ -34,6 +34,20 @@ func MacPoolDHCPFeatureEnabled(client *Client, operatorConfig *config.NSXOperato
 	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
 }
 
+// NamespaceGroupFeatureEnabled is true when NSX version is 9.2+ and vpc_wcp_enhance=true
+// and operator nsx_v3 sets vpc_wcp_enhance to true (omitted or false keeps the feature off).
+//
+//go:noinline
+func NamespaceGroupFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
+	if client == nil || !client.NSXCheckVersion(NamespaceGroup) {
+		return false
+	}
+	if operatorConfig == nil || operatorConfig.NsxConfig == nil {
+		return false
+	}
+	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
+}
+
 // RestoreVifFeatureEnabled is true when NSX supports restoring SubnetPort vif and
 // operator config set restore_vif to true.
 //

@@ -26,13 +26,22 @@ func TestIsNamespaceGroupSupported(t *testing.T) {
 	service := &SecurityPolicyService{}
 	assert.False(t, service.isNamespaceGroupSupported())
 
+	tr := true
 	service.NSXClient = &nsx.Client{Cluster: &nsx.Cluster{}}
+	service.NSXConfig = &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{
+			VpcWcpEnhance: &tr,
+		},
+	}
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
 		return feature == nsx.NamespaceGroup
 	})
 	defer patches.Reset()
 
 	assert.True(t, service.isNamespaceGroupSupported())
+
+	service.NSXConfig.NsxConfig.VpcWcpEnhance = nil
+	assert.False(t, service.isNamespaceGroupSupported())
 }
 
 func TestBuildNativeConditions(t *testing.T) {
