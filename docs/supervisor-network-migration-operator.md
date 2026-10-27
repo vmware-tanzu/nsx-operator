@@ -92,7 +92,7 @@ that decision. No redundant counter fields or extra status CRs are introduced.
 
 The framework controllers remain observational. The orchestration workstream
 can use these helpers when reporting handler outcomes; this branch does not
-install concrete handlers or grant additional controller permissions. Status
+install concrete handlers. Status
 persistence tests exercise both CR kinds, conflicts and retries, retained
 workflow/condition history, and namespace counts. API tests validate the full
 1,000-namespace batch and the checked-in design output examples.
@@ -271,6 +271,57 @@ to accept and preserve the supplied IDs and display names. The published detaile
 the optional-override, topology-reuse and `status.optionalInputs` UI contract,
 including a validated two-VDN example with required DHCP data for only one VDN.
 Runtime integration and acceptance tests remain handler work.
+=======
+## Network inspection (WBS 1.4.2)
+
+`pkg/migration/inspection` implements the read-only network inspection shared
+service from WBS version 66 and detailed design version 158:
+
+- `KubernetesInventory` resolves namespaced Net Operator `Network` provider
+  references to cluster-scoped `VSphereDistributedNetwork` resources. Shared
+  VDNs are deduplicated. The reader uses the official `net-operator-api/v1alpha1`
+  Network, VDN, and IPPool Go types, registered in the manager scheme.
+  DHCP is determined from `spec.ipAssignmentMode`; absent
+  mode uses Net Operator's documented `staticpool` default, and unsupported
+  modes fail inspection. Static configuration comes from the VDN and its IPPools.
+- `VCenterTopology` uses a govmomi property collector to resolve the DVPG, DVS
+  identity/UUID, and attached clusters. Missing topology fails closed. Callers
+  provide the authenticated vCenter session and a direct Kubernetes API reader.
+- `Service.Inspect` validates administrator entries against discovered VDNs,
+  rejects duplicate/unknown entries and conflicting shared-DVPG configurations,
+  and returns normalized source addressing. Validation covers contiguous IPv4
+  masks, address families, ordered usable ranges, gateway membership and pool
+  overlap, deriving CIDR from range start and mask without a separate CIDR input. Source subnet inputs remain IPv4
+  under the current dotted-decimal mask contract; this does not change IPv6 LB
+  SNAT input support. Existing workload addresses may lie outside the DHCP pool
+  while remaining inside the subnet. No addresses are allocated or reserved.
+- `EvaluateControlPlane` and `EvaluateNamespaces` persist diagnostics through
+  the optimistic status writers. Missing DHCP fields produce `NeedsInput`, a
+  false `NetworkInputsValidated` condition, and one stable `requiredInputs`
+  entry per VDN naming the missing fields and the applicable
+  `spec.networkConfiguration` DHCP list. Keys are rooted at
+  `namespaceDHCPNetworks/` or `controlPlaneAndServiceDHCPNetworks/`, with a
+  bounded stable suffix for each VDN. Invalid supplied configuration takes
+  precedence and produces `EvaluationFailed`; unavailable discovery produces
+  `Blocked`/Unknown and returns the error for retry. Unrelated inputs and action
+  checkpoints are preserved. Success records only this inspection milestone,
+  leaving the phase `Evaluating` until the other Evaluate work completes.
+
+The control-plane handler must pass the authoritative CPVM/Supervisor Service
+VDN set obtained from WCP configuration; administrator inputs never determine
+inspection scope. Namespace discovery uses the selected namespaces' source
+Network resources. Re-run discovery after a status conflict and before later
+mutation; returned topology is an observation, not a lock or reservation.
+Cross-batch ownership, NSX fabric validation, and final reservation/consumer
+rechecks belong to the respective orchestration and coordination services.
+This package does not create a separate resolved-subnet status inventory.
+
+The framework controllers still only observe CRs. Wiring these service methods
+into Evaluate and supplying the WCP scope/vCenter session belongs to the stage
+handlers. RBAC includes source inventory reads and transition status patches,
+but no source-network writes. Tests cover the live govmomi simulator, Kubernetes
+inventory reads, validation failures, both CR status writers, stale snapshots,
+missing-input recovery, and preservation of unrelated status.
 
 ## Design contract
 

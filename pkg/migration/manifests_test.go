@@ -118,3 +118,33 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 	}
 	require.Equal(t, 1, bindings)
 }
+
+func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
+	var role rbacv1.ClusterRole
+	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
+		var resource struct{ Kind string }
+		require.NoError(t, json.Unmarshal(doc, &resource))
+		if resource.Kind == "ClusterRole" {
+			require.NoError(t, json.Unmarshal(doc, &role))
+		}
+	}
+	sourceReads, statusPatches := false, false
+	for _, rule := range role.Rules {
+		for _, group := range rule.APIGroups {
+			if group == "netoperator.vmware.com" {
+				sourceReads = true
+				require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
+				require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
+			}
+		}
+		for _, resource := range rule.Resources {
+			if resource == "controlplanenetworktransitions/status" {
+				statusPatches = true
+				require.Equal(t, []string{"patch"}, rule.Verbs)
+				require.Contains(t, rule.Resources, "namespacenetworktransitions/status")
+			}
+		}
+	}
+	require.True(t, sourceReads)
+	require.True(t, statusPatches)
+}
