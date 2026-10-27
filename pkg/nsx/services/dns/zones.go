@@ -4,7 +4,6 @@
 package dns
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
