@@ -8,8 +8,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	dnszonemocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnszonesclient"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestZonePathForHostnameFromMap_table(t *testing.T) {
@@ -138,6 +143,26 @@ func TestSyncDNSZonesRejectsMalformedPath(t *testing.T) {
 	}}
 	_, err := svc.SyncDNSZonesByVpcNetworkConfig(nc)
 	require.ErrorContains(t, err, "invalid configured DNS zone path")
+	var validationErr *DNSZoneValidationError
+	require.True(t, errors.As(err, &validationErr))
+}
+
+func TestSyncDNSZonesRejectsZoneWithNilDomainName(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	zoneMock := dnszonemocks.NewMockZonesClient(ctrl)
+	zonePath := "/orgs/default/projects/project-1/dns-services/dns-svc-1/zones/zone-1"
+	zoneMock.EXPECT().Get("default", "project-1", "dns-svc-1", "zone-1").Return(model.DnsZone{}, nil)
+	svc := &DNSRecordService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{DnsZoneClient: zoneMock},
+		},
+		DNSZoneMap: NewDNSZoneCacheFromMap(nil),
+	}
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+		DNSZones: []string{zonePath},
+	}}
+	_, err := svc.SyncDNSZonesByVpcNetworkConfig(nc)
+	require.ErrorContains(t, err, "returned from NSX with no domain name")
 	var validationErr *DNSZoneValidationError
 	require.True(t, errors.As(err, &validationErr))
 }

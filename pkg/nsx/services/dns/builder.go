@@ -48,9 +48,10 @@ func getRecordIDAndPathAndType(recordName, endpointRecordType, zonePath string) 
 	// Ignore the errors returned in `parseDnsZonePath`, as it was validated in previous steps when
 	// preparing the DNS zone maps in the service.
 	orgID, projectID, _, _, _ := parseDnsZonePath(zonePath)
+	canonicalName := strings.ToLower(strings.TrimSpace(recordName))
 	// DNS records are project-scoped. Include the full zone path so equal zone IDs
 	// under different DNS services cannot address the same NSX record.
-	recID := fmt.Sprintf("dns_%x", sha256.Sum256([]byte(zonePath+"\x00"+recordName+"\x00"+nsxRecordType)))
+	recID := fmt.Sprintf("dns_%x", sha256.Sum256([]byte(zonePath+"\x00"+canonicalName+"\x00"+nsxRecordType)))
 	recordPath := fmt.Sprintf("/orgs/%s/projects/%s/%s/%s", orgID, projectID, DNSRecordPathSegment, recID)
 	return recID, recordPath, nsxRecordType
 }

@@ -150,3 +150,10 @@ func TestDNSRecordLegacyIDMigratesOnReconcile(t *testing.T) {
 	require.Equal(t, newPath, *toUpsert[0].Path)
 	require.Equal(t, legacyPath, *toRemove[0].Path)
 }
+
+func TestDNSRecordIDCaseInsensitive(t *testing.T) {
+	upperID, upperPath, _ := getRecordIDAndPathAndType("API", "A", testDNSZonePathT)
+	lowerID, lowerPath, _ := getRecordIDAndPathAndType("api", "A", testDNSZonePathT)
+	require.Equal(t, lowerID, upperID)
+	require.Equal(t, lowerPath, upperPath)
+}
