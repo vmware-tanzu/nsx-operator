@@ -28,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	pkgmock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	mockOrgRoot "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -335,7 +336,9 @@ func TestInitializeSubnetService(t *testing.T) {
 				func(_ client.Client, _ string) (bool, error) {
 					return false, nil
 				})
-			service, err := InitializeSubnetService(commonService)
+			subnetPortService := &pkgmock.MockSubnetPortServiceProvider{}
+			service, err := InitializeSubnetService(commonService, subnetPortService)
+			require.Same(t, subnetPortService, service.SubnetPortService)
 
 			assert.NoError(t, err)
 			res := service.ListAllSubnet()
@@ -3777,6 +3780,86 @@ func TestGetUpdatedSubnetSizesAndPrefixes(t *testing.T) {
 			size, prefix := getUpdatedSubnetSizesAndPrefixes(tt.existingSubnet, tt.newIpv4SubnetSize, tt.newIpv6PrefixLength, tt.newIPType)
 			assert.Equal(t, tt.expectedSize, size)
 			assert.Equal(t, tt.expectedPrefix, prefix)
+		})
+	}
+}
+
+type capacityResetRecorder struct {
+	pkgmock.MockSubnetPortServiceProvider
+	paths []string
+}
+
+func (s *capacityResetRecorder) ResetSubnetTotalIP(path string) {
+	s.paths = append(s.paths, path)
+}
+
+func TestCreateOrUpdateSubnet_PoolRangeCapacityReset(t *testing.T) {
+	for _, tc := range []struct {
+		name                                 string
+		oldRanges, newRanges                 []string
+		creating, fail, unchanged, wantReset bool
+		changeDescription                    bool
+	}{
+		{name: "expand", oldRanges: []string{"172.26.0.17-172.26.0.20"}, newRanges: []string{"172.26.0.17-172.26.0.20", "172.26.0.21-172.26.0.22"}, wantReset: true},
+		{name: "shrink", oldRanges: []string{"172.26.0.17-172.26.0.22"}, newRanges: []string{"172.26.0.17-172.26.0.20"}, wantReset: true},
+		{name: "clear", oldRanges: []string{"172.26.0.17-172.26.0.20"}, wantReset: true},
+		{name: "add", newRanges: []string{"172.26.0.17-172.26.0.20"}, wantReset: true},
+		{name: "description only", oldRanges: []string{"a", "b"}, newRanges: []string{"a", "b"}, changeDescription: true},
+		{name: "reordered", oldRanges: []string{"a", "b"}, newRanges: []string{"b", "a"}},
+		{name: "nil and empty", newRanges: []string{}},
+		{name: "unchanged", oldRanges: []string{"a"}, newRanges: []string{"a"}, unchanged: true},
+		{name: "create", creating: true, newRanges: []string{"a"}},
+		{name: "failed update", oldRanges: []string{"a"}, newRanges: []string{"b"}, fail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ports := &capacityResetRecorder{}
+			service := &SubnetService{SubnetStore: buildSubnetStore(), SubnetPortService: ports}
+			cr := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{UID: "subnet-uid"}}
+			cr.Status.Conditions = []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}}
+			makeSubnet := func(ranges []string) *model.VpcSubnet {
+				return &model.VpcSubnet{
+					Id: common.String("subnet-id"), DisplayName: common.String("subnet"), Path: common.String("subnet-path"),
+					ParentPath:     common.String("/orgs/default/projects/default/vpcs/vpc"),
+					Tags:           []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String(string(cr.UID))}},
+					AdvancedConfig: &model.SubnetAdvancedConfig{StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(true), PoolRanges: ranges}},
+				}
+			}
+			if !tc.creating {
+				require.NoError(t, service.SubnetStore.Apply(makeSubnet(tc.oldRanges)))
+			}
+			built := makeSubnet(tc.newRanges)
+			if tc.changeDescription {
+				built.Description = common.String("updated description")
+			}
+			patches := gomonkey.ApplyFunc((*SubnetService).buildSubnet, func(_ *SubnetService, _ client.Object, _ []model.Tag, _ []string, _ ...*common.VPCResourceInfo) (*model.VpcSubnet, error) {
+				return built, nil
+			})
+			defer patches.Reset()
+			writes := 0
+			patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(_ *SubnetService, _ client.Object, subnet *model.VpcSubnet, _ *common.VPCResourceInfo, _ bool) (*model.VpcSubnet, error) {
+				require.Empty(t, ports.paths, "capacity must not be reset before the NSX update succeeds")
+				writes++
+				if tc.fail {
+					return nil, errors.New("update failed")
+				}
+				return subnet, nil
+			})
+			_, err := service.CreateOrUpdateSubnet(cr, common.VPCResourceInfo{}, nil)
+			if tc.fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.unchanged {
+				require.Zero(t, writes)
+			} else {
+				require.Equal(t, 1, writes)
+			}
+			if tc.wantReset {
+				require.Equal(t, []string{"subnet-path"}, ports.paths)
+			} else {
+				require.Empty(t, ports.paths)
+			}
 		})
 	}
 }

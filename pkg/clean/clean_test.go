@@ -174,7 +174,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	})
 	defer patches.Reset()
 
-	patches.ApplyFunc(subnet.InitializeSubnetService, func(service common.Service) (*subnet.SubnetService, error) {
+	patches.ApplyFunc(subnet.InitializeSubnetService, func(service common.Service, _ common.SubnetPortServiceProvider) (*subnet.SubnetService, error) {
 		return &subnet.SubnetService{}, nil
 	})
 	patches.ApplyFunc(securitypolicy.InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanup bool) (*securitypolicy.SecurityPolicyService, error) {
@@ -240,7 +240,7 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 		return nil, expectedError
 	})
 	defer patches.Reset()
-	patches.ApplyFunc(subnet.InitializeSubnetService, func(service common.Service) (*subnet.SubnetService, error) {
+	patches.ApplyFunc(subnet.InitializeSubnetService, func(service common.Service, _ common.SubnetPortServiceProvider) (*subnet.SubnetService, error) {
 		return &subnet.SubnetService{}, nil
 	})
 	patches.ApplyFunc(securitypolicy.InitializeSecurityPolicy, func(service common.Service, vpcService common.VPCServiceProvider, vpcMode bool, forCleanup bool) (*securitypolicy.SecurityPolicyService, error) {
