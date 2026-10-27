@@ -367,7 +367,10 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	}
 
 	// Synchronize PortConfigs for this shared Subnet on-demand
-	r.syncPortConfigsOnDemand(ctx, subnetCR, associatedResource)
+	if err := r.syncPortConfigsOnDemand(ctx, subnetCR, associatedResource); err != nil {
+		log.Error(err, "Failed to sync SubnetPortSettings", "Subnet", namespacedName)
+		return ResultRequeue, err
+	}
 
 	r.StatusUpdater.UpdateSuccess(ctx, subnetCR, setSubnetReadyStatusTrue)
 	return ResultNormal, nil
@@ -696,15 +699,14 @@ func (r *SubnetReconciler) CollectGarbage(ctx context.Context) error {
 	return nil
 }
 
-func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR *v1alpha1.Subnet, associatedResource string) {
+func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR *v1alpha1.Subnet, associatedResource string) error {
 	if !r.SubnetService.NSXClient.NSXCheckVersion(nsx.SubnetPortSetting) {
-		return
+		return nil
 	}
 
 	portSettings, err := r.SubnetService.ListPortSettingsByAssociatedResource(associatedResource)
 	if err != nil {
-		log.Warn("Failed to list PortConfigs for shared Subnet during on-demand sync", "Subnet", subnetCR.Name, "err", err)
-		return
+		return err
 	}
 	nsxPortSettingIDs := sets.New[string]()
 	for _, ps := range portSettings {
@@ -712,7 +714,5 @@ func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR
 			nsxPortSettingIDs.Insert(*ps.Id)
 		}
 	}
-	if err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource); err != nil {
-		log.Error(err, "Failed to sync PortConfigs for Subnet on-demand", "Subnet", subnetCR.Name)
-	}
+	return r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource)
 }

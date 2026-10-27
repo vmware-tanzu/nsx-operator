@@ -1623,7 +1623,14 @@ func TestPortConfigSyncVersionGate(t *testing.T) {
 					assert.Equal(t, parent, r.SubnetService.NSXSubnetCache[assoc].Subnet)
 					assert.Equal(t, status, r.SubnetService.NSXSubnetCache[assoc].StatusList)
 				} else {
-					r.syncPortConfigsOnDemand(ctx, subnetCR, assoc)
+					if !supported {
+						patches.ApplyPrivateMethod(reflect.TypeOf(r), "syncPortConfigsForNamespaceSubnet",
+							func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ []model.VpcSubnetPortSetting, _ sets.Set[string], _ string) error {
+								t.Error("unsupported NSX must skip PortConfig synchronization")
+								return nil
+							})
+					}
+					require.NoError(t, r.syncPortConfigsOnDemand(ctx, subnetCR, assoc))
 				}
 
 				assert.Equal(t, 1, versionChecks)
