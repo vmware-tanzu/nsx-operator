@@ -16,8 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1009,6 +1011,7 @@ func TestSyncPortConfigsForNamespaceSubnet(t *testing.T) {
 	subnetCR := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "shared-subnet-1",
+			UID:       "subnet-uid",
 			Namespace: "ns-test",
 			Annotations: map[string]string{
 				common.AnnotationAssociatedResource: assocRes,
@@ -1018,8 +1021,9 @@ func TestSyncPortConfigsForNamespaceSubnet(t *testing.T) {
 
 	orphanCR := &v1alpha1.SubnetPortSetting{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      psOldID,
-			Namespace: "ns-test",
+			Name:            psOldID,
+			OwnerReferences: portConfigTestOwnerReferences(subnetCR),
+			Namespace:       "ns-test",
 			Annotations: map[string]string{
 				common.AnnotationAssociatedResource: fmt.Sprintf("%s:%s", assocRes, psOldID),
 			},
@@ -1039,8 +1043,9 @@ func TestSyncPortConfigsForNamespaceSubnet(t *testing.T) {
 
 	existingCR := &v1alpha1.SubnetPortSetting{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ps1ID,
-			Namespace: "ns-test",
+			Name:            ps1ID,
+			OwnerReferences: portConfigTestOwnerReferences(subnetCR),
+			Namespace:       "ns-test",
 			Annotations: map[string]string{
 				common.AnnotationAssociatedResource: fmt.Sprintf("%s:%s", assocRes, ps1ID),
 			},
@@ -1095,6 +1100,7 @@ func TestSyncPortConfigs_NameConflict_FallbackGenerateName(t *testing.T) {
 	subnetCR2 := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "shared-subnet-2",
+			UID:       "subnet-2-uid",
 			Namespace: "ns-test",
 			Annotations: map[string]string{
 				common.AnnotationAssociatedResource: assocRes,
@@ -1164,6 +1170,7 @@ func TestPollAndSyncPortConfigs(t *testing.T) {
 	subnetCR := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "shared-subnet-1",
+			UID:         "subnet-uid",
 			Namespace:   "ns-test",
 			Annotations: map[string]string{common.AnnotationAssociatedResource: assocRes},
 		},
@@ -1263,7 +1270,7 @@ func TestCreatePortConfig_AlreadyExistsSameSource(t *testing.T) {
 func TestSyncPortConfigs_AllMirrorsAndSourceIdentity(t *testing.T) {
 	ctx := context.Background()
 	assoc := "proj:vpc:subnet"
-	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
+	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
 		Annotations: map[string]string{common.AnnotationAssociatedResource: assoc}}}
 	var objects = []client.Object{subnetCR}
 	for _, name := range []string{"first", "duplicate", "foreign"} {
@@ -1273,7 +1280,8 @@ func TestSyncPortConfigs_AllMirrorsAndSourceIdentity(t *testing.T) {
 		}
 		objects = append(objects, &v1alpha1.SubnetPortSetting{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: subnetCR.Namespace,
-				Annotations: map[string]string{common.AnnotationAssociatedResource: source}},
+				OwnerReferences: portConfigTestOwnerReferences(subnetCR),
+				Annotations:     map[string]string{common.AnnotationAssociatedResource: source}},
 			Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: subnetCR.Name},
 		})
 	}
@@ -1300,11 +1308,12 @@ func TestSharedSubnetFailureInvalidatesPortConfigs(t *testing.T) {
 			t.Run(fmt.Sprintf("poll=%t/error=%s", poll, sourceErr), func(t *testing.T) {
 				ctx := context.Background()
 				assoc := "proj:vpc:subnet"
-				subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
+				subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
 					Annotations: map[string]string{common.AnnotationAssociatedResource: assoc}}}
 				setting := &v1alpha1.SubnetPortSetting{
 					ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: subnetCR.Namespace,
-						Annotations: map[string]string{common.AnnotationAssociatedResource: assoc + ":default"}},
+						OwnerReferences: portConfigTestOwnerReferences(subnetCR),
+						Annotations:     map[string]string{common.AnnotationAssociatedResource: assoc + ":default"}},
 					Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: subnetCR.Name},
 					Status: v1alpha1.SubnetPortSettingStatus{Conditions: []v1alpha1.Condition{
 						{Type: v1alpha1.Ready, Status: corev1.ConditionTrue},
@@ -1365,7 +1374,7 @@ func TestSharedSubnetFailureSkipsDisabledPortConfigs(t *testing.T) {
 			ctx := context.Background()
 			assoc := "proj:vpc:subnet"
 			parent := &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
+				ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
 					Annotations: map[string]string{common.AnnotationAssociatedResource: assoc}},
 				Status: v1alpha1.SubnetStatus{NetworkAddresses: []string{"192.0.2.0/24"},
 					Conditions: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}}},
@@ -1552,11 +1561,12 @@ func TestSyncPortConfigsPreservesUnrelatedCRs(t *testing.T) {
 	} {
 		t.Run(fmt.Sprint(annotation), func(t *testing.T) {
 			ctx := context.Background()
-			subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
+			subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
 				Annotations: map[string]string{common.AnnotationAssociatedResource: assoc}}}
 			unrelated := &v1alpha1.SubnetPortSetting{
-				ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: subnetCR.Namespace, Annotations: annotation},
-				Spec:       v1alpha1.SubnetPortSettingSpec{SubnetName: subnetCR.Name},
+				ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: subnetCR.Namespace, Annotations: annotation,
+					OwnerReferences: portConfigTestOwnerReferences(subnetCR)},
+				Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: subnetCR.Name},
 				Status: v1alpha1.SubnetPortSettingStatus{Conditions: []v1alpha1.Condition{
 					{Type: v1alpha1.Ready, Status: corev1.ConditionTrue, Reason: "UserManaged"},
 				}},
@@ -1599,7 +1609,7 @@ func TestSyncPortConfigsPreservesUnrelatedCRs(t *testing.T) {
 func TestSharedSubnetPollIgnoresChangedSource(t *testing.T) {
 	ctx := context.Background()
 	oldSource, newSource := "proj:vpc:old", "proj:vpc:new"
-	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
+	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
 		Annotations: map[string]string{common.AnnotationAssociatedResource: newSource}},
 		Status: v1alpha1.SubnetStatus{NetworkAddresses: []string{"10.0.0.0/24"}}}
 	var objects = []client.Object{subnetCR}
@@ -1658,11 +1668,12 @@ func TestPortConfigSyncFeatureGate(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/poll=%t/supported=%t", cfg.name, poll, supported), func(t *testing.T) {
 				ctx := context.Background()
 				assoc := "proj:vpc:subnet"
-				subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
+				subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
 					Annotations: map[string]string{common.AnnotationAssociatedResource: assoc}}}
 				matching := &v1alpha1.SubnetPortSetting{
 					ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: subnetCR.Namespace,
-						Annotations: map[string]string{common.AnnotationAssociatedResource: assoc + ":default"}},
+						OwnerReferences: portConfigTestOwnerReferences(subnetCR),
+						Annotations:     map[string]string{common.AnnotationAssociatedResource: assoc + ":default"}},
 					Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: subnetCR.Name},
 					Status: v1alpha1.SubnetPortSettingStatus{Conditions: []v1alpha1.Condition{
 						{Type: v1alpha1.Ready, Status: corev1.ConditionFalse, Reason: "PreviousFailure"},
@@ -1993,6 +2004,218 @@ func TestOnDemandParentFailureInvalidatesPortSettingsSnapshot(t *testing.T) {
 			f.assertMirrors(t, f.ids, corev1.ConditionTrue)
 			f.reconcileAll(t, nil)
 			assert.Equal(t, 3, f.lists)
+		})
+	}
+}
+
+// portConfigTestOwnerReferences makes the intended identity explicit in each fixture.
+func portConfigTestOwnerReferences(parent *v1alpha1.Subnet) []metav1.OwnerReference {
+	return []metav1.OwnerReference{{
+		APIVersion: v1alpha1.GroupVersion.String(), Kind: "Subnet", Name: parent.Name, UID: parent.UID,
+	}}
+}
+
+func TestPortConfigSyncPreservesOtherParentIdentities(t *testing.T) {
+	ctx := context.Background()
+	assoc := "proj:vpc:subnet"
+	parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{
+		Name: "shared", Namespace: "ns-test", UID: "current-subnet-uid",
+		Annotations: map[string]string{common.AnnotationAssociatedResource: assoc},
+	}}
+	validOwner := portConfigTestOwnerReferences(parent)[0]
+	staleOwner, wrongKind, wrongName, wrongVersion := validOwner, validOwner, validOwner, validOwner
+	staleOwner.UID = "previous-subnet-uid"
+	wrongKind.Kind = "SubnetSet"
+	wrongName.Name = "another-subnet"
+	wrongVersion.APIVersion = "example.com/v1"
+	for _, tc := range []struct {
+		name   string
+		owners []metav1.OwnerReference
+	}{
+		{name: "stale parent UID", owners: []metav1.OwnerReference{staleOwner}},
+		{name: "ownerless"},
+		{name: "wrong owner kind", owners: []metav1.OwnerReference{wrongKind}},
+		{name: "wrong owner name", owners: []metav1.OwnerReference{wrongName}},
+		{name: "wrong owner API version", owners: []metav1.OwnerReference{wrongVersion}},
+	} {
+		for _, alreadyExists := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/AlreadyExists=%t", tc.name, alreadyExists), func(t *testing.T) {
+				foreign := &v1alpha1.SubnetPortSetting{
+					ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: parent.Namespace, UID: "foreign-setting-uid",
+						OwnerReferences: tc.owners,
+						Annotations:     map[string]string{common.AnnotationAssociatedResource: assoc + ":default"}},
+					Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: parent.Name},
+					Status: v1alpha1.SubnetPortSettingStatus{Conditions: []v1alpha1.Condition{
+						{Type: v1alpha1.Ready, Status: corev1.ConditionFalse, Reason: "PreserveExistingOwner"},
+					}},
+				}
+				orphan := foreign.DeepCopy()
+				orphan.Name, orphan.UID = "orphan", "foreign-orphan-uid"
+				orphan.Annotations[common.AnnotationAssociatedResource] = assoc + ":orphan"
+				r := createFakeSubnetReconciler([]client.Object{parent.DeepCopy(), foreign, orphan})
+				enabled := true
+				r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.NSXClient), "NSXCheckVersion",
+					func(_ *nsx.Client, feature int) bool {
+						assert.Equal(t, nsx.SubnetPortSetting, feature)
+						return true
+					})
+				defer patches.Reset()
+				before := &v1alpha1.SubnetPortSettingList{}
+				require.NoError(t, r.APIReader.List(ctx, before))
+				if alreadyExists {
+					// Call create directly so rejection cannot be supplied by the List filter.
+					created, err := r.createPortConfig(ctx, parent, "default", assoc)
+					require.NoError(t, err)
+					assert.NotEqual(t, foreign.Name, created.Name)
+					assert.Equal(t, "default-", created.GenerateName)
+				}
+				settings := []model.VpcSubnetPortSetting{{Id: common.String("default")}}
+				var mirrorBefore *v1alpha1.SubnetPortSetting
+				for range 3 {
+					require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, settings, sets.New("default"), assoc))
+					list := &v1alpha1.SubnetPortSettingList{}
+					require.NoError(t, r.APIReader.List(ctx, list))
+					require.Len(t, list.Items, 3, "repeated sync must retain exactly one current-parent mirror")
+					for i := range list.Items {
+						setting := &list.Items[i]
+						if setting.Name == foreign.Name || setting.Name == orphan.Name {
+							continue
+						}
+						assert.Equal(t, "default-", setting.GenerateName)
+						assert.Equal(t, portConfigTestOwnerReferences(parent), setting.OwnerReferences)
+						assert.Equal(t, assoc+":default", setting.Annotations[common.AnnotationAssociatedResource])
+						assert.Equal(t, parent.Name, setting.Spec.SubnetName)
+						require.Len(t, setting.Status.Conditions, 1)
+						assert.Equal(t, corev1.ConditionTrue, setting.Status.Conditions[0].Status)
+						if mirrorBefore != nil {
+							assert.Equal(t, mirrorBefore, setting, "a realized mirror must remain unchanged on repeated sync")
+						}
+						mirrorBefore = setting.DeepCopy()
+					}
+				}
+				require.NotNil(t, mirrorBefore)
+				require.NoError(t, r.markPortConfigsNotReady(ctx, parent, context.DeadlineExceeded))
+				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, sets.New[string](), assoc))
+				after := &v1alpha1.SubnetPortSettingList{}
+				require.NoError(t, r.APIReader.List(ctx, after))
+				assert.Equal(t, before.Items, after.Items, "Ready, NotReady and orphan cleanup must preserve foreign identities verbatim")
+			})
+		}
+	}
+}
+
+func TestListPortConfigsRejectsEmptyParentUID(t *testing.T) {
+	ctx := context.Background()
+	parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test"}}
+	setting := &v1alpha1.SubnetPortSetting{
+		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: parent.Namespace,
+			OwnerReferences: portConfigTestOwnerReferences(parent),
+			Annotations:     map[string]string{common.AnnotationAssociatedResource: "proj:vpc:subnet:default"}},
+		Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: parent.Name},
+	}
+	r := createFakeSubnetReconciler([]client.Object{parent, setting})
+	listed, err := r.listPortConfigs(ctx, parent, "proj:vpc:subnet")
+	require.NoError(t, err)
+	assert.Empty(t, listed, "empty owner and parent UIDs cannot establish ownership")
+	created, err := r.createPortConfig(ctx, parent, "default", "proj:vpc:subnet")
+	require.NoError(t, err)
+	assert.NotEqual(t, setting.Name, created.Name, "AlreadyExists must also reject empty identity")
+}
+
+// portConfigDeleteRaceClient supplies the UID precondition check missing from the
+// controller-runtime fake client. ResourceVersion validation remains with the fake
+// client, so a same-UID update must be rejected by its real Delete implementation.
+type portConfigDeleteRaceClient struct {
+	client.Client
+	beforeDelete func(context.Context, client.Object, *client.DeleteOptions)
+}
+
+func (c *portConfigDeleteRaceClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	options := &client.DeleteOptions{}
+	options.ApplyOptions(opts)
+	c.beforeDelete(ctx, obj, options)
+	current := &v1alpha1.SubnetPortSetting{}
+	if err := c.Client.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
+		return err
+	}
+	if options.Preconditions != nil && options.Preconditions.UID != nil && *options.Preconditions.UID != current.UID {
+		return apierrors.NewConflict(schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "subnetportsettings"},
+			obj.GetName(), errors.New("UID precondition does not match the current object"))
+	}
+	return c.Client.Delete(ctx, obj, opts...)
+}
+
+func TestPortConfigOrphanDeletionPreconditions(t *testing.T) {
+	for _, race := range []string{"recreated", "source changed", "already deleted", "unchanged"} {
+		t.Run(race, func(t *testing.T) {
+			ctx := context.Background()
+			assoc := "proj:vpc:subnet"
+			parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{
+				Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
+				Annotations: map[string]string{common.AnnotationAssociatedResource: assoc},
+			}}
+			orphan := &v1alpha1.SubnetPortSetting{
+				ObjectMeta: metav1.ObjectMeta{Name: "orphan", Namespace: parent.Namespace, UID: "observed-setting-uid", ResourceVersion: "1",
+					OwnerReferences: portConfigTestOwnerReferences(parent),
+					Annotations:     map[string]string{common.AnnotationAssociatedResource: assoc + ":orphan"}},
+				Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: parent.Name},
+			}
+			r := createFakeSubnetReconciler([]client.Object{parent, orphan})
+			observed := &v1alpha1.SubnetPortSetting{}
+			key := client.ObjectKeyFromObject(orphan)
+			require.NoError(t, r.APIReader.Get(ctx, key, observed))
+			baseClient := r.Client
+			var survivor *v1alpha1.SubnetPortSetting
+			deletes := 0
+			r.Client = &portConfigDeleteRaceClient{Client: baseClient,
+				beforeDelete: func(ctx context.Context, obj client.Object, options *client.DeleteOptions) {
+					deletes++
+					assert.Equal(t, observed.UID, obj.GetUID())
+					assert.Equal(t, observed.ResourceVersion, obj.GetResourceVersion())
+					require.NotNil(t, options.Preconditions)
+					require.NotNil(t, options.Preconditions.UID)
+					require.NotNil(t, options.Preconditions.ResourceVersion)
+					assert.Equal(t, observed.UID, *options.Preconditions.UID)
+					assert.Equal(t, observed.ResourceVersion, *options.Preconditions.ResourceVersion)
+					switch race {
+					case "recreated":
+						require.NoError(t, baseClient.Delete(ctx, observed.DeepCopy()))
+						replacement := observed.DeepCopy()
+						replacement.UID, replacement.ResourceVersion = "replacement-setting-uid", ""
+						replacement.Annotations[common.AnnotationAssociatedResource] = "proj:vpc:other:orphan"
+						require.NoError(t, baseClient.Create(ctx, replacement))
+						survivor = &v1alpha1.SubnetPortSetting{}
+						require.NoError(t, baseClient.Get(ctx, key, survivor))
+						assert.Equal(t, observed.ResourceVersion, survivor.ResourceVersion, "equal RV isolates UID precondition enforcement")
+					case "source changed":
+						updated := observed.DeepCopy()
+						updated.Annotations[common.AnnotationAssociatedResource] = "proj:vpc:other:orphan"
+						require.NoError(t, baseClient.Update(ctx, updated))
+						survivor = &v1alpha1.SubnetPortSetting{}
+						require.NoError(t, baseClient.Get(ctx, key, survivor))
+						assert.Equal(t, observed.UID, survivor.UID)
+						assert.NotEqual(t, observed.ResourceVersion, survivor.ResourceVersion)
+					case "already deleted":
+						require.NoError(t, baseClient.Delete(ctx, observed.DeepCopy()))
+					}
+				}}
+			err := r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, sets.New[string](), assoc)
+			assert.Equal(t, 1, deletes, "only the observed orphan should be offered for deletion")
+			stored := &v1alpha1.SubnetPortSetting{}
+			if survivor != nil {
+				require.Error(t, err)
+				assert.True(t, apierrors.IsConflict(err), "stale deletion conflict must propagate: %v", err)
+				require.NoError(t, baseClient.Get(ctx, key, stored))
+				assert.Equal(t, survivor, stored, "the changed object must survive stale orphan cleanup")
+				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, sets.New[string](), assoc))
+				assert.Equal(t, 1, deletes, "retry must observe the foreign source and skip its deletion")
+				require.NoError(t, baseClient.Get(ctx, key, stored))
+				assert.Equal(t, survivor, stored, "retry must preserve the object from another source")
+			} else {
+				require.NoError(t, err, "successful deletion and concurrent NotFound are both harmless")
+				assert.True(t, apierrors.IsNotFound(baseClient.Get(ctx, key, stored)))
+			}
 		})
 	}
 }

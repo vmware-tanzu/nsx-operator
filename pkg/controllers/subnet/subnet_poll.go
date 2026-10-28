@@ -321,6 +321,20 @@ func getPortSettingIDFromCR(cr *v1alpha1.SubnetPortSetting) string {
 	return cr.Name
 }
 
+// portConfigBelongsToSubnet excludes mirrors left by an earlier Subnet with the same name.
+func portConfigBelongsToSubnet(cr *v1alpha1.SubnetPortSetting, subnetCR *v1alpha1.Subnet) bool {
+	if subnetCR.UID == "" {
+		return false
+	}
+	for _, owner := range cr.OwnerReferences {
+		if owner.APIVersion == v1alpha1.GroupVersion.String() && owner.Kind == "Subnet" &&
+			owner.Name == subnetCR.Name && owner.UID == subnetCR.UID {
+			return true
+		}
+	}
+	return false
+}
+
 // listPortConfigs reads directly from the API server so recently created CRs are visible.
 func (r *SubnetReconciler) listPortConfigs(ctx context.Context, subnetCR *v1alpha1.Subnet, associatedResource string) ([]v1alpha1.SubnetPortSetting, error) {
 	if associatedResource == "" {
@@ -333,7 +347,8 @@ func (r *SubnetReconciler) listPortConfigs(ctx context.Context, subnetCR *v1alph
 	var settings []v1alpha1.SubnetPortSetting
 	prefix := associatedResource + ":"
 	for _, item := range existingList.Items {
-		if item.Spec.SubnetName != subnetCR.Name || !item.DeletionTimestamp.IsZero() {
+		if item.Spec.SubnetName != subnetCR.Name || !item.DeletionTimestamp.IsZero() ||
+			!portConfigBelongsToSubnet(&item, subnetCR) {
 			continue
 		}
 		annotation := item.Annotations[servicecommon.AnnotationAssociatedResource]
@@ -388,7 +403,7 @@ func (r *SubnetReconciler) markPortConfigsNotReady(ctx context.Context, subnetCR
 }
 
 // createPortConfig reuses an existing mirror on a concurrent create or stale read.
-// Only an object belonging to a different source permits a generated name.
+// A name occupied by another source or parent identity requires a generated name.
 func (r *SubnetReconciler) createPortConfig(ctx context.Context, subnetCR *v1alpha1.Subnet, psID, associatedResource string) (*v1alpha1.SubnetPortSetting, error) {
 	targetName := generateValidPortSettingName(psID)
 	annotation := associatedResource + ":" + psID
@@ -408,7 +423,8 @@ func (r *SubnetReconciler) createPortConfig(ctx context.Context, subnetCR *v1alp
 		if getErr := r.APIReader.Get(ctx, client.ObjectKeyFromObject(newCR), existing); getErr != nil {
 			return nil, getErr
 		}
-		if existing.Spec.SubnetName == subnetCR.Name && existing.Annotations[servicecommon.AnnotationAssociatedResource] == annotation {
+		if existing.Spec.SubnetName == subnetCR.Name && existing.Annotations[servicecommon.AnnotationAssociatedResource] == annotation &&
+			portConfigBelongsToSubnet(existing, subnetCR) {
 			if !existing.DeletionTimestamp.IsZero() {
 				return nil, fmt.Errorf("SubnetPortSetting %s is being deleted", targetName)
 			}
@@ -434,7 +450,7 @@ func (r *SubnetReconciler) syncPortConfigsForNamespaceSubnet(ctx context.Context
 	if err != nil {
 		return err
 	}
-	// Keep every existing mirror so legacy duplicates also receive status updates and orphan cleanup.
+	// Keep every mirror owned by this Subnet so duplicates also receive status updates and orphan cleanup.
 	existingCRsByPsID := make(map[string][]*v1alpha1.SubnetPortSetting)
 	for i := range settings {
 		item := &settings[i]
@@ -469,7 +485,8 @@ func (r *SubnetReconciler) syncPortConfigsForNamespaceSubnet(ctx context.Context
 			continue
 		}
 		for _, cr := range mirrors {
-			if err := r.Client.Delete(ctx, cr); client.IgnoreNotFound(err) != nil {
+			preconditions := client.Preconditions{UID: &cr.UID, ResourceVersion: &cr.ResourceVersion}
+			if err := r.Client.Delete(ctx, cr, preconditions); client.IgnoreNotFound(err) != nil {
 				errs = append(errs, err)
 			}
 		}
