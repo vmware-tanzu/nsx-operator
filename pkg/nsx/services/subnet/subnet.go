@@ -42,7 +42,9 @@ type SharedSubnetData struct {
 		Subnet     *model.VpcSubnet
 		StatusList []model.VpcSubnetStatus
 	}
-	// mutex to protect the NSXSubnetCache map
+	// portSettingsCache holds complete PortSettings ID snapshots and in-flight fetch tokens.
+	portSettingsCache map[string]*portSettingsCacheEntry
+	// mutex to protect NSXSubnetCache and portSettingsCache
 	nsxSubnetCacheMutex sync.RWMutex
 	// SharedSubnetResourceMap is a map of associatedResource -> set of namespaced names of Subnet CRs
 	SharedSubnetResourceMap map[string]sets.Set[types.NamespacedName]
@@ -973,35 +975,43 @@ func (service *SubnetService) UpdateNSXSubnetCache(associatedResource string, ns
 	log.Info("Updated NSX subnet cache", "AssociatedResource", associatedResource)
 }
 
-// RemoveSubnetFromCache removes a subnet from the NSXSubnetCache
+// RemoveSubnetFromCache removes the subnet and PortSettings snapshots, invalidating in-flight fetches.
 func (service *SubnetService) RemoveSubnetFromCache(associatedResource string, reason string) {
 	service.nsxSubnetCacheMutex.Lock()
 	defer service.nsxSubnetCacheMutex.Unlock()
 	delete(service.NSXSubnetCache, associatedResource)
+	delete(service.portSettingsCache, associatedResource)
 	log.Info("Removed Subnet from cache", "reason", reason, "AssociatedResource", associatedResource)
 }
 
-// GetNSXSubnetCacheKeys returns a copy of the associated resources in the subnet cache.
+// GetNSXSubnetCacheKeys returns the associated resources in either cache, including in-flight PortSettings fetches.
 func (service *SubnetService) GetNSXSubnetCacheKeys() []string {
 	service.nsxSubnetCacheMutex.RLock()
 	defer service.nsxSubnetCacheMutex.RUnlock()
 
-	keys := make([]string, 0, len(service.NSXSubnetCache))
+	keys := make([]string, 0, len(service.NSXSubnetCache)+len(service.portSettingsCache))
 	for associatedResource := range service.NSXSubnetCache {
 		keys = append(keys, associatedResource)
+	}
+	for associatedResource := range service.portSettingsCache {
+		if _, exists := service.NSXSubnetCache[associatedResource]; !exists {
+			keys = append(keys, associatedResource)
+		}
 	}
 	return keys
 }
 
-// RemoveSubnetFromCacheIfUnshared removes a cached subnet only while it has no shared Subnet CRs.
+// RemoveSubnetFromCacheIfUnshared removes both caches only while the source has no shared Subnet CRs.
 func (service *SubnetService) RemoveSubnetFromCacheIfUnshared(associatedResource string) bool {
 	// Keep the sharing check and cache deletion atomic with respect to new shares.
 	service.sharedSubnetResourceMapMutex.RLock()
 	service.nsxSubnetCacheMutex.Lock()
-	_, cached := service.NSXSubnetCache[associatedResource]
-	removed := len(service.SharedSubnetResourceMap[associatedResource]) == 0 && cached
+	_, subnetCached := service.NSXSubnetCache[associatedResource]
+	_, portSettingsCached := service.portSettingsCache[associatedResource]
+	removed := len(service.SharedSubnetResourceMap[associatedResource]) == 0 && (subnetCached || portSettingsCached)
 	if removed {
 		delete(service.NSXSubnetCache, associatedResource)
+		delete(service.portSettingsCache, associatedResource)
 	}
 	service.nsxSubnetCacheMutex.Unlock()
 	service.sharedSubnetResourceMapMutex.RUnlock()

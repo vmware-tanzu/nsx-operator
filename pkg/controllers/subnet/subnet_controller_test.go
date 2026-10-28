@@ -1725,7 +1725,11 @@ func TestOnDemandPortConfigFailureRetries(t *testing.T) {
 				} else {
 					require.NoError(t, r.syncPortConfigsOnDemand(ctx, subnetCR, assoc))
 				}
-				assert.Equal(t, 2, lists, "retry must reacquire the source and fetch a fresh snapshot")
+				if failure == "Kubernetes Create" {
+					assert.Equal(t, 1, lists, "Kubernetes retries must reuse the successful NSX snapshot")
+				} else {
+					assert.Equal(t, 2, lists, "failed NSX discovery must be retried")
+				}
 				require.NoError(t, r.APIReader.List(ctx, settings))
 				require.Len(t, settings.Items, 1)
 				assert.Equal(t, assoc+":default", settings.Items[0].Annotations[common.AnnotationAssociatedResource])

@@ -22,10 +22,11 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-var ticker = time.NewTicker(10 * time.Minute)
+var ticker = time.NewTicker(subnetservice.SharedSubnetRefreshInterval)
 
 // pollSharedSubnets periodically polls NSX for shared subnet status updates
 // It runs in a separate goroutine and polls every 10 minutes.
@@ -94,23 +95,30 @@ func (r *SubnetReconciler) pollSharedSubnet(ctx context.Context, associatedResou
 	if err != nil {
 		return
 	}
-	defer r.finishSharedSubnetSync(associatedResource, done)
+	refreshed := func() bool {
+		defer r.finishSharedSubnetSync(associatedResource, done)
 
-	log.Debug("Polling shared Subnets", "AssociatedResource", associatedResource, "SubnetCount", len(namespacedNames))
-	// Polling always refreshes the parent and its status before applying a PortSettings snapshot.
-	nsxSubnet, err := r.SubnetService.GetNSXSubnetByAssociatedResource(associatedResource)
-	if err != nil {
-		r.handleNSXSubnetError(ctx, err, namespacedNames, associatedResource, "NSX subnet")
+		log.Debug("Polling shared Subnets", "AssociatedResource", associatedResource, "SubnetCount", len(namespacedNames))
+		// Refresh the parent before publishing and applying a PortSettings snapshot.
+		nsxSubnet, err := r.SubnetService.GetNSXSubnetByAssociatedResource(associatedResource)
+		if err != nil {
+			r.handleNSXSubnetError(ctx, err, namespacedNames, associatedResource, "NSX subnet")
+			return false
+		}
+		statusList, err := r.SubnetService.GetSubnetStatus(nsxSubnet)
+		if err != nil {
+			r.handleNSXSubnetError(ctx, err, namespacedNames, associatedResource, "subnet status")
+			return false
+		}
+		r.SubnetService.UpdateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
+		r.pollAndSyncPortConfigs(ctx, associatedResource, namespacedNames)
+		return true
+	}()
+	if !refreshed {
 		return
 	}
-	statusList, err := r.SubnetService.GetSubnetStatus(nsxSubnet)
-	if err != nil {
-		r.handleNSXSubnetError(ctx, err, namespacedNames, associatedResource, "subnet status")
-		return
-	}
-	r.SubnetService.UpdateNSXSubnetCache(associatedResource, nsxSubnet, statusList)
-	r.pollAndSyncPortConfigs(ctx, associatedResource, namespacedNames)
 
+	// Workers may start immediately, so release the source before enqueueing them.
 	for namespacedName := range namespacedNames {
 		r.enqueueSubnetForReconciliation(ctx, namespacedName)
 	}
@@ -268,17 +276,16 @@ func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associate
 		return
 	}
 
-	portSettings, err := r.SubnetService.ListPortSettingsByAssociatedResource(associatedResource)
+	portSettingIDs, err := r.SubnetService.GetPortSettingIDsFromCacheOrAPI(associatedResource, true)
 	if err != nil {
 		log.Warn("Failed to list PortConfigs for shared Subnet during polling", "AssociatedResource", associatedResource, "err", err)
 		return
 	}
 
-	nsxPortSettingIDs := sets.New[string]()
-	for _, ps := range portSettings {
-		if ps.Id != nil && *ps.Id != "" {
-			nsxPortSettingIDs.Insert(*ps.Id)
-		}
+	nsxPortSettingIDs := sets.New(portSettingIDs...)
+	portSettings := make([]model.VpcSubnetPortSetting, len(portSettingIDs))
+	for i := range portSettingIDs {
+		portSettings[i].Id = &portSettingIDs[i]
 	}
 
 	for namespacedName := range namespacedNames {

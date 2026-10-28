@@ -348,6 +348,7 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	// Get NSX subnet from cache or API
 	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource, false)
 	if err != nil {
+		r.SubnetService.InvalidatePortSettingsCache(associatedResource)
 		r.updateSharedSubnetWithError(ctx, namespacedName, associatedResource, err, "Failed to get NSX Subnet for associated resource")
 		return ResultRequeue, err
 	}
@@ -355,6 +356,7 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 	// Get subnet status from cache or API
 	statusList, err := r.SubnetService.GetSubnetStatusFromCacheOrAPI(nsxSubnet, associatedResource)
 	if err != nil {
+		r.SubnetService.InvalidatePortSettingsCache(associatedResource)
 		// Use updateSharedSubnetWithError for consistency with pollAllSharedSubnets
 		r.updateSharedSubnetWithError(ctx, namespacedName, associatedResource, err, "NSX subnet status")
 		return ResultRequeue, err
@@ -704,15 +706,14 @@ func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR
 		return nil
 	}
 
-	portSettings, err := r.SubnetService.ListPortSettingsByAssociatedResource(associatedResource)
+	portSettingIDs, err := r.SubnetService.GetPortSettingIDsFromCacheOrAPI(associatedResource, false)
 	if err != nil {
 		return err
 	}
-	nsxPortSettingIDs := sets.New[string]()
-	for _, ps := range portSettings {
-		if ps.Id != nil && *ps.Id != "" {
-			nsxPortSettingIDs.Insert(*ps.Id)
-		}
+	nsxPortSettingIDs := sets.New(portSettingIDs...)
+	portSettings := make([]model.VpcSubnetPortSetting, len(portSettingIDs))
+	for i := range portSettingIDs {
+		portSettings[i].Id = &portSettingIDs[i]
 	}
 	return r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource)
 }

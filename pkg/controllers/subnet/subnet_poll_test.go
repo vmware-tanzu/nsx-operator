@@ -1529,7 +1529,11 @@ func TestPollingAndOnDemandSerializePortConfigs(t *testing.T) {
 				assert.EqualValues(t, 2, parentFetches.Load(), "polling must refresh the parent after on-demand synchronization")
 				assert.EqualValues(t, 2, statusFetches.Load(), "polling must refresh parent status too")
 			}
-			assert.EqualValues(t, 2, calls.Load())
+			if pollFirst {
+				assert.EqualValues(t, 1, calls.Load(), "on-demand reconciliation must reuse the polling snapshot")
+			} else {
+				assert.EqualValues(t, 2, calls.Load(), "polling must force discovery after an on-demand snapshot")
+			}
 			list := &v1alpha1.SubnetPortSettingList{}
 			require.NoError(t, r.APIReader.List(ctx, list, client.InNamespace(subnetCR.Namespace)))
 			require.Len(t, list.Items, 1)
@@ -1777,5 +1781,218 @@ func TestPortConfigSyncFeatureGate(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// sharedPortSettingsCacheFixture keeps discovery and mirror synchronization real.
+// Only NSX responses, parent field mapping, and the enqueue callback are replaced.
+type sharedPortSettingsCacheFixture struct {
+	r                             *SubnetReconciler
+	parents                       []*v1alpha1.Subnet
+	ids                           []string
+	listErr, parentErr, statusErr error
+	lists, enqueues               int
+}
+
+func newSharedPortSettingsCacheFixture(t *testing.T, namespaces int) *sharedPortSettingsCacheFixture {
+	t.Helper()
+	f := &sharedPortSettingsCacheFixture{}
+	objects := make([]client.Object, 0, namespaces)
+	for i := range namespaces {
+		parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{
+			Name: "shared", Namespace: fmt.Sprintf("ns-%d", i), UID: types.UID(fmt.Sprintf("subnet-%d", i)),
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "proj:vpc:subnet"},
+		}}
+		f.parents = append(f.parents, parent)
+		objects = append(objects, parent)
+	}
+	f.r = createFakeSubnetReconciler(objects)
+	enabled := true
+	f.r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
+	for _, parent := range f.parents {
+		f.r.SubnetService.AddSharedSubnetToResourceMap("proj:vpc:subnet", client.ObjectKeyFromObject(parent))
+	}
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(f.r.SubnetService.NSXClient), "NSXCheckVersion",
+		func(_ *nsx.Client, feature int) bool {
+			assert.Equal(t, nsx.SubnetPortSetting, feature)
+			return true
+		})
+	t.Cleanup(patches.Reset)
+	patches.ApplyMethod(reflect.TypeOf(f.r.SubnetService), "GetNSXSubnetByAssociatedResource",
+		func(_ *subnetservice.SubnetService, source string) (*model.VpcSubnet, error) {
+			assert.Equal(t, "proj:vpc:subnet", source)
+			return &model.VpcSubnet{Id: common.String("subnet"),
+				Path: common.String("/orgs/default/projects/proj/vpcs/vpc/subnets/subnet")}, f.parentErr
+		})
+	patches.ApplyMethod(reflect.TypeOf(f.r.SubnetService), "GetSubnetStatus",
+		func(_ *subnetservice.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+			return []model.VpcSubnetStatus{{NetworkAddress: common.String("192.0.2.0/24")}}, f.statusErr
+		})
+	patches.ApplyMethod(reflect.TypeOf(f.r.SubnetService), "ListPortSettingsByAssociatedResource",
+		func(_ *subnetservice.SubnetService, source string) ([]model.VpcSubnetPortSetting, error) {
+			assert.Equal(t, "proj:vpc:subnet", source)
+			f.lists++
+			settings := make([]model.VpcSubnetPortSetting, 0, len(f.ids))
+			for _, id := range f.ids {
+				settings = append(settings, model.VpcSubnetPortSetting{Id: common.String(id)})
+			}
+			return settings, f.listErr
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(f.r), "updateSubnetIfNeeded",
+		func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ *model.VpcSubnet, _ []model.VpcSubnetStatus, _ types.NamespacedName) error {
+			return nil
+		})
+	patches.ApplyPrivateMethod(reflect.TypeOf(f.r), "enqueueSubnetForReconciliation",
+		func(r *SubnetReconciler, _ context.Context, key types.NamespacedName) {
+			f.enqueues++
+			assert.Contains(t, f.r.SubnetService.SharedSubnetResourceMap["proj:vpc:subnet"], key)
+			done, started := r.tryStartSharedSubnetSync("proj:vpc:subnet")
+			assert.True(t, started, "polling must release the source before enqueueing a worker")
+			if started {
+				r.finishSharedSubnetSync("proj:vpc:subnet", done)
+			}
+		})
+	return f
+}
+
+func (f *sharedPortSettingsCacheFixture) reconcileAll(t *testing.T, wantErr error) {
+	t.Helper()
+	for _, parent := range f.parents {
+		current := &v1alpha1.Subnet{}
+		key := client.ObjectKeyFromObject(parent)
+		require.NoError(t, f.r.APIReader.Get(context.Background(), key, current))
+		result, err := f.r.handleSharedSubnet(context.Background(), current, key, "proj:vpc:subnet")
+		if wantErr != nil {
+			require.ErrorIs(t, err, wantErr)
+			assert.Same(t, wantErr, err)
+			assert.Equal(t, ResultRequeue, result)
+		} else {
+			require.NoError(t, err)
+			assert.Equal(t, ResultNormal, result)
+		}
+	}
+}
+
+func (f *sharedPortSettingsCacheFixture) assertMirrors(t *testing.T, ids []string, ready corev1.ConditionStatus) {
+	t.Helper()
+	for _, parent := range f.parents {
+		settings := &v1alpha1.SubnetPortSettingList{}
+		require.NoError(t, f.r.APIReader.List(context.Background(), settings, client.InNamespace(parent.Namespace)))
+		actual := make([]string, 0, len(settings.Items))
+		for _, setting := range settings.Items {
+			assert.Equal(t, parent.Name, setting.Spec.SubnetName)
+			assert.Equal(t, "proj:vpc:subnet:"+setting.Name, setting.Annotations[common.AnnotationAssociatedResource])
+			require.Len(t, setting.Status.Conditions, 1)
+			assert.Equal(t, v1alpha1.Ready, setting.Status.Conditions[0].Type)
+			assert.Equal(t, ready, setting.Status.Conditions[0].Status)
+			actual = append(actual, setting.Name)
+		}
+		assert.ElementsMatch(t, ids, actual, "namespace %s must reflect the complete snapshot", parent.Namespace)
+	}
+}
+
+func TestSharedPortSettingsSnapshotAcrossNamespaces(t *testing.T) {
+	for _, empty := range []bool{false, true} {
+		t.Run(fmt.Sprintf("initially-empty=%t", empty), func(t *testing.T) {
+			f := newSharedPortSettingsCacheFixture(t, 5)
+			if !empty {
+				f.ids = []string{"old", "keep"}
+			}
+			initial := f.ids
+			f.r.pollAllSharedSubnets()
+			assert.Equal(t, 1, f.lists)
+			assert.Equal(t, 5, f.enqueues)
+			f.assertMirrors(t, initial, corev1.ConditionTrue)
+
+			// An external change stays invisible until the next forced polling refresh.
+			f.ids = []string{"keep", "new"}
+			f.reconcileAll(t, nil)
+			assert.Equal(t, 1, f.lists, "all namespaces must reuse even an empty polling snapshot")
+			f.assertMirrors(t, initial, corev1.ConditionTrue)
+
+			f.r.pollAllSharedSubnets()
+			assert.Equal(t, 2, f.lists, "polling must force one discovery for the shared source")
+			assert.Equal(t, 10, f.enqueues)
+			f.assertMirrors(t, f.ids, corev1.ConditionTrue)
+			f.ids = nil
+			f.reconcileAll(t, nil)
+			assert.Equal(t, 2, f.lists)
+			f.assertMirrors(t, []string{"keep", "new"}, corev1.ConditionTrue)
+
+			f.r.pollAllSharedSubnets()
+			assert.Equal(t, 3, f.lists)
+			f.assertMirrors(t, nil, corev1.ConditionTrue)
+			f.reconcileAll(t, nil)
+			assert.Equal(t, 3, f.lists, "successful empty discovery must remain a cache hit")
+		})
+	}
+}
+
+func TestSharedPortSettingsFailedRefreshDiscardsSnapshot(t *testing.T) {
+	f := newSharedPortSettingsCacheFixture(t, 1)
+	f.ids = []string{"old"}
+	f.r.pollAllSharedSubnets()
+	require.Equal(t, 1, f.lists)
+	f.assertMirrors(t, f.ids, corev1.ConditionTrue)
+	before := &v1alpha1.SubnetPortSettingList{}
+	require.NoError(t, f.r.APIReader.List(context.Background(), before))
+
+	f.listErr = errors.New("PortSettings discovery unavailable")
+	f.ids = nil
+	f.r.pollAllSharedSubnets()
+	assert.Equal(t, 2, f.lists)
+	f.reconcileAll(t, f.listErr)
+	assert.Equal(t, 3, f.lists, "a caller must retry discovery instead of using the pre-failure snapshot")
+	after := &v1alpha1.SubnetPortSettingList{}
+	require.NoError(t, f.r.APIReader.List(context.Background(), after))
+	assert.Equal(t, before.Items, after.Items, "failed discovery must preserve mirrors and their status")
+
+	f.listErr = nil
+	f.ids = []string{"new"}
+	f.reconcileAll(t, nil)
+	assert.Equal(t, 4, f.lists)
+	f.assertMirrors(t, f.ids, corev1.ConditionTrue)
+	f.reconcileAll(t, nil)
+	assert.Equal(t, 4, f.lists, "successful recovery must publish a reusable snapshot")
+}
+
+func TestOnDemandParentFailureInvalidatesPortSettingsSnapshot(t *testing.T) {
+	for _, failure := range []string{"parent", "status"} {
+		t.Run(failure, func(t *testing.T) {
+			f := newSharedPortSettingsCacheFixture(t, 1)
+			f.ids = []string{"old"}
+			f.reconcileAll(t, nil)
+			require.Equal(t, 1, f.lists)
+			f.assertMirrors(t, f.ids, corev1.ConditionTrue)
+
+			// Clear only the parent data, leaving the warm PortSettings snapshot intact.
+			parent, err := f.r.SubnetService.GetNSXSubnetFromCacheOrAPI("proj:vpc:subnet", false)
+			require.NoError(t, err)
+			sourceErr := errors.New("parent source unavailable")
+			if failure == "parent" {
+				f.r.SubnetService.UpdateNSXSubnetCache("proj:vpc:subnet", nil, nil)
+				f.parentErr = sourceErr
+			} else {
+				f.r.SubnetService.UpdateNSXSubnetCache("proj:vpc:subnet", parent, nil)
+				f.statusErr = sourceErr
+			}
+			f.reconcileAll(t, sourceErr)
+			assert.Equal(t, 1, f.lists, "parent failures must stop before PortSettings discovery")
+			f.assertMirrors(t, []string{"old"}, corev1.ConditionFalse)
+
+			f.parentErr, f.statusErr = nil, nil
+			f.ids = []string{"new"}
+			f.listErr = errors.New("PortSettings discovery unavailable after parent recovery")
+			f.reconcileAll(t, f.listErr)
+			assert.Equal(t, 2, f.lists, "parent recovery must discover IDs instead of restoring stale Ready mirrors")
+			f.assertMirrors(t, []string{"old"}, corev1.ConditionFalse)
+
+			f.listErr = nil
+			f.reconcileAll(t, nil)
+			assert.Equal(t, 3, f.lists)
+			f.assertMirrors(t, f.ids, corev1.ConditionTrue)
+			f.reconcileAll(t, nil)
+			assert.Equal(t, 3, f.lists)
+		})
 	}
 }
