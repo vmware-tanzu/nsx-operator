@@ -1312,12 +1312,19 @@ func TestSharedSubnetFailureInvalidatesPortConfigs(t *testing.T) {
 					}},
 				}
 				r := createFakeSubnetReconciler([]client.Object{subnetCR, setting})
+				enabled := true
+				r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
 				r.SubnetPortService.(*subnetport.SubnetPortService).SubnetPortStore = &subnetport.SubnetPortStore{}
 				key := client.ObjectKeyFromObject(subnetCR)
 				r.SubnetService.AddSharedSubnetToResourceMap(assoc, key)
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource",
 					func(_ *subnetservice.SubnetService, _ string) (*model.VpcSubnet, error) { return nil, sourceErr })
 				defer patches.Reset()
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.NSXClient), "NSXCheckVersion",
+					func(_ *nsx.Client, feature int) bool {
+						assert.Equal(t, nsx.SubnetPortSetting, feature)
+						return true
+					})
 				if poll {
 					r.pollAllSharedSubnets()
 				} else {
@@ -1340,6 +1347,64 @@ func TestSharedSubnetFailureInvalidatesPortConfigs(t *testing.T) {
 				require.NoError(t, r.Client.Get(ctx, key, &v1alpha1.Subnet{}), "the parent CR must also be retained")
 			})
 		}
+	}
+}
+
+func TestSharedSubnetFailureSkipsDisabledPortConfigs(t *testing.T) {
+	enabled, disabled := true, false
+	for _, tc := range []struct {
+		name      string
+		flag      *bool
+		supported bool
+	}{
+		{name: "omitted flag", supported: true},
+		{name: "disabled flag", flag: &disabled, supported: true},
+		{name: "unsupported version", flag: &enabled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			assoc := "proj:vpc:subnet"
+			parent := &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: assoc}},
+				Status: v1alpha1.SubnetStatus{NetworkAddresses: []string{"192.0.2.0/24"},
+					Conditions: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}}},
+			}
+			setting := &v1alpha1.SubnetPortSetting{
+				ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: parent.Namespace,
+					Annotations: map[string]string{common.AnnotationAssociatedResource: assoc + ":default"}},
+				Spec:   v1alpha1.SubnetPortSettingSpec{SubnetName: parent.Name},
+				Status: v1alpha1.SubnetPortSettingStatus{Conditions: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}}},
+			}
+			r := createFakeSubnetReconciler([]client.Object{parent, setting})
+			r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = tc.flag
+			before := &v1alpha1.SubnetPortSetting{}
+			require.NoError(t, r.APIReader.Get(ctx, client.ObjectKeyFromObject(setting), before))
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.NSXClient), "NSXCheckVersion",
+				func(_ *nsx.Client, feature int) bool {
+					assert.Equal(t, nsx.SubnetPortSetting, feature)
+					return tc.supported
+				})
+			defer patches.Reset()
+			lists := 0
+			patches.ApplyPrivateMethod(reflect.TypeOf(r), "listPortConfigs",
+				func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ string) ([]v1alpha1.SubnetPortSetting, error) {
+					lists++
+					return nil, errors.New("PortSettings must not be queried while disabled")
+				})
+
+			r.updateSharedSubnetWithError(ctx, client.ObjectKeyFromObject(parent), assoc, context.DeadlineExceeded, "NSX subnet")
+
+			assert.Zero(t, lists)
+			after := &v1alpha1.SubnetPortSetting{}
+			require.NoError(t, r.APIReader.Get(ctx, client.ObjectKeyFromObject(setting), after))
+			assert.Equal(t, before, after, "disabled mirror status must remain unchanged on parent failure")
+			storedParent := &v1alpha1.Subnet{}
+			require.NoError(t, r.APIReader.Get(ctx, client.ObjectKeyFromObject(parent), storedParent))
+			require.Len(t, storedParent.Status.Conditions, 1)
+			assert.Equal(t, corev1.ConditionFalse, storedParent.Status.Conditions[0].Status)
+			assert.Empty(t, storedParent.Status.NetworkAddresses)
+		})
 	}
 }
 
@@ -1493,6 +1558,14 @@ func TestSyncPortConfigsPreservesUnrelatedCRs(t *testing.T) {
 				}},
 			}
 			r := createFakeSubnetReconciler([]client.Object{subnetCR, unrelated})
+			enabled := true
+			r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.NSXClient), "NSXCheckVersion",
+				func(_ *nsx.Client, feature int) bool {
+					assert.Equal(t, nsx.SubnetPortSetting, feature)
+					return true
+				})
+			defer patches.Reset()
 			key := client.ObjectKeyFromObject(unrelated)
 			before := &v1alpha1.SubnetPortSetting{}
 			require.NoError(t, r.Client.Get(ctx, key, before))

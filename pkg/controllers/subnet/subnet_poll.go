@@ -362,6 +362,10 @@ func (r *SubnetReconciler) updatePortConfigReady(ctx context.Context, cr *v1alph
 
 // markPortConfigsNotReady retains the mirror CRs while their NSX source cannot be queried.
 func (r *SubnetReconciler) markPortConfigsNotReady(ctx context.Context, subnetCR *v1alpha1.Subnet, sourceErr error) error {
+	if !nsx.SubnetPortSettingFeatureEnabled(r.SubnetService.NSXClient, r.SubnetService.NSXConfig) {
+		return nil
+	}
+
 	settings, err := r.listPortConfigs(ctx, subnetCR, subnetCR.Annotations[servicecommon.AnnotationAssociatedResource])
 	if err != nil {
 		return err
