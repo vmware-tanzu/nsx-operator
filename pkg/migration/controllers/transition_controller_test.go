@@ -116,16 +116,17 @@ func TestCompletedNamespaceBatchPreserved(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			scheme := runtime.NewScheme()
 			require.NoError(t, api.AddToScheme(scheme))
-			condition := metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue, Reason: "ActionCompleted", LastTransitionTime: metav1.Now()}
+			condition := metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 4, Reason: "ActionCompleted", Message: "Requested migration action completed", LastTransitionTime: metav1.Now()}
 			infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 6},
 				Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{Phase: "Finalized", LastAction: api.ActionFinalize, ActionState: api.ActionStateSucceeded, ActionGeneration: 6, Conditions: []metav1.Condition{condition}}}}
 			batch := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: tc.generation},
 				Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: tc.action}},
 				Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
-					Phase: tc.phase, LastAction: tc.action, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Conditions: []metav1.Condition{condition}},
+					ObservedGeneration: 4, Phase: tc.phase, LastAction: tc.action, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Conditions: []metav1.Condition{condition}},
 					NamespaceStatuses: []api.NamespaceStatus{{Name: "tenant", Phase: tc.phase}}}}
 			if tc.action == api.ActionCommit {
 				batch.Status.IrreversibleAction = string(api.ActionCommit)
+				batch.Status.Conditions = append(batch.Status.Conditions, metav1.Condition{Type: "NamespaceMigrationCommitted", Status: metav1.ConditionTrue, ObservedGeneration: tc.generation, Reason: "CommitCompleted", Message: "Namespace migration commit completed", LastTransitionTime: metav1.Now()})
 			}
 			c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(infra, batch).Build()
 			key := types.NamespacedName{Name: "batch"}

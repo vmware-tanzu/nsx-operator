@@ -6,12 +6,14 @@ NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` reso
 
 ## Branch scope
 
-This branch, `topic/xl018891/UBMWM-12405`, builds on
-`topic/xl018891/supervisor-network-migration-operator`. It adds action dispatch,
-persisted execution checkpoints, namespace readiness and infrastructure finalization dependency gates,
-action dispatch with separately enforced admission and resource-driven restart reconciliation,
+This branch, `topic/xl018891/migration-commit-contract-wbs-1.1.6`, builds on
+`topic/xl018891/UBMWM-12405` and the latest framework. The parent adds action dispatch,
+persisted execution checkpoints, namespace readiness and infrastructure finalization
+dependency gates, separately enforced admission, resource-driven restart reconciliation,
 and irreversible commit/finalize guards for
 [UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
+WBS 1.1.6 preserves the full recorded workflow scope during Commit/Finalize and
+prevents an input wait from suspending recovery after the irreversible checkpoint.
 The base branch retains the manager, observational watches, lazy NSX connectivity,
 CRD definitions, and packaging. Concrete external migration handlers are still pending.
 
@@ -50,13 +52,15 @@ Namespace rollback remains subject to dependency checks and the Commit boundary.
 returns `CheckpointIrreversible` only after prerequisite checks, then waits for
 persisted `status.irreversibleAction` before irreversible external changes. That
 checkpoint is immutable and closes namespace rollback at Commit.
-Infrastructure Rollback is rejected independently of any irreversible checkpoint. Exact workflow IDs remain durable.
+Infrastructure Rollback is rejected independently of any irreversible checkpoint.
+Exact workflow IDs remain durable until Commit or Finalize completes successfully.
 Namespace status contains `name`, `phase`, `reason`, and `message`; milestones are batch
 conditions, and counters are derived using batch membership from spec.
 
 ## NSX resource recovery contract
 
-`status.nsxWorkflows` retains the workflow ID for each source VDN. Conversion
+`status.nsxWorkflows` retains the workflow ID for each source VDN until the
+corresponding Commit or Finalize succeeds and confirms workflow deletion. Conversion
 handlers query `GET /policy/api/v1/workflows/{workflow-id}/status` and use the
 workflow's per-resource paths, types and progress as the conversion inventory.
 The CRDs do not duplicate that inventory in `status.fabricResources` and do not
@@ -227,6 +231,42 @@ to accept and preserve the supplied IDs and display names. The published detaile
 the optional-override, topology-reuse and `status.optionalInputs` UI contract,
 including a validated two-VDN example with required DHCP data for only one VDN.
 Runtime integration and acceptance tests remain handler work.
+
+## Namespace Commit contract (WBS 1.1.6)
+
+The engine owns action checkpoints and completion status. The action handler
+owns prerequisite checks and NSX operations. Commit follows five steps:
+
+1. Persist the accepted action as `Commit` / `Running` / `Committing`.
+2. The handler verifies approval, onboarding when applicable, and live workflow
+   ownership and dependencies.
+3. The handler returns `CheckpointIrreversible`. Persist
+   `status.irreversibleAction: Commit` and return before deleting any workflow.
+4. On the next reconciliation, the handler reads the persisted checkpoint and
+   reconciles the recorded workflow IDs against live NSX state. Pending work
+   returns `InProgress`; errors use the controller's retry backoff.
+5. After the handler confirms all workflow deletions, clear `status.nsxWorkflows`
+   and publish `Committed` and `NamespaceMigrationCommitted=True` in the same
+   status update. A later reconcile restores these outputs from the successful
+   checkpoint without invoking the handler again.
+
+A failed checkpoint write prevents deletion. After the irreversible checkpoint,
+only Commit may resume; failures retain `Committing` and the checkpoint. Inputs
+remain frozen, so returning `NeedsInput` after that checkpoint is a retryable
+handler error. The engine retains the full workflow list through pending work
+and partial failures, and clears it only on confirmed success. If the completion
+status write fails, the persisted IDs remain available for retry. Keep the
+irreversible marker and successful action checkpoint after clearing IDs; rollback
+remains forbidden. The engine rejects direct handler changes to its irreversible
+marker. Infrastructure Finalize
+uses the same protocol with its own marker and `Finalizing` / `Finalized` phases.
+
+WBS 1.1.6 implements this checkpoint/status contract and tests status-write
+failures, partial deletion and restart recovery using a simulated external NSX
+state. Production approval, onboarding, ownership checks and NSX deletion remain
+WBS 1.3.7 and shared-service work. Recovery uses existing workflow IDs and live
+NSX state; no additional recovery CRD fields or ConfigMaps are needed. Deploy
+the separately implemented admission webhooks before enabling concrete handlers.
 
 ## Design contract
 

@@ -70,21 +70,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		}
 		status, action = &resource.Status.TransitionStatus, resource.Spec.Action
 	}
-	// Terminal batch records are retained for audit after infrastructure finalization.
-	// New requests still pass dependency gates; recovery uses action-specific checks.
-	if r.Stage == transition.Namespaces && status.ActionState == api.ActionStateSucceeded &&
+	// A completed batch needs no infrastructure dependency checks or handler work.
+	// The engine restores its phase/conditions from the successful checkpoint.
+	completedBatch := r.Stage == transition.Namespaces && status.ActionState == api.ActionStateSucceeded &&
 		status.ActionGeneration == obj.GetGeneration() && status.LastAction == action &&
-		((action == api.ActionExecute && status.Phase == "Completed") ||
-			(action == api.ActionRollback && status.Phase == "RolledBack") ||
-			(action == api.ActionCommit && status.Phase == "Committed" && status.IrreversibleAction == string(api.ActionCommit))) {
+		(action == api.ActionExecute || action == api.ActionRollback ||
+			(action == api.ActionCommit && status.IrreversibleAction == string(api.ActionCommit)))
+	if completedBatch && !r.Engine.Enabled {
 		return ctrl.Result{}, nil
 	}
 	request := transition.Request{Stage: r.Stage, Object: obj, Action: action, Generation: obj.GetGeneration(), Status: status}
 	var result transition.Result
 	var reconcileErr error
-	blocked, err := r.dependencyBlock(ctx, action, status)
-	if err != nil {
-		return ctrl.Result{}, err
+	var blocked string
+	if !completedBatch {
+		var err error
+		blocked, err = r.dependencyBlock(ctx, action, status)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 	if r.Engine.Enabled && blocked != "" {
 		reason := "DependencyNotReady"

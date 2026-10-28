@@ -138,7 +138,11 @@ func TestEngineProgressAndRestart(t *testing.T) {
 		_, err = restarted.Reconcile(ctx, request)
 		require.NoError(t, err)
 		require.Equal(t, i+1, calls)
-		require.Equal(t, "persisted-workflow", status.NSXWorkflows[0].WorkflowID)
+		if action == api.ActionFinalize {
+			require.Empty(t, status.NSXWorkflows)
+		} else {
+			require.Equal(t, "persisted-workflow", status.NSXWorkflows[0].WorkflowID)
+		}
 	}
 }
 
