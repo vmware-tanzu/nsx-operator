@@ -1,5 +1,6 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
+MIGRATION_IMG ?= supervisor-network-migration-operator:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.22
 LDFLAGS            :=
@@ -19,7 +20,7 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 .PHONY: all
-all: build build-clean
+all: build build-clean build-migration
 
 ##@ General
 
@@ -48,6 +49,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1" output:crd:artifacts:config=build/yaml/crd/eas/
+	$(MAKE) manifests-migration
 # NOTE: EAS types are served by the generic API server (via APIService), NOT as CRDs.
 # Do NOT run controller-gen crd for pkg/apis/eas/v1alpha1 — installing EAS CRDs alongside
 # the APIService causes duplicate-resource conflicts in kube-apiserver.
@@ -55,6 +57,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./pkg/apis/..."
+	$(MAKE) generate-migration
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -107,6 +110,32 @@ ifeq ($(COVERAGE), true)
 else
 	GOOS=linux go build -o $(BINDIR)/manager $(GOFLAGS) -ldflags '$(LDFLAGS)' cmd/main.go
 endif
+
+.PHONY: build-migration generate-migration manifests-migration test-migration test-migration-api
+build-migration: generate-migration ## Build the separate Supervisor migration executable.
+	@mkdir -p $(BINDIR)
+ifeq ($(COVERAGE), true)
+	GOOS=linux go build -o $(BINDIR)/supervisor-network-migration-operator -covermode atomic $(GOFLAGS) -ldflags '$(LDFLAGS)' ./cmd_migration
+else
+	GOOS=linux go build -o $(BINDIR)/supervisor-network-migration-operator $(GOFLAGS) -ldflags '$(LDFLAGS)' ./cmd_migration
+endif
+
+.PHONY: docker-build-migration
+docker-build-migration: ## Build the dedicated Supervisor migration image.
+	docker build -f build/image/migration/Dockerfile -t $(MIGRATION_IMG) .
+
+generate-migration: controller-gen ## Generate migration API deepcopy implementations.
+	$(CONTROLLER_GEN) object:headerFile=hack/migration-boilerplate.go.txt paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+
+manifests-migration: controller-gen ## Generate migration CRDs and RBAC for the shared NCP Pod.
+	$(CONTROLLER_GEN) crd:headerFile=hack/migration-boilerplate.yaml.txt paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1" output:crd:artifacts:config=build/yaml/crd/migration/
+	$(CONTROLLER_GEN) rbac:roleName=supervisor-network-migration-operator,headerFile=hack/migration-boilerplate.yaml.txt paths="./pkg/migration/controllers/..." output:rbac:dir=build/yaml/migration/rbac/
+
+test-migration: generate-migration manifests-migration test-migration-api ## Test the migration framework, API admission, and shared configuration.
+	go test ./cmd_migration/... ./pkg/migration/... ./pkg/nsx/services/migration/... ./pkg/config
+
+test-migration-api: generate-migration manifests-migration ## Test migration API admission and serialization in the API module.
+	cd pkg/apis && go test ./migration/v1alpha1
 
 .PHONY: build-clean
 build-clean: generate fmt vet ## Build clean binary.
@@ -231,6 +260,11 @@ generate-api-docs: ## Generate API documentation
 	  --config=./.crd-ref-docs/config.yaml \
 	  --output-path=./docs/ref/apis/
 	mv ./docs/ref/apis/out.md ./docs/ref/apis/legacy.md
+	$(CRD_REF_DOCS) \
+	  --renderer=markdown \
+	  --source-path=./pkg/apis/migration/v1alpha1 \
+	  --config=./.crd-ref-docs/config.yaml \
+	  --output-path=./docs/ref/apis/migration.md
 
 ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest

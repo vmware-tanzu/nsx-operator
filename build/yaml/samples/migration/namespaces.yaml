@@ -1,0 +1,24 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NamespaceNetworkTransition
+metadata:
+  name: batch-ns-migration-01
+spec:
+  namespaces: ["ns1", "ns2", "ns3"]
+  sourceMode: "VSPHERE_VDS"
+  targetMode: "NSX_VPC"
+  action: "Evaluate"                       # Evaluate | Plan | Derive | Execute | Rollback | Commit
+  networkConfiguration:
+    namespaceDHCPNetworks:
+    - vdnName: vdn-tenant-1
+      dhcpRange:
+        start: "10.2.1.100"
+        end: "10.2.1.200"
+      subnetMask: "255.255.255.0"
+      gatewayAddress: "10.2.1.1"
+
+# After successful Execute, verification, and approval (plus VCFA onboarding when applicable):
+# kubectl patch nsnt batch-ns-migration-01 --type=merge -p '{"spec":{"action":"Commit"}}'
+# Commit progresses through Committing -> Committed and closes rollback only after status.irreversibleAction: Commit is persisted.
