@@ -264,7 +264,7 @@ func (r *SubnetReconciler) handleNSXSubnetError(ctx context.Context, err error, 
 // pollAndSyncPortConfigs regularly polls NSX PortConfigs (PortSettings) for a shared subnet
 // and synchronizes SubnetPortSetting CRs across all namespaces where the subnet is shared.
 func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associatedResource string, namespacedNames sets.Set[types.NamespacedName]) {
-	if !r.SubnetService.NSXClient.NSXCheckVersion(nsx.SubnetPortSetting) {
+	if !nsx.SubnetPortSettingFeatureEnabled(r.SubnetService.NSXClient, r.SubnetService.NSXConfig) {
 		return
 	}
 

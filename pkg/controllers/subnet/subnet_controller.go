@@ -700,7 +700,7 @@ func (r *SubnetReconciler) CollectGarbage(ctx context.Context) error {
 }
 
 func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR *v1alpha1.Subnet, associatedResource string) error {
-	if !r.SubnetService.NSXClient.NSXCheckVersion(nsx.SubnetPortSetting) {
+	if !nsx.SubnetPortSettingFeatureEnabled(r.SubnetService.NSXClient, r.SubnetService.NSXConfig) {
 		return nil
 	}
 

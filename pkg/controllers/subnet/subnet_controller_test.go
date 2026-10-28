@@ -1638,7 +1638,7 @@ func (c *portConfigCreateFailureClient) Create(ctx context.Context, obj client.O
 }
 
 func TestOnDemandPortConfigFailureRetries(t *testing.T) {
-	for _, failure := range []string{"NSX List", "Kubernetes Create"} {
+	for _, failure := range []string{"NSX List", "NSX List NotFound", "Kubernetes Create"} {
 		for _, throughCaller := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/caller=%t", failure, throughCaller), func(t *testing.T) {
 				ctx := context.Background()
@@ -1648,11 +1648,16 @@ func TestOnDemandPortConfigFailureRetries(t *testing.T) {
 					Annotations: map[string]string{common.AnnotationAssociatedResource: assoc},
 				}}
 				r := createFakeSubnetReconciler([]client.Object{subnetCR})
+				enabled := true
+				r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
 				writeClient := &portConfigCreateFailureClient{Client: r.Client}
 				r.Client = writeClient
 				sourceErr := errors.New("temporary PortConfig synchronization failure")
+				if failure == "NSX List NotFound" {
+					sourceErr = nsxutil.CreateResourceNotFound("manager", "list PortSettings")
+				}
 				var listErr error
-				if failure == "NSX List" {
+				if failure != "Kubernetes Create" {
 					listErr = sourceErr
 				} else {
 					writeClient.err = sourceErr
@@ -1703,7 +1708,7 @@ func TestOnDemandPortConfigFailureRetries(t *testing.T) {
 					err = r.syncPortConfigsOnDemand(ctx, subnetCR, assoc)
 				}
 				require.ErrorIs(t, err, sourceErr)
-				if failure == "NSX List" {
+				if failure != "Kubernetes Create" {
 					assert.Same(t, sourceErr, err, "the NSX List error must retain its identity")
 				}
 				assert.Equal(t, 1, lists)

@@ -5,6 +5,19 @@ package nsx
 
 import "github.com/vmware-tanzu/nsx-operator/pkg/config"
 
+// SubnetPortSettingFeatureEnabled requires NSX 9.2+ and an explicit vpc_wcp_enhance opt-in.
+//
+//go:noinline
+func SubnetPortSettingFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
+	if client == nil || !client.NSXCheckVersion(SubnetPortSetting) {
+		return false
+	}
+	if operatorConfig == nil || operatorConfig.NsxConfig == nil {
+		return false
+	}
+	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
+}
+
 // StatefulSetPodSubnetPortFeatureEnabled is true when NSX version is 9.1.2+ and vpc_wcp_enhance=true
 // and operator nsx_v3 sets vpc_wcp_enhance to true (omitted or false keeps the feature off).
 //

@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
@@ -1169,6 +1170,8 @@ func TestPollAndSyncPortConfigs(t *testing.T) {
 	}
 
 	r := createFakeSubnetReconciler([]client.Object{subnetCR})
+	enabled := true
+	r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
 
 	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListPortSettingsByAssociatedResource",
 		func(_ *subnetservice.SubnetService, _ string) ([]model.VpcSubnetPortSetting, error) {
@@ -1350,6 +1353,8 @@ func TestPollingAndOnDemandSerializePortConfigs(t *testing.T) {
 			otherSubnet := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "ns-other", UID: "other-uid",
 				Annotations: map[string]string{common.AnnotationAssociatedResource: "proj:vpc:other"}}}
 			r := createFakeSubnetReconciler([]client.Object{subnetCR, otherSubnet})
+			enabled := true
+			r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
 			key := client.ObjectKeyFromObject(subnetCR)
 			r.SubnetService.AddSharedSubnetToResourceMap(assoc, key)
 			r.getQueue("subnet", nil)
@@ -1530,6 +1535,8 @@ func TestSharedSubnetPollIgnoresChangedSource(t *testing.T) {
 		})
 	}
 	r := createFakeSubnetReconciler(objects)
+	enabled := true
+	r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
 	before := &v1alpha1.SubnetPortSettingList{}
 	require.NoError(t, r.APIReader.List(ctx, before))
 	parentBefore := &v1alpha1.Subnet{}
@@ -1553,10 +1560,25 @@ func TestSharedSubnetPollIgnoresChangedSource(t *testing.T) {
 	assert.Equal(t, parentBefore, parentAfter)
 }
 
-func TestPortConfigSyncVersionGate(t *testing.T) {
+func TestPortConfigSyncFeatureGate(t *testing.T) {
+	enabled, disabled := true, false
+	configurations := []struct {
+		name           string
+		operatorConfig *config.NSXOperatorConfig
+		enabled        bool
+		supported      bool
+	}{
+		{name: "nil operator config", supported: true},
+		{name: "nil NSX config", operatorConfig: &config.NSXOperatorConfig{}, supported: true},
+		{name: "omitted flag", operatorConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, supported: true},
+		{name: "disabled flag", operatorConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &disabled}}, supported: true},
+		{name: "enabled flag", operatorConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &enabled}}, enabled: true, supported: true},
+		{name: "unsupported version", operatorConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &enabled}}, enabled: true},
+	}
 	for _, poll := range []bool{false, true} {
-		for _, supported := range []bool{false, true} {
-			t.Run(fmt.Sprintf("poll=%t/supported=%t", poll, supported), func(t *testing.T) {
+		for _, cfg := range configurations {
+			supported := cfg.supported
+			t.Run(fmt.Sprintf("%s/poll=%t/supported=%t", cfg.name, poll, supported), func(t *testing.T) {
 				ctx := context.Background()
 				assoc := "proj:vpc:subnet"
 				subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test",
@@ -1576,6 +1598,8 @@ func TestPortConfigSyncVersionGate(t *testing.T) {
 				unrelated.Name = "unrelated"
 				unrelated.Annotations[common.AnnotationAssociatedResource] = "proj:vpc:other:default"
 				r := createFakeSubnetReconciler([]client.Object{subnetCR, matching, orphan, unrelated})
+				r.SubnetService.NSXConfig = cfg.operatorConfig
+				featureEnabled := supported && cfg.enabled
 				before := map[string]*v1alpha1.SubnetPortSetting{}
 				for _, setting := range []*v1alpha1.SubnetPortSetting{matching, orphan, unrelated} {
 					stored := &v1alpha1.SubnetPortSetting{}
@@ -1623,21 +1647,40 @@ func TestPortConfigSyncVersionGate(t *testing.T) {
 					assert.Equal(t, parent, r.SubnetService.NSXSubnetCache[assoc].Subnet)
 					assert.Equal(t, status, r.SubnetService.NSXSubnetCache[assoc].StatusList)
 				} else {
-					if !supported {
+					if !featureEnabled {
 						patches.ApplyPrivateMethod(reflect.TypeOf(r), "syncPortConfigsForNamespaceSubnet",
 							func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ []model.VpcSubnetPortSetting, _ sets.Set[string], _ string) error {
-								t.Error("unsupported NSX must skip PortConfig synchronization")
+								t.Error("disabled feature must skip PortConfig synchronization")
 								return nil
 							})
 					}
-					require.NoError(t, r.syncPortConfigsOnDemand(ctx, subnetCR, assoc))
+					patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource",
+						func(_ *subnetservice.SubnetService, _ string) (*model.VpcSubnet, error) {
+							return &model.VpcSubnet{Id: common.String("subnet")}, nil
+						})
+					patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus",
+						func(_ *subnetservice.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+							return nil, nil
+						})
+					patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateSubnetIfNeeded",
+						func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ *model.VpcSubnet, _ []model.VpcSubnetStatus, _ types.NamespacedName) error {
+							return nil
+						})
+					result, err := r.handleSharedSubnet(ctx, subnetCR, client.ObjectKeyFromObject(subnetCR), assoc)
+					require.NoError(t, err)
+					assert.Equal(t, ResultNormal, result)
+					storedParent := &v1alpha1.Subnet{}
+					require.NoError(t, r.APIReader.Get(ctx, client.ObjectKeyFromObject(subnetCR), storedParent))
+					require.Len(t, storedParent.Status.Conditions, 1)
+					assert.Equal(t, v1alpha1.Ready, storedParent.Status.Conditions[0].Type)
+					assert.Equal(t, corev1.ConditionTrue, storedParent.Status.Conditions[0].Status)
 				}
 
 				assert.Equal(t, 1, versionChecks)
 				after := &v1alpha1.SubnetPortSettingList{}
 				require.NoError(t, r.APIReader.List(ctx, after))
-				if !supported {
-					assert.Zero(t, lists, "unsupported NSX must skip PortSettings List")
+				if !featureEnabled {
+					assert.Zero(t, lists, "disabled feature must skip PortSettings List")
 					require.Len(t, after.Items, len(before))
 					for i := range after.Items {
 						assert.Equal(t, before[after.Items[i].Name], &after.Items[i], "skipping must preserve matching and unrelated mirrors")
