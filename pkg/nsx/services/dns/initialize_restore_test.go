@@ -111,6 +111,49 @@ func TestInitializeDNSRecordServiceRestoresProjectRecords(t *testing.T) {
 	require.Len(t, svc.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindDNSRecord, "ns1", "rec1"), 1)
 }
 
+func TestInitializeDNSRecordServiceFailsOnProjectRecordListError(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		failOnPage int
+	}{
+		{name: "first page", failOnPage: 1},
+		{name: "later page", failOnPage: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha1.AddToScheme(scheme))
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha1.VPCNetworkConfiguration{
+				ObjectMeta: metav1.ObjectMeta{Name: "nc"},
+				Spec: v1alpha1.VPCNetworkConfigurationSpec{
+					NSXProject: "/orgs/org1/projects/proj1",
+				},
+			}).Build()
+			ctrl := gomock.NewController(t)
+			query := searchmocks.NewMockQueryClient(ctrl)
+			query.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				Return(model.SearchResponse{}, nil)
+			records := dnsrecmocks.NewMockDnsRecordsClient(ctrl)
+			listErr := errors.New("NSX temporarily unavailable")
+			firstPage := records.EXPECT().List("org1", "proj1", nil, nil, nil, nil, nil, nil, nil, nil)
+			if tt.failOnPage == 1 {
+				firstPage.Return(model.DnsRecordListResult{}, listErr)
+			} else {
+				next := "next"
+				firstPage.Return(model.DnsRecordListResult{Cursor: &next}, nil)
+				records.EXPECT().List("org1", "proj1", &next, nil, nil, nil, nil, nil, nil, nil).
+					Return(model.DnsRecordListResult{}, listErr)
+			}
+			cfg := &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "unit-test"}}
+			_, err := InitializeDNSRecordService(common.Service{
+				Client: reader, NSXConfig: cfg,
+				NSXClient: &nsx.Client{QueryClient: query, DnsRecordsClient: records, NsxConfig: cfg},
+			}, nil, reader)
+			require.ErrorIs(t, err, listErr)
+			require.ErrorContains(t, err, "org1/proj1")
+		})
+	}
+}
+
 type errorOrgsClient struct{ nsxpolicy.OrgsClient }
 
 func (errorOrgsClient) List(*string, *bool, *bool, *string, *int64, *bool, *string) (model.OrgListResult, error) {
