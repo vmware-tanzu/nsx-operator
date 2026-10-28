@@ -2055,3 +2055,69 @@ func TestLegacyManualRestoreSurvivesFailedRebuild(t *testing.T) {
 	assert.Equal(t, int64(2), *current.Status.VLANTrafficTag)
 	assert.Equal(t, corev1.ConditionTrue, current.Status.Conditions[0].Status)
 }
+
+func TestRestoreWithEmptyTargetSubnetSet(t *testing.T) {
+	for _, scenario := range []string{"scaled to zero", "expected subnet missing", "NSX subnet exists", "precreated", "missing SubnetSet"} {
+		t.Run(scenario, func(t *testing.T) {
+			binding := &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "binding", Namespace: "ns-1", UID: "binding-uid"},
+				Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "child", TargetSubnetSetName: "target"},
+				Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(7)},
+			}
+			subnetSet := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: "ns-1", UID: "target-uid"}}
+			if scenario == "expected subnet missing" {
+				subnetSet.Status.Subnets = []v1alpha1.SubnetInfo{{NetworkAddresses: []string{"10.0.0.0/24"}}}
+			}
+			if scenario == "precreated" {
+				names := []string{"precreated-subnet"}
+				subnetSet.Spec.SubnetNames = &names
+			}
+			child := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "child", Namespace: "ns-1", UID: "child-uid"}}
+			objects := []client.Object{binding, child}
+			if scenario != "missing SubnetSet" {
+				objects = append(objects, subnetSet)
+			}
+			r := createFakeReconciler(objects...)
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnetSet",
+				func(_ *subnet.SubnetService, uid string) []*model.VpcSubnet {
+					assert.Equal(t, string(subnetSet.UID), uid)
+					if scenario == "NSX subnet exists" {
+						return []*model.VpcSubnet{{Path: common.String("/orgs/default/projects/default/vpcs/vpc-1/subnets/target")}}
+					}
+					return nil
+				})
+			defer patches.Reset()
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet",
+				func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{{Path: common.String("/orgs/default/projects/default/vpcs/vpc-1/subnets/child")}}
+				})
+			list, err := r.getRestoreList()
+			if scenario == "missing SubnetSet" {
+				require.ErrorContains(t, err, "failed to get restore target SubnetSet")
+				return
+			}
+			require.NoError(t, err)
+			if scenario == "scaled to zero" {
+				assert.Empty(t, list)
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
+					func(_ *subnetbinding.BindingService, _ *v1alpha1.SubnetConnectionBindingMap, _ int64, _ string, _ []string) (int64, error) {
+						t.Fatal("a scaled-to-zero target must not create NSX bindings")
+						return 0, nil
+					})
+				require.NoError(t, r.RestoreReconcile())
+				current := &v1alpha1.SubnetConnectionBindingMap{}
+				require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}, current))
+				assert.Equal(t, binding.Status, current.Status, "skipping restore must preserve the published VLAN")
+				// Scale-to-zero is only exempt from restore; ordinary dependency
+				// checks must still wait for an actual target subnet.
+				_, _, dependencyErr := r.validateDependency(context.Background(), binding)
+				require.NotNil(t, dependencyErr)
+				return
+			}
+			assert.Equal(t, []types.NamespacedName{{Namespace: binding.Namespace, Name: binding.Name}}, list)
+			if scenario == "expected subnet missing" {
+				require.ErrorContains(t, r.RestoreReconcile(), "SubnetSet CR target is not realized on NSX")
+			}
+		})
+	}
+}

@@ -104,12 +104,38 @@ func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
 		if bindingMap.Status.VLANTrafficTag == nil && (!bindingMap.Spec.HasVlanTrafficTag() || len(r.SubnetBindingService.BindingStore.GetBindingsByBindingMapCRUID(string(bindingMap.UID))) == 0) {
 			continue
 		}
+		empty, err := r.isEmptyRestoreTargetSubnetSet(context.Background(), &bindingMap)
+		if err != nil {
+			return nil, err
+		}
+		if empty {
+			// A dynamic SubnetSet may legitimately scale to zero. Its binding
+			// has no current NSX targets to restore; retain the published VLAN.
+			continue
+		}
 
 		// Reconcile all realized CRs: VLAN equality alone cannot detect missing
 		// SubnetSet members or target changes made after the backup.
 		restoreList = append(restoreList, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name})
 	}
 	return restoreList, nil
+}
+
+// isEmptyRestoreTargetSubnetSet distinguishes a valid scale-to-zero state from
+// NSX subnets that are missing despite still being recorded in CR status.
+func (r *Reconciler) isEmptyRestoreTargetSubnetSet(ctx context.Context, binding *v1alpha1.SubnetConnectionBindingMap) (bool, error) {
+	if binding.Spec.TargetSubnetSetName == "" || binding.Spec.TargetSubnetName != "" {
+		return false, nil
+	}
+	subnetSet := &v1alpha1.SubnetSet{}
+	key := types.NamespacedName{Namespace: binding.Namespace, Name: binding.Spec.TargetSubnetSetName}
+	if err := r.Client.Get(ctx, key, subnetSet); err != nil {
+		return false, fmt.Errorf("failed to get restore target SubnetSet %s: %w", key, err)
+	}
+	if !subnetSet.DeletionTimestamp.IsZero() || subnetSet.Spec.SubnetNames != nil || len(subnetSet.Status.Subnets) > 0 {
+		return false, nil
+	}
+	return len(r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))) == 0, nil
 }
 
 // releaseOutdatedBindings validates the complete restore before changing NSX.
