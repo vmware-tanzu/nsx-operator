@@ -556,7 +556,8 @@ func TestDNSRecordGCReportsAllDeleteFailures(t *testing.T) {
 	builder, err := servicecommon.PolicyPathDnsRecord.NewPolicyTreeBuilder()
 	require.NoError(t, err)
 	r := &DNSRecordReconciler{
-		Client: c,
+		Client:    c,
+		APIReader: c,
 		Service: &dns.DNSRecordService{
 			Service:          servicecommon.Service{NSXClient: &nsx.Client{OrgRootClient: patchClient}},
 			DNSRecordStore:   store,

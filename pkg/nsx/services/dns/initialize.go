@@ -156,8 +156,7 @@ func (s *DNSRecordService) restoreDNSRecordsFromProjects(cluster string, apiRead
 		for {
 			page, err := s.NSXClient.DnsRecordsClient.List(org, project, cursor, nil, nil, nil, nil, nil, nil, nil)
 			if err != nil {
-				log.Warn("Failed to list DNS records in project for restore", "org", org, "project", project, "err", err)
-				break
+				return fmt.Errorf("listing DNS records in project %s/%s for restore: %w", org, project, err)
 			}
 			var records []*model.DnsRecord
 			for i := range page.Results {

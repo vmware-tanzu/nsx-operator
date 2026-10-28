@@ -477,11 +477,8 @@ func TestDNSRecordMixedModeNamespaceTransition(t *testing.T) {
 	require.Equal(t, ResultNormal, result)
 	require.Len(t, store.ListDNSRecords(), 1)
 
-	previousNamespace := namespace.DeepCopy()
 	namespace.Annotations = map[string]string{config.T1DefaultConfigAnnotation: "true"}
 	require.NoError(t, c.Update(ctx, namespace))
-	require.True(t, predicateNamespaceVPCProviderChanged().Update(event.UpdateEvent{ObjectOld: previousNamespace, ObjectNew: namespace}))
-	require.Equal(t, []controllerruntime.Request{req}, r.namespaceToDNSRecordRequests(ctx, namespace))
 
 	// Configuration events can enqueue every DNSRecord, including ones in T1 namespaces.
 	result, err = r.Reconcile(ctx, req)
@@ -499,21 +496,6 @@ func TestDNSRecordMixedModeNamespaceTransition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ResultNormal, result)
 	require.Empty(t, store.ListDNSRecords())
-}
-
-func TestPredicateNamespaceVPCProviderChangedOnConfigSwitch(t *testing.T) {
-	previous := config.IsPerNamespaceProvidersSupported()
-	config.SetPerNamespaceProvidersSupportedForTest(true)
-	t.Cleanup(func() { config.SetPerNamespaceProvidersSupportedForTest(previous) })
-
-	oldNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-		Name: "mixed-ns", Annotations: map[string]string{config.VPCNetworkConfigAnnotation: "config-a"},
-	}}
-	newNamespace := oldNamespace.DeepCopy()
-	newNamespace.Annotations[config.VPCNetworkConfigAnnotation] = "config-b"
-	require.True(t, predicateNamespaceVPCProviderChanged().Update(event.UpdateEvent{
-		ObjectOld: oldNamespace, ObjectNew: newNamespace,
-	}))
 }
 
 func TestDNSRecordReconciler_Reconcile_Delete(t *testing.T) {
@@ -886,6 +868,7 @@ func TestDNSRecordReconciler_CollectGarbage_WithStore(t *testing.T) {
 
 	r := &DNSRecordReconciler{
 		Client:        fakeClient,
+		APIReader:     fakeClient,
 		Scheme:        scheme,
 		Service:       dnsSvc,
 		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
@@ -896,11 +879,47 @@ func TestDNSRecordReconciler_CollectGarbage_WithStore(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+type staleDNSRecordListClient struct{ client.Client }
+
+func (c staleDNSRecordListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if records, ok := list.(*v1alpha1.DNSRecordList); ok {
+		records.Items = nil
+		return nil
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
+func TestDNSRecordGCRechecksExistenceAfterStaleList(t *testing.T) {
+	ctx := context.Background()
+	nn := types.NamespacedName{Namespace: "default", Name: "new-record"}
+	cr := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: nn.Namespace, Name: nn.Name}}
+	apiClient := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(cr).Build()
+	store := dns.BuildDNSRecordStore()
+	rec := &model.DnsRecord{
+		Path: servicecommon.String("/orgs/o/projects/p/dns-records/new-record"),
+		Tags: []model.Tag{
+			{Scope: servicecommon.String(servicecommon.TagScopeDNSRecordFor), Tag: servicecommon.String(servicecommon.TagValueDNSRecordForDNSRecord)},
+			{Scope: servicecommon.String(servicecommon.TagScopeDNSRecordOwnerNamespace), Tag: servicecommon.String(nn.Namespace)},
+			{Scope: servicecommon.String(servicecommon.TagScopeDNSRecordOwnerName), Tag: servicecommon.String(nn.Name)},
+		},
+	}
+	require.NoError(t, store.Add(rec))
+	r := &DNSRecordReconciler{
+		Client:        staleDNSRecordListClient{Client: apiClient},
+		APIReader:     apiClient,
+		Service:       &dns.DNSRecordService{DNSRecordStore: store},
+		StatusUpdater: ctlcommon.NewStatusUpdater(apiClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
+	}
+	require.NoError(t, r.CollectGarbage(ctx))
+	require.Len(t, store.ListDNSRecords(), 1, "GC must keep a record whose CR appeared after its initial list")
+}
+
 func TestDNSRecordReconciler_RestoreAndGC(t *testing.T) {
 	scheme := setupScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &DNSRecordReconciler{
 		Client:        fakeClient,
+		APIReader:     fakeClient,
 		Scheme:        scheme,
 		Service:       &dns.DNSRecordService{DNSRecordStore: dns.BuildDNSRecordStore()},
 		StatusUpdater: ctlcommon.NewStatusUpdater(fakeClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord"),
@@ -967,6 +986,7 @@ func TestNewDNSRecordReconciler(t *testing.T) {
 	defer ctrlMock.Finish()
 	mockMgr := mockmanager.NewMockManager(ctrlMock)
 	mockMgr.EXPECT().GetClient().Return(fakeClient).AnyTimes()
+	mockMgr.EXPECT().GetAPIReader().Return(fakeClient).AnyTimes()
 	mockMgr.EXPECT().GetScheme().Return(scheme).AnyTimes()
 	mockMgr.EXPECT().GetEventRecorderFor("dnsrecord-controller").Return(record.NewFakeRecorder(100)).AnyTimes()
 
@@ -976,90 +996,6 @@ func TestNewDNSRecordReconciler(t *testing.T) {
 
 	r2 := NewDNSRecordReconciler(mockMgr, nil)
 	assert.Nil(t, r2)
-}
-
-func TestPredicateNetworkInfoAllowedDNSRecordDomainsChanged(t *testing.T) {
-	p := predicateNetworkInfoAllowedDNSRecordDomainsChanged()
-
-	assert.False(t, p.Delete(event.DeleteEvent{}))
-	assert.True(t, p.Delete(event.DeleteEvent{Object: &v1alpha1.NetworkInfo{}}))
-	assert.False(t, p.Generic(event.GenericEvent{}))
-
-	t.Run("CreateFunc", func(t *testing.T) {
-		assert.False(t, p.Create(event.CreateEvent{Object: &v1alpha1.DNSRecord{}}))
-		assert.True(t, p.Create(event.CreateEvent{Object: &v1alpha1.NetworkInfo{}}))
-		assert.True(t, p.Create(event.CreateEvent{
-			Object: &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}},
-		}))
-	})
-
-	t.Run("UpdateFunc", func(t *testing.T) {
-		assert.False(t, p.Update(event.UpdateEvent{
-			ObjectOld: &v1alpha1.DNSRecord{},
-			ObjectNew: &v1alpha1.DNSRecord{},
-		}))
-
-		oldNI := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}}
-		sameNI := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}}
-		assert.False(t, p.Update(event.UpdateEvent{ObjectOld: oldNI, ObjectNew: sameNI}))
-
-		changedNI := &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com", "corp.local"}}
-		assert.True(t, p.Update(event.UpdateEvent{ObjectOld: oldNI, ObjectNew: changedNI}))
-	})
-}
-
-func TestNetworkInfoToDNSRecordRequests(t *testing.T) {
-	scheme := setupScheme()
-	rec1 := &v1alpha1.DNSRecord{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"},
-	}
-	rec2 := &v1alpha1.DNSRecord{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec2"},
-	}
-	recOther := &v1alpha1.DNSRecord{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns2", Name: "recOther"},
-	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(rec1, rec2, recOther).Build()
-	r := &DNSRecordReconciler{Client: fakeClient}
-
-	ni := &v1alpha1.NetworkInfo{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "ni"},
-	}
-
-	reqs := r.networkInfoToDNSRecordRequests(context.Background(), ni)
-	require.Len(t, reqs, 2)
-	assert.ElementsMatch(t, []controllerruntime.Request{
-		{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "rec1"}},
-		{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "rec2"}},
-	}, reqs)
-
-	t.Run("nil or invalid object", func(t *testing.T) {
-		assert.Nil(t, r.networkInfoToDNSRecordRequests(context.Background(), nil))
-		assert.Nil(t, r.networkInfoToDNSRecordRequests(context.Background(), &v1alpha1.DNSRecord{}))
-	})
-
-	t.Run("client list error", func(t *testing.T) {
-		failList := true
-		errClient := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
-			List: func(ctx context.Context, client client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				if failList {
-					return errors.New("list failed")
-				}
-				return client.List(ctx, list, opts...)
-			},
-		}).Build()
-		rErr := &DNSRecordReconciler{Client: errClient}
-		reqs := rErr.networkInfoToDNSRecordRequests(context.Background(), ni)
-		require.Equal(t, []controllerruntime.Request{{NamespacedName: types.NamespacedName{
-			Namespace: networkInfoRetryNamespace, Name: ni.Namespace,
-		}}}, reqs)
-		_, err := rErr.Reconcile(context.Background(), reqs[0])
-		require.ErrorContains(t, err, "list failed")
-		failList = false
-		result, err := rErr.Reconcile(context.Background(), reqs[0])
-		require.NoError(t, err)
-		require.Equal(t, ResultNormal, result)
-	})
 }
 
 func TestNetworkConfigDNSZoneChangeEnqueuesRecords(t *testing.T) {

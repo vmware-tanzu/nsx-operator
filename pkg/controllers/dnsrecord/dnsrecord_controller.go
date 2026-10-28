@@ -51,7 +51,6 @@ const (
 	ReasonDNSRecordFailed           = "DNSRecordFailed"
 	ReasonDNSRecordValidationFailed = "DNSRecordValidationFailed"
 	networkConfigRetryNamespace     = "_dnsconfig"
-	networkInfoRetryNamespace       = "_dnsnetworkinfo"
 )
 
 // DNSRecordReconciler reconciles a DNSRecord object
@@ -59,6 +58,7 @@ const (
 // +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=dnsrecords/status,verbs=get;update;patch
 type DNSRecordReconciler struct {
 	Client        client.Client
+	APIReader     client.Reader
 	Scheme        *runtime.Scheme
 	Service       *dns.DNSRecordService
 	Recorder      record.EventRecorder
@@ -90,6 +90,7 @@ func NewDNSRecordReconciler(mgr ctrl.Manager, dnsRecordService *dns.DNSRecordSer
 	}
 	return &DNSRecordReconciler{
 		Client:        mgr.GetClient(),
+		APIReader:     mgr.GetAPIReader(),
 		Scheme:        mgr.GetScheme(),
 		Service:       dnsRecordService,
 		Recorder:      recorder,
@@ -100,9 +101,6 @@ func NewDNSRecordReconciler(mgr ctrl.Manager, dnsRecordService *dns.DNSRecordSer
 func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if req.Namespace == networkConfigRetryNamespace {
 		return r.reconcileNetworkConfig(ctx, req.Name)
-	}
-	if req.Namespace == networkInfoRetryNamespace {
-		return r.reconcileNetworkInfo(ctx, req.Name)
 	}
 	obj := &v1alpha1.DNSRecord{}
 	log.Info("reconciling DNSRecord CR", "dnsrecord", req.NamespacedName)
@@ -345,61 +343,14 @@ func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DNSRecord{}, builder.WithPredicates(predicateDNSRecordDesiredStateChanged(), vpcPredicate)).
 		Watches(
-			&v1alpha1.NetworkInfo{},
-			handler.EnqueueRequestsFromMapFunc(r.networkInfoToDNSRecordRequests),
-			builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged(), vpcPredicate),
-		).
-		Watches(
 			&v1alpha1.VPCNetworkConfiguration{},
 			handler.EnqueueRequestsFromMapFunc(r.networkConfigToDNSRecordRequests),
 			builder.WithPredicates(predicateNetworkConfigDNSSettingsChanged()),
-		).
-		Watches(
-			&corev1.Namespace{},
-			handler.EnqueueRequestsFromMapFunc(r.namespaceToDNSRecordRequests),
-			builder.WithPredicates(predicateNamespaceVPCProviderChanged()),
 		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).
 		Complete(r)
-}
-
-func predicateNamespaceVPCProviderChanged() predicate.Predicate {
-	return predicate.Funcs{
-		CreateFunc: func(event.CreateEvent) bool { return false },
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			_, ok := e.Object.(*corev1.Namespace)
-			return ok
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldNamespace, oldOK := e.ObjectOld.(*corev1.Namespace)
-			newNamespace, newOK := e.ObjectNew.(*corev1.Namespace)
-			if !oldOK || !newOK {
-				return false
-			}
-			return config.IsVPCNamespace(oldNamespace) != config.IsVPCNamespace(newNamespace) ||
-				oldNamespace.Annotations[config.VPCNetworkConfigAnnotation] != newNamespace.Annotations[config.VPCNetworkConfigAnnotation]
-		},
-		GenericFunc: func(event.GenericEvent) bool { return false },
-	}
-}
-
-func (r *DNSRecordReconciler) namespaceToDNSRecordRequests(ctx context.Context, obj client.Object) []ctrl.Request {
-	namespace, ok := obj.(*corev1.Namespace)
-	if !ok || namespace == nil {
-		return nil
-	}
-	return r.dnsRecordRequestsForNamespace(ctx, namespace.Name)
-}
-
-func (r *DNSRecordReconciler) dnsRecordRequestsForNamespace(ctx context.Context, namespace string) []ctrl.Request {
-	reqs, err := r.requestsForNetworkInfo(ctx, namespace)
-	if err != nil {
-		log.Error(err, "Failed to enqueue DNSRecords after Namespace change", "Namespace", namespace)
-		return []ctrl.Request{{NamespacedName: types.NamespacedName{Namespace: networkInfoRetryNamespace, Name: namespace}}}
-	}
-	return reqs
 }
 
 func predicateDNSRecordDesiredStateChanged() predicate.Predicate {
@@ -428,51 +379,6 @@ func predicateDNSRecordDesiredStateChanged() predicate.Predicate {
 	}
 }
 
-func (r *DNSRecordReconciler) networkInfoToDNSRecordRequests(ctx context.Context, obj client.Object) []ctrl.Request {
-	ni, ok := obj.(*v1alpha1.NetworkInfo)
-	if !ok || ni == nil {
-		return nil
-	}
-	reqs, err := r.requestsForNetworkInfo(ctx, ni.Namespace)
-	if err != nil {
-		log.Error(err, "Failed to enqueue DNSRecords for NetworkInfo change", "Namespace", ni.Namespace)
-		reqs = append(reqs, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: networkInfoRetryNamespace, Name: ni.Namespace}})
-	}
-	return reqs
-}
-
-func (r *DNSRecordReconciler) requestsForNetworkInfo(ctx context.Context, namespace string) ([]ctrl.Request, error) {
-	recordList := &v1alpha1.DNSRecordList{}
-	if err := r.Client.List(ctx, recordList, client.InNamespace(namespace)); err != nil {
-		return nil, fmt.Errorf("listing DNSRecords in Namespace %s after NetworkInfo change: %w", namespace, err)
-	}
-	var reqs []ctrl.Request
-	for i := range recordList.Items {
-		reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&recordList.Items[i])})
-	}
-	return reqs, nil
-}
-
-func (r *DNSRecordReconciler) reconcileNetworkInfo(ctx context.Context, namespace string) (ctrl.Result, error) {
-	reqs, err := r.requestsForNetworkInfo(ctx, namespace)
-	if err != nil {
-		return ResultRequeue, err
-	}
-	var reconcileErrors []error
-	for _, req := range reqs {
-		if ctx.Err() != nil {
-			return ResultRequeue, ctx.Err()
-		}
-		if _, err := r.Reconcile(ctx, req); err != nil {
-			reconcileErrors = append(reconcileErrors, fmt.Errorf("reconciling DNSRecord %s: %w", req.NamespacedName, err))
-		}
-	}
-	if err := errors.Join(reconcileErrors...); err != nil {
-		return ResultRequeue, err
-	}
-	return ResultNormal, nil
-}
-
 func (r *DNSRecordReconciler) networkConfigToDNSRecordRequests(ctx context.Context, obj client.Object) []ctrl.Request {
 	nc, ok := obj.(*v1alpha1.VPCNetworkConfiguration)
 	if !ok || nc == nil {
@@ -488,8 +394,8 @@ func (r *DNSRecordReconciler) networkConfigToDNSRecordRequests(ctx context.Conte
 }
 
 func (r *DNSRecordReconciler) requestsForNetworkConfig(ctx context.Context, name string) ([]ctrl.Request, error) {
-	// A configuration event may change which config a Namespace uses, including
-	// the default annotation. Looking up only current users misses old users.
+	// A default configuration change can affect Namespaces without an explicit
+	// configuration reference, so reconcile all DNSRecords.
 	recordList := &v1alpha1.DNSRecordList{}
 	if err := r.Client.List(ctx, recordList); err != nil {
 		return nil, fmt.Errorf("listing DNSRecords for VPCNetworkConfiguration %s: %w", name, err)
@@ -544,30 +450,6 @@ func predicateNetworkConfigDNSSettingsChanged() predicate.Predicate {
 	}
 }
 
-func predicateNetworkInfoAllowedDNSRecordDomainsChanged() predicate.Predicate {
-	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			_, ok := e.Object.(*v1alpha1.NetworkInfo)
-			return ok
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			_, ok := e.Object.(*v1alpha1.NetworkInfo)
-			return ok
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldNI, ok1 := e.ObjectOld.(*v1alpha1.NetworkInfo)
-			newNI, ok2 := e.ObjectNew.(*v1alpha1.NetworkInfo)
-			if !ok1 || !ok2 {
-				return false
-			}
-			return !slices.Equal(oldNI.AllowedDNSRecordDomains, newNI.AllowedDNSRecordDomains)
-		},
-		GenericFunc: func(event.GenericEvent) bool {
-			return false
-		},
-	}
-}
-
 func (r *DNSRecordReconciler) gcRunnable() manager.Runnable {
 	return manager.RunnableFunc(func(ctx context.Context) error {
 		stop := make(chan bool)
@@ -597,6 +479,9 @@ func (r *DNSRecordReconciler) CollectGarbage(ctx context.Context) error {
 	if r.Service.DNSRecordStore == nil {
 		return nil
 	}
+	if r.APIReader == nil {
+		return fmt.Errorf("APIReader is required for DNSRecord garbage collection")
+	}
 	crdList := &v1alpha1.DNSRecordList{}
 	if err := r.Client.List(ctx, crdList); err != nil {
 		log.Error(err, "failed to list DNSRecord CRs")
@@ -614,12 +499,29 @@ func (r *DNSRecordReconciler) CollectGarbage(ctx context.Context) error {
 		if crdNames.Has(nn) {
 			continue
 		}
-		log.Info("GC removing stale DNSRecord on NSX", "Namespace", nn.Namespace, "Name", nn.Name)
-		r.StatusUpdater.IncreaseDeleteTotal()
-		if _, err := r.Service.DeleteRecordByOwnerNN(ctx, dns.ResourceKindDNSRecord, nn.Namespace, nn.Name); err != nil {
-			r.StatusUpdater.IncreaseDeleteFailTotal()
+		log.Info("GC checking potentially stale DNSRecord on NSX", "Namespace", nn.Namespace, "Name", nn.Name)
+		confirmedMissing := false
+		_, err := r.Service.DeleteRecordByOwnerNNIf(ctx, dns.ResourceKindDNSRecord, nn.Namespace, nn.Name, func(ctx context.Context) (bool, error) {
+			record := &v1alpha1.DNSRecord{}
+			err := r.APIReader.Get(ctx, nn, record)
+			if err == nil {
+				return false, nil
+			}
+			if apierrors.IsNotFound(err) {
+				confirmedMissing = true
+				return true, nil
+			}
+			return false, fmt.Errorf("rechecking DNSRecord %s before GC deletion: %w", nn, err)
+		})
+		if confirmedMissing {
+			r.StatusUpdater.IncreaseDeleteTotal()
+		}
+		if err != nil {
+			if confirmedMissing {
+				r.StatusUpdater.IncreaseDeleteFailTotal()
+			}
 			gcErrors = append(gcErrors, fmt.Errorf("failed to delete stale DNSRecord %s: %w", nn, err))
-		} else {
+		} else if confirmedMissing {
 			r.StatusUpdater.IncreaseDeleteSuccessTotal()
 		}
 	}
