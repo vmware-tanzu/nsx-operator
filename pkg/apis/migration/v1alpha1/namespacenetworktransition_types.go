@@ -69,7 +69,8 @@ type NamespaceStatus struct {
 type NamespaceNetworkTransitionStatus struct {
 	TransitionStatus `json:",inline"`
 	// NamespaceStatuses records progress without creating separate status resources.
-	// Batch membership comes from spec.namespaces; missing status entries are pending.
+	// Entries must belong to spec.namespaces; missing entries and empty phases are Pending.
+	// Clients derive aggregate counts with NamespacePhaseCounts; counters are not persisted.
 	// +optional
 	// +listType=map
 	// +listMapKey=name
@@ -78,6 +79,7 @@ type NamespaceNetworkTransitionStatus struct {
 }
 
 // NamespaceNetworkTransition requests Stage 2 migration of an explicit namespace batch.
+// +kubebuilder:validation:XValidation:rule="!has(self.status) || !has(self.status.namespaceStatuses) || [self.spec.namespaces.transformMapEntry(i, name, {name: true})].all(names, self.status.namespaceStatuses.all(ns, ns.name in names))",message="namespaceStatuses entries must belong to spec.namespaces"
 // +kubebuilder:validation:XValidation:rule="self.spec.action == 'Evaluate' || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration may only change with Evaluate"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Plan', 'Derive', 'Execute', 'Rollback', 'Commit', 'Finalize']) || (self.spec.action == 'Evaluate' && oldSelf.status.lastAction == 'Rollback' && has(oldSelf.status.actionState) && oldSelf.status.actionState == 'Succeeded' && !has(oldSelf.status.irreversibleAction)) || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration cannot change after planning starts unless Evaluate follows a successful Rollback without an irreversible checkpoint"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.irreversibleAction) || (has(self.status) && has(self.status.irreversibleAction) && self.status.irreversibleAction == oldSelf.status.irreversibleAction && self.spec.action == oldSelf.status.irreversibleAction)",message="an irreversible checkpoint cannot change or be cleared; only its action may be resumed"

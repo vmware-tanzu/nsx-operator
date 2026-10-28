@@ -158,6 +158,22 @@ func TestInputAdmission(t *testing.T) {
 			}
 
 			if stage == "namespaces" {
+				check("namespace status outside batch", nil, func(o map[string]any) {
+					o["status"] = map[string]any{"namespaceStatuses": []any{map[string]any{"name": "outside-batch", "phase": "Completed"}}}
+				}, false)
+				check("partial namespace status", nil, func(o map[string]any) {
+					name := spec(o)["namespaces"].([]any)[0]
+					o["status"] = map[string]any{"namespaceStatuses": []any{map[string]any{"name": name, "phase": "Failed", "reason": "RebindFailed", "message": "VM timeout"}}}
+				}, true)
+				check("full namespace status at maximum batch size", nil, func(o map[string]any) {
+					names, entries := make([]any, 1000), make([]any, 1000)
+					for i := range names {
+						name := fmt.Sprintf("namespace-%d", i)
+						names[i], entries[i] = name, map[string]any{"name": name, "phase": "Completed"}
+					}
+					spec(o)["namespaces"] = names
+					o["status"] = map[string]any{"namespaceStatuses": entries}
+				}, true)
 				for _, name := range []string{"Tenant_A", "tenant.name", "-tenant", "tenant-", "tenant/name", "tenant name"} {
 					check("invalid namespace "+name, nil, func(o map[string]any) { spec(o)["namespaces"] = []any{name} }, false)
 				}

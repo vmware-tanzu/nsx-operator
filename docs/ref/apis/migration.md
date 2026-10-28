@@ -344,7 +344,7 @@ _Appears in:_
 | `irreversibleAction` _string_ | IrreversibleAction identifies the action whose point of no return has been persisted.<br />It is set only after prerequisite checks and before irreversible external changes.<br />Once set, only that action may be resumed and this checkpoint cannot be cleared. |  | Enum: [Commit Finalize] <br /> |
 | `nsxWorkflows` _[NSXWorkflowStatus](#nsxworkflowstatus) array_ | NSXWorkflows records the exact external workflow handle for each source VDN. |  | MaxItems: 1000 <br /> |
 | `requiredInputs` _[RequiredInput](#requiredinput) array_ | RequiredInputs describe administrator inputs required before proceeding. |  | MaxItems: 1000 <br /> |
-| `namespaceStatuses` _[NamespaceStatus](#namespacestatus) array_ | NamespaceStatuses records progress without creating separate status resources.<br />Batch membership comes from spec.namespaces; missing status entries are pending. |  | MaxItems: 1000 <br /> |
+| `namespaceStatuses` _[NamespaceStatus](#namespacestatus) array_ | NamespaceStatuses records progress without creating separate status resources.<br />Entries must belong to spec.namespaces; missing entries and empty phases are Pending.<br />Clients derive aggregate counts with NamespacePhaseCounts; counters are not persisted. |  | MaxItems: 1000 <br /> |
 
 
 #### NamespaceStatus

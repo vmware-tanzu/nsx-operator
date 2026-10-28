@@ -48,6 +48,52 @@ validation remains part of the API definitions; no execution checkpoints are
 written by this branch. Namespace status defines `name`, `phase`, `reason`, and
 `message`; milestones are batch conditions, and counters follow spec membership.
 
+## Status contract (WBS 1.1.3)
+
+The status foundation follows [WBS 1.1.3, version 66](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=3003298182)
+and the current status contract in detailed design version 158, Sections 4.1/4.2.
+`pkg/apis/migration/v1alpha1` exports phase and condition names for callers.
+`pkg/migration/status` supplies reporting and status-subresource persistence helpers:
+
+- `Observe` updates phase, a condition, and `observedGeneration`. It retains
+  the checkpointed action and unrelated milestone conditions. Repeating a
+  condition preserves its transition timestamp when its truth value is unchanged.
+- `RecordAction` records `lastAction`, `actionState`, and `actionGeneration`
+  together. Reporting a newer blocked request does not promote the older action
+  to success. Neither this helper nor per-namespace progress advances an action
+  or establishes the irreversible checkpoint. Callers must verify whole-batch
+  restoration and invalidate the previous plan before recording Rollback/Succeeded;
+  that checkpoint permits Evaluate-time input corrections in the namespace CRD.
+- `RecordWorkflow` records one exact workflow handle per VDN. Repeated reports
+  are idempotent; replacing an accepted handle requires a separately defined
+  recovery/reset flow.
+- `RecordNamespace` updates `name`, `phase`, `reason`, and `message` for one
+  member of the immutable batch. Other records and the CR-level phase survive.
+  Admission rejects namespace status records outside `spec.namespaces`.
+- `UpdateControlPlane` and `UpdateNamespace` patch only status from a persisted
+  snapshot. Resource-version preconditions protect concurrent progress and spec
+  changes. Callers must read again and recompute on conflict; mutations must
+  have no external side effects. No-op reports issue no patch. Writers reject
+  regressed generation checkpoints and CR-inappropriate actions: infrastructure
+  cannot accept or advance Rollback/Commit; namespaces cannot accept or advance
+  Finalize. Unchanged historical checkpoints remain available for diagnosis.
+  Shared rollback phase names describe namespace progress only.
+
+Clients call `NamespacePhaseCounts()` to derive counts from batch membership and
+per-namespace records. Missing records and empty phases count as `Pending`;
+future phase names retain separate buckets. `Completed`, `Committed`,
+`RolledBack`, and evaluation failures remain distinct. Counts describe recorded
+progress, and do not prove that the current action/generation succeeded. Check
+`lastAction`, `actionState`, `actionGeneration`, and the relevant conditions for
+that decision. No redundant counter fields or extra status CRs are introduced.
+
+The framework controllers remain observational. The orchestration workstream
+can use these helpers when reporting handler outcomes; this branch does not
+install concrete handlers or grant additional controller permissions. Status
+persistence tests exercise both CR kinds, conflicts and retries, retained
+workflow/condition history, and namespace counts. API tests validate the full
+1,000-namespace batch and the checked-in design output examples.
+
 ## Design contract
 
 The reviewed API uses `migration.network.vmware.com/v1alpha1` and

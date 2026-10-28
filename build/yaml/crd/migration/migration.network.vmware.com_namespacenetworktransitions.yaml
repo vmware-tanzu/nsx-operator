@@ -276,7 +276,8 @@ spec:
               namespaceStatuses:
                 description: |-
                   NamespaceStatuses records progress without creating separate status resources.
-                  Batch membership comes from spec.namespaces; missing status entries are pending.
+                  Entries must belong to spec.namespaces; missing entries and empty phases are Pending.
+                  Clients derive aggregate counts with NamespacePhaseCounts; counters are not persisted.
                 items:
                   description: NamespaceStatus reports progress for one target namespace.
                   properties:
@@ -385,6 +386,10 @@ spec:
         - spec
         type: object
         x-kubernetes-validations:
+        - message: namespaceStatuses entries must belong to spec.namespaces
+          rule: '!has(self.status) || !has(self.status.namespaceStatuses) || [self.spec.namespaces.transformMapEntry(i,
+            name, {name: true})].all(names, self.status.namespaceStatuses.all(ns,
+            ns.name in names))'
         - message: networkConfiguration may only change with Evaluate
           rule: self.spec.action == 'Evaluate' || (has(self.spec.networkConfiguration)
             == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration)
