@@ -79,9 +79,10 @@ func (r *Reconciler) RestoreReconcile() error {
 }
 
 func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
+	ctx := context.Background()
 	restoreList := []types.NamespacedName{}
 	bindingMapList := &v1alpha1.SubnetConnectionBindingMapList{}
-	if err := r.Client.List(context.TODO(), bindingMapList); err != nil {
+	if err := r.Client.List(ctx, bindingMapList); err != nil {
 		return restoreList, err
 	}
 	for _, bindingMap := range bindingMapList.Items {
@@ -94,7 +95,7 @@ func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
 		if bindingMap.Status.VLANTrafficTag == nil && (!bindingMap.Spec.HasVlanTrafficTag() || len(r.SubnetBindingService.BindingStore.GetBindingsByBindingMapCRUID(string(bindingMap.UID))) == 0) {
 			continue
 		}
-		empty, err := r.isEmptyRestoreTargetSubnetSet(context.Background(), &bindingMap)
+		empty, err := r.isEmptyRestoreTargetSubnetSet(ctx, &bindingMap)
 		if err != nil {
 			return nil, err
 		}
@@ -224,15 +225,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		return common.ResultRequeue, nil
 	} else {
-		// Restore must not succeed if the realized VLAN cannot be persisted.
 		if r.restoreMode {
+			// Restore must not succeed if the realized VLAN cannot be persisted.
 			bindingMapCR.Status.VLANTrafficTag = v1alpha1.VLANTrafficTagPtr(vlanID)
 			if err := updateBindingMapCondition(r.Client, ctx, bindingMapCR, v1alpha1.Condition{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}); err != nil {
 				return common.ResultNormal, err
 			}
+			r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, nil)
+		} else {
+			// Update SubnetConnectionBindingMap with ready condition
+			r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, updateBindingMapStatusWithReadyCondition, vlanID)
 		}
-		// Update SubnetConnectionBindingMap with ready condition
-		r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, updateBindingMapStatusWithReadyCondition, vlanID)
 	}
 
 	return common.ResultNormal, nil
