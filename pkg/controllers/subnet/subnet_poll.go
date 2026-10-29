@@ -42,8 +42,12 @@ func (r *SubnetReconciler) pollSharedSubnets(stopCh chan bool) {
 func (r *SubnetReconciler) pollAllSharedSubnets() {
 	ctx := context.Background()
 
+	// Snapshot SharedSubnetResourceMap to avoid holding locks during NSX API calls
+	// and to prevent race conditions with concurrent reconcile operations.
+	sharedSubnets := r.SubnetService.GetSharedSubnetResourceMapSnapshot()
+
 	// Process each unique associatedResource
-	for associatedResource, namespacedNames := range r.SubnetService.SharedSubnetResourceMap {
+	for associatedResource, namespacedNames := range sharedSubnets {
 		log.Debug("Polling shared Subnets", "AssociatedResource", associatedResource, "SubnetCount", len(namespacedNames))
 
 		// Update the nsxSubnetCache with the latest NSX subnet data and status list
@@ -78,8 +82,8 @@ func (r *SubnetReconciler) pollAllSharedSubnets() {
 		}
 	}
 
-	for associatedResource := range r.SubnetService.NSXSubnetCache {
-		if _, ok := r.SubnetService.SharedSubnetResourceMap[associatedResource]; !ok {
+	for _, associatedResource := range r.SubnetService.GetNSXSubnetCacheKeys() {
+		if !r.SubnetService.HasSharedSubnetResource(associatedResource) {
 			log.Debug("Remove Subnet from cache", "AssociatedResource", associatedResource)
 			r.SubnetService.RemoveSubnetFromCache(associatedResource, "no valid subnets")
 			subnetPath, err := servicecommon.GetSubnetPathFromAssociatedResource(associatedResource)

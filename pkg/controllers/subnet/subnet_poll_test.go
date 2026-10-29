@@ -858,6 +858,117 @@ func TestPollAllSharedSubnets(t *testing.T) {
 	}
 }
 
+func TestPollAllSharedSubnetsConcurrentRace(t *testing.T) {
+	// Create subnet CRs
+	numResources := 3
+	var subnetCRs []client.Object
+	for i := 0; i < numResources; i++ {
+		subnetCR := &v1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("test-subnet-%d", i),
+				Namespace: "default",
+			},
+		}
+		subnetCRs = append(subnetCRs, subnetCR)
+	}
+
+	r := createFakeSubnetReconciler(subnetCRs)
+	r.SubnetService.NSXSubnetCache = make(map[string]struct {
+		Subnet     *model.VpcSubnet
+		StatusList []model.VpcSubnetStatus
+	})
+
+	for i := 0; i < numResources; i++ {
+		resKey := fmt.Sprintf("project1:vpc1:subnet-%d", i)
+		r.SubnetService.AddSharedSubnetToResourceMap(resKey, types.NamespacedName{
+			Namespace: "default",
+			Name:      fmt.Sprintf("test-subnet-%d", i),
+		})
+	}
+
+	// Mock GetNSXSubnetByAssociatedResource to simulate slight network latency
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource",
+		func(_ *subnetservice.SubnetService, associatedResource string) (*model.VpcSubnet, error) {
+			time.Sleep(2 * time.Millisecond)
+			return &model.VpcSubnet{
+				Id:   common.String("subnet-id-" + associatedResource),
+				Path: common.String("/projects/project1/vpcs/vpc1/subnets/" + associatedResource),
+			}, nil
+		})
+	defer patches.Reset()
+
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus",
+		func(_ *subnetservice.SubnetService, nsxSubnet *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+			time.Sleep(2 * time.Millisecond)
+			return []model.VpcSubnetStatus{
+				{NetworkAddress: common.String("10.0.0.0/24")},
+			}, nil
+		})
+
+	patches.ApplyPrivateMethod(reflect.TypeOf(r), "enqueueSubnetForReconciliation",
+		func(_ *SubnetReconciler, ctx context.Context, namespacedName types.NamespacedName) {
+		})
+
+	var subnetportService *subnetport.SubnetPortService
+	patches.ApplyMethod(reflect.TypeOf(subnetportService), "DeletePortCount",
+		func(_ common.SubnetPortServiceProvider, subnetPath string) {})
+
+	stopWriter := make(chan struct{})
+	writerDone := make(chan struct{})
+
+	// Concurrently write to SharedSubnetResourceMap AND NSXSubnetCache while pollAllSharedSubnets is running
+	go func() {
+		defer close(writerDone)
+		i := 0
+		for {
+			select {
+			case <-stopWriter:
+				return
+			default:
+				resKey := fmt.Sprintf("project1:vpc1:subnet-%d", (i/4)%numResources)
+				nn := types.NamespacedName{Namespace: "default", Name: fmt.Sprintf("test-subnet-%d", (i/4)%numResources)}
+
+				switch i % 4 {
+				case 0:
+					r.SubnetService.AddSharedSubnetToResourceMap(resKey, nn)
+				case 1:
+					r.SubnetService.RemoveSharedSubnetFromResourceMap(resKey, nn)
+				case 2:
+					r.SubnetService.UpdateNSXSubnetCache(resKey, &model.VpcSubnet{
+						Id:   common.String("subnet-id-" + resKey),
+						Path: common.String("/projects/project1/vpcs/vpc1/subnets/" + resKey),
+					}, nil)
+				case 3:
+					r.SubnetService.RemoveSubnetFromCache(resKey, "concurrent-test")
+				}
+				i++
+				time.Sleep(200 * time.Microsecond)
+			}
+		}
+	}()
+
+	// Run pollAllSharedSubnets multiple times concurrently with the writer
+	for iter := 0; iter < 5; iter++ {
+		assert.NotPanics(t, func() {
+			r.pollAllSharedSubnets()
+		})
+	}
+
+	close(stopWriter)
+	<-writerDone
+
+	// Assert cleanup: remove all shared subnets, then run pollAllSharedSubnets to verify all cache entries are purged
+	for i := 0; i < numResources; i++ {
+		resKey := fmt.Sprintf("project1:vpc1:subnet-%d", i)
+		nn := types.NamespacedName{Namespace: "default", Name: fmt.Sprintf("test-subnet-%d", i)}
+		r.SubnetService.RemoveSharedSubnetFromResourceMap(resKey, nn)
+	}
+	assert.Empty(t, r.SubnetService.GetSharedSubnetResourceMapSnapshot(), "SharedSubnetResourceMap should be empty after removing all subnets")
+
+	r.pollAllSharedSubnets()
+	assert.Empty(t, r.SubnetService.GetNSXSubnetCacheKeys(), "NSXSubnetCache should be empty after polling with no shared subnets")
+}
+
 func TestUpdateSharedSubnetWithError(t *testing.T) {
 	// This test verifies that updateSharedSubnetWithError correctly handles different subnet states
 

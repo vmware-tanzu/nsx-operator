@@ -981,6 +981,18 @@ func (service *SubnetService) RemoveSubnetFromCache(associatedResource string, r
 	log.Info("Removed Subnet from cache", "reason", reason, "AssociatedResource", associatedResource)
 }
 
+// GetNSXSubnetCacheKeys returns a copy of all keys currently in NSXSubnetCache
+func (service *SubnetService) GetNSXSubnetCacheKeys() []string {
+	service.nsxSubnetCacheMutex.RLock()
+	defer service.nsxSubnetCacheMutex.RUnlock()
+
+	keys := make([]string, 0, len(service.NSXSubnetCache))
+	for k := range service.NSXSubnetCache {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // AddSharedSubnetToResourceMap adds a shared subnet CR to the resource map
 func (service *SubnetService) AddSharedSubnetToResourceMap(associatedResource string, namespacedName types.NamespacedName) {
 	service.sharedSubnetResourceMapMutex.Lock()
@@ -1011,6 +1023,32 @@ func (service *SubnetService) RemoveSharedSubnetFromResourceMap(associatedResour
 			delete(service.SharedSubnetResourceMap, associatedResource)
 		}
 	}
+}
+
+// GetSharedSubnetResourceMapSnapshot returns a copy of SharedSubnetResourceMap.
+// Each set of namespaced names is also cloned so callers can safely iterate without holding locks.
+func (service *SubnetService) GetSharedSubnetResourceMapSnapshot() map[string]sets.Set[types.NamespacedName] {
+	service.sharedSubnetResourceMapMutex.RLock()
+	defer service.sharedSubnetResourceMapMutex.RUnlock()
+
+	snapshot := make(map[string]sets.Set[types.NamespacedName], len(service.SharedSubnetResourceMap))
+	for k, v := range service.SharedSubnetResourceMap {
+		if v != nil {
+			snapshot[k] = v.Clone()
+		} else {
+			snapshot[k] = sets.New[types.NamespacedName]()
+		}
+	}
+	return snapshot
+}
+
+// HasSharedSubnetResource checks if an associatedResource exists in SharedSubnetResourceMap under read lock.
+func (service *SubnetService) HasSharedSubnetResource(associatedResource string) bool {
+	service.sharedSubnetResourceMapMutex.RLock()
+	defer service.sharedSubnetResourceMapMutex.RUnlock()
+
+	_, exists := service.SharedSubnetResourceMap[associatedResource]
+	return exists
 }
 
 // GetAllGatewayPrefixesOfSubnet returns all gateways (IPv4 and/or IPv6) with their prefixes for the subnet
