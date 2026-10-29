@@ -31,6 +31,12 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - netoperator.vmware.com
+  resources:
+  - workloadnetworkconfigurations
+  verbs:
+  - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -38,6 +44,12 @@ metadata:
   name: supervisor-network-migration-operator
   namespace: vmware-system-nsx
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - list
 - apiGroups:
   - coordination.k8s.io
   resources:

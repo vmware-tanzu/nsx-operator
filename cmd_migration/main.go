@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	netapi "github.com/vmware-tanzu/net-operator-api/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -84,6 +85,9 @@ func startManager(ctx context.Context, opts *options, deps managerDependencies) 
 		return err
 	}
 	if err := api.AddToScheme(scheme); err != nil {
+		return err
+	}
+	if err := netapi.AddToScheme(scheme); err != nil {
 		return err
 	}
 	// Disabled startup only needs local REST configuration to construct the
