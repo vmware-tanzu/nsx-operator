@@ -576,6 +576,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case SubnetAssociation:
 		minVersion = nsx920Version
 		validFeature = true
+	case NamespaceGroup:
+		minVersion = nsx920Version
+		validFeature = true
 	}
 
 	if validFeature {
