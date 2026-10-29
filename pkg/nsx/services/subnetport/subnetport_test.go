@@ -1996,6 +1996,70 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 	}
 }
 
+// An exhausted pool must recover after expansion
+// without restarting the operator or resetting its in-flight reservations.
+func TestAllocatePortFromSubnet_StaticPoolResize(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		ipType     v1alpha1.IPAddressType
+		staticType v1alpha1.StaticIPAllocationType
+	}{
+		{"IPv4", v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4},
+		{"IPv6", v1alpha1.IPAddressTypeIPv6, v1alpha1.StaticIPAllocationTypeIPv6},
+		{"DualStack", v1alpha1.IPAddressTypeIPv4IPv6, v1alpha1.StaticIPAllocationTypeIPv4IPv6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := createSubnetPortService(t)
+			subnet := &model.VpcSubnet{
+				Path: common.String("/orgs/default/projects/default/vpcs/vpc/subnets/subnet"),
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					StaticIpAllocation: &model.StaticIpAllocation{Enabled: common.Bool(true)},
+				},
+			}
+			total := int64(3)
+			poolReads := 0
+			service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+				getFunc: func(_, _, _, _, _ string) (model.IpAddressPool, error) {
+					poolReads++
+					return model.IpAddressPool{PoolUsage: &model.PolicyPoolUsage{TotalIps: common.Int64(total)}}, nil
+				},
+			}
+			allocate := func(want bool) {
+				t.Helper()
+				ok, err := service.AllocatePortFromSubnet(subnet, false, tc.ipType, tc.staticType, nil)
+				require.NoError(t, err)
+				require.Equal(t, want, ok)
+			}
+			for i := 0; i < 3; i++ {
+				allocate(true)
+			}
+			allocate(false)
+			// Repeated checks reuse capacity until a pool update invalidates it.
+			allocate(false)
+			readsPerRefresh := 1
+			if tc.ipType == v1alpha1.IPAddressTypeIPv4IPv6 {
+				readsPerRefresh = 2
+			}
+			require.Equal(t, readsPerRefresh, poolReads)
+			total = 5
+			service.ResetSubnetTotalIP(*subnet.Path)
+			allocate(true)
+			allocate(true)
+			allocate(false)
+			// Shrink while requests are in flight: their reservations must survive.
+			service.ReleasePortInSubnet(*subnet.Path, tc.ipType, tc.staticType, nil)
+			total = 3
+			service.ResetSubnetTotalIP(*subnet.Path)
+			allocate(false)
+			service.ReleasePortInSubnet(*subnet.Path, tc.ipType, tc.staticType, nil)
+			service.ReleasePortInSubnet(*subnet.Path, tc.ipType, tc.staticType, nil)
+			allocate(true)
+
+			require.Equal(t, 3*readsPerRefresh, poolReads)
+		})
+	}
+}
+
 func createSubnetPortService(t *testing.T) *SubnetPortService {
 	mockCtl := gomock.NewController(t)
 	k8sClient := mock_client.NewMockClient(mockCtl)

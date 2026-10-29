@@ -52,8 +52,9 @@ type SharedSubnetData struct {
 
 type SubnetService struct {
 	common.Service
-	SubnetStore *SubnetStore
-	builder     *common.PolicyTreeBuilder[*model.VpcSubnet]
+	SubnetStore       *SubnetStore
+	SubnetPortService common.SubnetPortServiceProvider
+	builder           *common.PolicyTreeBuilder[*model.VpcSubnet]
 	// SharedSubnetData contains data related to shared subnets
 	SharedSubnetData
 }
@@ -66,16 +67,17 @@ type SubnetParameters struct {
 }
 
 // InitializeSubnetService initialize Subnet service.
-func InitializeSubnetService(service common.Service) (*SubnetService, error) {
+func InitializeSubnetService(service common.Service, subnetPortService common.SubnetPortServiceProvider) (*SubnetService, error) {
 	builder, _ := common.PolicyPathVpcSubnet.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
 	wgDone := make(chan bool)
 	fatalErrors := make(chan error)
 	subnetService := &SubnetService{
-		Service:     service,
-		SubnetStore: buildSubnetStore(),
-		builder:     builder,
+		Service:           service,
+		SubnetStore:       buildSubnetStore(),
+		SubnetPortService: subnetPortService,
+		builder:           builder,
 		SharedSubnetData: SharedSubnetData{
 			NSXSubnetCache: make(map[string]struct {
 				Subnet     *model.VpcSubnet
@@ -161,6 +163,7 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 		log.Error(err, "Failed to build Subnet")
 		return nil, err
 	}
+	poolRangesChanged := false
 	// Only check whether it needs update when obj is v1alpha1.Subnet
 	if subnet, ok := obj.(*v1alpha1.Subnet); ok {
 		var existingSubnet *model.VpcSubnet
@@ -170,6 +173,14 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			changed = true
 		} else {
 			existingSubnet = existingSubnets[0]
+			var existingPoolRanges, builtPoolRanges []string
+			if existingSubnet.AdvancedConfig != nil && existingSubnet.AdvancedConfig.StaticIpAllocation != nil {
+				existingPoolRanges = existingSubnet.AdvancedConfig.StaticIpAllocation.PoolRanges
+			}
+			if nsxSubnet.AdvancedConfig != nil && nsxSubnet.AdvancedConfig.StaticIpAllocation != nil {
+				builtPoolRanges = nsxSubnet.AdvancedConfig.StaticIpAllocation.PoolRanges
+			}
+			poolRangesChanged = !nsxutil.CompareArraysWithoutOrder(existingPoolRanges, builtPoolRanges)
 			// Reset with the existing NSX VpcSubnet's id and display_name to keep consistent.
 			nsxSubnet.Id = common.String(*existingSubnet.Id)
 			nsxSubnet.DisplayName = common.String(*existingSubnet.DisplayName)
@@ -247,7 +258,16 @@ func (service *SubnetService) CreateOrUpdateSubnet(obj client.Object, vpcInfo co
 			return existingSubnet, nil
 		}
 	}
-	return service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo, false)
+	subnet, err = service.createOrUpdateSubnet(obj, nsxSubnet, &vpcInfo, false)
+	if err != nil {
+		return nil, err
+	}
+	if poolRangesChanged {
+		// After pool range is changed, we need to refresh the cache subnet
+		// totalIP to ensure the next allocation is correct.
+		service.SubnetPortService.ResetSubnetTotalIP(*subnet.Path)
+	}
+	return subnet, nil
 }
 
 func (service *SubnetService) checkSubnetRealizeState(nsxSubnet *model.VpcSubnet) error {
