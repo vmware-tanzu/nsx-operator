@@ -197,7 +197,8 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// Create or update the subnet in NSX
-	if _, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags); err != nil {
+	nsxSubnet, err := r.SubnetService.CreateOrUpdateSubnet(subnetCR, vpcInfoList[0], tags)
+	if err != nil {
 		if errors.As(err, &nsxutil.ExceedTagsError{}) {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Tags limit exceeded", setSubnetReadyStatusFalse)
 			return ResultNormal, nil
@@ -220,6 +221,15 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 		r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to create/update Subnet", setSubnetReadyStatusFalse)
 		return ResultRequeue, err
+	}
+
+	if len(subnetCR.Spec.IPBlockNames) == 0 && nsxSubnet != nil && len(nsxSubnet.IpBlocks) > 0 {
+		subnetCR.Spec.IPBlockNames = r.SubnetService.MapIPBlocksToNames(nsxSubnet.IpBlocks)
+		if err := r.Client.Update(ctx, subnetCR); err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet IPBlockNames", setSubnetReadyStatusFalse)
+			return ResultRequeue, err
+		}
+		log.Info("Updated Subnet CR with allocated IPBlockNames", "Subnet", req.NamespacedName, "IPBlockNames", subnetCR.Spec.IPBlockNames)
 	}
 	// Update status
 	updated, err := r.updateSubnetStatus(subnetCR)

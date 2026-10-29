@@ -838,6 +838,31 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 	if nsxSubnet.Description != nil {
 		subnetCR.Spec.Description = *nsxSubnet.Description
 	}
+	// Note: Shared Subnets do not populate or update IPBlockNames in Subnet CR Spec
+	// to avoid ambiguity across projects and keep the consumer model clean.
+}
+
+// MapIPBlocksToNames converts NSX Policy IPBlock paths to Subnet CR IPBlock name formats.
+// Infra IPBlocks (/infra/ip-blocks/<id>) map to ":<id>", while project-scoped IPBlocks
+// (/orgs/.../projects/.../infra/ip-blocks/<name>) map to "<name>".
+func (service *SubnetService) MapIPBlocksToNames(ipBlockPaths []string) []string {
+	if len(ipBlockPaths) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(ipBlockPaths))
+	for _, path := range ipBlockPaths {
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		if len(parts) == 0 {
+			continue
+		}
+		blockID := parts[len(parts)-1]
+		if strings.HasPrefix(path, "/infra/") {
+			names = append(names, ":"+blockID)
+		} else {
+			names = append(names, blockID)
+		}
+	}
+	return names
 }
 
 // MapNSXSubnetStatusToSubnetCRStatus maps NSX subnet status to Subnet CR status
