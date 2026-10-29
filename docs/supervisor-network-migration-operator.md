@@ -6,14 +6,10 @@ NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` reso
 
 ## Branch scope
 
-This branch, `topic/xl018891/UBMWM-12405`, builds on
-`topic/xl018891/supervisor-network-migration-operator`. It adds action dispatch,
-persisted execution checkpoints, namespace readiness and infrastructure finalization dependency gates,
-action dispatch with separately enforced admission and resource-driven restart reconciliation,
-and irreversible commit/finalize guards for
-[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
-The base branch retains the manager, observational watches, lazy NSX connectivity,
-CRD definitions, and packaging. Concrete external migration handlers are still pending.
+This branch, `topic/xl018891/migration-infrastructure-start-wbs-1.2.1`, is rebased
+on `main`. It adds Stage 1 provider/NCP readiness checks and resolves the existing
+NSX Project before infrastructure action dispatch. It adds no transition API
+fields or recovery store. Concrete migration handlers remain separate work.
 
 ## Framework and services
 
@@ -433,6 +429,41 @@ workstream: every Namespace must be imported before confirmation/Commit, using
 an explicitly selected project or a find-or-create project named after the
 Namespace. These mappings are not additional transition CR inputs. VC-only
 migration uses the same Namespace transition API without VCFA onboarding.
+
+## WBS 1.2.1 infrastructure start and resume checks
+
+Before infrastructure actions run, `pkg/migration/infrastructure` verifies the
+platform-published VPC provider and readiness of the normal `nsx-operator`
+container in `vmware-system-nsx`. It resolves the explicit `spec.nsxProjectID`, or
+the `default` Project when omitted, using a read-only NSX GET. It does not register
+providers, create Projects, create migration resources, or mark Evaluate complete.
+
+The chosen Project path is recorded in the existing `status.targetNSXProjectPath`
+field. On each retry, the service rechecks readiness and the same project identity;
+existing status fields are preserved if those checks fail. VPC may be the active
+provider only when an Execute or Finalize checkpoint already exists. Once an action
+has started or infrastructure resources are recorded, changing the selected
+Project is rejected. Existing CR status and observed Kubernetes/NSX resources are
+the recovery source; no journal or additional checkpoint object is introduced.
+
+The provider check reads the typed
+`WorkloadNetworkConfiguration/default` and requires one ready VPC provider whose
+configured project matches the transition. NCP readiness requires exactly one
+active Pod labelled `nsx-operator-role=master` with a running, ready
+`nsx-operator` container. Migration-sidecar readiness or the presence of VPC
+namespaces alone is insufficient. Failures are surfaced through the
+`InfrastructurePrerequisitesReady` condition and block dispatch for retry.
+
+The check consumes provider registration published by the platform/net-operator;
+it does not call the vCenter provider registration endpoint or install NCP. Unit
+tests use fake Kubernetes and NSX responses and cover readiness gating, project
+selection, correction before action start, project immutability after the action
+checkpoint, and status preservation on lookup failures. This branch does not yet
+provide concrete action handlers, so it does not itself prove that retries reuse
+existing conversion workflows, target containers, or IP allocations. Each handler
+must use the recorded workflow/resource identities and live state before creating
+anything; that end-to-end reuse acceptance remains pending with handler work. No
+live infrastructure migration is performed by these checks.
 
 ## WBS 1.4.9 action dispatch and restart reconciliation
 
