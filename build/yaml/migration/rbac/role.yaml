@@ -37,6 +37,7 @@ rules:
   - ippools
   - networks
   - vspheredistributednetworks
+  - workloadnetworkconfigurations
   verbs:
   - get
   - list
@@ -47,6 +48,12 @@ metadata:
   name: supervisor-network-migration-operator
   namespace: vmware-system-nsx
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - list
 - apiGroups:
   - coordination.k8s.io
   resources:

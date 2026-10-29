@@ -763,6 +763,33 @@ The following source topologies are also outside the migration scope:
 - A Supervisor using VDS networks with SR-IOV cannot be migrated because NSX
   VPC does not support SR-IOV.
 
+## WBS 1.2.1: Infrastructure start prerequisites
+
+Before infrastructure actions run, the service checks the platform-published
+VPC provider, readiness of the normal `nsx-operator` container in
+`vmware-system-nsx`, and the selected existing NSX Project. An omitted
+`spec.nsxProjectID` selects the `default` Project. These checks are read-only:
+they do not register providers, create Projects or migration resources, or mark
+Evaluate complete.
+
+The resolved Project path is recorded in `status.targetNSXProjectPath` and
+rechecked on retries. Once an action checkpoint or infrastructure resource is
+recorded, a different Project is rejected. The service reports failures through
+`InfrastructurePrerequisitesReady` and blocks dispatch so the action can retry
+after prerequisites are restored. Existing transition status and observed
+Kubernetes/NSX resources remain the recovery source; this work adds no journal or
+checkpoint object.
+
+The provider check reads the typed
+`WorkloadNetworkConfiguration/default` and requires one ready VPC provider
+configured for the selected Project. NCP readiness requires one active Pod with
+label `nsx-operator-role=master` and a running, ready `nsx-operator` container.
+Provider registration remains the platform/net-operator's responsibility. Tests
+cover provider and NCP readiness, Project selection and immutability, retry
+behavior, and preservation of status when lookups fail. This work does not
+implement concrete action handlers or prove end-to-end reuse of conversion
+workflows, target containers, or IP allocations.
+
 ## WBS 1.4.1: NSX workflow SDK client
 
 The migration service lazily calls `nsx.NewMigrationClient`, which registers the

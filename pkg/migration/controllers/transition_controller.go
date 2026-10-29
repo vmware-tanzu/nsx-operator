@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/infrastructure"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 )
 
@@ -29,12 +30,16 @@ type Reconciler struct {
 	APIReader client.Reader
 	Engine    *transition.Engine
 	Stage     transition.Stage
+	// Infrastructure validates Stage 1 start/resume prerequisites.
+	Infrastructure *infrastructure.Service
 }
 
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions;namespacenetworktransitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions/status;namespacenetworktransitions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=vmware-system-nsx
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=list,namespace=vmware-system-nsx
+// +kubebuilder:rbac:groups=netoperator.vmware.com,resources=workloadnetworkconfigurations,verbs=get
 
 // Reconcile persists observed status separately from desired state.
 func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Result, error) {
@@ -82,7 +87,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if r.Engine.Enabled && blocked.IsBlocked() {
+	var startErr error
+	if r.Engine.Enabled && !blocked.IsBlocked() &&
+		r.Infrastructure != nil && r.Stage == transition.Infrastructure && action != api.ActionRollback {
+		completed := status.ActionState == api.ActionStateSucceeded && status.LastAction == action && status.ActionGeneration == obj.GetGeneration()
+		if !completed {
+			startErr = r.Infrastructure.Check(ctx, obj.(*api.ControlPlaneNetworkTransition))
+		}
+	}
+	if startErr != nil {
+		condition := meta.FindStatusCondition(status.Conditions, infrastructure.ConditionReady)
+		reason, message := "PrerequisiteCheckFailed", "Infrastructure prerequisites could not be validated"
+		if condition != nil {
+			reason, message = condition.Reason, condition.Message
+		}
+		transition.Block(status, obj.GetGeneration(), reason, message)
+		if action == api.ActionEvaluate {
+			status.Phase = "EvaluationFailed"
+		}
+		result.RequeueAfter = 30 * time.Second
+	} else if r.Engine.Enabled && blocked.IsBlocked() {
 		transition.Block(status, obj.GetGeneration(), string(blocked.Reason), blocked.Message)
 		result.RequeueAfter = 30 * time.Second
 	} else {
