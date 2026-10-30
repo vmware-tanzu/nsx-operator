@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -9,13 +10,14 @@ import (
 	testframework "github.com/vmware-tanzu/nsx-operator/test/framework"
 )
 
-// Verify a WCP rollout before creating test resources. This only observes the
-// deployment and webhook backends; it never restarts or reconfigures them.
+// Verify a current WCP master and its webhook backend before creating test
+// resources. Extra replicas may be unschedulable on a single control-plane node.
 func (data *TestData) waitForOperatorReady() error {
 	if !data.useWCPSetup() {
 		return nil
 	}
 	const namespace = "vmware-system-nsx"
+	var lastLog time.Time
 	return pollForCondition(podStartupTimeout, func(ctx context.Context) (bool, error) {
 		deployment, err := data.clientset.AppsV1().Deployments(namespace).Get(ctx, "nsx-ncp", metav1.GetOptions{})
 		if errors.IsNotFound(err) {
@@ -24,9 +26,18 @@ func (data *TestData) waitForOperatorReady() error {
 		if err != nil {
 			return false, err
 		}
-		if !testframework.DeploymentReady(deployment) {
-			log.Info("Waiting for operator rollout", "generation", deployment.Generation, "status", deployment.Status)
-			return false, nil
+		selector, err := metav1.LabelSelectorAsSelector(deployment.Spec.Selector)
+		if err != nil {
+			return false, err
+		}
+		options := metav1.ListOptions{LabelSelector: selector.String()}
+		replicaSets, err := data.clientset.AppsV1().ReplicaSets(namespace).List(ctx, options)
+		if err != nil {
+			return false, err
+		}
+		pods, err := data.clientset.CoreV1().Pods(namespace).List(ctx, options)
+		if err != nil {
+			return false, err
 		}
 		slices, err := data.clientset.DiscoveryV1().EndpointSlices(namespace).List(ctx, metav1.ListOptions{
 			LabelSelector: "kubernetes.io/service-name=vmware-system-nsx-operator-webhook-service",
@@ -34,14 +45,14 @@ func (data *TestData) waitForOperatorReady() error {
 		if err != nil {
 			return false, err
 		}
-		for _, slice := range slices.Items {
-			for _, endpoint := range slice.Endpoints {
-				if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready && len(endpoint.Addresses) > 0 {
-					return true, nil
-				}
-			}
+		if testframework.OperatorReady(deployment, replicaSets.Items, pods.Items, slices.Items) {
+			return true, nil
 		}
-		log.Info("Waiting for ready operator webhook backend")
+		if time.Since(lastLog) >= 15*time.Second {
+			log.Info("Waiting for current operator master and webhook backend", "generation", deployment.Generation,
+				"observedGeneration", deployment.Status.ObservedGeneration, "readyReplicas", deployment.Status.ReadyReplicas)
+			lastLog = time.Now()
+		}
 		return false, nil
 	})
 }
