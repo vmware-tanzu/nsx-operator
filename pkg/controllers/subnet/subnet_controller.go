@@ -604,6 +604,10 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 					nsxClient: r.SubnetService.NSXClient,
 				},
 			})
+		hookServer.Register("/validate-crd-nsx-vmware-com-v1alpha1-subnetportsetting",
+			&webhook.Admission{
+				Handler: &SubnetPortSettingValidator{decoder: admission.NewDecoder(mgr.GetScheme())},
+			})
 	}
 
 	// Start the shared subnet polling goroutine
