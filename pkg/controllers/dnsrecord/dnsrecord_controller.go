@@ -167,10 +167,6 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	computedFQDN := calculateFQDN(obj.Spec.RecordName, obj.Spec.DomainName)
-	if strings.HasPrefix(computedFQDN, "*.") {
-		err := fmt.Errorf("wildcard DNS names are not supported: %q", computedFQDN)
-		return r.rejectInvalidRecord(ctx, obj, err, "DNS record name validation failed")
-	}
 	if err := validateRecordFQDN(computedFQDN); err != nil {
 		return r.rejectInvalidRecord(ctx, obj, err, "DNS record name validation failed")
 	}
@@ -252,13 +248,27 @@ func validateRecordFQDN(fqdn string) error {
 	if fqdn == "" {
 		return fmt.Errorf("DNS record FQDN must not be empty")
 	}
+	if strings.Contains(fqdn, "*") {
+		return fmt.Errorf("wildcard DNS names are not supported: %q", fqdn)
+	}
 	asciiLength := 0
 	for _, label := range strings.Split(fqdn, ".") {
 		if label == "" {
 			return fmt.Errorf("DNS record FQDN %q has an empty label", fqdn)
 		}
 		asciiLabel := label
-		if !strings.Contains(label, "_") {
+		if strings.Contains(label, "_") {
+			// Preserve underscore labels without bypassing character validation.
+			for _, c := range label {
+				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+					(c >= '0' && c <= '9') || c == '-' || c == '_') {
+					return fmt.Errorf("invalid DNS record FQDN label %q", label)
+				}
+			}
+			if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+				return fmt.Errorf("invalid DNS record FQDN label %q", label)
+			}
+		} else {
 			var err error
 			asciiLabel, err = idna.Lookup.ToASCII(label)
 			if err != nil {
