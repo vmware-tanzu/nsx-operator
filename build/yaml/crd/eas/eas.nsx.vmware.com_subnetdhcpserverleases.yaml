@@ -1,0 +1,115 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: subnetdhcpserverleases.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: SubnetDHCPServerLease
+    listKind: SubnetDHCPServerLeaseList
+    plural: subnetdhcpserverleases
+    singular: subnetdhcpserverlease
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SubnetDHCPServerLease exposes the active DHCP leases for a Subnet's DHCP server.
+          The SubnetDHCPServerLease name should be the same as the Subnet CR name.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          dhcpServerId:
+            description: DHCP server UUID in NSX.
+            type: string
+          ipv6Leases:
+            description: IPv6 DHCP lease information list.
+            items:
+              description: DHCPV6Lease represents the IPv6 DHCP lease information
+                for a client.
+              properties:
+                duid:
+                  description: DHCP Unique Identifier (DUID) of the client.
+                  type: string
+                expireTime:
+                  description: Expire time of the lease.
+                  type: string
+                iaType:
+                  description: Identity Association (IA) type (e.g., IA_NA, IA_TA,
+                    IA_PD).
+                  type: string
+                iaid:
+                  description: Identifier for an Identity Association.
+                  format: int64
+                  type: integer
+                ipAddresses:
+                  description: IPv6 addresses assigned to the client.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: atomic
+                leaseTime:
+                  description: Lease time of the IP address, in seconds.
+                  type: string
+                macAddress:
+                  description: MAC address of the DHCP client.
+                  type: string
+                startTime:
+                  description: Start time of the lease.
+                  type: string
+              type: object
+            type: array
+            x-kubernetes-list-type: atomic
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          leases:
+            description: IPv4 DHCP lease information list.
+            items:
+              description: DHCPLeasePerIP represents the IPv4 DHCP lease information
+                for a client.
+              properties:
+                expireTime:
+                  description: Expire time of the lease.
+                  type: string
+                ipAddress:
+                  description: IP address of the DHCP client.
+                  type: string
+                leaseTime:
+                  description: Lease time of the IP address, in seconds.
+                  type: string
+                macAddress:
+                  description: MAC address of the DHCP client.
+                  type: string
+                startTime:
+                  description: Start time of the lease.
+                  type: string
+                subnet:
+                  description: Subnet of client network.
+                  type: string
+              type: object
+            type: array
+            x-kubernetes-list-type: atomic
+          metadata:
+            type: object
+          timestamp:
+            description: Timestamp of the lease info.
+            format: int64
+            type: integer
+        type: object
+    served: true
+    storage: true

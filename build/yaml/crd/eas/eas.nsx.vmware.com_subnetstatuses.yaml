@@ -1,0 +1,169 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: subnetstatuses.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: SubnetStatus
+    listKind: SubnetStatusList
+    plural: subnetstatuses
+    singular: subnetstatus
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SubnetStatus exposes the realized status of a Subnet retrieved live from NSX.
+          It includes DHCP reserved IP ranges, unmanaged IP ranges, dynamic DHCP ranges,
+          static IP pool ranges, gateway addresses, network addresses, and VLAN extension status.
+          The SubnetStatus name is the same as the Subnet CR name.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          dhcpRanges:
+            description: DHCP address ranges used for dynamic IP allocation.
+            items:
+              type: string
+            type: array
+            x-kubernetes-list-type: atomic
+          dhcpReservedRanges:
+            description: DHCP reserved IP ranges excluded from dynamic DHCP assignment.
+            items:
+              type: string
+            type: array
+            x-kubernetes-list-type: atomic
+          dhcpServerAddresses:
+            description: DHCP server IP addresses for the Subnet.
+            items:
+              type: string
+            type: array
+            x-kubernetes-list-type: atomic
+          gatewayAddresses:
+            description: Gateway addresses of the Subnet.
+            items:
+              type: string
+            type: array
+            x-kubernetes-list-type: atomic
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          networkAddresses:
+            description: Network addresses (CIDRs) of the Subnet across all configured
+              address families.
+            items:
+              type: string
+            type: array
+            x-kubernetes-list-type: atomic
+          staticIPPoolRanges:
+            description: Static IP address ranges used for static IP allocation.
+            items:
+              type: string
+            type: array
+            x-kubernetes-list-type: atomic
+          subnetStatuses:
+            description: Detailed status per address family (IPv4, IPv6).
+            items:
+              description: VPCSubnetStatusDetails represents the realized status details
+                for an address family of the Subnet.
+              properties:
+                addressType:
+                  description: |-
+                    IP address type (IPv4 or IPv6).
+                    Must be IPv4, IPv6, or IPv4IPv6.
+                  enum:
+                  - IPv4
+                  - IPv6
+                  - IPv4IPv6
+                  type: string
+                dhcpRanges:
+                  description: DHCP address ranges used for dynamic IP allocation.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: atomic
+                dhcpReservedRanges:
+                  description: DHCP reserved IP ranges excluded from dynamic DHCP
+                    assignment.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: atomic
+                dhcpServerAddress:
+                  description: DHCP server IP address.
+                  type: string
+                gatewayAddress:
+                  description: Gateway address of the VPC Subnet.
+                  type: string
+                networkAddress:
+                  description: Network address (CIDR) of the VPC Subnet.
+                  type: string
+                staticIPPoolPath:
+                  description: Policy path to the static IP pool in NSX.
+                  type: string
+                staticIPPoolRanges:
+                  description: Static IP address ranges used for static IP allocation
+                    (e.g. LB VIP, DHCP static binding).
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: atomic
+                unmanagedIPs:
+                  description: Unmanaged IP addresses or ranges in the subnet CIDR.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: atomic
+                vlanExtension:
+                  description: VLAN extension configuration and status for the Subnet.
+                  properties:
+                    vlanId:
+                      description: VLAN ID used for extending to the VPC subnet.
+                      format: int64
+                      type: integer
+                    vpcGatewayConnectionEnable:
+                      description: Indicates whether the VPC gateway connection is
+                        enabled for this subnet.
+                      type: boolean
+                  type: object
+              type: object
+            type: array
+            x-kubernetes-list-type: atomic
+          unmanagedIPs:
+            description: Unmanaged IP addresses or ranges in the subnet CIDR not managed
+              by NSX IP pools or DHCP.
+            items:
+              type: string
+            type: array
+            x-kubernetes-list-type: atomic
+          vlanExtension:
+            description: VLAN extension status for the Subnet.
+            properties:
+              vlanId:
+                description: VLAN ID used for extending to the VPC subnet.
+                format: int64
+                type: integer
+              vpcGatewayConnectionEnable:
+                description: Indicates whether the VPC gateway connection is enabled
+                  for this subnet.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
