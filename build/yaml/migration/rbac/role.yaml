@@ -22,6 +22,15 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - migration.network.vmware.com
+  resources:
+  - controlplanenetworktransitions/status
+  - namespacenetworktransitions/status
+  verbs:
+  - get
+  - patch
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

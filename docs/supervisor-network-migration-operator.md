@@ -4,36 +4,40 @@ The Supervisor migration framework runs as a separate process/container in the
 NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` resources
 `ControlPlaneNetworkTransition` and `NamespaceNetworkTransition`.
 
+## Branch scope
+
+This branch, `topic/xl018891/UBMWM-12405`, builds on
+`topic/xl018891/supervisor-network-migration-operator`. It adds action dispatch,
+persisted execution checkpoints, namespace readiness and infrastructure finalization dependency gates,
+action dispatch with separately enforced admission and resource-driven restart reconciliation,
+and irreversible commit/finalize guards for
+[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
+The base branch retains the manager, observational watches, lazy NSX connectivity,
+CRD definitions, and packaging. Concrete external migration handlers are still pending.
+
 ## Framework and services
 
 - `cmd_migration`: independent controller manager; no normal NSX controllers,
   webhook servers, `electMaster` calls, or `nsx-operator-role` label changes.
 - `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.network.vmware.com/v1alpha1.
-- `pkg/migration/controllers`: controller registration and observation of both
-  transition kinds. Reconciliation leaves spec, status, and external resources unchanged.
-- `pkg/migration.SetupWithManager`: registers both `TransitionReconciler` instances
-  when migration is enabled; no intermediate `Operator` owner is constructed.
+- `pkg/migration/controllers` and `pkg/migration/transition`: live dependency gates,
+  action checkpoints, namespace rollback, infrastructure forward retry, and
+  irreversible commit/finalize recovery.
+- `pkg/migration.SetupWithManager`: registers both stages with a shared dispatcher
+  when enabled; no intermediate Operator or unused NSX service is constructed.
 - `pkg/nsx/services/migration.Service`: lazy NSX connectivity available for future
-  handlers, reusing `pkg/config` and `nsx.GetClient`. The framework does not
-  construct or inject an unused service. Sessions and connection pools are
-  process-local, not shared between containers.
+  handlers. Connections are process-local, not shared between containers.
 
-Migration observation defaults to disabled: no transition controllers, watches,
-or leader election are started. Disabled startup loads local Kubernetes REST
-configuration without probing API-server health, so an API `/healthz` failure
-does not prevent the process health/readiness endpoints from starting. Valid
-local REST configuration is still required. Enabled startup retains the existing
-API health check and loopback fallback. `--enable-network-migration` enables
-controller observation and the independent lease. This startup flag does not implement the vCenter FSS/HTTP
-authorization gate; a disabled reconciler does not return HTTP 403.
-The framework does not dispatch actions, update
-status, checkpoint execution, or enforce cross-resource dependencies. Those
-behaviors and their tests are isolated on `topic/xl018891/UBMWM-12405` for
-[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
-Startup does not load NSX configuration or contact NSX. Missing configuration or
-failed client initialization can be retried by future handlers. Migration startup
-must not depend solely on `HasVPCNamespaces()`, because a VDS Supervisor may not
-have any VPC namespaces before migration preparation.
+Migration dispatch defaults to disabled: no transition controllers, watches, or
+leader election are started. Disabled startup loads local Kubernetes REST
+configuration without probing API-server health. Valid local REST configuration
+is still required. Enabled startup retains the API health check and loopback
+fallback. `--enable-network-migration` enables dispatch and the independent lease;
+valid actions report `ActionNotImplemented` because external handlers are not yet
+wired. This flag does not implement the vCenter FSS/HTTP authorization gate.
+Startup does not load NSX configuration or contact NSX. Future handlers can retry
+missing configuration or failed client initialization. Migration startup must not
+rely solely on `HasVPCNamespaces()`, since a VDS Supervisor may have none.
 
 Both CRDs accept `Evaluate`, `Plan`, `Derive`, and `Execute`. Namespace batches
 additionally support `Rollback` and `Commit`; infrastructure supports `Finalize`.
@@ -42,11 +46,13 @@ actions retain checkpoints for diagnosis and forward retry. Infrastructure
 reversion uses the user-operated WCP backup-and-restore procedure outside the
 migration API; arrange a usable backup and recovery procedure before migration.
 Namespace rollback remains subject to dependency checks and the Commit boundary.
-Status fields define the contract for future execution and recovery, including
-`lastAction`, `actionState`, `actionGeneration`, and `irreversibleAction`. CRD
-validation remains part of the API definitions; no execution checkpoints are
-written by this branch. Namespace status defines `name`, `phase`, `reason`, and
-`message`; milestones are batch conditions, and counters follow spec membership.
+`lastAction`, `actionState`, and `actionGeneration` record accepted work. A handler
+returns `CheckpointIrreversible` only after prerequisite checks, then waits for
+persisted `status.irreversibleAction` before irreversible external changes. That
+checkpoint is immutable and closes namespace rollback at Commit.
+Infrastructure Rollback is rejected independently of any irreversible checkpoint. Exact workflow IDs remain durable.
+Namespace status contains `name`, `phase`, `reason`, and `message`; milestones are batch
+conditions, and counters are derived using batch membership from spec.
 
 ## NSX resource recovery contract
 
@@ -216,8 +222,8 @@ TGW span searches, subnet checks, naming resolution, required DHCP diagnostics
 or NSX creation.
 Concrete Evaluate, fabric and VDN mapping handlers must implement these rules.
 Workflow-managed DVC/subnet naming also requires the owning Plan/Conversion API
-to accept and preserve the supplied IDs and display names. The published detailed design (version 163), WBS (version 71), architecture
-(version 133), one-pager (version 85), and naming reference (version 14) now describe
+to accept and preserve the supplied IDs and display names. The published detailed design (version 167), WBS (version 75), architecture
+(version 138), one-pager (version 90), and naming reference (version 15) now describe
 the optional-override, topology-reuse and `status.optionalInputs` UI contract,
 including a validated two-VDN example with required DHCP data for only one VDN.
 Runtime integration and acceptance tests remain handler work.
@@ -232,11 +238,11 @@ keyed by `vdnName`. Workflow records also use `vdnName`. Action values use Pasca
 These are breaking changes to the pre-release API. Clients and dependent branches
 must adopt them together; no aliases or conversion webhook are provided.
 
-The orchestration API follows [the detailed design, version 163](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2586034708),
-sections 4.1 and 4.2, and [WBS version 71](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=3003298182).
-The [architecture, version 133](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2535758740),
-[one-pager, version 85](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2726684074),
-and [naming reference, version 14](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2539833087)
+The orchestration API follows [the detailed design, version 167](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2586034708),
+sections 4.1 and 4.2, and [WBS version 75](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=3003298182).
+The [architecture, version 138](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2535758740),
+[one-pager, version 90](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2726684074),
+and [naming reference, version 15](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=2539833087)
 use the same per-VDN naming and topology-reuse contract. Detailed design Section
 4.1.2 distinguishes the committed schema from the concrete handler work.
 The `design-*.yaml` fixtures reproduce the updated design examples and are
@@ -247,7 +253,7 @@ In 9.2, supported migrations use HAProxy or FLB (`VSPHERE_FOUNDATION`) sources
 and an NSX LB (`NSX_LB`) target. The API rejects unsupported provider values
 and exposes no Avi configuration. Evaluate handlers must report unsupported
 discovered sources through failure conditions before target preparation. The
-observational framework does not yet perform provider evaluation. HAProxy requires `networkConfiguration.legacyLbFrontendDvpgs`; FLB
+dispatcher does not yet implement provider evaluation handlers. HAProxy requires `networkConfiguration.legacyLbFrontendDvpgs`; FLB
 discovers frontend networks and VIP ranges. Unresolved FLB configuration is a
 discovery failure, not a prompt to guess network values.
 
@@ -279,10 +285,9 @@ bounds, unknown VDNs and conflicts between batches, belong to the concrete
 handlers, which have not shipped.
 
 `status.nsxWorkflows` is a map list keyed by `vdnName`, retaining the exact
-`workflowId` for recovery. The execution contract specifies `InfraTransitionComplete`
-and the matching condition for infrastructure, and `Completed` for namespace
-execution. It specifies `Finalized` for infrastructure finalization and `Committed`
-for namespace commit. Execution is implemented separately under UBMWM-12405.
+`workflowId` for recovery. Infrastructure execution reports `InfraTransitionComplete`
+and the matching condition; namespace execution reports `Completed`. Infrastructure
+finalization reports `Finalized`; namespace commit reports `Committed`.
 The checked-in `design-*.yaml` test fixtures retain all five current design output
 examples. Apply the samples under `build/yaml/samples/migration` to begin with
 `Evaluate`, then request each subsequent action after its prerequisites succeed.
@@ -306,8 +311,7 @@ post-planning revision/reset handling remains separate service work. Infrastruct
 no rollback-based reset path.
 
 The design explicitly marks post-planning input revisions/reset, SNAT fallback confirmation,
-resolved inventories, fabric provenance, rollback domains, cutover protection,
-operation checkpoints and detailed commit/approval recovery records as proposed
+reviewed plan snapshots, cutover protection and commit/approval contracts as proposed
 extensions requiring finalized schemas and concrete handlers. This API alignment
 does not implement those execution paths or remove the irreversible checkpoint
 guards. The namespace CRD now permits corrected inputs during Evaluate after a
@@ -328,6 +332,69 @@ workstream: every namespace must be imported before confirmation/Commit, using
 an explicitly selected project or a find-or-create project named after the
 namespace. These mappings are not additional transition CR inputs. VC-only
 migration uses the same namespace transition API without VCFA onboarding.
+
+## WBS 1.4.9 action dispatch and restart reconciliation
+
+Restart progress is reconstructed from existing Kubernetes resources and NSX
+workflow status on every reconciliation. A lost transition-status write reruns the
+same idempotent handler against observed state. There are no ConfigMap-backed
+locks, operation journals, fencing sessions, completion snapshots, per-workload
+step lists, or new `status.recovery` fields. The migration runtime does not add or
+remove recovery finalizers and has no ConfigMap or finalizer-update RBAC.
+
+For workloads, verify realized SubnetPorts, the NetworkInterface's confirmed actual
+target backing, and applicable NetworkResourceTransition/reservation state. Reuse
+completed work, wait for pending work and create only missing requests with stable
+identities. Desired references or existing but unrealized ports do not prove cutover.
+Keep source identities/backing available through existing child/workflow lifecycle
+contracts until no longer needed. If required historical identity or rollback state
+cannot be reconstructed, stop with the specific missing-contract diagnostic.
+
+The separately implemented admission webhook guarantees that at most one
+transition across both transition kinds may request Execute. Its contract must
+cover concurrent submissions, completion/handoff from Stage 1 to namespace batches,
+and action/deletion changes while cutover or rollback is unresolved. In particular,
+changing the action or a Failed phase must not silently end protection or permit a
+conflicting Execute. This branch does not implement that webhook or claim that a
+list of existing CRs provides atomic admission. WBS 1.1.4 owns that integration.
+
+Admission webhooks validate requests before Kubernetes accepts them: Execute
+exclusivity, cutover protection and Evaluate-to-Plan freshness belong to WBS 1.1.4.
+The controller processes accepted requests without confirmation callbacks or a
+second admission layer. It re-reads the live CR before dispatch to reject changed
+UID/action/generation or deletion. This check prevents dispatching stale intent;
+it does not implement webhook validation or guarantee atomic admission. Deploy the
+separate webhooks before enabling concrete migration handlers. There is no second
+ownership or protection record in ConfigMaps or transition status.
+
+The existing leader-election Lease selects the active controller process. The
+engine mutex serializes reconciliations inside that process; it is not a durable
+cross-transition lock. Preparation, Derive, Commit and Finalize use stable resource
+identities, idempotent APIs and live ownership/dependency checks; this PR does not
+claim persisted exclusion of every external mutation. Concrete handlers must recheck
+these conditions immediately before writes. The controller also re-reads transition
+UID/action/generation and deletion state before dispatch to avoid executing stale
+intent. Admission guards must prevent deletion of unresolved active transitions;
+the controller skips objects already marked for deletion and performs no implicit
+external cleanup.
+
+Existing `lastAction`, `actionState`, `actionGeneration`, workflow/SNAT references
+and engine-owned `irreversibleAction` retain their dedicated purposes. Commit and
+Finalize still require the irreversible marker to be stored before destructive work.
+Concrete handlers verify actual outcomes before returning Succeeded. Tests model
+observed SubnetPort readiness and failed transition-status publication to demonstrate
+restart without duplicate creation; full NetworkInterface/workload cutover remains
+concrete handler work. Tests verify changed intent and deletion prevent dispatch;
+existing dispatcher tests exercise accepted actions without admission callbacks.
+
+The branch is based on framework commit `a18391d0`. Resource naming, optional input
+diagnostics, generated schemas and examples belong to the framework; the single
+orchestration commit introduces no migration API/CRD changes. PR #1614 still targets
+upstream main because the framework branch exists only in the contributor fork,
+so its aggregate diff includes inherited framework changes until #1613 merges.
+
+Concrete external handlers remain unregistered. End-to-end WBS 1.4.9 acceptance
+requires the separately implemented admission webhook/guards and concrete services.
 
 ## Build and validate
 
@@ -380,12 +447,11 @@ removing the old Carvel package must not delete the CRDs or their instances.
 The old tera bootstrapper/build wiring is removed as part of that coordinated
 packaging change, not by this repository alone.
 
-Concrete handlers still need a durable fenced mutation lock, finalizers and
-admission protection, current NSX ownership/consumer checks, reviewed plan and
-resource provenance records, and approval/onboarding checks. UBMWM-12405 owns action dispatch, persisted execution checkpoints, dependency
-gates, and commit/finalize guards. Its follow-on branch must adopt the new
-namespace-only Rollback contract before integration. Concrete handlers must recheck dependencies
-under the durable lock.
+The WBS 1.4.9 runtime supplies action dispatch, checkpoints and dependency gates,
+and processes requests validated by separately implemented admission webhooks. It stores no ConfigMap coordination or recovery records.
+Concrete handlers need live ownership/consumer checks, reviewed plan verification,
+approval/onboarding checks and idempotent reconciliation. Admission webhooks remain
+separate WBS 1.1.4 work; concrete handlers repeat live checks before each effect.
 Never duplicate normal NSX controllers or delete active VPC/LB/SNAT resources.
 `NetworkResourceTransition` support is a prerequisite for real cutover handlers;
 it is not implemented by this scaffold. Container co-location does not replace
