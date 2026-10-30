@@ -160,12 +160,30 @@ func (errorOrgsClient) List(*string, *bool, *bool, *string, *int64, *bool, *stri
 	return model.OrgListResult{}, errors.New("403 Forbidden")
 }
 
-func TestRestoreDNSRecordsBestEffortOnOrgListError(t *testing.T) {
+func TestRestoreDNSRecordsFailsOnOrgListError(t *testing.T) {
 	svc := &DNSRecordService{
 		Service: common.Service{NSXClient: &nsx.Client{
 			OrgsClient: errorOrgsClient{}, ProjectClient: testProjectsClient{},
 		}},
 		DNSRecordStore: BuildDNSRecordStore(),
 	}
-	require.NoError(t, svc.restoreDNSRecordsFromProjects("unit-test", nil))
+	err := svc.restoreDNSRecordsFromProjects("unit-test", nil)
+	require.ErrorContains(t, err, "listing NSX organizations for DNS record restore")
+}
+
+type errorProjectsClient struct{ orgs.ProjectsClient }
+
+func (errorProjectsClient) List(string, *string, *bool, *bool, *string, *string, *int64, *bool, *string) (model.ProjectListResult, error) {
+	return model.ProjectListResult{}, errors.New("503 Service Unavailable")
+}
+
+func TestRestoreDNSRecordsFailsOnProjectListError(t *testing.T) {
+	svc := &DNSRecordService{
+		Service: common.Service{NSXClient: &nsx.Client{
+			OrgsClient: testOrgsClient{}, ProjectClient: errorProjectsClient{},
+		}},
+		DNSRecordStore: BuildDNSRecordStore(),
+	}
+	err := svc.restoreDNSRecordsFromProjects("unit-test", nil)
+	require.ErrorContains(t, err, "listing NSX projects in organization org1 for DNS record restore")
 }

@@ -119,8 +119,7 @@ func (s *DNSRecordService) restoreDNSRecordsFromProjects(cluster string, apiRead
 		for {
 			orgPage, err := s.NSXClient.OrgsClient.List(orgCursor, nil, nil, nil, nil, nil, nil)
 			if err != nil {
-				log.Warn("Failed to list NSX organizations for DNS record restore; skipping global project enumeration", "err", err)
-				break
+				return fmt.Errorf("listing NSX organizations for DNS record restore: %w", err)
 			}
 			for _, org := range orgPage.Results {
 				if org.Id == nil {
@@ -130,8 +129,7 @@ func (s *DNSRecordService) restoreDNSRecordsFromProjects(cluster string, apiRead
 				for {
 					projectPage, err := s.NSXClient.ProjectClient.List(*org.Id, projectCursor, nil, nil, nil, nil, nil, nil, nil)
 					if err != nil {
-						log.Warn("Failed to list NSX projects in organization for DNS record restore", "org", *org.Id, "err", err)
-						break
+						return fmt.Errorf("listing NSX projects in organization %s for DNS record restore: %w", *org.Id, err)
 					}
 					for _, project := range projectPage.Results {
 						if project.Id != nil {
