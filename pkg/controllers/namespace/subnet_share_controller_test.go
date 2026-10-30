@@ -1921,5 +1921,6 @@ func TestCreateSharedSubnetCR_WCPSegmentTrackingSubnet(t *testing.T) {
 	err := r.createSharedSubnetCR(context.Background(), "ns-shared", "/orgs/org-1/projects/proj-1/vpcs/vpc-1/subnets/sub-1", "", map[string]*v1alpha1.Subnet{})
 	assert.NoError(t, err)
 	assert.NotNil(t, createdCR)
-	assert.Equal(t, segmentPathVal, createdCR.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet])
+	assert.Equal(t, segmentPathVal, createdCR.Annotations[servicecommon.AnnotationSegmentPath])
+	assert.NotContains(t, createdCR.Labels, servicecommon.TagScopeWCPSegmentTrackingSubnet)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
@@ -195,6 +197,56 @@ func Test_InitializeSubnetPort(t *testing.T) {
 			if !reflect.DeepEqual(got.Service, commonService) {
 				t.Errorf("InitializeSubnetPort() got = %v, want %v", got.Service, commonService)
 			}
+		})
+	}
+}
+
+func TestInitializeSubnetPortSegmentPorts(t *testing.T) {
+	port := model.SegmentPort{
+		Id:          common.String("existing-segment-port"),
+		DisplayName: common.String("existing-port"),
+		Path:        common.String("/infra/segments/seg-1/ports/existing-segment-port"),
+		Tags: []model.Tag{{
+			Scope: common.String(common.TagScopeSubnetPortCRUID),
+			Tag:   common.String("cr-uid"),
+		}},
+	}
+	portData, errs := port.GetDataValue__()
+	require.Empty(t, errs)
+	for _, failSegmentSearch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("segmentSearchFailure=%t", failSegmentSearch), func(t *testing.T) {
+			var queries sync.Map
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(&fakeQueryClient{}), "List", func(_ *fakeQueryClient, query string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (model.SearchResponse, error) {
+				if strings.Contains(query, "resource_type:"+common.ResourceTypeSegmentPort+" ") {
+					queries.Store(common.ResourceTypeSegmentPort, true)
+					if failSegmentSearch {
+						return model.SearchResponse{}, fmt.Errorf("segment search failed")
+					}
+					return model.SearchResponse{Results: []*data.StructValue{portData.(*data.StructValue)}}, nil
+				}
+				queries.Store(common.ResourceTypeSubnetPort, true)
+				return model.SearchResponse{}, nil
+			})
+			defer patches.Reset()
+			service, err := InitializeSubnetPort(common.Service{NSXClient: &nsx.Client{
+				QueryClient: &fakeQueryClient{},
+				NsxConfig:   &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "cluster"}},
+			}}, &vpc.VPCService{}, &ipaddressallocation.IPAddressAllocationService{})
+			_, subnetQueried := queries.Load(common.ResourceTypeSubnetPort)
+			_, segmentQueried := queries.Load(common.ResourceTypeSegmentPort)
+			assert.True(t, subnetQueried)
+			assert.True(t, segmentQueried)
+			if failSegmentSearch {
+				require.ErrorContains(t, err, "segment search failed")
+				return
+			}
+			require.NoError(t, err)
+			cached, err := service.SegmentPortStore.GetSegmentPortByUID("cr-uid")
+			require.NoError(t, err)
+			require.NotNil(t, cached)
+			assert.Equal(t, *port.Id, *cached.Id)
+			assert.Equal(t, "/infra/segments/seg-1", *cached.ParentPath)
+			assert.True(t, service.ListNSXSubnetPortIDForCR().Has(*port.Id))
 		})
 	}
 }

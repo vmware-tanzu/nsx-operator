@@ -724,10 +724,10 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 	}
 
 	if tagVal := nsxutil.FindTag(nsxSubnet.Tags, common.TagScopeWCPSegmentTrackingSubnet); tagVal != "" {
-		if subnetCR.Labels == nil {
-			subnetCR.Labels = make(map[string]string)
+		if subnetCR.Annotations == nil {
+			subnetCR.Annotations = make(map[string]string)
 		}
-		subnetCR.Labels[common.TagScopeWCPSegmentTrackingSubnet] = tagVal
+		subnetCR.Annotations[common.AnnotationSegmentPath] = tagVal
 	}
 
 	// Map IPv4SubnetSize
