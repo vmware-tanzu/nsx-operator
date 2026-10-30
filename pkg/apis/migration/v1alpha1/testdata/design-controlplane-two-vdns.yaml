@@ -1,0 +1,39 @@
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+  generation: 1
+spec:
+  action: Evaluate
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  targetLbProvider: NSX_LB
+  networkConfiguration:
+    legacyLbFrontendDvpgs: [dvportgroup-1010]
+status:
+  observedGeneration: 1
+  lastAction: Evaluate
+  actionGeneration: 1
+  actionState: Running
+  phase: NeedsInput
+  detectedSourceLbProvider: HAPROXY
+  requiredInputs:
+  - key: spec.networkConfiguration.controlPlaneAndServiceDHCPNetworks[vdnName=vdn-cp-dhcp]
+    description: Supply the existing DHCP range, subnet mask and gateway for DHCP-backed VDN vdn-cp-dhcp. Static VDN vdn-services-static needs no DHCP input.
+  optionalInputs:
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-dhcp].tgwName
+    description: Optional TGW name for vdn-cp-dhcp; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-dhcp].vpcName
+    description: Optional VPC name for vdn-cp-dhcp; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-dhcp].dvcName
+    description: Optional DVC name for vdn-cp-dhcp; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-dhcp].subnetName
+    description: Optional VLAN extension subnet name for vdn-cp-dhcp; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-services-static].tgwName
+    description: Optional TGW name for vdn-services-static; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-services-static].vpcName
+    description: Optional VPC name for vdn-services-static; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-services-static].dvcName
+    description: Optional DVC name for vdn-services-static; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-services-static].subnetName
+    description: Optional VLAN extension subnet name for vdn-services-static; omitted names are generated.

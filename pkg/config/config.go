@@ -196,12 +196,18 @@ type Validate interface {
 	validate() error
 }
 
+// RegisterFlags registers shared NSX options without parsing the command line.
+// Additional binaries can register their own flags before choosing when to parse.
+func RegisterFlags(flags *flag.FlagSet) {
+	flags.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
+	flags.StringVar(&ProbeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
+	flags.StringVar(&MetricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
+	flags.IntVar(&LogLevel, "log-level", 0, "Use zap-core log system.")
+	flags.IntVar(&WebhookServerPort, "webhook-server-port", defaultWebhookPort, "Port number to expose the controller webhook server")
+}
+
 func AddFlags() {
-	flag.StringVar(&configFilePath, "nsxconfig", nsxOperatorDefaultConf, "NSX Operator configuration file path")
-	flag.StringVar(&ProbeAddr, "health-probe-bind-address", ":8384", "The address the probe endpoint binds to.")
-	flag.StringVar(&MetricsAddr, "metrics-bind-address", ":8093", "The address the metrics endpoint binds to.")
-	flag.IntVar(&LogLevel, "log-level", 0, "Use zap-core log system.")
-	flag.IntVar(&WebhookServerPort, "webhook-server-port", defaultWebhookPort, "Port number to expose the controller webhook server")
+	RegisterFlags(flag.CommandLine)
 	flag.Parse()
 }
 

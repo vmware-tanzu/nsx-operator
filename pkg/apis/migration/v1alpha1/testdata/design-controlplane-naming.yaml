@@ -1,0 +1,18 @@
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+spec:
+  action: Evaluate
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  targetLbProvider: NSX_LB
+  networkConfiguration:
+    resourceNaming:
+      networks:
+      - vdnName: vdn-cp-services-1
+        tgwName: tgw-infra
+        vpcName: vpc-primary
+        dvcName: dvc-infra
+        subnetName: subnet-infra
+      loadBalancerVpcName: vpc-lb

@@ -20,3 +20,8 @@ Right now nsx-operator supports SecurityPolicy CRD reconciling, check out
 ## License
 
 This repository is available under the [Apache 2.0 license](LICENSE).
+
+## Supervisor network migration
+
+The optional migration container and framework are described in
+[Supervisor network migration](docs/supervisor-network-migration-operator.md).
