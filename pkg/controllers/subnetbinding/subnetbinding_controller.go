@@ -85,6 +85,17 @@ func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
 	if err := r.Client.List(ctx, bindingMapList); err != nil {
 		return restoreList, err
 	}
+
+	subnetSetList := &v1alpha1.SubnetSetList{}
+	if err := r.Client.List(ctx, subnetSetList); err != nil {
+		return restoreList, err
+	}
+	subnetSetMap := make(map[types.NamespacedName]*v1alpha1.SubnetSet, len(subnetSetList.Items))
+	for i := range subnetSetList.Items {
+		ss := &subnetSetList.Items[i]
+		subnetSetMap[types.NamespacedName{Namespace: ss.Namespace, Name: ss.Name}] = ss
+	}
+
 	for _, bindingMap := range bindingMapList.Items {
 		if !bindingMap.DeletionTimestamp.IsZero() {
 			continue
@@ -95,11 +106,7 @@ func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
 		if bindingMap.Status.VLANTrafficTag == nil && (!bindingMap.Spec.HasVlanTrafficTag() || len(r.SubnetBindingService.BindingStore.GetBindingsByBindingMapCRUID(string(bindingMap.UID))) == 0) {
 			continue
 		}
-		empty, err := r.isEmptyRestoreTargetSubnetSet(ctx, &bindingMap)
-		if err != nil {
-			return nil, err
-		}
-		if empty {
+		if r.isEmptyRestoreTargetSubnetSet(&bindingMap, subnetSetMap) {
 			// A dynamic SubnetSet may legitimately scale to zero. Its binding
 			// has no current NSX targets to restore; retain the published VLAN.
 			continue
@@ -114,19 +121,16 @@ func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
 
 // isEmptyRestoreTargetSubnetSet distinguishes a valid scale-to-zero state from
 // NSX subnets that are missing despite still being recorded in CR status.
-func (r *Reconciler) isEmptyRestoreTargetSubnetSet(ctx context.Context, binding *v1alpha1.SubnetConnectionBindingMap) (bool, error) {
+func (r *Reconciler) isEmptyRestoreTargetSubnetSet(binding *v1alpha1.SubnetConnectionBindingMap, subnetSetMap map[types.NamespacedName]*v1alpha1.SubnetSet) bool {
 	if binding.Spec.TargetSubnetSetName == "" || binding.Spec.TargetSubnetName != "" {
-		return false, nil
+		return false
 	}
-	subnetSet := &v1alpha1.SubnetSet{}
 	key := types.NamespacedName{Namespace: binding.Namespace, Name: binding.Spec.TargetSubnetSetName}
-	if err := r.Client.Get(ctx, key, subnetSet); err != nil {
-		return false, fmt.Errorf("failed to get restore target SubnetSet %s: %w", key, err)
+	subnetSet, exists := subnetSetMap[key]
+	if !exists || !subnetSet.DeletionTimestamp.IsZero() || subnetSet.Spec.SubnetNames != nil || len(subnetSet.Status.Subnets) > 0 {
+		return false
 	}
-	if !subnetSet.DeletionTimestamp.IsZero() || subnetSet.Spec.SubnetNames != nil || len(subnetSet.Status.Subnets) > 0 {
-		return false, nil
-	}
-	return len(r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))) == 0, nil
+	return len(r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))) == 0
 }
 
 func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {

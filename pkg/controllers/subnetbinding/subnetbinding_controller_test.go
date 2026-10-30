@@ -1823,10 +1823,6 @@ func TestRestoreWithEmptyTargetSubnetSet(t *testing.T) {
 					return []*model.VpcSubnet{{Path: common.String("/orgs/default/projects/default/vpcs/vpc-1/subnets/child")}}
 				})
 			list, err := r.getRestoreList()
-			if scenario == "missing SubnetSet" {
-				require.ErrorContains(t, err, "failed to get restore target SubnetSet")
-				return
-			}
 			require.NoError(t, err)
 			if scenario == "scaled to zero" {
 				assert.Empty(t, list)
@@ -1846,7 +1842,7 @@ func TestRestoreWithEmptyTargetSubnetSet(t *testing.T) {
 				return
 			}
 			assert.Equal(t, []types.NamespacedName{{Namespace: binding.Namespace, Name: binding.Name}}, list)
-			if scenario == "expected subnet missing" {
+			if scenario == "expected subnet missing" || scenario == "missing SubnetSet" {
 				require.NoError(t, r.RestoreReconcile())
 				current := &v1alpha1.SubnetConnectionBindingMap{}
 				require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}, current))
