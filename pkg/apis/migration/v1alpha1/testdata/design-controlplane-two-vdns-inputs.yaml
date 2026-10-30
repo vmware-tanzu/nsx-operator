@@ -1,0 +1,30 @@
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+spec:
+  action: Evaluate
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  targetLbProvider: NSX_LB
+  networkConfiguration:
+    legacyLbFrontendDvpgs: [dvportgroup-1010]
+    controlPlaneAndServiceDHCPNetworks:
+    - vdnName: vdn-cp-dhcp
+      dhcpRange:
+        start: 192.168.10.100
+        end: 192.168.10.200
+      subnetMask: 255.255.255.0
+      gatewayAddress: 192.168.10.1
+    resourceNaming:
+      networks:
+      - vdnName: vdn-cp-dhcp
+        tgwName: migration-infra-tgw
+        vpcName: migration-primary-vpc
+        dvcName: migration-cp-dvc
+        subnetName: migration-cp-subnet
+      - vdnName: vdn-services-static
+        tgwName: migration-infra-tgw
+        vpcName: migration-primary-vpc
+        dvcName: migration-services-dvc
+        subnetName: migration-services-subnet

@@ -1,0 +1,60 @@
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NamespaceNetworkTransition
+metadata:
+  generation: 5
+  name: batch-finance-prod
+spec:
+  action: Plan
+  namespaces:
+  - finance-prod
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  networkConfiguration:
+    resourceNaming:
+      networks:
+      - vdnName: vdn-tenant-1
+        tgwName: tgw-workload
+        vpcName: vpc-workload
+        dvcName: dvc-workload
+        subnetName: subnet-workload
+    namespaceDHCPNetworks:
+    - dhcpRange:
+        end: 10.10.10.200
+        start: 10.10.10.100
+      vdnName: vdn-tenant-1
+      gatewayAddress: 10.10.10.1
+      subnetMask: 255.255.255.0
+status:
+  actionGeneration: 5
+  actionState: Succeeded
+  conditions:
+  - lastTransitionTime: '2026-10-09T15:20:00Z'
+    message: All 24 workloads compatible with SubnetPort live rebind.
+    observedGeneration: 5
+    reason: EvaluationPassed
+    status: 'True'
+    type: WorkloadCompatibilityEvaluated
+  - lastTransitionTime: '2026-10-09T15:21:00Z'
+    message: NSX Policy Plan phase completed successfully. Blueprint available in the NSX workflow conversion payload.
+    observedGeneration: 5
+    reason: PlanGeneratedSuccessfully
+    status: 'True'
+    type: MigrationPlanSynthesized
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Illustrative migration status; concrete milestones require service handlers.
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: Ready
+  lastAction: Plan
+  namespaceStatuses:
+  - message: 'Migration blueprint synthesized: 1 subnet, 24 workloads, 2 VIPs ready
+      for conversion.'
+    name: finance-prod
+    phase: PlanReady
+    reason: MigrationInProgress
+  nsxWorkflows:
+  - workflowId: wf-batch-finance-01
+    vdnName: vdn-source-1
+  observedGeneration: 5
+  phase: PlanReady

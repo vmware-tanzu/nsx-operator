@@ -1,0 +1,31 @@
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+  generation: 1
+spec:
+  action: Evaluate
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  targetLbProvider: NSX_LB
+  networkConfiguration:
+    legacyLbFrontendDvpgs: [dvportgroup-1010]
+status:
+  observedGeneration: 1
+  lastAction: Evaluate
+  actionGeneration: 1
+  actionState: Running
+  phase: NeedsInput
+  detectedSourceLbProvider: HAPROXY
+  optionalInputs:
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-services-1].tgwName
+    description: Optional TGW name for vdn-cp-services-1; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-services-1].vpcName
+    description: Optional VPC name for vdn-cp-services-1; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-services-1].dvcName
+    description: Optional DVC name for vdn-cp-services-1; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-services-1].subnetName
+    description: Optional VLAN extension subnet name for vdn-cp-services-1; omitted names are generated.
+  requiredInputs:
+  - key: spec.networkConfiguration.controlPlaneAndServiceDHCPNetworks[vdnName=vdn-cp-services-1]
+    description: Supply the existing DHCP range, contiguous subnet mask and gateway for VDN vdn-cp-services-1.
