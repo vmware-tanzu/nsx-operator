@@ -40,6 +40,7 @@ var (
 type SubnetPortService struct {
 	servicecommon.Service
 	SubnetPortStore            *SubnetPortStore
+	SegmentPortStore           *SegmentPortStore
 	VPCService                 servicecommon.VPCServiceProvider
 	IpAddressAllocationService servicecommon.IPAddressAllocationServiceProvider
 	builder                    *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
@@ -50,10 +51,9 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	builder, _ := servicecommon.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 2)
 
-	wg.Add(1)
+	wg.Add(2)
 
 	subnetPortService := &SubnetPortService{
 		Service:                    service,
@@ -63,21 +63,19 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	}
 
 	subnetPortService.SubnetPortStore = setupStore()
+	subnetPortService.SegmentPortStore = setupSegmentPortStore()
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
+	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, servicecommon.ResourceTypeSegmentPort, nil, subnetPortService.SegmentPortStore)
+	wg.Wait()
+	close(fatalErrors)
 
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
-		return subnetPortService, err
+	var initErr error
+	for err := range fatalErrors {
+		initErr = errors.Join(initErr, err)
 	}
 
-	return subnetPortService, nil
+	return subnetPortService, initErr
 }
 
 func setupStore() *SubnetPortStore {
@@ -363,21 +361,39 @@ func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubne
 	return nil
 }
 
-func (service *SubnetPortService) DeleteSubnetPortById(portID string) error {
-	nsxSubnetPort := service.SubnetPortStore.GetByKey(portID)
-	if nsxSubnetPort == nil || nsxSubnetPort.Id == nil {
-		log.Info("NSX subnet port is not found in store, skip deleting it", "id", portID)
-		return nil
+func (service *SubnetPortService) DeletePortById(portID string) error {
+	if service.SegmentPortStore != nil {
+		if nsxSegmentPort := service.SegmentPortStore.GetByKey(portID); nsxSegmentPort != nil && nsxSegmentPort.Id != nil {
+			return service.DeleteSegmentPort(nsxSegmentPort)
+		}
 	}
-	return service.DeleteSubnetPort(nsxSubnetPort)
+	if service.SubnetPortStore != nil {
+		if nsxSubnetPort := service.SubnetPortStore.GetByKey(portID); nsxSubnetPort != nil && nsxSubnetPort.Id != nil {
+			return service.DeleteSubnetPort(nsxSubnetPort)
+		}
+	}
+	log.Info("NSX port is not found in store, skip deleting it", "id", portID)
+	return nil
+}
+
+func (service *SubnetPortService) DeleteSubnetPortById(portID string) error {
+	return service.DeletePortById(portID)
 }
 
 func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
 	log.Trace("Listing subnet port CR UIDs")
 	subnetPortSet := sets.New[string]()
-	for _, subnetPortCRUid := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
-		subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)
-		subnetPortSet.Insert(subnetPortIDs...)
+	if service.SubnetPortStore != nil {
+		for _, subnetPortCRUid := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
+			subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)
+			subnetPortSet.Insert(subnetPortIDs...)
+		}
+	}
+	if service.SegmentPortStore != nil {
+		for _, subnetPortCRUid := range service.SegmentPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID).UnsortedList() {
+			subnetPortIDs, _ := service.SegmentPortStore.IndexKeys(servicecommon.TagScopeSubnetPortCRUID, subnetPortCRUid)
+			subnetPortSet.Insert(subnetPortIDs...)
+		}
 	}
 	return subnetPortSet
 }
@@ -385,11 +401,52 @@ func (service *SubnetPortService) ListNSXSubnetPortIDForCR() sets.Set[string] {
 func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
 	log.Trace("Listing pod UIDs")
 	subnetPortSet := sets.New[string]()
-	for _, podUID := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID).UnsortedList() {
-		subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopePodUID, podUID)
-		subnetPortSet.Insert(subnetPortIDs...)
+	if service.SubnetPortStore != nil {
+		for _, podUID := range service.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID).UnsortedList() {
+			subnetPortIDs, _ := service.SubnetPortStore.IndexKeys(servicecommon.TagScopePodUID, podUID)
+			subnetPortSet.Insert(subnetPortIDs...)
+		}
+	}
+	if service.SegmentPortStore != nil {
+		for _, podUID := range service.SegmentPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID).UnsortedList() {
+			subnetPortIDs, _ := service.SegmentPortStore.IndexKeys(servicecommon.TagScopePodUID, podUID)
+			subnetPortSet.Insert(subnetPortIDs...)
+		}
 	}
 	return subnetPortSet
+}
+
+// GetSegmentTrackingPath checks if the NSX Subnet is an opaque/segment tracking subnet
+func (service *SubnetPortService) GetSegmentTrackingPath(nsxSubnet *model.VpcSubnet) (string, bool) {
+	if nsxSubnet == nil {
+		return "", false
+	}
+	segmentPath := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeWCPSegmentTrackingSubnet)
+	return segmentPath, segmentPath != ""
+}
+
+// DeletePortByUID dynamically checks SegmentPortStore first, then SubnetPortStore
+func (service *SubnetPortService) DeletePortByUID(uid types.UID) error {
+	if service.SegmentPortStore != nil {
+		segmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(uid)
+		if err != nil {
+			return err
+		}
+		if segmentPort != nil && segmentPort.Id != nil {
+			return service.DeleteSegmentPort(segmentPort)
+		}
+	}
+
+	if service.SubnetPortStore != nil {
+		vpcSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(uid)
+		if err != nil {
+			return err
+		}
+		if vpcSubnetPort != nil {
+			return service.DeleteSubnetPort(vpcSubnetPort)
+		}
+	}
+	return nil
 }
 
 func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(crUid types.UID) string {
@@ -481,13 +538,23 @@ func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) 
 
 	crSubnetPortIDsSet := sets.New[string]()
 	for _, subnetPort := range subnetPortList.Items {
-		vpcSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.UID)
-		if err != nil {
-			log.Error(err, "Failed to get VpcSubnetPort by SubnetPort CR", "CR UID", subnetPort.UID)
-			continue
+		if service.SubnetPortStore != nil {
+			vpcSubnetPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.UID)
+			if err != nil {
+				log.Error(err, "Failed to get VpcSubnetPort by SubnetPort CR", "CR UID", subnetPort.UID)
+			} else if vpcSubnetPort != nil && vpcSubnetPort.Id != nil {
+				crSubnetPortIDsSet.Insert(*vpcSubnetPort.Id)
+				continue
+			}
 		}
-		if vpcSubnetPort != nil {
-			crSubnetPortIDsSet.Insert(*vpcSubnetPort.Id)
+		if service.SegmentPortStore != nil {
+			segmentPort, err := service.GetSegmentPortForSubnetPort(&subnetPort.ObjectMeta)
+			if err != nil {
+				log.Error(err, "Failed to get SegmentPort by SubnetPort CR", "CR UID", subnetPort.UID)
+				return nil, err
+			} else if segmentPort != nil && segmentPort.Id != nil {
+				crSubnetPortIDsSet.Insert(*segmentPort.Id)
+			}
 		}
 	}
 	return crSubnetPortIDsSet, nil
@@ -503,6 +570,24 @@ func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) [
 		tagName := nsxutil.FindTag(subnetport.Tags, servicecommon.TagScopeSubnetPortCRName)
 		if tagName == name {
 			result = append(result, subnetport)
+		}
+	}
+	return result
+}
+
+func (service *SubnetPortService) ListSegmentPortByName(ns string, name string) []*model.SegmentPort {
+	var result []*model.SegmentPort
+	if service.SegmentPortStore == nil {
+		return result
+	}
+	for _, obj := range service.SegmentPortStore.List() {
+		port := obj.(*model.SegmentPort)
+		if nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName) != name {
+			continue
+		}
+		if nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace) == ns ||
+			nsxutil.FindTag(port.Tags, servicecommon.TagScopeNamespace) == ns {
+			result = append(result, port)
 		}
 	}
 	return result

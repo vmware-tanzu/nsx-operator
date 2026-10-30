@@ -465,11 +465,17 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 			continue
 		}
 		subnetPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(pod.GetUID())
-		if err != nil || subnetPort == nil {
-			log.Info("Not found existing VpcSubnetPort for Pod", "POD UID", pod.GetUID())
+		if err == nil && subnetPort != nil {
+			PodSet.Insert(*subnetPort.Id)
 			continue
 		}
-		PodSet.Insert(*subnetPort.Id)
+		segmentPort, err := r.SubnetPortService.SegmentPortStore.GetSegmentPortByUID(pod.GetUID())
+		if err != nil {
+			return err
+		}
+		if segmentPort != nil {
+			PodSet.Insert(*segmentPort.Id)
+		}
 	}
 
 	var errList []error
@@ -484,6 +490,15 @@ func (r *PodReconciler) CollectGarbage(ctx context.Context) error {
 				r.SubnetPortService.NSXClient != nil &&
 				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && common.IsStatefulSetSubnetPort(nsxSubnetPort) {
 				log.Info("Skipping pod GC for StatefulSet pod subnet port", "NSXSubnetPortID", elem, "statefulset-uid", common.GetStsUID(nsxSubnetPort))
+				continue
+			}
+		}
+		segmentStore := r.SubnetPortService.SegmentPortStore
+		if segmentStore != nil && segmentStore.Indexer != nil {
+			if segmentPort := segmentStore.GetByKey(elem); segmentPort != nil &&
+				r.SubnetPortService.NSXClient != nil &&
+				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && nsxutil.FindTag(segmentPort.Tags, servicecommon.TagScopeStatefulSetUID) != "" {
+				log.Info("Skipping pod GC for StatefulSet pod segment port", "NSXSegmentPortID", elem)
 				continue
 			}
 		}
