@@ -359,11 +359,16 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// newly recreated CR. Keep the original network data for the NSX restore.
 			subnetPort.Status = *old_status.DeepCopy()
 		}
-		raDeactivated, dnsResolverIPs, err := r.VPCService.GetSubnetPortVPCConfigByVPCPath(nsxSubnetPath)
-		if err != nil {
-			log.Error(err, "Failed to get VPC configuration (RA mode and DNS resolver IPs) for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get VPC configuration (RA mode and DNS resolver IPs) for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
-			return common.ResultNormal, err
+		segmentPath, isSegmentTracking := r.SubnetPortService.GetSegmentTrackingPath(nsxSubnet)
+		var raDeactivated bool
+		var dnsResolverIPs []string
+		if !isSegmentTracking {
+			raDeactivated, dnsResolverIPs, err = r.VPCService.GetSubnetPortVPCConfigByVPCPath(nsxSubnetPath)
+			if err != nil {
+				log.Error(err, "Failed to get VPC configuration (RA mode and DNS resolver IPs) for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get VPC configuration (RA mode and DNS resolver IPs) for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+				return common.ResultNormal, err
+			}
 		}
 		if !subnetPortSupportsDNS(subnetPort) {
 			dnsResolverIPs = nil
@@ -375,7 +380,6 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			dnsResolverIPs = filterDNSResolverIPsByIPType(dnsResolverIPs, interfaceIPType)
 		}
 
-		segmentPath, isSegmentTracking := r.SubnetPortService.GetSegmentTrackingPath(nsxSubnet)
 		return r.reconcileSubnetPort(ctx, req, subnetPort, old_status, nsxSubnet, nsxSubnetPath, segmentPath, isSegmentTracking, labels, isVmSubnetPort, interfaceIPType, vm, nicName, raDeactivated, dnsResolverIPs, isPublicSubnet, contextID, pod, reader, reusedPort)
 	} else {
 		r.StatusUpdater.IncreaseDeleteTotal()
@@ -528,11 +532,10 @@ func (r *SubnetPortReconciler) reconcileSubnetPort(
 
 		if !isSegmentTracking {
 			r.populateNetworkInterfaceConfig(subnetPort, old_status, nsxSubnet, nsxPortState, raDeactivated, dnsResolverIPs)
-		}
-
-		err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
-		if err != nil {
-			log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
+			if err != nil {
+				log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+			}
 		}
 	}
 
@@ -968,7 +971,8 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 	r.portOwnershipMutex.Lock()
 	defer r.portOwnershipMutex.Unlock()
 	nsxSubnetPorts := r.SubnetPortService.ListSubnetPortByName(ns, name)
-	if len(nsxSubnetPorts) == 0 {
+	nsxSegmentPorts := r.SubnetPortService.ListSegmentPortByName(ns, name)
+	if len(nsxSubnetPorts) == 0 && len(nsxSegmentPorts) == 0 {
 		return nil
 	}
 
@@ -1006,10 +1010,21 @@ func (r *SubnetPortReconciler) deleteSubnetPortByName(ctx context.Context, ns st
 			return err
 		}
 	}
+	log.Info("Successfully deleted nsxSubnetPort", "Namespace", ns, "Name", name)
 	if externalIpAddress != nil {
 		r.collectAddressBindingGarbage(ctx, &ns, externalIpAddress)
 	}
-	log.Info("Successfully deleted nsxSubnetPort", "Namespace", ns, "Name", name)
+	for _, port := range nsxSegmentPorts {
+		if nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) &&
+			nsxutil.FindTag(port.Tags, servicecommon.TagScopeStatefulSetUID) != "" {
+			log.Info("Ignoring segment port deletion for StatefulSet pod", "pod", name)
+			continue
+		}
+		if err := r.SubnetPortService.DeleteSegmentPort(port); err != nil {
+			return err
+		}
+		log.Info("Successfully deleted nsxSegmentPort", "Namespace", ns, "Name", name)
+	}
 	return nil
 }
 
@@ -1744,6 +1759,15 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(crSubnetPortIDsSet)
 	for elem := range diffSet {
+		segmentStore := r.SubnetPortService.SegmentPortStore
+		if segmentStore != nil && segmentStore.Indexer != nil {
+			if nsxSegmentPort := segmentStore.GetByKey(elem); nsxSegmentPort != nil &&
+				r.SubnetPortService.NSXClient != nil &&
+				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && nsxutil.FindTag(nsxSegmentPort.Tags, servicecommon.TagScopeStatefulSetUID) != "" {
+				log.Info("Skipping SubnetPort GC for StatefulSet segment port", "NSXSegmentPortID", elem, "statefulset-uid", nsxutil.FindTag(nsxSegmentPort.Tags, servicecommon.TagScopeStatefulSetUID))
+				continue
+			}
+		}
 		store := r.SubnetPortService.SubnetPortStore
 		if store != nil && store.Indexer != nil {
 			if nsxSubnetPort := store.GetByKey(elem); nsxSubnetPort != nil &&
@@ -1916,47 +1940,41 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 	return nil
 }
 
-// getSubnetBySubnetPort is only used in restore mode to find the Subnet by comparing the desired GatewayIP of the SubnetPort with the target NSX Subnet
-// For SubnetPort on Subnet, subnetCR is required to find NSX Subnet for shared Subnet or auto-created Subnet
-// For SubnetPort on auto-created SubnetSet, NSX Subnets are found from cache based on SubnetSet Name
-// For SubnetPort on pre-created SubnetSet, NSX Subnets are found based on the Subnet CRs
-func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (string, error) {
-	var subnets []*model.VpcSubnet
-	var err error
+// getNSXSubnetsForSubnetPort returns the NSX Subnets selected by the parent Subnet or SubnetSet.
+func (r *SubnetPortReconciler) getNSXSubnetsForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) ([]*model.VpcSubnet, error) {
 	if len(subnetPort.Spec.Subnet) > 0 {
-		// Use GetSubnetByCR to get NSX Subnet for shared Subnet or auto-created Subnet based on SubnetCR annotation
 		if subnetCR == nil {
-			err := fmt.Errorf("Subnet CR %s/%s not provided", subnetPort.Namespace, subnetPort.Spec.Subnet)
-			return "", err
+			return nil, fmt.Errorf("Subnet CR %s/%s not provided", subnetPort.Namespace, subnetPort.Spec.Subnet)
 		}
 		nsxSubnet, err := r.SubnetService.GetSubnetByCR(subnetCR)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		subnets = append(subnets, nsxSubnet)
-	} else if len(subnetPort.Spec.SubnetSet) > 0 {
-		subnetSet := &v1alpha1.SubnetSet{}
-		namespacedName := types.NamespacedName{
-			Name:      subnetPort.Spec.SubnetSet,
-			Namespace: subnetPort.Namespace,
-		}
-		if err := r.Client.Get(context.TODO(), namespacedName, subnetSet); err != nil {
-			log.Error(err, "Failed to get SubnetSet CR", "SubnetSetCR", namespacedName)
-			return "", err
-		}
-		subnets, err = common.GetNSXSubnetsForSubnetSet(r.Client, subnetSet, r.SubnetService)
-		if err != nil {
-			return "", err
+		return []*model.VpcSubnet{nsxSubnet}, nil
+	}
+
+	var subnetSet *v1alpha1.SubnetSet
+	if len(subnetPort.Spec.SubnetSet) > 0 {
+		subnetSet = &v1alpha1.SubnetSet{}
+		namespacedName := types.NamespacedName{Name: subnetPort.Spec.SubnetSet, Namespace: subnetPort.Namespace}
+		if err := r.Client.Get(ctx, namespacedName, subnetSet); err != nil {
+			return nil, err
 		}
 	} else {
-		subnetSet, err := common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.DefaultVMNetwork)
+		var err error
+		subnetSet, err = common.GetDefaultSubnetSetByNamespace(r.Client, subnetPort.Namespace, servicecommon.DefaultVMNetwork)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		subnets, err = common.GetNSXSubnetsForSubnetSet(r.Client, subnetSet, r.SubnetService)
-		if err != nil {
-			return "", err
-		}
+	}
+	return common.GetNSXSubnetsForSubnetSet(r.Client, subnetSet, r.SubnetService)
+}
+
+// getSubnetBySubnetPort finds the original Subnet by its saved gateway or IP in restore mode.
+func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.SubnetPort, subnetCR *v1alpha1.Subnet) (string, error) {
+	subnets, err := r.getNSXSubnetsForSubnetPort(context.TODO(), subnetPort, subnetCR)
+	if err != nil {
+		return "", err
 	}
 	for _, address := range subnetPort.Status.NetworkInterfaceConfig.IPAddresses {
 		ip := net.ParseIP(address.Gateway)
@@ -2002,6 +2020,40 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		existing = true
 		return
 	}
+
+	existingSegmentPort, err := r.SubnetPortService.GetSegmentPortForSubnetPort(&subnetPort.ObjectMeta)
+	if err != nil {
+		return
+	}
+	if existingSegmentPort != nil {
+		if existingSegmentPort.ParentPath == nil || *existingSegmentPort.ParentPath == "" {
+			err = fmt.Errorf("segment port %s has no parent segment path", *existingSegmentPort.Id)
+			return
+		}
+		var subnets []*model.VpcSubnet
+		subnets, err = r.getNSXSubnetsForSubnetPort(ctx, subnetPort, subnetCR)
+		if err != nil {
+			return
+		}
+		for _, nsxSubnet := range subnets {
+			segmentPath, isSegmentTracking := r.SubnetPortService.GetSegmentTrackingPath(nsxSubnet)
+			if !isSegmentTracking || segmentPath != *existingSegmentPort.ParentPath || nsxSubnet.Path == nil || *nsxSubnet.Path == "" {
+				continue
+			}
+			if subnetPath != "" && subnetPath != *nsxSubnet.Path {
+				err = fmt.Errorf("multiple tracking Subnets found for segment %s", segmentPath)
+				return
+			}
+			subnetPath = *nsxSubnet.Path
+		}
+		if subnetPath == "" {
+			err = fmt.Errorf("tracking Subnet not found for segment %s", *existingSegmentPort.ParentPath)
+			return
+		}
+		existing = true
+		return
+	}
+
 	// Check if this is a StatefulSet pod-owned SubnetPort and we can reuse an existing SubnetPort
 	if podName := common.GetPodNameForSubnetPort(subnetPort); podName != "" && nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 		pod, errGet := common.GetPodForSubnetPort(ctx, r.Client, subnetPort)
