@@ -65,7 +65,7 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 }
 
 func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj *v1alpha1.IPAddressAllocation, restoreMode bool) (bool, error) {
-	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
+	nsxIPAddressAllocation, vpcInfo, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
 	if err != nil {
 		return false, err
 	}
@@ -99,14 +99,14 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		log.Info("IPAddressAllocation is not changed", "UID", obj.UID)
 		// If nsx operator is stopped between IPAddressAllocation creation and CR status update,
 		// we need to trigger the status update when IPAddressAllocation matching the spec exists.
-		if obj.Status.AllocationIPs != *existingIPAddressAllocation.AllocationIps {
+		if existingIPAddressAllocation.AllocationIps != nil && obj.Status.AllocationIPs != *existingIPAddressAllocation.AllocationIps {
 			obj.Status.AllocationIPs = *existingIPAddressAllocation.AllocationIps
 			return true, nil
 		}
 		return false, nil
 	}
 
-	if err := service.Apply(nsxIPAddressAllocation); err != nil {
+	if err := service.Apply(nsxIPAddressAllocation, vpcInfo); err != nil {
 		return false, err
 	}
 
@@ -114,6 +114,9 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	if err != nil {
 		log.Error(err, "Failed to get created ipaddressallocation", "UID", obj.UID)
 		return false, err
+	}
+	if createdIPAddressAllocation == nil {
+		return false, fmt.Errorf("created ipaddressallocation not found in cache for %s", obj.UID)
 	}
 	allocation_ips := createdIPAddressAllocation.AllocationIps
 	if allocation_ips == nil {
@@ -154,7 +157,7 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 		log.Debug("The IPAddressAllocation has been created, skipping", "AddressBinding", addressBinding)
 		return nil
 	}
-	nsxIPAddressAllocation, err := service.BuildIPAddressAllocation(addressBinding, subnetPort, restoreMode)
+	nsxIPAddressAllocation, vpcInfo, err := service.BuildIPAddressAllocation(addressBinding, subnetPort, restoreMode)
 	if err != nil {
 		return err
 	}
@@ -162,7 +165,7 @@ func (service *IPAddressAllocationService) CreateIPAddressAllocationForAddressBi
 	if nsxIPAddressAllocation == nil {
 		return nil
 	}
-	err = service.Apply(nsxIPAddressAllocation)
+	err = service.Apply(nsxIPAddressAllocation, vpcInfo)
 	if err != nil {
 		log.Error(err, "Failed to create NSX IPAddressAllocation for AddressBinding", "AddressBinding", addressBinding)
 		return err
@@ -204,15 +207,13 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNSXResourc
 	return err
 }
 
-func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
-	ns := service.GetIPAddressAllocationNamespace(nsxIPAddressAllocation)
-	VPCInfo := service.VPCService.ListVPCInfo(ns)
+func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.VpcIpAddressAllocation, VPCInfo []common.VPCResourceInfo) error {
 	if len(VPCInfo) == 0 {
 		err := nsxutil.NoEffectiveOption{Desc: "no valid org and project for ipaddressallocation"}
 		log.Error(err, "Failed to list VPCInfo for IPAddressAllocation")
 		return err
 	}
-	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
+	errPatch := service.NSXClient.IPAddressAllocationClient.Patch(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].VPCID, *nsxIPAddressAllocation.Id, *nsxIPAddressAllocation)
 	errPatch = nsxutil.TransNSXApiError(errPatch)
 	if errPatch != nil {
 		// not return err, try to get it from nsx, in case if cidr not realized at the first time
@@ -220,7 +221,7 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 		log.Error(errPatch, "Patch failed, try to get it from nsx", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	}
 	// get back from nsx, it contains path which is used to parse vpc info when deleting
-	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].ID, *nsxIPAddressAllocation.Id)
+	nsxIPAddressAllocationNew, errGet := service.NSXClient.IPAddressAllocationClient.Get(VPCInfo[0].OrgID, VPCInfo[0].ProjectID, VPCInfo[0].VPCID, *nsxIPAddressAllocation.Id)
 	errGet = nsxutil.TransNSXApiError(errGet)
 	if errGet != nil {
 		if errPatch != nil {

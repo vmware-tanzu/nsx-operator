@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestKey(t *testing.T) {
@@ -26,6 +28,29 @@ func TestValue(t *testing.T) {
 	expectedDataValue, _ := ComparableToIpAddressAllocation(iap).GetDataValue__()
 
 	assert.Equal(t, expectedDataValue, dataValue)
+}
+
+func TestCompareIPAddressAllocationUsedFor(t *testing.T) {
+	lbFrontend := []string{model.VpcIpAddressAllocation_USED_FOR_FRONTEND}
+	tests := []struct {
+		name     string
+		existing []string
+		expected []string
+		changed  bool
+	}{
+		{name: "ordinary allocation unchanged"},
+		{name: "LB allocation unchanged", existing: lbFrontend, expected: lbFrontend},
+		{name: "LB intent missing on NSX", expected: lbFrontend, changed: true},
+		{name: "LB intent absent from desired allocation", existing: lbFrontend, changed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existing := &model.VpcIpAddressAllocation{Id: String("allocation"), UsedFor: tt.existing}
+			expected := &model.VpcIpAddressAllocation{Id: String("allocation"), UsedFor: tt.expected}
+			changed := common.CompareResource(IpAddressAllocationToComparable(existing), IpAddressAllocationToComparable(expected))
+			assert.Equal(t, tt.changed, changed)
+		})
+	}
 }
 
 func TestIpAddressAllocationToComparable(t *testing.T) {
