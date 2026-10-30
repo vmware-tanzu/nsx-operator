@@ -1,0 +1,45 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Reference: Confluence page 2586034708, version 158, sections 4.1 and 4.2.
+# Adaptation: workflow handles are recorded per VDN; redundant status summaries are omitted.
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+spec:
+  sourceMode: "VSPHERE_VDS"
+  targetMode: "NSX_VPC"
+  targetLbProvider: "NSX_LB"
+  nsxProjectId: "proj-vcfa-org-01"         # Optional: pre-created VCFA Org project; defaults to 'default'
+  # Infrastructure has no Rollback; arrange WCP backup-and-restore recovery before migration.
+  action: "Evaluate"                      # Evaluate | Plan | Derive | Execute | Finalize
+  networkConfiguration:
+    resourceNaming:
+      networks:
+      - vdnName: vdn-cp-services-1
+        tgwName: migration-infra-tgw
+        vpcName: migration-primary-vpc
+        dvcName: migration-infra-dvc
+        subnetName: migration-infra-subnet
+      loadBalancerVpcName: migration-lb-vpc
+    legacyLbFrontendDvpgs: ["dvportgroup-1010"]   # HAProxy source input; FLB discovers its frontend networks
+    # Include for DHCP-backed control plane or Supervisor Service networks.
+    controlPlaneAndServiceDHCPNetworks:
+    - vdnName: vdn-cp-services-1
+      dhcpRange:
+        start: "10.2.1.100"
+        end: "10.2.1.200"
+      subnetMask: "255.255.255.0"
+      gatewayAddress: "10.2.1.1"
+
+status:
+  phase: "Evaluated"
+  detectedSourceLbProvider: "HAPROXY"
+  targetLbProvider: "NSX_LB"
+  nsxWorkflows:
+  - vdnName: "vdn-source-1"
+    workflowId: "wf-infra-dvs10"
+  targetNsxProject: "/orgs/default/projects/proj-vcfa-org-01"
+  primaryVpcPath: "/orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-primary"
+  loadBalancerVpcPath: "/orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-lb"

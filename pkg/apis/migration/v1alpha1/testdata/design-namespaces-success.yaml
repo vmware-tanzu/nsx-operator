@@ -1,0 +1,67 @@
+# Confluence page 2586034708, version 158. Illustrative handler output.
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NamespaceNetworkTransition
+metadata:
+  generation: 5
+  name: batch-ns-migration-01
+spec:
+  action: Execute
+  namespaces:
+  - ns1
+  - ns2
+  - ns3
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+status:
+  actionGeneration: 5
+  actionState: Succeeded
+  conditions:
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: L3 VLAN extension subnets derived successfully for all backing DVS switches.
+    observedGeneration: 5
+    reason: SubnetsProvisioned
+    status: 'True'
+    type: SubnetsDerived
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Network provider updated from VSPHERE_NETWORK to NSX_VPC.
+    observedGeneration: 5
+    reason: ProviderUpdated
+    status: 'True'
+    type: NetworkProviderTransitioned
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: All workload vNICs rebound to VPC subnets via SubnetPort CRs.
+    observedGeneration: 5
+    reason: vNICsRebound
+    status: 'True'
+    type: WorkloadsMigrated
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: All Load Balancer VIPs repatriated via IPAddressAllocation CRs.
+    observedGeneration: 5
+    reason: VIPsRepatriated
+    status: 'True'
+    type: LoadBalancerMigrated
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Illustrative migration status; concrete milestones require service handlers.
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: Ready
+  lastAction: Execute
+  namespaceStatuses:
+  - message: Workload vNICs and LB VIPs successfully rebound to VPC backing.
+    name: ns1
+    phase: Completed
+    reason: CutoverVerified
+  - message: Workload vNICs and LB VIPs successfully rebound to VPC backing.
+    name: ns2
+    phase: Completed
+    reason: CutoverVerified
+  - message: Workload vNICs and LB VIPs successfully rebound to VPC backing.
+    name: ns3
+    phase: Completed
+    reason: CutoverVerified
+  nsxWorkflows:
+  - workflowId: wf-batch-dvs10
+    vdnName: vdn-source-1
+  observedGeneration: 5
+  phase: Completed

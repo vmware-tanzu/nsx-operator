@@ -1,0 +1,92 @@
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  generation: 5
+  name: supervisor-vds-to-vpc
+spec:
+  action: Execute
+  nsxProjectId: proj-vcfa-org-01
+  sourceMode: VSPHERE_VDS
+  targetLbProvider: NSX_LB
+  targetMode: NSX_VPC
+  networkConfiguration:
+    resourceNaming:
+      networks:
+      - vdnName: vdn-cp-services-1
+        tgwName: tgw-infra
+        vpcName: vpc-primary
+        dvcName: dvc-infra
+        subnetName: subnet-infra
+      loadBalancerVpcName: vpc-lb
+    controlPlaneAndServiceDHCPNetworks:
+    - dhcpRange:
+        end: 10.2.1.200
+        start: 10.2.1.100
+      gatewayAddress: 10.2.1.1
+      subnetMask: 255.255.255.0
+      vdnName: vdn-cp-services-1
+    - dhcpRange:
+        end: 10.2.2.200
+        start: 10.2.2.100
+      gatewayAddress: 10.2.2.1
+      subnetMask: 255.255.255.0
+      vdnName: vdn-cp-services-2
+    legacyLbFrontendDvpgs:
+    - dvportgroup-1010
+status:
+  actionGeneration: 5
+  actionState: Succeeded
+  conditions:
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Resolved target NSX Project '/orgs/default/projects/proj-vcfa-org-01'.
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: TargetNsxProjectResolved
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: ''
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: PrimaryVpcProvisioned
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: ''
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: WorkloadIPAMMigrated
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: ''
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: VIPAMMigrated
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: ''
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: ControlPlaneRehomed
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: ''
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: InfraTransitionComplete
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Illustrative migration status; concrete milestones require service handlers.
+    observedGeneration: 5
+    reason: ActionCompleted
+    status: 'True'
+    type: Ready
+  detectedSourceLbProvider: HAPROXY
+  lastAction: Execute
+  loadBalancerVpcPath: /orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-lb
+  nsxWorkflows:
+  - workflowId: wf-infra-dvs10
+    vdnName: vdn-source-1
+  observedGeneration: 5
+  phase: InfraTransitionComplete
+  primaryVpcPath: /orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-primary
+  targetLbProvider: NSX_LB
+  targetNsxProject: /orgs/default/projects/proj-vcfa-org-01

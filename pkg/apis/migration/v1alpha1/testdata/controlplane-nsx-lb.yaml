@@ -1,0 +1,19 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+spec:
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  targetLbProvider: NSX_LB
+  action: Evaluate
+  networkConfiguration:
+    # Supply only when evaluation requests fallback addresses for exhausted VIP pools.
+    # These are backend addresses for the shared LB service, one per address family.
+    lbSnatIPv4: "10.2.1.50"
+    lbSnatIPv6: "2001:db8:2::50"
+    # Required for a HAProxy source; FLB discovers its frontend port groups.
+    legacyLbFrontendDvpgs: ["dvportgroup-1010"]
