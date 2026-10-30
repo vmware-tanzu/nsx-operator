@@ -1,0 +1,24 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+spec:
+  sourceMode: "VSPHERE_VDS"
+  targetMode: "NSX_VPC"
+  targetLbProvider: "NSX_LB"
+  nsxProjectId: "proj-vcfa-org-01"         # Optional: pre-created VCFA Org project; defaults to 'default'
+  # Infrastructure has no Rollback; arrange WCP backup-and-restore recovery before migration.
+  action: "Evaluate"                      # Evaluate | Plan | Derive | Execute | Finalize
+  networkConfiguration:
+    legacyLbFrontendDvpgs: ["dvportgroup-1010"]   # HAProxy source input; FLB discovers its frontend networks
+    # Include for DHCP-backed control plane or Supervisor Service networks.
+    controlPlaneAndServiceDHCPNetworks:
+    - vdnName: vdn-cp-services-1
+      dhcpRange:
+        start: "10.2.1.100"
+        end: "10.2.1.200"
+      subnetMask: "255.255.255.0"
+      gatewayAddress: "10.2.1.1"
