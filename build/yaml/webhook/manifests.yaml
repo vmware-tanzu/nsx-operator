@@ -11,6 +11,28 @@ webhooks:
     service:
       name: vmware-system-nsx-operator-webhook-service
       namespace: vmware-system-nsx
+      path: /validate-crd-nsx-vmware-com-v1alpha1-subnetportsetting
+  failurePolicy: Fail
+  name: subnetportsetting.validating.crd.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - crd.nsx.vmware.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    - DELETE
+    resources:
+    - subnetportsettings
+    - subnetportsettings/status
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: vmware-system-nsx-operator-webhook-service
+      namespace: vmware-system-nsx
       # kubebuilder webhookpath.
       path: /validate-crd-nsx-vmware-com-v1alpha1-subnetset
   failurePolicy: Fail
