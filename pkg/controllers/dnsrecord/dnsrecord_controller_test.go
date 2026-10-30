@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -1032,7 +1033,9 @@ func TestNetworkConfigDNSZoneChangeEnqueuesRecords(t *testing.T) {
 
 func TestNetworkConfigRecordListFailureIsRetried(t *testing.T) {
 	failList := true
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithInterceptorFuncs(interceptor.Funcs{
+	rec1 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"}}
+	rec2 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns2", Name: "rec2"}}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec1, rec2).WithInterceptorFuncs(interceptor.Funcs{
 		List: func(ctx context.Context, reader client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 			if _, ok := list.(*v1alpha1.DNSRecordList); ok && failList {
 				return errors.New("DNSRecord list unavailable")
@@ -1041,6 +1044,8 @@ func TestNetworkConfigRecordListFailureIsRetried(t *testing.T) {
 		},
 	}).Build()
 	r := &DNSRecordReconciler{Client: c}
+	queue := r.getQueue("dnsrecord-config-retry-test", workqueue.DefaultTypedControllerRateLimiter[controllerruntime.Request]())
+	t.Cleanup(queue.ShutDown)
 	nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "network-config"}}
 	reqs := r.networkConfigToDNSRecordRequests(context.Background(), nc)
 	require.Equal(t, []controllerruntime.Request{{NamespacedName: types.NamespacedName{
@@ -1048,10 +1053,28 @@ func TestNetworkConfigRecordListFailureIsRetried(t *testing.T) {
 	}}}, reqs)
 	_, err := r.Reconcile(context.Background(), reqs[0])
 	require.ErrorContains(t, err, "DNSRecord list unavailable")
+	require.Zero(t, queue.Len())
 	failList = false
+	// An already pending DNSRecord must not be duplicated by the configuration retry.
+	queue.Add(controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(rec1)})
 	result, err := r.Reconcile(context.Background(), reqs[0])
 	require.NoError(t, err)
 	require.Equal(t, ResultNormal, result)
+	// Service and StatusUpdater are deliberately unset: the configuration retry
+	// must enqueue these records rather than reconcile them inline.
+	require.Equal(t, 2, queue.Len())
+	var queued []controllerruntime.Request
+	for i := 0; i < 2; i++ {
+		req, shutdown := queue.Get()
+		require.False(t, shutdown)
+		queued = append(queued, req)
+		queue.Done(req)
+	}
+	require.ElementsMatch(t, []controllerruntime.Request{
+		{NamespacedName: client.ObjectKeyFromObject(rec1)},
+		{NamespacedName: client.ObjectKeyFromObject(rec2)},
+	}, queued)
+	require.Zero(t, queue.Len())
 }
 
 func TestDeletedDefaultNetworkConfigEnqueuesAllDNSRecords(t *testing.T) {
