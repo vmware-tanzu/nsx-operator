@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
@@ -29,6 +30,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetbinding"
@@ -47,6 +49,7 @@ var (
 // SubnetReconciler reconciles a SubnetSet object
 type SubnetReconciler struct {
 	Client            client.Client
+	APIReader         client.Reader
 	Scheme            *apimachineryruntime.Scheme
 	SubnetService     *subnet.SubnetService
 	SubnetPortService servicecommon.SubnetPortServiceProvider
@@ -55,6 +58,8 @@ type SubnetReconciler struct {
 	Recorder          record.EventRecorder
 	StatusUpdater     common.StatusUpdater
 	queue             workqueue.TypedRateLimitingInterface[reconcile.Request]
+	// Each active source maps to a channel closed when its synchronization completes.
+	sharedSubnetSyncs sync.Map
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -332,26 +337,40 @@ func (r *SubnetReconciler) updateSubnetStatus(obj *v1alpha1.Subnet) (bool, error
 // If not found, it retrieves the subnet from the NSX API.
 // The function updates the Subnet CR status and adds the subnet to the polling queue for regular updates.
 func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1alpha1.Subnet, namespacedName client.ObjectKey, associatedResource string) (ctrl.Result, error) {
+	done, started := r.tryStartSharedSubnetSync(associatedResource)
+	if !started {
+		return ResultRequeueAfter10sec, nil
+	}
+	defer r.finishSharedSubnetSync(associatedResource, done)
+
 	log.Info("Subnet has associated-resource annotation, skipping NSX Subnet creation", "Subnet", namespacedName, "AssociatedResource", associatedResource)
 
 	// Get NSX subnet from cache or API
 	nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource, false)
 	if err != nil {
-		r.updateSharedSubnetWithError(ctx, namespacedName, err, "Failed to get NSX Subnet for associated resource")
+		r.SubnetService.InvalidatePortSettingsCache(associatedResource)
+		r.updateSharedSubnetWithError(ctx, namespacedName, associatedResource, err, "Failed to get NSX Subnet for associated resource")
 		return ResultRequeue, err
 	}
 
 	// Get subnet status from cache or API
 	statusList, err := r.SubnetService.GetSubnetStatusFromCacheOrAPI(nsxSubnet, associatedResource)
 	if err != nil {
+		r.SubnetService.InvalidatePortSettingsCache(associatedResource)
 		// Use updateSharedSubnetWithError for consistency with pollAllSharedSubnets
-		r.updateSharedSubnetWithError(ctx, namespacedName, err, "NSX subnet status")
+		r.updateSharedSubnetWithError(ctx, namespacedName, associatedResource, err, "NSX subnet status")
 		return ResultRequeue, err
 	}
 
 	// Update the status with the NSX subnet information and set shared to true
 	if err := r.updateSubnetIfNeeded(ctx, subnetCR, nsxSubnet, statusList, namespacedName); err != nil {
 		log.Error(err, "Failed to update Subnet status", "Subnet", namespacedName)
+		return ResultRequeue, err
+	}
+
+	// Synchronize PortConfigs for this shared Subnet on-demand
+	if err := r.syncPortConfigsOnDemand(ctx, subnetCR, associatedResource); err != nil {
+		log.Error(err, "Failed to sync SubnetPortSettings", "Subnet", namespacedName)
 		return ResultRequeue, err
 	}
 
@@ -558,6 +577,7 @@ func NewSubnetReconciler(mgr ctrl.Manager, subnetService *subnet.SubnetService, 
 	// Create the Subnet Reconciler with the necessary services and configuration
 	subnetReconciler := &SubnetReconciler{
 		Client:            mgr.GetClient(),
+		APIReader:         mgr.GetAPIReader(),
 		Scheme:            mgr.GetScheme(),
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
@@ -679,4 +699,21 @@ func (r *SubnetReconciler) CollectGarbage(ctx context.Context) error {
 		return fmt.Errorf("errors found in Subnet garbage collection: %s", errList)
 	}
 	return nil
+}
+
+func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR *v1alpha1.Subnet, associatedResource string) error {
+	if !nsx.SubnetPortSettingFeatureEnabled(r.SubnetService.NSXClient, r.SubnetService.NSXConfig) {
+		return nil
+	}
+
+	portSettingIDs, err := r.SubnetService.GetPortSettingIDsFromCacheOrAPI(associatedResource, false)
+	if err != nil {
+		return err
+	}
+	nsxPortSettingIDs := sets.New(portSettingIDs...)
+	portSettings := make([]model.VpcSubnetPortSetting, len(portSettingIDs))
+	for i := range portSettingIDs {
+		portSettings[i].Id = &portSettingIDs[i]
+	}
+	return r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource)
 }

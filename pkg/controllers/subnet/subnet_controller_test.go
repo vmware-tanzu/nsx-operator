@@ -14,6 +14,7 @@ import (
 	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -157,7 +158,7 @@ func createFakeSubnetReconciler(objects []client.Object) *SubnetReconciler {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objects...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithStatusSubresource(&v1alpha1.Subnet{}, &v1alpha1.SubnetPortSetting{}).WithObjects(objects...).Build()
 	service := &vpc.VPCService{
 		Service: common.Service{
 			Client:    fakeClient,
@@ -197,7 +198,8 @@ func createFakeSubnetReconciler(objects []client.Object) *SubnetReconciler {
 
 	return &SubnetReconciler{
 		Client:            fakeClient,
-		Scheme:            fake.NewClientBuilder().Build().Scheme(),
+		APIReader:         fakeClient,
+		Scheme:            newScheme,
 		VPCService:        service,
 		SubnetService:     subnetService,
 		SubnetPortService: subnetPortService,
@@ -972,6 +974,10 @@ func (m *MockManager) GetClient() client.Client {
 	return m.client
 }
 
+func (m *MockManager) GetAPIReader() client.Reader {
+	return m.client
+}
+
 func (m *MockManager) GetScheme() *runtime.Scheme {
 	return m.scheme
 }
@@ -1616,6 +1622,124 @@ func TestHandleSharedSubnet(t *testing.T) {
 			// Clean up
 			patches.Reset()
 		})
+	}
+}
+
+type portConfigCreateFailureClient struct {
+	client.Client
+	err error
+}
+
+func (c *portConfigCreateFailureClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if _, ok := obj.(*v1alpha1.SubnetPortSetting); ok && c.err != nil {
+		return c.err
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+func TestOnDemandPortConfigFailureRetries(t *testing.T) {
+	for _, failure := range []string{"NSX List", "NSX List NotFound", "Kubernetes Create"} {
+		for _, throughCaller := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/caller=%t", failure, throughCaller), func(t *testing.T) {
+				ctx := context.Background()
+				assoc := "proj:vpc:subnet"
+				subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{
+					Name: "shared", Namespace: "ns-test", UID: "subnet-uid",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: assoc},
+				}}
+				r := createFakeSubnetReconciler([]client.Object{subnetCR})
+				enabled := true
+				r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhance = &enabled
+				writeClient := &portConfigCreateFailureClient{Client: r.Client}
+				r.Client = writeClient
+				sourceErr := errors.New("temporary PortConfig synchronization failure")
+				if failure == "NSX List NotFound" {
+					sourceErr = nsxutil.CreateResourceNotFound("manager", "list PortSettings")
+				}
+				var listErr error
+				if failure != "Kubernetes Create" {
+					listErr = sourceErr
+				} else {
+					writeClient.err = sourceErr
+				}
+
+				lists, successes := 0, 0
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.NSXClient), "NSXCheckVersion",
+					func(_ *nsx.Client, feature int) bool {
+						assert.Equal(t, nsx.SubnetPortSetting, feature)
+						return true
+					})
+				defer patches.Reset()
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListPortSettingsByAssociatedResource",
+					func(_ *subnet.SubnetService, source string) ([]model.VpcSubnetPortSetting, error) {
+						assert.Equal(t, assoc, source)
+						lists++
+						if listErr != nil {
+							return nil, listErr
+						}
+						return []model.VpcSubnetPortSetting{{Id: common.String("default")}}, nil
+					})
+				if throughCaller {
+					patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetByAssociatedResource",
+						func(_ *subnet.SubnetService, _ string) (*model.VpcSubnet, error) {
+							return &model.VpcSubnet{Id: common.String("subnet")}, nil
+						})
+					patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus",
+						func(_ *subnet.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+							return nil, nil
+						})
+					patches.ApplyPrivateMethod(reflect.TypeOf(r), "updateSubnetIfNeeded",
+						func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ *model.VpcSubnet, _ []model.VpcSubnetStatus, _ types.NamespacedName) error {
+							return nil
+						})
+					patches.ApplyMethod(reflect.TypeOf(&r.StatusUpdater), "UpdateSuccess",
+						func(_ *common2.StatusUpdater, _ context.Context, _ client.Object, _ common2.UpdateSuccessStatusFn, _ ...interface{}) {
+							successes++
+						})
+				}
+
+				var err error
+				if throughCaller {
+					var result ctrl.Result
+					result, err = r.handleSharedSubnet(ctx, subnetCR, client.ObjectKeyFromObject(subnetCR), assoc)
+					assert.Equal(t, ResultRequeue, result)
+					assert.Zero(t, successes, "failed PortConfig synchronization must not report Subnet success")
+				} else {
+					err = r.syncPortConfigsOnDemand(ctx, subnetCR, assoc)
+				}
+				require.ErrorIs(t, err, sourceErr)
+				if failure != "Kubernetes Create" {
+					assert.Same(t, sourceErr, err, "the NSX List error must retain its identity")
+				}
+				assert.Equal(t, 1, lists)
+				settings := &v1alpha1.SubnetPortSettingList{}
+				require.NoError(t, r.APIReader.List(ctx, settings))
+				assert.Empty(t, settings.Items)
+
+				listErr, writeClient.err = nil, nil
+				if throughCaller {
+					result, retryErr := r.handleSharedSubnet(ctx, subnetCR, client.ObjectKeyFromObject(subnetCR), assoc)
+					require.NoError(t, retryErr)
+					assert.Equal(t, ResultNormal, result)
+					assert.Equal(t, 1, successes, "only the successful retry may report success")
+				} else {
+					require.NoError(t, r.syncPortConfigsOnDemand(ctx, subnetCR, assoc))
+				}
+				if failure == "Kubernetes Create" {
+					assert.Equal(t, 1, lists, "Kubernetes retries must reuse the successful NSX snapshot")
+				} else {
+					assert.Equal(t, 2, lists, "failed NSX discovery must be retried")
+				}
+				require.NoError(t, r.APIReader.List(ctx, settings))
+				require.Len(t, settings.Items, 1)
+				assert.Equal(t, assoc+":default", settings.Items[0].Annotations[common.AnnotationAssociatedResource])
+				assert.Equal(t, subnetCR.Name, settings.Items[0].Spec.SubnetName)
+				require.Len(t, settings.Items[0].Status.Conditions, 1)
+				assert.Equal(t, v1alpha1.Ready, settings.Items[0].Status.Conditions[0].Type)
+				assert.Equal(t, corev1.ConditionTrue, settings.Items[0].Status.Conditions[0].Status)
+				assert.Equal(t, "PortSettingRealized", settings.Items[0].Status.Conditions[0].Reason)
+			})
+		}
 	}
 }
 

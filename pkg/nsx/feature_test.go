@@ -104,6 +104,36 @@ func TestNamespaceGroupFeatureEnabled(t *testing.T) {
 	})
 }
 
+func TestSubnetPortSettingFeatureEnabled(t *testing.T) {
+	enabled, disabled := true, false
+	configurations := []struct {
+		name           string
+		operatorConfig *config.NSXOperatorConfig
+		enabled        bool
+	}{
+		{name: "nil operator config"},
+		{name: "nil NSX config", operatorConfig: &config.NSXOperatorConfig{}},
+		{name: "omitted flag", operatorConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}},
+		{name: "disabled flag", operatorConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &disabled}}},
+		{name: "enabled flag", operatorConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &enabled}}, enabled: true},
+	}
+	for _, cfg := range configurations {
+		t.Run(cfg.name, func(t *testing.T) {
+			assert.False(t, SubnetPortSettingFeatureEnabled(nil, cfg.operatorConfig))
+			nsxClient := &Client{}
+			supported := false
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+				assert.Equal(t, SubnetPortSetting, feature)
+				return supported
+			})
+			defer patches.Reset()
+			assert.False(t, SubnetPortSettingFeatureEnabled(nsxClient, cfg.operatorConfig))
+			supported = true
+			assert.Equal(t, cfg.enabled, SubnetPortSettingFeatureEnabled(nsxClient, cfg.operatorConfig))
+		})
+	}
+}
+
 func TestRestoreVifFeatureEnabled(t *testing.T) {
 	f := false
 	tr := true

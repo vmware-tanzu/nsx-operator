@@ -63,10 +63,11 @@ const (
 	IPv6
 	SubnetAssociation
 	NamespaceGroup
+	SubnetPortSetting
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION", "STATEFULSET_POD", "IPV6", "SUBNET_ASSOCIATION", "NAMESPACE_GROUP"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION", "STATEFULSET_POD", "IPV6", "SUBNET_ASSOCIATION", "NAMESPACE_GROUP", "SUBNET_PORT_SETTING"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -131,6 +132,7 @@ type Client struct {
 	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
 	DynamicIPReservationsClient       subnets.DynamicIpReservationsClient
 	StaticIPReservationsClient        subnets.StaticIpReservationsClient
+	PortSettingsClient                subnets.PortSettingsClient
 	NsxApiClient                      *nsxt.APIClient
 	VifsClient                        fabric.VifsClient
 	DnsZoneClient                     dns_services.ZonesClient
@@ -256,6 +258,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	subnetConnectionBindingMapsClient := subnets.NewSubnetConnectionBindingMapsClient(connector)
 	DynamicIPReservationsClient := subnets.NewDynamicIpReservationsClient(connector)
 	StaticIPReservationsClient := subnets.NewStaticIpReservationsClient(connector)
+	portSettingsClient := subnets.NewPortSettingsClient(connector)
 
 	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
 	vifsClient := fabric.NewVifsClient(connector)
@@ -329,6 +332,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
 		DynamicIPReservationsClient:       DynamicIPReservationsClient,
 		StaticIPReservationsClient:        StaticIPReservationsClient,
+		PortSettingsClient:                portSettingsClient,
 		LbAppProfileClient:                lbAppProfileClient,
 		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
 		LbMonitorProfilesClient:           lbMonitorProfilesClient,

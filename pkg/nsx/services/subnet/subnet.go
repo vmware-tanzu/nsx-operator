@@ -42,7 +42,9 @@ type SharedSubnetData struct {
 		Subnet     *model.VpcSubnet
 		StatusList []model.VpcSubnetStatus
 	}
-	// mutex to protect the NSXSubnetCache map
+	// portSettingsCache holds complete PortSettings ID snapshots and in-flight fetch tokens.
+	portSettingsCache map[string]*portSettingsCacheEntry
+	// mutex to protect NSXSubnetCache and portSettingsCache
 	nsxSubnetCacheMutex sync.RWMutex
 	// SharedSubnetResourceMap is a map of associatedResource -> set of namespaced names of Subnet CRs
 	SharedSubnetResourceMap map[string]sets.Set[types.NamespacedName]
@@ -973,12 +975,63 @@ func (service *SubnetService) UpdateNSXSubnetCache(associatedResource string, ns
 	log.Info("Updated NSX subnet cache", "AssociatedResource", associatedResource)
 }
 
-// RemoveSubnetFromCache removes a subnet from the NSXSubnetCache
+// RemoveSubnetFromCache removes the subnet and PortSettings snapshots, invalidating in-flight fetches.
 func (service *SubnetService) RemoveSubnetFromCache(associatedResource string, reason string) {
 	service.nsxSubnetCacheMutex.Lock()
 	defer service.nsxSubnetCacheMutex.Unlock()
 	delete(service.NSXSubnetCache, associatedResource)
+	delete(service.portSettingsCache, associatedResource)
 	log.Info("Removed Subnet from cache", "reason", reason, "AssociatedResource", associatedResource)
+}
+
+// GetNSXSubnetCacheKeys returns the associated resources in either cache, including in-flight PortSettings fetches.
+func (service *SubnetService) GetNSXSubnetCacheKeys() []string {
+	service.nsxSubnetCacheMutex.RLock()
+	defer service.nsxSubnetCacheMutex.RUnlock()
+
+	keys := make([]string, 0, len(service.NSXSubnetCache)+len(service.portSettingsCache))
+	for associatedResource := range service.NSXSubnetCache {
+		keys = append(keys, associatedResource)
+	}
+	for associatedResource := range service.portSettingsCache {
+		if _, exists := service.NSXSubnetCache[associatedResource]; !exists {
+			keys = append(keys, associatedResource)
+		}
+	}
+	return keys
+}
+
+// RemoveSubnetFromCacheIfUnshared removes both caches only while the source has no shared Subnet CRs.
+func (service *SubnetService) RemoveSubnetFromCacheIfUnshared(associatedResource string) bool {
+	// Keep the sharing check and cache deletion atomic with respect to new shares.
+	service.sharedSubnetResourceMapMutex.RLock()
+	service.nsxSubnetCacheMutex.Lock()
+	_, subnetCached := service.NSXSubnetCache[associatedResource]
+	_, portSettingsCached := service.portSettingsCache[associatedResource]
+	removed := len(service.SharedSubnetResourceMap[associatedResource]) == 0 && (subnetCached || portSettingsCached)
+	if removed {
+		delete(service.NSXSubnetCache, associatedResource)
+		delete(service.portSettingsCache, associatedResource)
+	}
+	service.nsxSubnetCacheMutex.Unlock()
+	service.sharedSubnetResourceMapMutex.RUnlock()
+
+	if removed {
+		log.Info("Removed unshared Subnet from cache", "AssociatedResource", associatedResource)
+	}
+	return removed
+}
+
+// GetSharedSubnetResourceMapSnapshot returns an independent copy of the shared subnet map and its sets.
+func (service *SubnetService) GetSharedSubnetResourceMapSnapshot() map[string]sets.Set[types.NamespacedName] {
+	service.sharedSubnetResourceMapMutex.RLock()
+	defer service.sharedSubnetResourceMapMutex.RUnlock()
+
+	snapshot := make(map[string]sets.Set[types.NamespacedName], len(service.SharedSubnetResourceMap))
+	for associatedResource, namespacedNames := range service.SharedSubnetResourceMap {
+		snapshot[associatedResource] = namespacedNames.Clone()
+	}
+	return snapshot
 }
 
 // AddSharedSubnetToResourceMap adds a shared subnet CR to the resource map
@@ -1254,5 +1307,38 @@ func getUpdatedSubnetSizesAndPrefixes(existingSubnet *model.VpcSubnet, newIpv4Su
 		return newIpv4SubnetSize, existingSubnet.Ipv6PrefixLength
 	} else {
 		return existingSubnet.Ipv4SubnetSize, existingSubnet.Ipv6PrefixLength
+	}
+}
+
+// ListPortSettingsByAssociatedResource queries NSX for all PortSettings under the shared subnet.
+func (service *SubnetService) ListPortSettingsByAssociatedResource(associatedResource string) ([]model.VpcSubnetPortSetting, error) {
+	if service.NSXClient == nil || service.NSXClient.PortSettingsClient == nil {
+		return nil, fmt.Errorf("PortSettingsClient is not initialized")
+	}
+	subnetPath, err := common.GetSubnetPathFromAssociatedResource(associatedResource)
+	if err != nil {
+		return nil, err
+	}
+	orgID, projectID, vpcID, subnetID, err := common.ExtractSubnetPath(subnetPath)
+	if err != nil {
+		return nil, err
+	}
+	var results []model.VpcSubnetPortSetting
+	var cursor *string
+	seenCursors := sets.New[string]()
+	for {
+		result, err := service.NSXClient.PortSettingsClient.List(orgID, projectID, vpcID, subnetID, cursor, nil, nil, nil, nil, nil, nil)
+		if err != nil {
+			return nil, nsxutil.TransNSXApiError(err)
+		}
+		results = append(results, result.Results...)
+		if result.Cursor == nil || *result.Cursor == "" {
+			return results, nil
+		}
+		if seenCursors.Has(*result.Cursor) {
+			return nil, fmt.Errorf("repeated PortSettings pagination cursor %q for associated resource %s", *result.Cursor, associatedResource)
+		}
+		seenCursors.Insert(*result.Cursor)
+		cursor = result.Cursor
 	}
 }
