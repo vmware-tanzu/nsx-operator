@@ -21,10 +21,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/priorityqueue"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -50,7 +52,9 @@ const (
 	ReasonDNSRecordReady            = "DNSRecordReady"
 	ReasonDNSRecordFailed           = "DNSRecordFailed"
 	ReasonDNSRecordValidationFailed = "DNSRecordValidationFailed"
-	networkConfigRetryNamespace     = "_dnsconfig"
+	// Internal request marker for retrying configuration-to-record mapping.
+	// This is not a Kubernetes Namespace; underscores are invalid in Namespace names.
+	networkConfigRetryNamespace = "_dnsconfig"
 )
 
 // DNSRecordReconciler reconciles a DNSRecord object
@@ -63,6 +67,9 @@ type DNSRecordReconciler struct {
 	Service       *dns.DNSRecordService
 	Recorder      record.EventRecorder
 	StatusUpdater common.StatusUpdater
+
+	queue            workqueue.TypedRateLimitingInterface[ctrl.Request]
+	usePriorityQueue *bool
 }
 
 func calculateFQDN(recordName, domainName string) string {
@@ -340,6 +347,7 @@ func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Contex
 
 func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
 	vpcPredicate := common.VPCNamespacePredicate(r.Client)
+	r.usePriorityQueue = mgr.GetControllerOptions().UsePriorityQueue
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DNSRecord{}, builder.WithPredicates(predicateDNSRecordDesiredStateChanged(), vpcPredicate)).
 		Watches(
@@ -349,8 +357,21 @@ func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
 		).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
+			NewQueue:                r.getQueue,
 		}).
 		Complete(r)
+}
+
+func (r *DNSRecordReconciler) getQueue(name string, rateLimiter workqueue.TypedRateLimiter[ctrl.Request]) workqueue.TypedRateLimitingInterface[ctrl.Request] {
+	// Preserve controller-runtime's default queue selection and rate limiter.
+	if r.usePriorityQueue == nil || *r.usePriorityQueue {
+		r.queue = priorityqueue.New(name, func(opts *priorityqueue.Opts[ctrl.Request]) {
+			opts.RateLimiter = rateLimiter
+		})
+	} else {
+		r.queue = workqueue.NewTypedRateLimitingQueueWithConfig(rateLimiter, workqueue.TypedRateLimitingQueueConfig[ctrl.Request]{Name: name})
+	}
+	return r.queue
 }
 
 func predicateDNSRecordDesiredStateChanged() predicate.Predicate {
@@ -394,8 +415,9 @@ func (r *DNSRecordReconciler) networkConfigToDNSRecordRequests(ctx context.Conte
 }
 
 func (r *DNSRecordReconciler) requestsForNetworkConfig(ctx context.Context, name string) ([]ctrl.Request, error) {
-	// A default configuration change can affect Namespaces without an explicit
-	// configuration reference, so reconcile all DNSRecords.
+	// A configuration annotated nsx.vmware.com/default=true is used by Namespaces
+	// without an explicit nsx.vmware.com/vpc_network_config reference. Reconcile
+	// all records to cover default configuration switches and deletions too.
 	recordList := &v1alpha1.DNSRecordList{}
 	if err := r.Client.List(ctx, recordList); err != nil {
 		return nil, fmt.Errorf("listing DNSRecords for VPCNetworkConfiguration %s: %w", name, err)
@@ -412,17 +434,14 @@ func (r *DNSRecordReconciler) reconcileNetworkConfig(ctx context.Context, name s
 	if err != nil {
 		return ResultRequeue, err
 	}
-	var reconcileErrors []error
+	if r.queue == nil {
+		return ResultRequeue, errors.New("DNSRecord controller queue is not initialized")
+	}
 	for _, req := range reqs {
 		if ctx.Err() != nil {
 			return ResultRequeue, ctx.Err()
 		}
-		if _, err := r.Reconcile(ctx, req); err != nil {
-			reconcileErrors = append(reconcileErrors, fmt.Errorf("reconciling DNSRecord %s: %w", req.NamespacedName, err))
-		}
-	}
-	if err := errors.Join(reconcileErrors...); err != nil {
-		return ResultRequeue, err
+		r.queue.Add(req)
 	}
 	return ResultNormal, nil
 }
