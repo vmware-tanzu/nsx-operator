@@ -90,8 +90,8 @@ test: manifests generate fmt vet envtest .coverage ## Run tests with clean outpu
 	./hack/test-unit.sh
 
 .PHONY: test-snaps-update
-test-snaps-update: manifests generate fmt vet envtest .coverage ## Run all unit tests and update/regenerate all snapshots
-	UPDATE_SNAPS=true ./hack/test-unit.sh
+test-snaps-update: ## Run unit tests and cleanly regenerate snapshots without orphan blocks (Usage: make test-snaps-update [FEATURE=subnet | ALL=true])
+	@FEATURE="$(FEATURE)" ALL="$(ALL)" ./hack/update-snapshots.sh $(FEATURE)
 
 .PHONY: test-snaps-cleanup
 test-snaps-cleanup: ## Detect and delete obsolete centralized snapshot files whose feature names are no longer referenced in any Go code

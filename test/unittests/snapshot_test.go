@@ -82,9 +82,11 @@ func TestMaskFields(t *testing.T) {
 		"uncomparableSlice": map[string]interface{}{
 			"uid": []interface{}{"val1", "val2"},
 		},
+		"nullField": nil, // Should be pruned when persisting snapshots
 		"list": []interface{}{
 			map[string]interface{}{
-				"uid": "list-uid",
+				"uid":       "list-uid",
+				"innerNull": nil,
 			},
 		},
 	}

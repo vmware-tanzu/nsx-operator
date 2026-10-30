@@ -494,8 +494,10 @@ func (r *SubnetReconciler) RestoreReconcile() error {
 	var errorList []error
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if err != nil || common.IsReconcileResultRequeue(result) {
+		if err != nil {
 			errorList = append(errorList, fmt.Errorf("failed to restore Subnet %s, error: %w", key, err))
+		} else if common.IsReconcileResultRequeue(result) {
+			errorList = append(errorList, fmt.Errorf("failed to restore Subnet %s: reconciliation requested requeue", key))
 		}
 	}
 	if len(errorList) > 0 {

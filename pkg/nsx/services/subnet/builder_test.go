@@ -22,6 +22,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	"github.com/vmware-tanzu/nsx-operator/test/unittests"
 )
 
 var (
@@ -1725,4 +1726,471 @@ func TestBuildIPBlockPaths_Branches(t *testing.T) {
 	_, errMixedInvalid := service.buildIPBlockPaths([]string{":valid-ext", "invalid block"}, vpcInfoFull)
 	assert.Error(t, errMixedInvalid)
 	assert.Contains(t, errMixedInvalid.Error(), "invalid IPBlock name")
+}
+
+func TestBuildSubnet_SubnetCR_IntegrationMatrix(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	k8sClient := mockClient.NewMockClient(mockCtl)
+	defer mockCtl.Finish()
+
+	fakeVPCInfo := &common.VPCResourceInfo{
+		OrgID:     "default-org",
+		ProjectID: "default-project",
+		VPCID:     "vpc-1",
+	}
+
+	testCases := []struct {
+		name            string
+		obj             client.Object
+		inputTags       []model.Tag
+		vpcInfo         *common.VPCResourceInfo
+		isTepLess       bool
+		tepLessErr      error
+		nsxVersionIPv6  bool
+		expectErr       bool
+		expectErrSubstr string
+		validate        func(t *testing.T, subnet *model.VpcSubnet)
+	}{
+		{
+			name: "full_featured_ipv4_subnet_cr",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-ipv4-full",
+					Namespace: "ns-prod",
+					UID:       "uid-ipv4-full-12345",
+					Labels: map[string]string{
+						"app": "backend",
+						"env": "production",
+					},
+				},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeProject),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					IPv4SubnetSize: 64,
+					IPAddresses:    []string{"192.168.1.0/26"},
+					Description:    "Production IPv4 Subnet with PrivateTGW",
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeServer),
+						DHCPServerAdditionalConfig: v1alpha1.DHCPServerAdditionalConfig{
+							ReservedIPRanges: []string{"192.168.1.10-192.168.1.20"},
+						},
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						ConnectivityState: v1alpha1.ConnectivityStateConnected,
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: []string{"192.168.1.30-192.168.1.40"},
+						},
+						GatewayAddresses:    []string{"192.168.1.1"},
+						DHCPServerAddresses: []string{"192.168.1.2"},
+					},
+					IPBlockNames: []string{":infra-block-v4"},
+				},
+			},
+			inputTags: []model.Tag{
+				{Scope: common.String("custom-scope"), Tag: common.String("custom-tag")},
+			},
+			vpcInfo:        fakeVPCInfo,
+			nsxVersionIPv6: true,
+			validate: func(t *testing.T, s *model.VpcSubnet) {
+				assert.Equal(t, AccessModeProjectInNSX, *s.AccessMode)
+				assert.Equal(t, "IPV4", *s.IpAddressType)
+				assert.Equal(t, int64(64), *s.Ipv4SubnetSize)
+				assert.Equal(t, []string{"192.168.1.0/26"}, s.IpAddresses)
+				assert.Equal(t, "Production IPv4 Subnet with PrivateTGW", *s.Description)
+				require.NotNil(t, s.SubnetDhcpConfig)
+				assert.Equal(t, "DHCP_SERVER", *s.SubnetDhcpConfig.Mode)
+				require.NotNil(t, s.SubnetDhcpConfig.DhcpServerAdditionalConfig)
+				assert.Equal(t, []string{"192.168.1.10-192.168.1.20"}, s.SubnetDhcpConfig.DhcpServerAdditionalConfig.ReservedIpRanges)
+				assert.Nil(t, s.SubnetDhcpv6Config)
+				assert.Nil(t, s.Ipv6PrefixLength)
+				require.NotNil(t, s.AdvancedConfig)
+				assert.Equal(t, "CONNECTED", *s.AdvancedConfig.ConnectivityState)
+				require.NotNil(t, s.AdvancedConfig.StaticIpAllocation)
+				assert.Equal(t, true, *s.AdvancedConfig.StaticIpAllocation.Enabled)
+				assert.Equal(t, []string{"192.168.1.30-192.168.1.40"}, s.AdvancedConfig.StaticIpAllocation.PoolRanges)
+				assert.Equal(t, []string{"192.168.1.1"}, s.AdvancedConfig.GatewayAddresses)
+				assert.Equal(t, []string{"192.168.1.2"}, s.AdvancedConfig.DhcpServerAddresses)
+				assert.Equal(t, []string{"/infra/ip-blocks/infra-block-v4"}, s.IpBlocks)
+			},
+		},
+		{
+			name: "ipv6_subnet_cr_stateful_dhcp_with_reserved_ranges",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-ipv6-stateful",
+					Namespace: "ns-ipv6",
+					UID:       "uid-ipv6-stateful-11223",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
+					IPv6PrefixLength: 64,
+					IPAddresses:      []string{"2001:db8::/64"},
+					Description:      "IPv6 Subnet with stateful DHCPv6",
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: v1alpha1.DHCPv6ConfigModeServer,
+						DHCPv6ServerAdditionalConfig: v1alpha1.DHCPv6ServerAdditionalConfig{
+							ReservedIPRanges: []string{"2001:db8::10-2001:db8::20"},
+						},
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						ConnectivityState: v1alpha1.ConnectivityStateConnected,
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(false),
+						},
+						GatewayAddresses:    []string{"2001:db8::1"},
+						DHCPServerAddresses: []string{"2001:db8::2"},
+					},
+				},
+			},
+			vpcInfo:        fakeVPCInfo,
+			nsxVersionIPv6: true,
+			validate: func(t *testing.T, s *model.VpcSubnet) {
+				assert.Equal(t, "Public", *s.AccessMode)
+				assert.Equal(t, "IPV6", *s.IpAddressType)
+				assert.Equal(t, int64(64), *s.Ipv6PrefixLength)
+				assert.Nil(t, s.Ipv4SubnetSize)
+				assert.Nil(t, s.SubnetDhcpConfig)
+				require.NotNil(t, s.SubnetDhcpv6Config)
+				assert.Equal(t, "DHCP_SERVER", *s.SubnetDhcpv6Config.Mode)
+				require.NotNil(t, s.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig)
+				assert.Equal(t, []string{"2001:db8::10-2001:db8::20"}, s.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig.ReservedIpRanges)
+				require.NotNil(t, s.AdvancedConfig)
+				assert.Equal(t, "CONNECTED", *s.AdvancedConfig.ConnectivityState)
+				require.NotNil(t, s.AdvancedConfig.StaticIpAllocation)
+				assert.Equal(t, false, *s.AdvancedConfig.StaticIpAllocation.Enabled)
+				assert.Equal(t, []string{"2001:db8::1"}, s.AdvancedConfig.GatewayAddresses)
+				assert.Equal(t, []string{"2001:db8::2"}, s.AdvancedConfig.DhcpServerAddresses)
+			},
+		},
+		{
+			name: "ipv6_subnet_cr_with_stateless_dhcp_and_whitespace_trimming",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-ipv6-stateless",
+					Namespace: "ns-ipv6",
+					UID:       "uid-ipv6-stateless-67890",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv6,
+					IPv6PrefixLength: 64,
+					IPAddresses:      []string{"2001:db8::/64"},
+					Description:      "IPv6 Subnet with stateless DHCP",
+					SubnetDHCPv6Config: v1alpha1.SubnetDHCPv6Config{
+						Mode: v1alpha1.DHCPv6ConfigModeServerStateless,
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						ConnectivityState: v1alpha1.ConnectivityStateDisconnected,
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled:    common.Bool(true),
+							PoolRanges: []string{"2001:db8::50-2001:db8::60", "2001:db8::100"},
+						},
+						GatewayAddresses:    []string{"2001:db8::1"},
+						DHCPServerAddresses: []string{"2001:db8::5"},
+					},
+				},
+			},
+			vpcInfo:        fakeVPCInfo,
+			nsxVersionIPv6: true,
+			validate: func(t *testing.T, s *model.VpcSubnet) {
+				assert.Equal(t, "Public", *s.AccessMode)
+				assert.Equal(t, "IPV6", *s.IpAddressType)
+				assert.Equal(t, int64(64), *s.Ipv6PrefixLength)
+				assert.Nil(t, s.Ipv4SubnetSize)
+				assert.Nil(t, s.SubnetDhcpConfig)
+				require.NotNil(t, s.SubnetDhcpv6Config)
+				assert.Equal(t, "DHCP_SERVER_STATELESS", *s.SubnetDhcpv6Config.Mode)
+				assert.Nil(t, s.SubnetDhcpv6Config.Dhcpv6ServerAdditionalConfig)
+				require.NotNil(t, s.AdvancedConfig)
+				assert.Equal(t, "DISCONNECTED", *s.AdvancedConfig.ConnectivityState)
+				require.NotNil(t, s.AdvancedConfig.StaticIpAllocation)
+				assert.Equal(t, true, *s.AdvancedConfig.StaticIpAllocation.Enabled)
+				assert.Equal(t, []string{"2001:db8::50-2001:db8::60", "2001:db8::100"}, s.AdvancedConfig.StaticIpAllocation.PoolRanges)
+				assert.Equal(t, []string{"2001:db8::1"}, s.AdvancedConfig.GatewayAddresses)
+				assert.Equal(t, []string{"2001:db8::5"}, s.AdvancedConfig.DhcpServerAddresses)
+			},
+		},
+		{
+			name: "pure_static_allocation_ipv4_subnet_cr",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-ipv4-static-only",
+					Namespace: "ns-static",
+					UID:       "uid-ipv4-static-88888",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					IPAddresses:   []string{"10.100.0.0/27"},
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						ConnectivityState: v1alpha1.ConnectivityStateConnected,
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+						},
+					},
+				},
+			},
+			vpcInfo:        fakeVPCInfo,
+			nsxVersionIPv6: true,
+			validate: func(t *testing.T, s *model.VpcSubnet) {
+				assert.Equal(t, "Private", *s.AccessMode)
+				assert.Equal(t, "IPV4", *s.IpAddressType)
+				assert.Equal(t, []string{"10.100.0.0/27"}, s.IpAddresses)
+				require.NotNil(t, s.SubnetDhcpConfig)
+				assert.Equal(t, "DHCP_DEACTIVATED", *s.SubnetDhcpConfig.Mode)
+				require.NotNil(t, s.AdvancedConfig)
+				assert.Equal(t, "CONNECTED", *s.AdvancedConfig.ConnectivityState)
+				require.NotNil(t, s.AdvancedConfig.StaticIpAllocation)
+				assert.Equal(t, true, *s.AdvancedConfig.StaticIpAllocation.Enabled)
+			},
+		},
+		{
+			name: "dual_stack_with_status_network_addresses_fallback_and_tepless",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-dual-tepless",
+					Namespace: "ns-dual",
+					UID:       "uid-dual-tepless-99999",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+					IPv4SubnetSize:   32,
+					IPv6PrefixLength: 64,
+					IPAddresses:      nil,
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"10.244.0.0/27", "fd00:10:244::/64"},
+				},
+			},
+			vpcInfo:        fakeVPCInfo,
+			isTepLess:      true,
+			nsxVersionIPv6: true,
+			validate: func(t *testing.T, s *model.VpcSubnet) {
+				assert.Equal(t, "Public", *s.AccessMode)
+				assert.Equal(t, "IPV4_IPV6", *s.IpAddressType)
+				assert.Equal(t, int64(32), *s.Ipv4SubnetSize)
+				assert.Equal(t, int64(64), *s.Ipv6PrefixLength)
+				assert.Equal(t, []string{"10.244.0.0/27", "fd00:10:244::/64"}, s.IpAddresses)
+				require.NotNil(t, s.SubnetDhcpConfig)
+				assert.Equal(t, "DHCP_DEACTIVATED", *s.SubnetDhcpConfig.Mode)
+				require.NotNil(t, s.SubnetDhcpv6Config)
+				assert.Equal(t, "DHCP_DEACTIVATED", *s.SubnetDhcpv6Config.Mode)
+				require.NotNil(t, s.AdvancedConfig)
+				require.NotNil(t, s.AdvancedConfig.StaticIpAllocation)
+				assert.Equal(t, true, *s.AdvancedConfig.StaticIpAllocation.Enabled)
+				var foundTepLessTag bool
+				for _, tag := range s.Tags {
+					if tag.Scope != nil && *tag.Scope == common.TagScopeEnable &&
+						tag.Tag != nil && *tag.Tag == common.TagValueL3InVlanBackedVPCMode {
+						foundTepLessTag = true
+						break
+					}
+				}
+				assert.True(t, foundTepLessTag, "Expected TEP-less tag to be present")
+			},
+		},
+		{
+			name: "dual_stack_subnet_with_ipv4_spec_and_static_ip_allocation",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-dual-spec-v4",
+					Namespace: "ns-dual",
+					UID:       "uid-dual-spec-v4-123",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:       v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:    v1alpha1.IPAddressTypeIPv4IPv6,
+					IPv4SubnetSize:   32,
+					IPv6PrefixLength: 64,
+					IPAddresses:      []string{"10.244.0.0/27"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						GatewayAddresses: []string{"10.244.0.1"},
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+						},
+					},
+				},
+				Status: v1alpha1.SubnetStatus{
+					NetworkAddresses: []string{"fd00:10:244::/64"},
+					GatewayAddresses: []string{"fd00:10:244::1"},
+				},
+			},
+			vpcInfo:        fakeVPCInfo,
+			nsxVersionIPv6: true,
+			validate: func(t *testing.T, s *model.VpcSubnet) {
+				assert.Equal(t, "Public", *s.AccessMode)
+				assert.Equal(t, "IPV4_IPV6", *s.IpAddressType)
+				assert.Equal(t, int64(32), *s.Ipv4SubnetSize)
+				assert.Equal(t, int64(64), *s.Ipv6PrefixLength)
+				assert.Equal(t, []string{"10.244.0.0/27"}, s.IpAddresses)
+				require.NotNil(t, s.AdvancedConfig)
+				require.NotNil(t, s.AdvancedConfig.StaticIpAllocation)
+				assert.Equal(t, true, *s.AdvancedConfig.StaticIpAllocation.Enabled)
+				assert.Equal(t, []string{"10.244.0.1"}, s.AdvancedConfig.GatewayAddresses)
+			},
+		},
+		{
+			name: "backward_compatibility_no_ipv6_version_check",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-legacy",
+					Namespace: "ns-legacy",
+					UID:       "uid-legacy-11111",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:    v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+					IPAddressType: v1alpha1.IPAddressTypeIPv4,
+					IPAddresses:   []string{"10.0.0.0/24"},
+				},
+			},
+			vpcInfo:        fakeVPCInfo,
+			nsxVersionIPv6: false,
+			validate: func(t *testing.T, s *model.VpcSubnet) {
+				assert.Nil(t, s.IpAddressType, "IpAddressType must be nil when NSXCheckVersion(IPv6) is false")
+			},
+		},
+		{
+			name: "error_tepless_check_failure",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-err-tepless",
+					Namespace: "ns-err",
+				},
+			},
+			tepLessErr:      errors.New("failed to list NetworkInfo"),
+			expectErr:       true,
+			expectErrSubstr: "failed to list NetworkInfo",
+		},
+		{
+			name: "error_exceed_tags_limit",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-exceed-tags",
+					Namespace: "ns-tags",
+					Labels: map[string]string{
+						"k01": "v", "k02": "v", "k03": "v", "k04": "v", "k05": "v",
+						"k06": "v", "k07": "v", "k08": "v", "k09": "v", "k10": "v",
+						"k11": "v", "k12": "v", "k13": "v", "k14": "v", "k15": "v",
+						"k16": "v", "k17": "v", "k18": "v", "k19": "v", "k20": "v",
+						"k21": "v", "k22": "v", "k23": "v", "k24": "v", "k25": "v",
+					},
+				},
+			},
+			expectErr:       true,
+			expectErrSubstr: "tags cannot exceed maximum size 26",
+		},
+		{
+			name: "error_invalid_ipblock_name",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-invalid-ipblock",
+					Namespace: "ns-ipblock",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					IPBlockNames: []string{":valid-infra", "invalid space name"},
+				},
+			},
+			vpcInfo:         fakeVPCInfo,
+			expectErr:       true,
+			expectErrSubstr: "invalid IPBlock name",
+		},
+		{
+			name: "error_missing_vpcinfo_for_project_ipblock",
+			obj: &v1alpha1.Subnet{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "subnet-missing-vpcinfo",
+					Namespace: "ns-ipblock",
+				},
+				Spec: v1alpha1.SubnetSpec{
+					IPBlockNames: []string{"project-block-only"},
+				},
+			},
+			vpcInfo:         nil,
+			expectErr:       true,
+			expectErrSubstr: "org or project info is missing",
+		},
+		{
+			name: "error_unsupported_object_type",
+			obj: &v1alpha1.SubnetPort{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "port-unsupported",
+					Namespace: "ns-port",
+				},
+			},
+			expectErr:       true,
+			expectErrSubstr: "unsupported type",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			patches := gomonkey.ApplyFunc(controllerscommon.IsNamespaceInTepLessMode,
+				func(_ client.Client, _ string) (bool, error) {
+					return tc.isTepLess, tc.tepLessErr
+				})
+			patches.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool {
+				return tc.nsxVersionIPv6
+			})
+			defer patches.Reset()
+
+			service := &SubnetService{
+				Service: common.Service{
+					Client:    k8sClient,
+					NSXClient: &nsx.Client{},
+					NSXConfig: &config.NSXOperatorConfig{
+						CoeConfig: &config.CoeConfig{
+							Cluster: "k8scl-one:test",
+						},
+					},
+				},
+				SubnetStore: &SubnetStore{
+					ResourceStore: common.ResourceStore{
+						Indexer: cache.NewIndexer(keyFunc, cache.Indexers{
+							common.TagScopeSubnetCRUID:    subnetIndexFunc,
+							common.TagScopeSubnetSetCRUID: subnetSetIndexFunc,
+							common.TagScopeVMNamespace:    subnetIndexVMNamespaceFunc,
+							common.TagScopeNamespace:      subnetIndexNamespaceFunc,
+						}),
+						BindingType: model.VpcSubnetBindingType(),
+					},
+				},
+			}
+
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_builder",
+				Scenario:    "build_subnet_cr_integration",
+				Description: fmt.Sprintf("Verify buildSubnet under scenario: %s", tc.name),
+			})
+
+			var subnet *model.VpcSubnet
+			var err error
+			if tc.vpcInfo != nil {
+				subnet, err = service.buildSubnet(tc.obj, tc.inputTags, []string{}, tc.vpcInfo)
+			} else {
+				subnet, err = service.buildSubnet(tc.obj, tc.inputTags, []string{})
+			}
+
+			if tc.expectErr {
+				require.Error(t, err)
+				if tc.expectErrSubstr != "" {
+					assert.Contains(t, err.Error(), tc.expectErrSubstr)
+				}
+				guard.AssertOutput(err.Error())
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, subnet)
+				if tc.validate != nil {
+					tc.validate(t, subnet)
+				}
+				guard.AssertOutput(subnet)
+			}
+		})
+	}
 }

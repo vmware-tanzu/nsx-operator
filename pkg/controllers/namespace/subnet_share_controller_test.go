@@ -32,6 +32,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	"github.com/vmware-tanzu/nsx-operator/test/unittests"
 )
 
 // Helper function to create a NamespaceReconciler for testing
@@ -673,6 +674,17 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 
 			// Process new shared subnets
 			unusedSubnets, err := r.processNewSharedSubnets(context.Background(), "test-ns", tt.vpcNetConfig, existingSharedSubnets)
+			snapshotError := ""
+			if err != nil {
+				snapshotError = err.Error()
+			}
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "shared_subnet",
+				Component:   "namespace_controller",
+				Scenario:    "process_shares",
+				Description: "Verify shared Subnet lifecycle: process_shares",
+			})
+			guard.AssertOutput(map[string]interface{}{"result": map[string]interface{}{"unused": unusedSubnets, "existing": existingSharedSubnets}, "error": snapshotError})
 
 			// Check the result
 			assert.NoError(t, err)
@@ -1296,7 +1308,19 @@ func TestCreateSharedSubnetCR(t *testing.T) {
 			}
 
 			// Call the function being tested
-			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, tt.realname, map[string]*v1alpha1.Subnet{})
+			existing := map[string]*v1alpha1.Subnet{}
+			err := r.createSharedSubnetCR(context.Background(), "test-ns", tt.sharedSubnetPath, tt.realname, existing)
+			snapshotError := ""
+			if err != nil {
+				snapshotError = err.Error()
+			}
+			guard := unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "shared_subnet",
+				Component:   "namespace_controller",
+				Scenario:    "create_shared_cr",
+				Description: "Verify shared Subnet lifecycle: create_shared_cr",
+			})
+			guard.AssertOutput(map[string]interface{}{"result": existing, "error": snapshotError})
 
 			// Check the result
 			if tt.expectedErrString != "" {
