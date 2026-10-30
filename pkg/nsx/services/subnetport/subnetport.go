@@ -478,12 +478,7 @@ func (service *SubnetPortService) DeleteSubnetPort(nsxSubnetPort *model.VpcSubne
 func (service *SubnetPortService) DeletePortById(portID string) error {
 	if service.SegmentPortStore != nil {
 		if nsxSegmentPort := service.SegmentPortStore.GetByKey(portID); nsxSegmentPort != nil && nsxSegmentPort.Id != nil {
-			segmentID := ""
-			if nsxSegmentPort.ParentPath != nil {
-				parts := strings.Split(strings.Trim(*nsxSegmentPort.ParentPath, "/"), "/")
-				segmentID = parts[len(parts)-1]
-			}
-			return service.DeleteSegmentPortById(segmentID, *nsxSegmentPort.Id)
+			return service.DeleteSegmentPort(nsxSegmentPort)
 		}
 	}
 	if service.SubnetPortStore != nil {
@@ -552,12 +547,7 @@ func (service *SubnetPortService) DeletePortByUID(uid types.UID) error {
 			return err
 		}
 		if segmentPort != nil && segmentPort.Id != nil {
-			segmentID := ""
-			if segmentPort.ParentPath != nil {
-				parts := strings.Split(strings.Trim(*segmentPort.ParentPath, "/"), "/")
-				segmentID = parts[len(parts)-1]
-			}
-			return service.DeleteSegmentPortById(segmentID, *segmentPort.Id)
+			return service.DeleteSegmentPort(segmentPort)
 		}
 	}
 
