@@ -22,6 +22,7 @@ import (
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	mockClient "github.com/vmware-tanzu/nsx-operator/pkg/mock/controller-runtime/client"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	"github.com/vmware-tanzu/nsx-operator/test/unittests"
 )
 
 func TestSubnetValidator_Handle(t *testing.T) {
@@ -747,6 +748,12 @@ func TestSubnetValidator_Handle(t *testing.T) {
 			// Call the handler
 			res := v.Handle(context.TODO(), req)
 			assert.Equal(t, tt.want, res)
+			unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_webhook",
+				Scenario:    tt.name,
+				Description: "Verify Subnet admission decision, status code and rejection message",
+			}).AssertOutput(res)
 		})
 	}
 }
