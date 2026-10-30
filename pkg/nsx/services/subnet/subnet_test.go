@@ -1677,6 +1677,30 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Map NSX Subnet with Description",
+			subnetCR: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{},
+			},
+			nsxSubnet: &model.VpcSubnet{
+				AccessMode:     common.String("Public"),
+				Ipv4SubnetSize: common.Int64(24),
+				IpAddresses:    []string{"192.168.1.0/24"},
+				Description:    common.String("test subnet description"),
+			},
+			expectedSubnet: &v1alpha1.Subnet{
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePublic),
+					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
+					IPv4SubnetSize: 24,
+					IPAddresses:    []string{"192.168.1.0/24"},
+					Description:    "test subnet description",
+					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
+						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1694,6 +1718,7 @@ func TestMapNSXSubnetToSubnetCR(t *testing.T) {
 			assert.Equal(t, tt.expectedSubnet.Spec.IPv6PrefixLength, subnetCR.Spec.IPv6PrefixLength)
 			assert.Equal(t, tt.expectedSubnet.Spec.IPAddressType, subnetCR.Spec.IPAddressType)
 			assert.Equal(t, tt.expectedSubnet.Spec.IPAddresses, subnetCR.Spec.IPAddresses)
+			assert.Equal(t, tt.expectedSubnet.Spec.Description, subnetCR.Spec.Description)
 			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPConfig.Mode, subnetCR.Spec.SubnetDHCPConfig.Mode)
 			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPv6Config.Mode, subnetCR.Spec.SubnetDHCPv6Config.Mode)
 			assert.Equal(t, tt.expectedSubnet.Spec.SubnetDHCPv6Config.DHCPv6ServerAdditionalConfig.ReservedIPRanges,
@@ -4217,6 +4242,43 @@ func TestCreateOrUpdateSubnet_PoolRangeCapacityReset(t *testing.T) {
 			} else {
 				require.Empty(t, ports.paths)
 			}
+		})
+	}
+}
+
+func TestSubnetService_MapIPBlocksToNames(t *testing.T) {
+	service := &SubnetService{}
+	tests := []struct {
+		name     string
+		paths    []string
+		expected []string
+	}{
+		{
+			name:     "empty paths",
+			paths:    nil,
+			expected: nil,
+		},
+		{
+			name:     "empty slice",
+			paths:    []string{},
+			expected: nil,
+		},
+		{
+			name: "infra and project ip blocks",
+			paths: []string{
+				"/infra/ip-blocks/ext-block-1",
+				"/orgs/default/projects/proj-1/infra/ip-blocks/proj-block-1",
+			},
+			expected: []string{
+				":ext-block-1",
+				"proj-block-1",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := service.MapIPBlocksToNames(tt.paths)
+			assert.Equal(t, tt.expected, res)
 		})
 	}
 }

@@ -926,6 +926,72 @@ func TestSubnetReconciler_Reconcile(t *testing.T) {
 			},
 			expectRes: ResultNormal,
 		},
+		{
+			name: "Create Subnet CR without IPBlockNames populates allocated IPBlockNames",
+			req:  ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "test-subnet"}},
+			patches: func(r *SubnetReconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					return []common.VPCResourceInfo{
+						{OrgID: "org-id", ProjectID: "project-id", VPCID: "vpc-id", ID: "fake-id"},
+					}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GenerateSubnetNSTags", func(_ *subnet.SubnetService, obj client.Object) []model.Tag {
+					return []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-tag")}}
+				})
+				nsxSubnetWithIPBlocks := &model.VpcSubnet{
+					Id:   common.String("fake-id"),
+					Path: common.String("/orgs/default/projects/project-id/vpcs/vpc-id/subnets/test-subnet"),
+					IpBlocks: []string{
+						"/orgs/default/projects/project-id/infra/ip-blocks/proj-block-1",
+					},
+				}
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "CreateOrUpdateSubnet", func(_ *subnet.SubnetService, obj client.Object, vpcInfo common.VPCResourceInfo, tags []model.Tag) (*model.VpcSubnet, error) {
+					return nsxSubnetWithIPBlocks, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.VPCService), "IsDefaultNSXProject", func(_ *vpc.VPCService, orgID, projectID string) (bool, error) {
+					return false, nil
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key string, value string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{nsxSubnetWithIPBlocks}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetStatus", func(_ *subnet.SubnetService, _ *model.VpcSubnet) ([]model.VpcSubnetStatus, error) {
+					fakeStatus := model.VpcSubnetStatus{}
+					value := "10.0.0.1"
+					fakeStatus.GatewayAddress = &value
+					fakeStatus.NetworkAddress = &value
+					return []model.VpcSubnetStatus{fakeStatus}, nil
+				})
+				return patches
+			},
+			existingSubnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-subnet", Namespace: "default"},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+					VPCName:        "project-id:fake-id",
+					IPv4SubnetSize: 24,
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+						},
+					},
+				},
+			},
+			expectSubnetCR: &v1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-subnet", Namespace: "default"},
+				Spec: v1alpha1.SubnetSpec{
+					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModePrivate),
+					VPCName:        "project-id:fake-id",
+					IPv4SubnetSize: 24,
+					IPBlockNames:   []string{"proj-block-1"},
+					AdvancedConfig: v1alpha1.SubnetAdvancedConfig{
+						StaticIPAllocation: v1alpha1.StaticIPAllocation{
+							Enabled: common.Bool(true),
+						},
+					},
+				},
+			},
+			expectRes: ResultNormal,
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
