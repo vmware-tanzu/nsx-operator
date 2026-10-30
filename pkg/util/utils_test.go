@@ -117,6 +117,66 @@ func TestUtil_IsNsInSystemNamespace(t *testing.T) {
 	client.Delete(ctx, sysNs)
 }
 
+func TestIsVPCSystemNamespace(t *testing.T) {
+	client := fake.NewClientBuilder().Build()
+	ctx := context.TODO()
+
+	// 1. Direct kube-system string check
+	isSys, err := IsVPCSystemNamespace(ctx, nil, "kube-system", nil)
+	assert.NoError(t, err)
+	assert.True(t, isSys)
+
+	// 1b. Direct kube-system string check with nil ctx
+	var nilCtx context.Context
+	//nolint:staticcheck // SA1012: intentionally verify nil context fallback
+	isSys, err = IsVPCSystemNamespace(nilCtx, nil, "kube-system", nil)
+	assert.NoError(t, err)
+	assert.True(t, isSys)
+
+	// 2. Namespace object with Name kube-system
+	kubeSysObj := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}}
+	isSys, err = IsVPCSystemNamespace(ctx, client, "kube-system", kubeSysObj)
+	assert.NoError(t, err)
+	assert.True(t, isSys)
+
+	// 2b. Namespace object with Name kube-system when ns param is empty
+	isSys, err = IsVPCSystemNamespace(ctx, client, "", kubeSysObj)
+	assert.NoError(t, err)
+	assert.True(t, isSys)
+
+	// 3. Shared VPC namespace with annotation
+	sharedNs := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "user-workload-ns",
+			Annotations: map[string]string{
+				common.AnnotationSharedVPCNamespace: "kube-system",
+			},
+		},
+	}
+	err = client.Create(ctx, sharedNs)
+	assert.NoError(t, err)
+	isSys, err = IsVPCSystemNamespace(ctx, client, "user-workload-ns", nil)
+	assert.NoError(t, err)
+	assert.True(t, isSys)
+
+	// 4. Regular namespace (not system)
+	normalNs := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "normal-ns",
+		},
+	}
+	err = client.Create(ctx, normalNs)
+	assert.NoError(t, err)
+	isSys, err = IsVPCSystemNamespace(ctx, client, "normal-ns", nil)
+	assert.NoError(t, err)
+	assert.False(t, isSys)
+
+	// 5. Non-existent namespace
+	isSys, err = IsVPCSystemNamespace(ctx, client, "non-existent-ns", nil)
+	assert.NoError(t, err)
+	assert.False(t, isSys)
+}
+
 func Test_CheckPodHasNamedPort(t *testing.T) {
 	pod := v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -812,4 +872,67 @@ func TestCRSubnetDHCPv6Enabled(t *testing.T) {
 		}}
 		assert.False(t, CRSubnetDHCPv6Enabled(ss))
 	})
+}
+
+func TestParseReusePortAnnotation(t *testing.T) {
+	tests := []struct {
+		name         string
+		annotation   string
+		expectedNs   string
+		expectedName string
+		expectErr    bool
+	}{
+		{
+			name:         "valid annotation",
+			annotation:   "kube-system/vm-44",
+			expectedNs:   "kube-system",
+			expectedName: "vm-44",
+			expectErr:    false,
+		},
+		{
+			name:         "valid annotation with spaces",
+			annotation:   " kube-system / vm-44 ",
+			expectedNs:   "kube-system",
+			expectedName: "vm-44",
+			expectErr:    false,
+		},
+		{
+			name:       "missing slash",
+			annotation: "kube-system-vm-44",
+			expectErr:  true,
+		},
+		{
+			name:       "too many slashes",
+			annotation: "kube-system/sub/vm-44",
+			expectErr:  true,
+		},
+		{
+			name:       "empty namespace",
+			annotation: "/vm-44",
+			expectErr:  true,
+		},
+		{
+			name:       "empty name",
+			annotation: "kube-system/",
+			expectErr:  true,
+		},
+		{
+			name:       "empty string",
+			annotation: "",
+			expectErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ns, name, err := ParseReusePortAnnotation(tt.annotation)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedNs, ns)
+				assert.Equal(t, tt.expectedName, name)
+			}
+		})
+	}
 }

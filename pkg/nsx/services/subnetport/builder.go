@@ -3,6 +3,7 @@ package subnetport
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -469,4 +470,73 @@ func (service *SubnetPortService) GetAddressBindingBySubnetPort(sp *v1alpha1.Sub
 		}
 	}
 	return nil
+}
+
+func (service *SubnetPortService) buildReusedSubnetPort(subnetPort *v1alpha1.SubnetPort, existingPort *model.VpcSubnetPort, nsxSubnet *model.VpcSubnet, labels *map[string]string) (*model.VpcSubnetPort, error) {
+	if existingPort == nil || existingPort.Id == nil || existingPort.ParentPath == nil {
+		return nil, errors.New("existing port or port ID/Path is nil")
+	}
+	namespace := &corev1.Namespace{}
+	namespacedName := types.NamespacedName{
+		Name: subnetPort.Namespace,
+	}
+	if err := service.Client.Get(context.Background(), namespacedName, namespace); err != nil {
+		return nil, err
+	}
+	namespaceUid := namespace.UID
+
+	nsxSubnetPortID := *existingPort.Id
+	nsxSubnetPortName := service.BuildSubnetPortName(&subnetPort.ObjectMeta)
+	nsxSubnetPortPath := fmt.Sprintf("%s/ports/%s", *nsxSubnet.Path, nsxSubnetPortID)
+
+	tags := util.BuildBasicTags(getCluster(service), subnetPort, namespaceUid)
+	// For VM subnet ports, we filter out tags with scope NamespaceUID and Namespace.
+	var tagsFiltered []model.Tag
+	for _, tag := range tags {
+		if *tag.Scope == common.TagScopeNamespaceUID || *tag.Scope == common.TagScopeNamespace {
+			continue
+		}
+		tagsFiltered = append(tagsFiltered, tag)
+	}
+	if labels != nil {
+		labelKeys := make([]string, 0, len(*labels))
+		for k := range *labels {
+			labelKeys = append(labelKeys, k)
+		}
+		sort.Strings(labelKeys)
+		for _, k := range labelKeys {
+			tagsFiltered = append(tagsFiltered, model.Tag{
+				Scope: common.String(k),
+				Tag:   common.String((*labels)[k]),
+			})
+		}
+	}
+	if util.IsCPVM(subnetPort.Labels) && existingPort != nil {
+		// Record the original CR UID in TagScopeOriginCRUID so the port can be identified and reclaimed
+		// by its pre-upgrade owner during rollback or disaster restore.
+		originCRUID := nsxutil.FindTag(existingPort.Tags, common.TagScopeOriginCRUID)
+		if originCRUID == "" {
+			originCRUID = nsxutil.FindTag(existingPort.Tags, common.TagScopeSubnetPortCRUID)
+		}
+		if originCRUID != "" {
+			tagsFiltered = append(tagsFiltered, model.Tag{
+				Scope: common.String(common.TagScopeOriginCRUID),
+				Tag:   common.String(originCRUID),
+			})
+		}
+	}
+
+	desiredPort := &model.VpcSubnetPort{
+		Id:              &nsxSubnetPortID,
+		DisplayName:     &nsxSubnetPortName,
+		Path:            &nsxSubnetPortPath,
+		ParentPath:      existingPort.ParentPath,
+		Tags:            tagsFiltered,
+		Attachment:      existingPort.Attachment,
+		AddressBindings: existingPort.AddressBindings,
+		// Preserve backend state; nil remains nil on NSX versions without this field.
+		StaticIpAllocationType: existingPort.StaticIpAllocationType,
+		ExternalAddressBinding: existingPort.ExternalAddressBinding,
+	}
+	return desiredPort, nil
 }
