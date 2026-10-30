@@ -96,6 +96,7 @@ type Client struct {
 	VPCRuleClient     vpc_sp.RulesClient
 
 	OrgRootClient                     nsx_policy.OrgRootClient
+	OrgsClient                        nsx_policy.OrgsClient
 	ProjectInfraClient                projects.InfraClient
 	VPCClient                         projects.VpcsClient
 	VPCStateClient                    vpcs.StateClient
@@ -220,6 +221,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(connector)
 
 	orgRootClient := nsx_policy.NewOrgRootClient(connector)
+	orgsClient := nsx_policy.NewOrgsClient(connector)
 	projectInfraClient := projects.NewInfraClient(connector)
 	projectClient := orgs.NewProjectsClient(connector)
 	vpcClient := projects.NewVpcsClient(connector)
@@ -295,6 +297,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		// Health clients are now using REST API directly
 
 		OrgRootClient:                     orgRootClient,
+		OrgsClient:                        orgsClient,
 		ProjectInfraClient:                projectInfraClient,
 		VPCClient:                         vpcClient,
 		VPCStateClient:                    vpcStateClient,

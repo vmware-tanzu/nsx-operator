@@ -31,6 +31,8 @@ var (
 
 	NsIPAddressAllocation = "e2e-ipalloc-" + getRandomString()
 
+	NsDNSRecord = "e2e-dnsrecord-" + getRandomString()
+
 	// NsLoadBalancerLB LoadBalancer test namespaces - need VC namespace for pod creation
 	NsLoadBalancerLB  = "e2e-lb-" + getRandomString()
 	NsLoadBalancerPod = "e2e-lb-pod-" + getRandomString()
@@ -63,6 +65,7 @@ var allVCNamespaces = []string{
 	NsLoadBalancerPod,
 	NsCreateVM,
 	NsIPAddressAllocation,
+	NsDNSRecord,
 	NsSubnetPrecreated1,
 	NsSubnetPrecreated2,
 	NsSubnetPrecreatedTarget,
