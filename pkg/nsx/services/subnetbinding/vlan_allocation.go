@@ -30,9 +30,20 @@ func (s *BindingService) ReconcileVlanTrafficTag(bindingMap *v1alpha1.SubnetConn
 		return vlan, nil
 	}
 
+	// Status survives NSX restore and its VLAN is already used by secondary
+	// NIC configurations. During restore, validate it as a fixed allocation
+	// before consulting the NSX cache, including retries after a conflict.
+	if s.restoreMode && bindingMap.Status.VLANTrafficTag != nil {
+		vlan := *bindingMap.Status.VLANTrafficTag
+		if err := vlanPoolSvc.ValidateManualVlan(parentSubnetPaths, vlan, string(bindingMap.UID), fromNSX); err != nil {
+			return 0, err
+		}
+		return vlan, nil
+	}
+
 	// Try to reuse already allocated VLAN from cache
 	if !fromNSX {
-		existingBMs := s.BindingStore.GetByIndex("bindingMapCRUID", string(bindingMap.UID))
+		existingBMs := s.BindingStore.GetBindingsByBindingMapCRUID(string(bindingMap.UID))
 		if len(existingBMs) > 0 && existingBMs[0].VlanTrafficTag != nil {
 			vlan := *existingBMs[0].VlanTrafficTag
 			return vlan, nil
@@ -103,6 +114,7 @@ func (ls *localStore) Apply(_ interface{}) error {
 	return nil
 }
 
+//go:noinline
 func (s *BindingService) listBindingMapsByParentSubnetPath(parentSubnetPath string) ([]*model.SubnetConnectionBindingMap, error) {
 	if s == nil || s.NSXClient == nil || s.NSXClient.QueryClient == nil {
 		return nil, fmt.Errorf("NSX query client is not initialized")

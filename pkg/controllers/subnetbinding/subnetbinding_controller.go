@@ -49,10 +49,88 @@ type Reconciler struct {
 	SubnetService        *subnet.SubnetService
 	SubnetBindingService *subnetbinding.BindingService
 	StatusUpdater        common.StatusUpdater
+	restoreMode          bool
 }
 
 func (r *Reconciler) RestoreReconcile() error {
+	r.restoreMode = true
+	defer func() { r.restoreMode = false }()
+	r.SubnetBindingService.SetRestoreMode(true)
+	defer r.SubnetBindingService.SetRestoreMode(false)
+
+	restoreList, err := r.getRestoreList()
+	if err != nil {
+		err = fmt.Errorf("failed to get SubnetConnectionBindingMap restore list: %w", err)
+		return err
+	}
+	var errorList []error
+	for _, key := range restoreList {
+		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+		if err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore SubnetConnectionBindingMap %s: %w", key, err))
+		} else if common.IsReconcileResultRequeue(result) {
+			errorList = append(errorList, fmt.Errorf("SubnetConnectionBindingMap %s requires another restore attempt", key))
+		}
+	}
+	if len(errorList) > 0 {
+		return fmt.Errorf("errors found in SubnetConnectionBindingMap restore: %v", errorList)
+	}
 	return nil
+}
+
+func (r *Reconciler) getRestoreList() ([]types.NamespacedName, error) {
+	ctx := context.Background()
+	restoreList := []types.NamespacedName{}
+	bindingMapList := &v1alpha1.SubnetConnectionBindingMapList{}
+	if err := r.Client.List(ctx, bindingMapList); err != nil {
+		return restoreList, err
+	}
+
+	subnetSetList := &v1alpha1.SubnetSetList{}
+	if err := r.Client.List(ctx, subnetSetList); err != nil {
+		return restoreList, err
+	}
+	subnetSetMap := make(map[types.NamespacedName]*v1alpha1.SubnetSet, len(subnetSetList.Items))
+	for i := range subnetSetList.Items {
+		ss := &subnetSetList.Items[i]
+		subnetSetMap[types.NamespacedName{Namespace: ss.Namespace, Name: ss.Name}] = ss
+	}
+
+	for _, bindingMap := range bindingMapList.Items {
+		if !bindingMap.DeletionTimestamp.IsZero() {
+			continue
+		}
+		// A configured VLAN alone is not evidence that the CR was realized.
+		// Preserve compatibility with older manual bindings whose status is absent
+		// only when an existing NSX resource proves they were previously created.
+		if bindingMap.Status.VLANTrafficTag == nil && (!bindingMap.Spec.HasVlanTrafficTag() || len(r.SubnetBindingService.BindingStore.GetBindingsByBindingMapCRUID(string(bindingMap.UID))) == 0) {
+			continue
+		}
+		if r.isEmptyRestoreTargetSubnetSet(&bindingMap, subnetSetMap) {
+			// A dynamic SubnetSet may legitimately scale to zero. Its binding
+			// has no current NSX targets to restore; retain the published VLAN.
+			continue
+		}
+
+		// Reconcile all realized CRs: VLAN equality alone cannot detect missing
+		// SubnetSet members or target changes made after the backup.
+		restoreList = append(restoreList, types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name})
+	}
+	return restoreList, nil
+}
+
+// isEmptyRestoreTargetSubnetSet distinguishes a valid scale-to-zero state from
+// NSX subnets that are missing despite still being recorded in CR status.
+func (r *Reconciler) isEmptyRestoreTargetSubnetSet(binding *v1alpha1.SubnetConnectionBindingMap, subnetSetMap map[types.NamespacedName]*v1alpha1.SubnetSet) bool {
+	if binding.Spec.TargetSubnetSetName == "" || binding.Spec.TargetSubnetName != "" {
+		return false
+	}
+	key := types.NamespacedName{Namespace: binding.Namespace, Name: binding.Spec.TargetSubnetSetName}
+	subnetSet, exists := subnetSetMap[key]
+	if !exists || !subnetSet.DeletionTimestamp.IsZero() || subnetSet.Spec.SubnetNames != nil || len(subnetSet.Status.Subnets) > 0 {
+		return false
+	}
+	return len(r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSet.UID))) == 0
 }
 
 func (r *Reconciler) StartController(mgr ctrl.Manager, _ webhook.Server) error {
@@ -108,12 +186,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return common.ResultRequeue, nil
 	}
 
+	if !bindingMapCR.DeletionTimestamp.IsZero() {
+		if err := r.SubnetBindingService.DeleteSubnetConnectionBindingMapsByCRName(req.Name, req.Namespace); err != nil {
+			return common.ResultRequeue, err
+		}
+		return common.ResultNormal, nil
+	}
+
 	// Create or update SubnetConnectionBindingMap
 	r.StatusUpdater.IncreaseUpdateTotal()
 	if bindingMapCR.Spec.SubnetAssociation != "" && !r.SubnetBindingService.NSXClient.NSXCheckVersion(nsx.SubnetAssociation) {
 		err := fmt.Errorf("subnetAssociation is not supported in current NSX version")
 		log.Error(err, "NSX version check failed for SubnetAssociation", "SubnetConnectionBindingMap", req.NamespacedName)
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "subnetAssociation is not supported in current NSX version", updateBindingMapStatusWithUnreadyCondition, "NSXVersionNotSupported", err.Error())
+		// A configuration unsupported by this NSX version requires user action;
+		// restarting restore cannot fix it and must not block other resources.
 		return common.ResultNormal, nil
 	}
 
@@ -138,8 +225,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		return common.ResultRequeue, nil
 	} else {
-		// Update SubnetConnectionBindingMap with ready condition
-		r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, updateBindingMapStatusWithReadyCondition, vlanID)
+		if r.restoreMode {
+			// Restore must not succeed if the realized VLAN cannot be persisted.
+			bindingMapCR.Status.VLANTrafficTag = v1alpha1.VLANTrafficTagPtr(vlanID)
+			if err := updateBindingMapCondition(r.Client, ctx, bindingMapCR, v1alpha1.Condition{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}); err != nil {
+				return common.ResultNormal, err
+			}
+			r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, nil)
+		} else {
+			// Update SubnetConnectionBindingMap with ready condition
+			r.StatusUpdater.UpdateSuccess(ctx, bindingMapCR, updateBindingMapStatusWithReadyCondition, vlanID)
+		}
 	}
 
 	return common.ResultNormal, nil
@@ -171,7 +267,7 @@ var PredicateFuncsForBindingMaps = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		oldBindingMap := e.ObjectOld.(*v1alpha1.SubnetConnectionBindingMap)
 		newBindingMap := e.ObjectNew.(*v1alpha1.SubnetConnectionBindingMap)
-		return !reflect.DeepEqual(oldBindingMap.Spec, newBindingMap.Spec)
+		return oldBindingMap.DeletionTimestamp.IsZero() && !newBindingMap.DeletionTimestamp.IsZero() || !reflect.DeepEqual(oldBindingMap.Spec, newBindingMap.Spec)
 	},
 	CreateFunc: func(e event.CreateEvent) bool {
 		return true
@@ -473,7 +569,7 @@ func updateBindingMapStatusWithReadyCondition(c client.Client, ctx context.Conte
 	updateBindingMapCondition(c, ctx, bindingMap, condition)
 }
 
-func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, condition v1alpha1.Condition) {
+func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap *v1alpha1.SubnetConnectionBindingMap, condition v1alpha1.Condition) error {
 	condition.LastTransitionTime = metav1.Now()
 	key := types.NamespacedName{Namespace: bindingMap.Namespace, Name: bindingMap.Name}
 
@@ -482,6 +578,10 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 		latestBindingMap := &v1alpha1.SubnetConnectionBindingMap{}
 		if err := c.Get(ctx, key, latestBindingMap); err != nil {
 			return err
+		}
+
+		if latestBindingMap.UID != bindingMap.UID || latestBindingMap.Generation != bindingMap.Generation || !latestBindingMap.DeletionTimestamp.IsZero() || !reflect.DeepEqual(latestBindingMap.Spec, bindingMap.Spec) {
+			return fmt.Errorf("SubnetConnectionBindingMap %s changed before status update", key)
 		}
 
 		// Check if the update is needed
@@ -502,9 +602,10 @@ func updateBindingMapCondition(c client.Client, ctx context.Context, bindingMap 
 
 	if err != nil {
 		log.Error(err, "Failed to update SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
-		return
+		return err
 	}
 	log.Debug("Updated SubnetConnectionBindingMap status", "Namespace", bindingMap.Namespace, "Name", bindingMap.Name)
+	return nil
 }
 
 // subnetConnectionBindingMapSubnetNameIndexFunc indexes SubnetConnectionBindingMap CRs by spec.subnetName
