@@ -44,6 +44,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	"github.com/vmware-tanzu/nsx-operator/pkg/third_party/retry"
 	"github.com/vmware-tanzu/nsx-operator/test/e2e/providers"
+	testframework "github.com/vmware-tanzu/nsx-operator/test/framework"
 )
 
 var log = logger.Log
@@ -92,6 +93,23 @@ type TestOptions struct {
 }
 
 var testOptions TestOptions
+
+// Keep infrastructure lifecycle budgets separate from business assertions.
+var (
+	podStartupTimeout       = 3 * time.Minute
+	namespaceCleanupTimeout = 5 * time.Minute
+)
+
+const apiRecoveryTimeout = 30 * time.Second
+const apiRequestTimeout = 10 * time.Second
+
+func pollForCondition(timeout time.Duration, condition wait.ConditionWithContextFunc) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return testframework.Poll(ctx, time.Second, condition, func(err error) {
+		log.Info("Retrying transient API failure", "error", err)
+	})
+}
 
 var provider providers.ProviderInterface
 
@@ -175,6 +193,8 @@ func (data *TestData) createClients() error {
 	if err != nil {
 		return fmt.Errorf("error when building kube config: %v", err)
 	}
+	// Bound individual requests without automatically replaying writes.
+	kubeConfig.Timeout = apiRequestTimeout
 	clientSet, err := clientset.NewForConfig(kubeConfig)
 	if err != nil {
 		return fmt.Errorf("error when creating kubernetes client: %v", err)
@@ -332,7 +352,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 
 	if err != nil {
 		log.Error(err, "Failed to get supervisor ID")
-		return fmt.Errorf("failed to get supervisor ID: %v", err)
+		return fmt.Errorf("failed to get supervisor ID: %w", err)
 	}
 	_, storagePolicyID, _ := data.vcClient.getStoragePolicyID()
 	log.Debug("Get storage policy", "storagePolicyID", storagePolicyID)
@@ -370,20 +390,20 @@ func (data *TestData) createVCNamespace(namespace string) error {
 	log.Debug("Data json", "dataJson", vcNamespace)
 	if err != nil {
 		log.Error(err, "Unable convert vcNamespace object to json bytes", "namespace", namespace)
-		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
+		return fmt.Errorf("unable convert vcNamespace object to json bytes: %w", err)
 	}
 	request, err := data.vcClient.prepareRequest(http.MethodPost, createVCNamespaceEndpoint, dataJson)
 	if err != nil {
 		log.Error(err, "Failed to prepare http request with vcNamespace data", "namespace", namespace)
-		return fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
+		return fmt.Errorf("failed to parepare http request with vcNamespace data: %w", err)
 	}
 	if _, err = data.vcClient.handleRequest(request, nil); err != nil {
 		log.Error(err, "Failed to create VC namespace", "namespace", namespace)
 		return err
 	}
 	// wait for the namespace on k8s running
-	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
+	err = pollForCondition(2*defaultTimeout, func(ctx context.Context) (done bool, err error) {
+		ns, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -408,69 +428,67 @@ func (data *TestData) createVCNamespace(namespace string) error {
 // deleteVCNamespace deletes the provided VC namespace and waits for deletion to actually complete.
 // It first checks if the namespace exists to avoid unnecessary API calls.
 func (data *TestData) deleteVCNamespace(namespace string) error {
-	// Session will be created automatically by ensureSession() in vcClient methods
-	// No need to explicitly start/close sessions - they are reused globally
-
-	// First check if namespace exists in K8s
-	_, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
-	if err != nil {
+	// Verify existence with a bounded read before sending a VC delete request.
+	err := pollForCondition(apiRecoveryTimeout, func(ctx context.Context) (bool, error) {
+		_, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 		if errors.IsNotFound(err) {
-			log.Info("Namespace already deleted, skipping", "namespace", namespace)
-			return nil
-		}
-		log.Error(err, "Failed to check namespace existence", "namespace", namespace)
-		return err
-	}
-
-	// Namespace exists, proceed with deletion
-	log.Info("Deleting VC namespace", "namespace", namespace)
-	_ = testData.vcClient.deleteNamespace(namespace)
-
-	// Wait for the namespace to be deleted from K8s
-	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
-		if err != nil {
-			if errors.IsNotFound(err) {
-				log.Info("Namespace successfully deleted", "namespace", namespace)
-				return true, nil
-			}
-			log.Error(err, "Check namespace existence during deletion", "namespace", namespace)
 			return false, err
 		}
-		log.Debug("Waiting for namespace to be deleted", "namespace", namespace, "status phase", ns.Status.Phase)
-		return false, nil
+		return err == nil, err
 	})
+	if errors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	log.Info("Deleting VC namespace", "namespace", namespace)
+	if err := data.vcClient.deleteNamespace(namespace); err != nil && err != util.HttpNotFoundError {
+		return err
+	}
+	err = pollForCondition(namespaceCleanupTimeout, func(ctx context.Context) (bool, error) {
+		_, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	})
+	if err != nil {
+		data.logNamespaceDiagnostics(namespace)
+	}
 	return err
 }
 
 // deleteNamespace deletes the provided namespace and waits for deletion to actually complete.
 func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) error {
-	var gracePeriodSeconds int64
-	propagationPolicy := metav1.DeletePropagationForeground
-	deleteOptions := metav1.DeleteOptions{
-		GracePeriodSeconds: &gracePeriodSeconds,
-		PropagationPolicy:  &propagationPolicy,
-	}
-	if err := data.clientset.CoreV1().Namespaces().Delete(context.TODO(), namespace, deleteOptions); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	propagation := metav1.DeletePropagationForeground
+	options := metav1.DeleteOptions{GracePeriodSeconds: ptr.To(int64(0)), PropagationPolicy: &propagation}
+	// Repeating this deletion is safe: the generated Namespace belongs to this test.
+	err := testframework.Poll(ctx, time.Second, func(ctx context.Context) (bool, error) {
+		err := data.clientset.CoreV1().Namespaces().Delete(ctx, namespace, options)
 		if errors.IsNotFound(err) {
-			// namespace does not exist, we return right away
-			return nil
+			return true, nil
 		}
-		return fmt.Errorf("error when deleting '%s' Namespace: %v", namespace, err)
-	}
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{}); err != nil {
+		return err == nil, err
+	}, func(err error) { log.Info("Retrying Namespace deletion", "namespace", namespace, "error", err) })
+	if err == nil {
+		err = testframework.Poll(ctx, time.Second, func(ctx context.Context) (bool, error) {
+			ns, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 			if errors.IsNotFound(err) {
-				// Success
 				return true, nil
 			}
-			return false, fmt.Errorf("error when getting Namespace '%s' after delete: %v", namespace, err)
-		} else if ns.Status.Phase != corev1.NamespaceTerminating {
-			return false, fmt.Errorf("deleted Namespace '%s' should be in 'Terminating' phase", namespace)
-		}
-		// Keep trying
-		return false, nil
-	})
+			if err != nil {
+				return false, err
+			}
+			log.Debug("Waiting for Namespace deletion", "namespace", namespace, "phase", ns.Status.Phase)
+			return false, nil
+		}, func(err error) { log.Info("Retrying Namespace deletion check", "namespace", namespace, "error", err) })
+	}
+	if err != nil {
+		data.logNamespaceDiagnostics(namespace)
+	}
 	return err
 }
 
@@ -482,17 +500,20 @@ func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, d
 	opt := metav1.ListOptions{
 		LabelSelector: "deployment=" + deployment,
 	}
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+	err := pollForCondition(timeout, func(ctx context.Context) (bool, error) {
+		if pods, err := data.clientset.CoreV1().Pods(namespace).List(ctx, opt); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			return false, fmt.Errorf("error when getting Pod  %v", err)
+			return false, fmt.Errorf("error when getting Pod  %w", err)
 		} else {
+			podNames = podNames[:0]
 			for _, p := range pods.Items {
-				podNames = append(podNames, p.Name)
+				if p.DeletionTimestamp == nil {
+					podNames = append(podNames, p.Name)
+				}
 			}
-			return true, nil
+			return len(podNames) > 0, nil
 		}
 	})
 	if err != nil {
@@ -510,28 +531,34 @@ type PodIPs struct {
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
 func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, condition PodCondition) (*corev1.Pod, error) {
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if pod, err := data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
-			if errors.IsNotFound(err) {
-				return false, nil
-			}
-			return false, fmt.Errorf("error when getting Pod '%s': %v", name, err)
-		} else {
-			return condition(pod)
+	var result *corev1.Pod
+	err := pollForCondition(timeout, func(ctx context.Context) (bool, error) {
+		pod, err := data.clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			return false, nil
 		}
+		if err != nil {
+			return false, fmt.Errorf("get Pod %s/%s: %w", namespace, name, err)
+		}
+		ready, err := condition(pod)
+		if ready && err == nil {
+			result = pod
+		}
+		return ready, err
 	})
 	if err != nil {
-		return nil, err
+		data.logNamespaceDiagnostics(namespace)
+		return nil, fmt.Errorf("wait for Pod %s/%s: %w", namespace, name, err)
 	}
-	return data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	return result, nil
 }
 
 func (data *TestData) vmWaitFor(timeout time.Duration, namespace, vmName string) (string, error) {
 	var primaryIP4 string
 	pollCount := 0
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+	err := pollForCondition(timeout, func(ctx context.Context) (bool, error) {
 		pollCount++
-		cmd := exec.Command("kubectl", "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.network.primaryIP4}")
+		cmd := exec.CommandContext(ctx, "kubectl", "--request-timeout="+apiRequestTimeout.String(), "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.network.primaryIP4}") // #nosec G204: test resource names are separate arguments, not shell input.
 		output, err := cmd.Output()
 		if err != nil {
 			var exitError *exec.ExitError
@@ -548,9 +575,9 @@ func (data *TestData) vmWaitFor(timeout time.Duration, namespace, vmName string)
 		if primaryIP4 == "" {
 			// Log VM phase periodically (every 10 polls) for debugging
 			if pollCount%10 == 0 {
-				phaseCmd := exec.Command("kubectl", "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.phase}")
+				phaseCmd := exec.CommandContext(ctx, "kubectl", "--request-timeout="+apiRequestTimeout.String(), "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.phase}") // #nosec G204: test resource names are separate arguments, not shell input.
 				phaseOutput, _ := phaseCmd.Output()
-				powerStateCmd := exec.Command("kubectl", "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.powerState}")
+				powerStateCmd := exec.CommandContext(ctx, "kubectl", "--request-timeout="+apiRequestTimeout.String(), "get", "vm", vmName, "-n", namespace, "-o", "jsonpath={.status.powerState}") // #nosec G204: test resource names are separate arguments, not shell input.
 				powerStateOutput, _ := powerStateCmd.Output()
 				log.Info("Waiting for VM IP", "vmName", vmName, "namespace", namespace, "pollCount", pollCount,
 					"phase", string(phaseOutput), "powerState", string(powerStateOutput))
@@ -570,7 +597,7 @@ func (data *TestData) vmWaitFor(timeout time.Duration, namespace, vmName string)
 // Address Family in the cluster.
 func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace string) (*PodIPs, error) {
 	pod, err := data.podWaitFor(timeout, name, namespace, func(pod *corev1.Pod) (bool, error) {
-		return pod.Status.Phase == corev1.PodRunning, nil
+		return pod.Status.Phase == corev1.PodRunning && pod.Status.PodIP != "" && pod.DeletionTimestamp == nil, nil
 	})
 	if err != nil {
 		log.Error(err, "Failed to wait for Pod becoming RUNNING phase", "Pod", name)
@@ -618,17 +645,17 @@ func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespa
 		LabelSelector: "deployment=" + deployment,
 	}
 
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+	err := pollForCondition(timeout, func(ctx context.Context) (bool, error) {
 		podIPStrings = podIPStrings[:0]
 		podNames = podNames[:0]
-		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+		if pods, err := data.clientset.CoreV1().Pods(namespace).List(ctx, opt); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			return false, fmt.Errorf("error when getting Pod %v", err)
+			return false, fmt.Errorf("error when getting Pod %w", err)
 		} else {
 			for _, p := range pods.Items {
-				if p.Status.Phase != corev1.PodRunning || p.Status.PodIP == "" {
+				if p.Status.Phase != corev1.PodRunning || p.Status.PodIP == "" || p.DeletionTimestamp != nil {
 					continue
 				}
 				podIPStrings = append(podIPStrings, p.Status.PodIP)
@@ -641,6 +668,7 @@ func (data *TestData) deploymentWaitForIPsOrNames(timeout time.Duration, namespa
 		}
 	})
 	if err != nil {
+		data.logNamespaceDiagnostics(namespace)
 		return nil, nil, err
 	}
 	return podIPStrings, podNames, nil
@@ -697,7 +725,9 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 		return "", "", err
 	}
 	var stdoutB, stderrB bytes.Buffer
-	if err := exec2.StreamWithContext(context.Background(), remotecommand.StreamOptions{
+	ctx, cancel := context.WithTimeout(context.Background(), apiRequestTimeout+5*time.Second)
+	defer cancel()
+	if err := exec2.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdout: &stdoutB,
 		Stderr: &stderrB,
 	}); err != nil {
@@ -710,46 +740,54 @@ func (data *TestData) runCommandFromPod(namespace string, podName string, contai
 }
 
 func applyYAML(filename string, ns string) error {
-	cmd := fmt.Sprintf("kubectl apply -f %s -n %s", filename, ns)
-	if ns == "" {
-		cmd = fmt.Sprintf("kubectl apply -f %s", filename)
-	}
-	var stdout, stderr bytes.Buffer
-	command := exec.Command("bash", "-c", cmd)
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-
-	log.Info("Executing", "cmd", cmd)
-
-	err := command.Run()
-	_, errorString := stdout.String(), stderr.String()
-
-	if err != nil {
-		log.Info("Failed to execute", "cmd error", err, "detail error", errorString)
-		return fmt.Errorf("failed to apply YAML: %w", err)
-	}
-	return nil
+	return runManifestCommand("apply", filename, ns)
 }
 
 func deleteYAML(filename string, ns string) error {
-	cmd := fmt.Sprintf("kubectl delete -f %s -n %s", filename, ns)
-	if ns == "" {
-		cmd = fmt.Sprintf("kubectl delete -f %s", filename)
+	return runManifestCommand("delete", filename, ns)
+}
+
+// Reapply the same declarative input only after an API transport failure.
+// Validation and admission failures are returned without retrying.
+func runManifestCommand(verb, filename, namespace string) error {
+	timeout := apiRecoveryTimeout
+	args := []string{verb, "-f", filename, "--request-timeout=" + apiRequestTimeout.String()}
+	if namespace != "" {
+		args = append(args, "-n", namespace)
 	}
-	var stdout, stderr bytes.Buffer
-	command := exec.Command("bash", "-c", cmd)
-	log.Info("Executing", "cmd", cmd)
-	command.Stdout = &stdout
-	command.Stderr = &stderr
-	err := command.Run()
+	if verb == "delete" {
+		timeout = namespaceCleanupTimeout
+		args = append(args, "--ignore-not-found", "--timeout="+timeout.String())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var lastErr error
+	// Restrict recovery of transport errors even when a normal delete has a longer budget.
+	var recoveryDeadline time.Time
+	err := wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (bool, error) {
+		output, err := exec.CommandContext(ctx, "kubectl", args...).CombinedOutput()
+		if err == nil {
+			return true, nil
+		}
+		lastErr = fmt.Errorf("kubectl %s %s: %w: %s", verb, filename, err, strings.TrimSpace(string(output)))
+		if ctx.Err() != nil || !testframework.IsTransientKubectlError(string(output)) {
+			return false, lastErr
+		}
+		if recoveryDeadline.IsZero() {
+			recoveryDeadline = time.Now().Add(apiRecoveryTimeout)
+		}
+		if !time.Now().Before(recoveryDeadline) {
+			return false, lastErr
+		}
+		log.Info("Retrying manifest command after API transport failure", "operation", verb, "file", filename, "error", lastErr)
+		return false, nil
+	})
 	if err != nil {
-		// Ignore error info
-		// very short watch: k8s.io/client-go/tools/watch/informerwatcher.
-		// go:146: Unexpected watch close - watch lasted less than a second and no items received
-		log.Error(err, "Error when deleting YAML file")
-		return nil
+		if ctx.Err() != nil {
+			return stderror.Join(ctx.Err(), lastErr)
+		}
+		return err
 	}
-	_, _ = stdout.String(), stderr.String()
 	return nil
 }
 
@@ -1106,37 +1144,47 @@ func (data *TestData) createIngress(
 }
 
 func (data *TestData) serviceWaitFor(readyTime time.Duration, namespace string, name string, conditionFunc func(svc *corev1.Service) (bool, error)) (*corev1.Service, error) {
-	err := wait.PollUntilContextTimeout(context.TODO(), 3*time.Second, readyTime, false, func(ctx context.Context) (bool, error) {
-		if svc, err := data.clientset.CoreV1().Services(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
+	var result *corev1.Service
+	err := pollForCondition(readyTime, func(ctx context.Context) (bool, error) {
+		if svc, err := data.clientset.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			return false, fmt.Errorf("error when getting Service '%s/%s': %v", namespace, name, err)
+			return false, fmt.Errorf("error when getting Service '%s/%s': %w", namespace, name, err)
 		} else {
-			return conditionFunc(svc)
+			ready, err := conditionFunc(svc)
+			if ready && err == nil {
+				result = svc
+			}
+			return ready, err
 		}
 	})
 	if err != nil {
 		return nil, err
 	}
-	return data.clientset.CoreV1().Services(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	return result, nil
 }
 
 func (data *TestData) ingressWaitFor(readyTime time.Duration, namespace string, name string, conditionFunc func(ingress *networkingv1.Ingress) (bool, error)) (*networkingv1.Ingress, error) {
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, readyTime, false, func(ctx context.Context) (bool, error) {
-		if ingress, err := data.clientset.NetworkingV1().Ingresses(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
+	var result *networkingv1.Ingress
+	err := pollForCondition(readyTime, func(ctx context.Context) (bool, error) {
+		if ingress, err := data.clientset.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{}); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
-			return false, fmt.Errorf("error when getting Ingress '%s/%s': %v", namespace, name, err)
+			return false, fmt.Errorf("error when getting Ingress '%s/%s': %w", namespace, name, err)
 		} else {
-			return conditionFunc(ingress)
+			ready, err := conditionFunc(ingress)
+			if ready && err == nil {
+				result = ingress
+			}
+			return ready, err
 		}
 	})
 	if err != nil {
 		return nil, err
 	}
-	return data.clientset.NetworkingV1().Ingresses(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	return result, nil
 }
 
 func (data *TestData) deleteService(nsName string, svcName string) error {
@@ -1217,15 +1265,16 @@ func checkTrafficByCurl(ns, podname, containername, ip string, port int32, shoul
 		statusCode := strings.Trim(stdOut, `"`)
 		isSuccess := err == nil && statusCode == "200"
 
-		if isSuccess == shouldPass {
+		if testframework.CurlMatchesExpectation(stdOut, err, shouldPass) {
 			return true
 		}
 		// Log with more context for debugging
-		log.Info("Traffic check attempt", "attempt", i+1, "maxAttempts", maxAttempts, "ip", ip, "statusCode", statusCode, "shouldPass", shouldPass, "isSuccess", isSuccess)
+		log.Info("Traffic check attempt", "attempt", i+1, "maxAttempts", maxAttempts, "ip", ip, "statusCode", statusCode, "shouldPass", shouldPass, "isSuccess", isSuccess, "error", err)
 		if i < maxAttempts-1 {
 			time.Sleep(retryInterval)
 		}
 	}
+	testData.logNamespaceDiagnostics(ns)
 	return false
 }
 

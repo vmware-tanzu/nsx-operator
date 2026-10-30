@@ -19,7 +19,7 @@ func TestInventorySync(t *testing.T) {
 	StartParallel(t)
 
 	// Clean up namespace when all inventory tests complete
-	t.Cleanup(func() { CleanupVCNamespaces(NsInventorySync) })
+	t.Cleanup(func() { CleanupVCNamespaces(t, NsInventorySync) })
 
 	// ParallelTests: These tests use independent resources (unique pod/service/policy names) and can run concurrently
 	RunSubtest(t, "ParallelTests", func(t *testing.T) {

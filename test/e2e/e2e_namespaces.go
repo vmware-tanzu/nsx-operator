@@ -1,12 +1,17 @@
 package e2e
 
 import (
+	"fmt"
 	"sync"
+	"testing"
 
 	"golang.org/x/sync/errgroup"
 )
 
 var cleanupOnce sync.Once
+var namespaceCleanupErr error
+
+const namespaceConcurrency = 4
 
 // Pre-defined namespace names for e2e tests
 // These namespaces are created once at the start of all tests and cleaned up at the end
@@ -85,6 +90,7 @@ func InitAllNamespaces() error {
 	log.Info("Creating VC namespaces", "count", len(allVCNamespaces))
 	// Create namespaces concurrently
 	g := new(errgroup.Group)
+	g.SetLimit(namespaceConcurrency)
 	for _, ns := range allVCNamespaces {
 		ns := ns
 		g.Go(func() error {
@@ -107,32 +113,39 @@ func InitAllNamespaces() error {
 // CleanupVCNamespaces deletes the specified VC namespaces
 // Use this in individual tests via deferring to clean up as soon as the test completes
 // This improves concurrency by releasing resources early
-func CleanupVCNamespaces(namespaces ...string) {
-	if testData == nil || !testData.useWCPSetup() {
-		return
+func CleanupVCNamespaces(t testing.TB, namespaces ...string) {
+	t.Helper()
+	if err := cleanupVCNamespaces(namespaces...); err != nil {
+		t.Errorf("Namespace cleanup failed: %v", err)
 	}
+}
 
+func cleanupVCNamespaces(namespaces ...string) error {
+	if testData == nil || !testData.useWCPSetup() {
+		return nil
+	}
 	g := new(errgroup.Group)
-	for _, ns := range namespaces {
-		ns := ns
+	g.SetLimit(namespaceConcurrency)
+	for _, namespace := range namespaces {
 		g.Go(func() error {
-			if err := testData.deleteVCNamespace(ns); err != nil {
-				log.Error(err, "Failed to delete VC namespace", "namespace", ns)
+			if err := testData.deleteVCNamespace(namespace); err != nil {
+				return fmt.Errorf("delete VC Namespace %s: %w", namespace, err)
 			}
 			return nil
 		})
 	}
-	_ = g.Wait()
+	return g.Wait()
 }
 
 // CleanupAllNamespaces deletes all namespaces at the end of tests
 // This is a safety net cleanup - most namespaces should be deleted by individual tests
-func CleanupAllNamespaces() {
+func CleanupAllNamespaces() error {
 	cleanupOnce.Do(func() {
 		// Safety net cleanup: most namespaces should be deleted by individual tests,
 		// but we still try to clean up shared namespace here.
 		log.Info("Running safety net cleanup for namespaces", "vcCount", len(allVCNamespaces))
-		CleanupVCNamespaces(allVCNamespaces...)
+		namespaceCleanupErr = cleanupVCNamespaces(allVCNamespaces...)
 		log.Info("Safety net cleanup completed")
 	})
+	return namespaceCleanupErr
 }
