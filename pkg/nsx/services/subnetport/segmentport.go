@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/gofrs/uuid"
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
@@ -295,6 +297,9 @@ func (service *SubnetPortService) buildSegmentPort(
 		Path:       &segmentPortPath,
 		ParentPath: &segmentPath,
 	}
+	if contextID != "" {
+		nsxSegmentPort.Attachment.ContextId = &contextID
+	}
 	return nsxSegmentPort, nil
 }
 
@@ -363,6 +368,11 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 	existingSegmentPort := service.SegmentPortStore.GetByKey(*nsxSegmentPort.Id)
 	if existingSegmentPort != nil && existingSegmentPort.Attachment != nil {
 		nsxSegmentPort.Attachment.Id = existingSegmentPort.Attachment.Id
+		if controllercommon.GetPodNameForSubnetPort(subnetPort) != "" && contextID == "" &&
+			nsx.PodV2FeatureEnabled(service.NSXClient, service.NSXConfig) {
+			// An unresolved Pod host must not clear a context already on the port.
+			nsxSegmentPort.Attachment.ContextId = existingSegmentPort.Attachment.ContextId
+		}
 	}
 
 	if restoreMode && nsx.RestoreVifFeatureEnabled(service.NSXClient, service.NSXConfig) && attachmentID != "" {
@@ -376,6 +386,12 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 
 	if !isChanged {
 		log.Info("NSX segment port not changed, skipping the update", "nsxSegmentPort.Id", *nsxSegmentPort.Id, "segmentPath", segmentPath)
+		if !restoreMode && controllercommon.IsObjectReady(subnetPort.Status.Conditions) &&
+			existingSegmentPort.Attachment != nil && existingSegmentPort.Attachment.Id != nil &&
+			attachmentID != "" && attachmentID == *existingSegmentPort.Attachment.Id {
+			log.Debug("The segment port is already realized, skip checking the state", "nsxSegmentPort.Id", *nsxSegmentPort.Id, "segmentPath", segmentPath)
+			return nil, nil
+		}
 	} else {
 		log.Info("Updating the NSX segment port", "existingSegmentPort", existingSegmentPort, "desiredSegmentPort", nsxSegmentPort)
 		err = service.NSXClient.SegmentPortsClient.Patch(segmentID, *nsxSegmentPort.Id, *nsxSegmentPort)
@@ -473,6 +489,10 @@ func (service *SubnetPortService) GetSegmentPortState(segmentID string, portID s
 }
 
 func (service *SubnetPortService) DeleteSegmentPort(nsxSegmentPort *model.SegmentPort) error {
+	return service.deleteSegmentPort(nsxSegmentPort, "")
+}
+
+func (service *SubnetPortService) deleteSegmentPort(nsxSegmentPort *model.SegmentPort, segmentID string) error {
 	if nsxSegmentPort == nil || nsxSegmentPort.Id == nil || *nsxSegmentPort.Id == "" {
 		return errors.New("segment port ID is empty")
 	}
@@ -482,26 +502,46 @@ func (service *SubnetPortService) DeleteSegmentPort(nsxSegmentPort *model.Segmen
 	}
 	if segmentPath == "" && nsxSegmentPort.Path != nil {
 		parent, portID, found := strings.Cut(*nsxSegmentPort.Path, "/ports/")
-		if found && portID == *nsxSegmentPort.Id {
-			segmentPath = parent
+		if !found || portID != *nsxSegmentPort.Id {
+			return fmt.Errorf("invalid segment port path: %s", *nsxSegmentPort.Path)
 		}
+		segmentPath = parent
 	}
-	parts := strings.Split(strings.Trim(segmentPath, "/"), "/")
-	if len(parts) != 3 || parts[0] != "infra" || parts[1] != "segments" || parts[2] == "" {
-		return fmt.Errorf("invalid segment path for port %s: %s", *nsxSegmentPort.Id, segmentPath)
+	if segmentPath != "" {
+		parts := strings.Split(strings.Trim(segmentPath, "/"), "/")
+		if len(parts) != 3 || parts[0] != "infra" || parts[1] != "segments" || parts[2] == "" {
+			return fmt.Errorf("invalid segment path for port %s: %s", *nsxSegmentPort.Id, segmentPath)
+		}
+		if segmentID != "" && segmentID != parts[2] {
+			return fmt.Errorf("segment ID %s does not match parent path %s", segmentID, segmentPath)
+		}
+		segmentID = parts[2]
 	}
-	segmentID := parts[2]
+	if segmentID == "" || segmentID == "." || segmentID == ".." || strings.Contains(segmentID, "/") {
+		return fmt.Errorf("invalid segment ID for port %s: %s", *nsxSegmentPort.Id, segmentID)
+	}
 	err := service.NSXClient.SegmentPortsClient.Delete(segmentID, *nsxSegmentPort.Id)
 	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
+	if err != nil && !isSegmentPortNotFound(err) {
 		log.Error(err, "failed to delete nsxSegmentPort", "nsxSegmentPortID", *nsxSegmentPort.Id)
 		return err
 	}
-	if err = service.SegmentPortStore.Delete(*nsxSegmentPort.Id); err != nil {
-		return err
+	if service.SegmentPortStore != nil {
+		if err = service.SegmentPortStore.Delete(*nsxSegmentPort.Id); err != nil {
+			return err
+		}
 	}
 	log.Info("Successfully deleted nsxSegmentPort", "nsxSegmentPortID", *nsxSegmentPort.Id)
 	return nil
+}
+
+func isSegmentPortNotFound(err error) bool {
+	var nsxErr *nsxutil.NSXApiError
+	var notFound stderrors.NotFound
+	var notFoundPtr *stderrors.NotFound
+	return errors.Is(err, nsxutil.HttpNotFoundError) ||
+		(errors.As(err, &nsxErr) && nsxErr.Type() == stderrors.ErrorType_NOT_FOUND) ||
+		errors.As(err, &notFound) || errors.As(err, &notFoundPtr)
 }
 
 func (service *SubnetPortService) DeleteSegmentPortById(segmentID string, portID string) error {
@@ -510,23 +550,5 @@ func (service *SubnetPortService) DeleteSegmentPortById(segmentID string, portID
 		log.Info("Segment port not found in store", "portID", portID)
 		return nil
 	}
-	if len(segmentID) == 0 && nsxSegmentPort.ParentPath != nil {
-		parts := strings.Split(strings.Trim(*nsxSegmentPort.ParentPath, "/"), "/")
-		segmentID = parts[len(parts)-1]
-	}
-	err := service.NSXClient.SegmentPortsClient.Delete(segmentID, *nsxSegmentPort.Id)
-	err = nsxutil.TransNSXApiError(err)
-	if err != nil {
-		portPath := ""
-		if nsxSegmentPort.Path != nil {
-			portPath = *nsxSegmentPort.Path
-		}
-		log.Error(err, "failed to delete nsxSegmentPort", "nsxSegmentPort.Path", portPath)
-		return err
-	}
-	if err = service.SegmentPortStore.Delete(*nsxSegmentPort.Id); err != nil {
-		return err
-	}
-	log.Info("Successfully deleted nsxSegmentPort", "nsxSegmentPortID", *nsxSegmentPort.Id)
-	return nil
+	return service.deleteSegmentPort(nsxSegmentPort, segmentID)
 }
