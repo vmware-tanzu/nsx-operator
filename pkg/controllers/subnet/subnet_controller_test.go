@@ -45,101 +45,72 @@ import (
 )
 
 func TestSubnetReconciler_GarbageCollector(t *testing.T) {
-	testCases := []struct {
-		name             string
-		patches          func(r *SubnetReconciler) *gomonkey.Patches
-		existingSubnetCR *v1alpha1.Subnet
+	for _, tc := range []struct {
+		name                                           string
+		live, ports, deleteFailure, listFailure, empty bool
+		wantDeletes, wantCleanup                       int
+		wantError                                      string
 	}{
-		{
-			name: "Delete stale NSX Subnets success",
-			patches: func(r *SubnetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-					res := sets.New[string]("fake-id1", "fake-id2")
-					return res
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
-					tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id1")}}
-					tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id2")}}
-					var nsxSubnets []*model.VpcSubnet
-					id1 := "fake-id1"
-					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id1, Tags: tags1, Path: common.String("fake-path")})
-					id2 := "fake-id2"
-					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id2, Tags: tags2, Path: common.String("fake-path")})
-					return nsxSubnets
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
-					return nil
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
-					return nil
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, _ string) {
-				})
-				return patch
-			},
-		},
-		{
-			name: "Should not delete NSX Subnet when the Subnet CR exists",
-			patches: func(r *SubnetReconciler) *gomonkey.Patches {
-				// local store has same item as k8s cache
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-					res := sets.New[string]("fake-id2")
-					return res
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
-					assert.FailNow(t, "should not be called")
-					return nil
-				})
-				return patch
-			},
-			existingSubnetCR: &v1alpha1.Subnet{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnetName",
-					Namespace: "default",
-					UID:       types.UID("fake-id2"),
-				},
-			},
-		},
-		{
-			name: "Delete NSX Subnet error",
-			patches: func(r *SubnetReconciler) *gomonkey.Patches {
-				patch := gomonkey.ApplyMethod(reflect.TypeOf(&common.ResourceStore{}), "ListIndexFuncValues", func(_ *common.ResourceStore, _ string) sets.Set[string] {
-					res := sets.New[string]("fake-id1", "fake-id2")
-					return res
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, _ string) []*model.VpcSubnet {
-					tags1 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id1")}}
-					tags2 := []model.Tag{{Scope: common.String(common.TagScopeSubnetCRUID), Tag: common.String("fake-id2")}}
-					var nsxSubnets []*model.VpcSubnet
-					id1 := "fake-id1"
-					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id1, Tags: tags1, Path: common.String("fake-path1")})
-					id2 := "fake-id2"
-					nsxSubnets = append(nsxSubnets, &model.VpcSubnet{Id: &id2, Tags: tags2, Path: common.String("fake-path2")})
-					return nsxSubnets
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) (ports []*model.VpcSubnetPort) {
-					return nil
-				})
-				patch.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, subnet model.VpcSubnet) error {
-					return errors.New("delete failed")
-				})
-				return patch
-			},
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
+		{name: "delete stale subnets", wantDeletes: 2, wantCleanup: 2},
+		{name: "retain live subnet", live: true},
+		{name: "attached ports block deletion", ports: true, wantError: "still attached by 1 port(s)"},
+		{name: "delete failure stops cleanup", deleteFailure: true, wantDeletes: 1, wantError: "delete failed"},
+		{name: "list failure stops GC", listFailure: true, wantError: "list failed"},
+		{name: "empty store", empty: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			objects := []client.Object{}
-			if testCase.existingSubnetCR != nil {
-				objects = append(objects, testCase.existingSubnetCR)
+			if tc.live {
+				objects = append(objects, &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "live", Namespace: "default", UID: "owner"}})
 			}
 			r := createFakeSubnetReconciler(objects)
-			ctx := context.Background()
-
-			patches := testCase.patches(r)
+			patches := gomonkey.NewPatches()
 			defer patches.Reset()
-
-			_ = r.CollectGarbage(ctx)
+			if tc.listFailure {
+				patches.ApplyMethod(reflect.TypeOf(r.Client), "List", func(_ client.Client, _ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+					return errors.New("list failed")
+				})
+			}
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetIDsFromNSXSubnets", func(_ *subnet.SubnetService) sets.Set[string] {
+				if tc.empty {
+					return sets.New[string]()
+				}
+				return sets.New("owner")
+			})
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "ListSubnetCreatedBySubnet", func(_ *subnet.SubnetService, _ string) []*model.VpcSubnet {
+				return []*model.VpcSubnet{{Id: common.String("stale-1"), Path: common.String("/subnets/stale-1")}, {Id: common.String("stale-2"), Path: common.String("/subnets/stale-2")}}
+			})
+			deleted, cleaned := []string{}, []string{}
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "GetPortsOfSubnet", func(_ *subnetport.SubnetPortService, _ string) []*model.VpcSubnetPort {
+				if tc.ports {
+					return []*model.VpcSubnetPort{{}}
+				}
+				return nil
+			})
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "DeleteSubnet", func(_ *subnet.SubnetService, obj model.VpcSubnet) error {
+				deleted = append(deleted, *obj.Id)
+				if tc.deleteFailure {
+					return errors.New("delete failed")
+				}
+				return nil
+			})
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount", func(_ *subnetport.SubnetPortService, path string) { cleaned = append(cleaned, path) })
+			err := r.CollectGarbage(context.Background())
+			errText := ""
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				errText = err.Error()
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Len(t, deleted, tc.wantDeletes)
+			assert.Len(t, cleaned, tc.wantCleanup)
+			unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_controller",
+				Scenario:    tc.name,
+				Description: "Verify GC deletion attempts, port-count cleanup and errors",
+			}).AssertOutput(map[string]interface{}{"deleteAttempts": deleted, "portCountCleanup": cleaned, "error": errText})
 		})
 	}
 }
@@ -1303,178 +1274,97 @@ func patchSuccessfulReconcileSubnetWorkflow(r *SubnetReconciler, patches *gomonk
 }
 
 func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	k8sClient := mockClient.NewMockClient(mockCtl)
-	defer mockCtl.Finish()
-
-	r := &SubnetReconciler{
-		Client: k8sClient,
+	for _, tc := range []struct {
+		name                                                string
+		shared, missing, deleting, noAddresses, listFailure bool
+		lookupError, reconcileError                         string
+		result                                              reconcile.Result
+		wantCalls                                           int
+		wantError                                           string
+	}{
+		{name: "restore success", wantCalls: 2},
+		{name: "aggregate reconcile failures", reconcileError: "restore failed", wantCalls: 2, wantError: "restore failed"},
+		{name: "requeue requires retry", result: ResultRequeue, wantCalls: 2, wantError: "reconciliation requested requeue"},
+		{name: "delayed requeue requires retry", result: reconcile.Result{RequeueAfter: time.Second}, wantCalls: 2, wantError: "reconciliation requested requeue"},
+		{name: "list failure", listFailure: true, wantError: "list failed"},
+		{name: "skip terminating subnet", deleting: true},
+		{name: "skip subnet without addresses", noAddresses: true},
+		{name: "skip existing shared subnet", shared: true},
+		{name: "missing shared subnet reports status", shared: true, missing: true},
+		{name: "shared lookup failure retries", shared: true, lookupError: "lookup failed", wantError: "lookup failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockCtl := gomock.NewController(t)
+			k8sClient := mockClient.NewMockClient(mockCtl)
+			r := &SubnetReconciler{Client: k8sClient, SubnetService: &subnet.SubnetService{}, StatusUpdater: common2.StatusUpdater{}}
+			items := []v1alpha1.Subnet{}
+			for _, name := range []string{"subnet-1", "subnet-2"} {
+				obj := v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ns-1"}, Status: v1alpha1.SubnetStatus{NetworkAddresses: []string{"10.0.0.0/28"}}}
+				if tc.shared {
+					obj.Annotations = map[string]string{common.AnnotationAssociatedResource: ":vpc-1:" + name}
+				}
+				if tc.deleting {
+					now := metav1.Now()
+					obj.DeletionTimestamp = &now
+				}
+				if tc.noAddresses {
+					obj.Status.NetworkAddresses = nil
+				}
+				items = append(items, obj)
+			}
+			k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
+				if tc.listFailure {
+					return errors.New("list failed")
+				}
+				list.(*v1alpha1.SubnetList).Items = items
+				return nil
+			})
+			calls, lookups, warnings := []string{}, []string{}, []string{}
+			patches := gomonkey.NewPatches()
+			defer patches.Reset()
+			patches.ApplyMethod(reflect.TypeOf(r), "Reconcile", func(_ *SubnetReconciler, _ context.Context, req reconcile.Request) (reconcile.Result, error) {
+				calls = append(calls, req.NamespacedName.String())
+				if tc.reconcileError != "" {
+					return tc.result, errors.New(tc.reconcileError)
+				}
+				return tc.result, nil
+			})
+			patches.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, resource string, force bool) (*model.VpcSubnet, error) {
+				lookups = append(lookups, fmt.Sprintf("%s forceAPI=%t", resource, force))
+				if tc.missing {
+					return nil, nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_NOT_FOUND)
+				}
+				if tc.lookupError != "" {
+					return nil, errors.New(tc.lookupError)
+				}
+				return &model.VpcSubnet{}, nil
+			})
+			patches.ApplyMethod(reflect.TypeOf(&r.StatusUpdater), "UpdateFail", func(_ *common2.StatusUpdater, _ context.Context, obj client.Object, _ error, msg string, _ common2.UpdateFailStatusFn, _ ...interface{}) {
+				warnings = append(warnings, client.ObjectKeyFromObject(obj).String()+": "+msg)
+			})
+			err := r.RestoreReconcile()
+			errText := ""
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				errText = err.Error()
+			} else {
+				require.NoError(t, err)
+			}
+			assert.NotContains(t, errText, "%!w")
+			assert.Len(t, calls, tc.wantCalls)
+			if tc.missing {
+				assert.Len(t, warnings, 2)
+			} else {
+				assert.Empty(t, warnings)
+			}
+			unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_controller",
+				Scenario:    tc.name,
+				Description: "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+			}).AssertOutput(map[string]interface{}{"reconcileRequests": calls, "sharedLookups": lookups, "statusWarnings": warnings, "error": errText})
+		})
 	}
-
-	// Reconcile success
-	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		subnetList := list.(*v1alpha1.SubnetList)
-		subnetList.Items = []v1alpha1.Subnet{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnet-1",
-					Namespace: "ns-1",
-					UID:       "subnet-1",
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.0/28"},
-					GatewayAddresses: []string{"10.0.0.0"},
-				},
-			},
-		}
-		return nil
-	})
-
-	patches := gomonkey.ApplyFunc((*SubnetReconciler).Reconcile, func(r *SubnetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		assert.Equal(t, "subnet-1", req.Name)
-		assert.Equal(t, "ns-1", req.Namespace)
-		return ResultNormal, nil
-	})
-	defer patches.Reset()
-	err := r.RestoreReconcile()
-	assert.Nil(t, err)
-
-	// Reconcile failure
-	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		subnetList := list.(*v1alpha1.SubnetList)
-		subnetList.Items = []v1alpha1.Subnet{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnet-1",
-					Namespace: "ns-1",
-					UID:       "subnet-1",
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.0/28"},
-					GatewayAddresses: []string{"10.0.0.0"},
-				},
-			},
-		}
-		return nil
-	})
-	patches = gomonkey.ApplyFunc((*SubnetReconciler).Reconcile, func(r *SubnetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		assert.Equal(t, "subnet-1", req.Name)
-		assert.Equal(t, "ns-1", req.Namespace)
-		return ResultRequeue, nil
-	})
-	defer patches.Reset()
-	err = r.RestoreReconcile()
-	assert.ErrorContains(t, err, "failed to restore Subnet ns-1/subnet-1")
-
-	// Shared Subnet
-	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		subnetList := list.(*v1alpha1.SubnetList)
-		subnetList.Items = []v1alpha1.Subnet{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-1",
-					Namespace:   "ns-1",
-					UID:         "subnet-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-1"},
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.0/28"},
-					GatewayAddresses: []string{"10.0.0.0"},
-				},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-2",
-					Namespace:   "ns-1",
-					UID:         "subnet-2",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-2"},
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.32/28"},
-					GatewayAddresses: []string{"10.0.0.32"},
-				},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnet-3",
-					Namespace: "ns-1",
-				},
-			},
-		}
-		return nil
-	})
-
-	patches = gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *subnet.SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
-		switch associatedResource {
-		case ":vpc-1:subnet-1":
-			return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
-		case ":vpc-1:subnet-2":
-			return nil, nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_NOT_FOUND)
-		}
-		return nil, nil
-	})
-	patches.ApplyFunc((*common2.StatusUpdater).UpdateFail, func(_ *common2.StatusUpdater, ctx context.Context, obj client.Object, err error, msg string, setStatusFn common2.UpdateFailStatusFn, args ...interface{}) {
-	})
-
-	defer patches.Reset()
-	err = r.RestoreReconcile()
-	assert.Nil(t, err)
-
-	// Shared Subnet with get error
-	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		subnetList := list.(*v1alpha1.SubnetList)
-		subnetList.Items = []v1alpha1.Subnet{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-1",
-					Namespace:   "ns-1",
-					UID:         "subnet-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-1"},
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.0/28"},
-					GatewayAddresses: []string{"10.0.0.0"},
-				},
-			},
-		}
-		return nil
-	})
-
-	patches = gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *subnet.SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
-		return nil, errors.New("mocked get NSX Subnet error")
-	})
-
-	defer patches.Reset()
-	err = r.RestoreReconcile()
-	assert.ErrorContains(t, err, "mocked get NSX Subnet error")
-
-	// Skip Subnet pending deletion
-	now := metav1.Now()
-	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		subnetList := list.(*v1alpha1.SubnetList)
-		subnetList.Items = []v1alpha1.Subnet{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "subnet-deleting",
-					Namespace:         "ns-1",
-					UID:               "subnet-deleting",
-					DeletionTimestamp: &now,
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.0/28"},
-					GatewayAddresses: []string{"10.0.0.0"},
-				},
-			},
-		}
-		return nil
-	})
-	patches = gomonkey.ApplyFunc((*SubnetReconciler).Reconcile, func(r *SubnetReconciler, ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-		assert.FailNow(t, "Should not reconcile Subnet pending deletion")
-		return ResultNormal, nil
-	})
-	defer patches.Reset()
-	err = r.RestoreReconcile()
-	assert.Nil(t, err)
 }
 
 func TestHandleSharedSubnet(t *testing.T) {

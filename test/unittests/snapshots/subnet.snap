@@ -1254,3 +1254,1282 @@
  }
 }
 ---
+
+[TestSubnetService_createOrUpdateSubnet_RestoreMode - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify SubnetSet conditions and cached NSX subnet after reconciliation",
+  "scenario": "restore_preserves_conditions"
+ },
+ "payload": {
+  "cachedSubnet": {
+   "DisplayName": "subnet-1",
+   "Id": "subnet-1",
+   "ParentPath": "/orgs/default/projects/default/vpcs/default",
+   "Path": "/orgs/default/projects/default/vpcs/default/subnets/subnet-1"
+  },
+  "status": {
+   "conditions": [
+    {
+     "reason": "SubnetCreationFailed",
+     "status": "True",
+     "type": "SubnetCreationFailed"
+    },
+    {
+     "reason": "SubnetCreationFailed",
+     "status": "False",
+     "type": "Ready"
+    }
+   ]
+  }
+ }
+}
+---
+
+[TestSubnetService_createOrUpdateSubnet_RestoreMode - 2]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify SubnetSet conditions and cached NSX subnet after reconciliation",
+  "scenario": "normal_reconcile_clears_failure"
+ },
+ "payload": {
+  "cachedSubnet": {
+   "DisplayName": "subnet-1",
+   "Id": "subnet-1",
+   "ParentPath": "/orgs/default/projects/default/vpcs/default",
+   "Path": "/orgs/default/projects/default/vpcs/default/subnets/subnet-1"
+  },
+  "status": {
+   "conditions": [
+    {
+     "reason": "SubnetCreationFailed",
+     "status": "False",
+     "type": "Ready"
+    }
+   ]
+  }
+ }
+}
+---
+
+[TestSubnetService_RestoreSubnetSet/RestoreSubnets - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify restored NSX subnet payloads and restore mode propagation",
+  "scenario": "RestoreSubnets"
+ },
+ "payload": {
+  "calls": [
+   {
+    "restoreMode": true,
+    "subnet": {
+     "AccessMode": "",
+     "AdvancedConfig": {
+      "StaticIpAllocation": {
+       "Enabled": true
+      }
+     },
+     "DisplayName": "pod-default-restore1_phoia",
+     "Id": "pod-default-restore1_phoia",
+     "IpAddresses": [
+      "10.0.0.0/28"
+     ],
+     "SubnetDhcpConfig": {
+      "Mode": "DHCP_DEACTIVATED"
+     },
+     "Tags": [
+      {
+       "Scope": "nsx-op/cluster",
+       "Tag": "test-cluster"
+      },
+      {
+       "Scope": "nsx-op/version",
+       "Tag": "1.0.0"
+      },
+      {
+       "Scope": "nsx-op/subnetset_name",
+       "Tag": "pod-default"
+      },
+      {
+       "Scope": "nsx-op/subnetset_uid",
+       "Tag": "pod-default-ns-1"
+      }
+     ]
+    }
+   },
+   {
+    "restoreMode": true,
+    "subnet": {
+     "AccessMode": "",
+     "AdvancedConfig": {
+      "StaticIpAllocation": {
+       "Enabled": true
+      }
+     },
+     "DisplayName": "pod-default-restore1_phoia",
+     "Id": "pod-default-restore1_phoia",
+     "IpAddresses": [
+      "10.0.0.16/28"
+     ],
+     "SubnetDhcpConfig": {
+      "Mode": "DHCP_DEACTIVATED"
+     },
+     "Tags": [
+      {
+       "Scope": "nsx-op/cluster",
+       "Tag": "test-cluster"
+      },
+      {
+       "Scope": "nsx-op/version",
+       "Tag": "1.0.0"
+      },
+      {
+       "Scope": "nsx-op/subnetset_name",
+       "Tag": "pod-default"
+      },
+      {
+       "Scope": "nsx-op/subnetset_uid",
+       "Tag": "pod-default-ns-1"
+      }
+     ]
+    }
+   }
+  ],
+  "error": ""
+ }
+}
+---
+
+[TestSubnetService_RestoreSubnetSet/UpdateSubnets - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify restored NSX subnet payloads and restore mode propagation",
+  "scenario": "UpdateSubnets"
+ },
+ "payload": {
+  "calls": [
+   {
+    "restoreMode": true,
+    "subnet": {
+     "AccessMode": "",
+     "Id": "existing-subnet",
+     "IpAddresses": [
+      "10.0.0.0/28"
+     ],
+     "Path": "/orgs/default/projects/default/vpcs/vpc-1/subnets/existing-subnet",
+     "SubnetDhcpConfig": {
+      "Mode": "DHCP_DEACTIVATED"
+     },
+     "Tags": [
+      {
+       "Scope": "nsx-op/cluster",
+       "Tag": "test-cluster"
+      },
+      {
+       "Scope": "nsx-op/version",
+       "Tag": "1.0.0"
+      },
+      {
+       "Scope": "nsx-op/subnetset_name",
+       "Tag": "pod-default"
+      },
+      {
+       "Scope": "nsx-op/subnetset_uid",
+       "Tag": "pod-default-ns-1"
+      }
+     ]
+    }
+   }
+  ],
+  "error": ""
+ }
+}
+---
+
+[TestSubnetService_RestoreSubnetSet/RestoreSubnetsFailure - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify restored NSX subnet payloads and restore mode propagation",
+  "scenario": "RestoreSubnetsFailure"
+ },
+ "payload": {
+  "calls": [
+   {
+    "restoreMode": true,
+    "subnet": {
+     "AccessMode": "",
+     "AdvancedConfig": {
+      "StaticIpAllocation": {
+       "Enabled": true
+      }
+     },
+     "DisplayName": "pod-default-restore1_phoia",
+     "Id": "pod-default-restore1_phoia",
+     "IpAddresses": [
+      "10.0.0.0/28"
+     ],
+     "SubnetDhcpConfig": {
+      "Mode": "DHCP_DEACTIVATED"
+     },
+     "Tags": [
+      {
+       "Scope": "nsx-op/cluster",
+       "Tag": "test-cluster"
+      },
+      {
+       "Scope": "nsx-op/version",
+       "Tag": "1.0.0"
+      },
+      {
+       "Scope": "nsx-op/subnetset_name",
+       "Tag": "pod-default"
+      },
+      {
+       "Scope": "nsx-op/subnetset_uid",
+       "Tag": "pod-default-ns-1"
+      }
+     ]
+    }
+   }
+  ],
+  "error": "mocked error"
+ }
+}
+---
+
+[TestSubnetService_RestoreSubnetSet/UnchangedSubnetSkipsAPI - 1]
+{
+ "metadata": {
+  "component": "subnet_service",
+  "description": "Verify unchanged restored subnet avoids NSX writes and retains status",
+  "scenario": "unchanged_subnet_skips_api"
+ },
+ "payload": {
+  "apiCalls": 0,
+  "status": {
+   "subnets": [
+    {
+     "networkAddresses": [
+      "10.0.0.0/28"
+     ]
+    }
+   ]
+  }
+ }
+}
+---
+
+[TestSubnetReconciler_GarbageCollector/delete_stale_subnets - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify GC deletion attempts, port-count cleanup and errors",
+  "scenario": "delete stale subnets"
+ },
+ "payload": {
+  "deleteAttempts": [
+   "stale-1",
+   "stale-2"
+  ],
+  "error": "",
+  "portCountCleanup": [
+   "/subnets/stale-1",
+   "/subnets/stale-2"
+  ]
+ }
+}
+---
+
+[TestSubnetReconciler_GarbageCollector/retain_live_subnet - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify GC deletion attempts, port-count cleanup and errors",
+  "scenario": "retain live subnet"
+ },
+ "payload": {
+  "deleteAttempts": [],
+  "error": "",
+  "portCountCleanup": []
+ }
+}
+---
+
+[TestSubnetReconciler_GarbageCollector/attached_ports_block_deletion - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify GC deletion attempts, port-count cleanup and errors",
+  "scenario": "attached ports block deletion"
+ },
+ "payload": {
+  "deleteAttempts": [],
+  "error": "errors found in Subnet garbage collection: [cannot delete Subnet stale-1, still attached by 1 port(s)]",
+  "portCountCleanup": []
+ }
+}
+---
+
+[TestSubnetReconciler_GarbageCollector/delete_failure_stops_cleanup - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify GC deletion attempts, port-count cleanup and errors",
+  "scenario": "delete failure stops cleanup"
+ },
+ "payload": {
+  "deleteAttempts": [
+   "stale-1"
+  ],
+  "error": "errors found in Subnet garbage collection: [delete failed]",
+  "portCountCleanup": []
+ }
+}
+---
+
+[TestSubnetReconciler_GarbageCollector/list_failure_stops_GC - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify GC deletion attempts, port-count cleanup and errors",
+  "scenario": "list failure stops GC"
+ },
+ "payload": {
+  "deleteAttempts": [],
+  "error": "list failed",
+  "portCountCleanup": []
+ }
+}
+---
+
+[TestSubnetReconciler_GarbageCollector/empty_store - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify GC deletion attempts, port-count cleanup and errors",
+  "scenario": "empty store"
+ },
+ "payload": {
+  "deleteAttempts": [],
+  "error": "",
+  "portCountCleanup": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/restore_success - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "restore success"
+ },
+ "payload": {
+  "error": "",
+  "reconcileRequests": [
+   "ns-1/subnet-1",
+   "ns-1/subnet-2"
+  ],
+  "sharedLookups": [],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/aggregate_reconcile_failures - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "aggregate reconcile failures"
+ },
+ "payload": {
+  "error": "errors found in Subnet restore: [failed to restore Subnet ns-1/subnet-1, error: restore failed failed to restore Subnet ns-1/subnet-2, error: restore failed]",
+  "reconcileRequests": [
+   "ns-1/subnet-1",
+   "ns-1/subnet-2"
+  ],
+  "sharedLookups": [],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/requeue_requires_retry - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "requeue requires retry"
+ },
+ "payload": {
+  "error": "errors found in Subnet restore: [failed to restore Subnet ns-1/subnet-1: reconciliation requested requeue failed to restore Subnet ns-1/subnet-2: reconciliation requested requeue]",
+  "reconcileRequests": [
+   "ns-1/subnet-1",
+   "ns-1/subnet-2"
+  ],
+  "sharedLookups": [],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/delayed_requeue_requires_retry - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "delayed requeue requires retry"
+ },
+ "payload": {
+  "error": "errors found in Subnet restore: [failed to restore Subnet ns-1/subnet-1: reconciliation requested requeue failed to restore Subnet ns-1/subnet-2: reconciliation requested requeue]",
+  "reconcileRequests": [
+   "ns-1/subnet-1",
+   "ns-1/subnet-2"
+  ],
+  "sharedLookups": [],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/list_failure - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "list failure"
+ },
+ "payload": {
+  "error": "failed to get Subnet restore list: list failed",
+  "reconcileRequests": [],
+  "sharedLookups": [],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/skip_terminating_subnet - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "skip terminating subnet"
+ },
+ "payload": {
+  "error": "",
+  "reconcileRequests": [],
+  "sharedLookups": [],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/skip_subnet_without_addresses - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "skip subnet without addresses"
+ },
+ "payload": {
+  "error": "",
+  "reconcileRequests": [],
+  "sharedLookups": [],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/skip_existing_shared_subnet - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "skip existing shared subnet"
+ },
+ "payload": {
+  "error": "",
+  "reconcileRequests": [],
+  "sharedLookups": [
+   ":vpc-1:subnet-1 forceAPI=false",
+   ":vpc-1:subnet-2 forceAPI=false"
+  ],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/missing_shared_subnet_reports_status - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "missing shared subnet reports status"
+ },
+ "payload": {
+  "error": "",
+  "reconcileRequests": [],
+  "sharedLookups": [
+   ":vpc-1:subnet-1 forceAPI=false",
+   ":vpc-1:subnet-2 forceAPI=false"
+  ],
+  "statusWarnings": [
+   "ns-1/subnet-1: NSX Subnet does not exists",
+   "ns-1/subnet-2: NSX Subnet does not exists"
+  ]
+ }
+}
+---
+
+[TestSubnetReconciler_RestoreReconcile/shared_lookup_failure_retries - 1]
+{
+ "metadata": {
+  "component": "subnet_controller",
+  "description": "Verify restore filtering, shared lookup, warning updates and aggregated failures",
+  "scenario": "shared lookup failure retries"
+ },
+ "payload": {
+  "error": "failed to get Subnet restore list: lookup failed",
+  "reconcileRequests": [],
+  "sharedLookups": [
+   ":vpc-1:subnet-1 forceAPI=false"
+  ],
+  "statusWarnings": []
+ }
+}
+---
+
+[TestSubnetValidator_Handle/DeleteSuccess - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "DeleteSuccess"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/HasStaleSubnetSet - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "HasStaleSubnetSet"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-1/subnet-1 used by SubnetSet cannot be deleted",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/HasStaleSubnetPort - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "HasStaleSubnetPort"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-1/subnet-1 with stale SubnetPorts cannot be deleted",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/HasStaleSubnetIPReservation - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "HasStaleSubnetIPReservation"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-1/subnet-1 with stale SubnetIPReservations cannot be deleted",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/ListSubnetPortFailure - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "ListSubnetPortFailure"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 400,
+   "message": "failed to list SubnetPort: list failure",
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/ListSubnetSetFailure - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "ListSubnetSetFailure"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 400,
+   "message": "failed to list SubnetSet: list failure",
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/ListSubnetIPReservationFailure - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "ListSubnetIPReservationFailure"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 400,
+   "message": "failed to list SubnetIPReservations: list failure",
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/DecodeOldSubnetFailure - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "DecodeOldSubnetFailure"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 400,
+   "message": "there is no content to decode",
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/DecodeSubnetFailure - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "DecodeSubnetFailure"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 400,
+   "message": "there is no content to decode",
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/CreateSubnet_with_invalid_IPv4SubnetSize - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "CreateSubnet with invalid IPv4SubnetSize"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-2/subnet-2 has invalid size 24: Subnet size must be a power of 2",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/CreateSubnet_with_invalid_IPv4SubnetSize_8 - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "CreateSubnet with invalid IPv4SubnetSize 8"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-8/subnet-with-min-size has invalid size 8: Subnet size must be greater than or equal to 16",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/CreateSubnet_with_invalid_AccessMode - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "CreateSubnet with invalid AccessMode"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-3/subnet-3: spec.accessMode L2Only is not supported",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/CreateSubnet - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "CreateSubnet"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/CreateSubnet_with_acccessMode_private_in_VLANBacked_VPC - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "CreateSubnet with acccessMode private in VLANBacked VPC"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "AccessMode other than Public is not supported VLANBackedVPC VPC",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Create_shared_subnet_by_non-NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Create shared subnet by non-NSX Operator"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Shared Subnet ns-3/shared-subnet can only be created by NSX Operator",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Create_shared_subnet_by_NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Create shared subnet by NSX Operator"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Create_subnet_with_VPCName_by_non-NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Create subnet with VPCName by non-NSX Operator"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-4/subnet-with-vpc: spec.vpcName can only be set by NSX Operator",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Create_subnet_with_VPCName_by_NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Create subnet with VPCName by NSX Operator"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Create_subnet_with_VLANConnectionName_non-NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Create subnet with VLANConnectionName non-NSX Operator"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-5/subnet-with-vlan: spec.vlanConnectionName can only be set by NSX Operator",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Create_subnet_with_VLANConnectionName_by_NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Create subnet with VLANConnectionName by NSX Operator"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_VPCName_by_non-NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed VPCName by non-NSX Operator"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-6/subnet-to-update: spec.vpcName can only be updated by NSX Operator",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_VPCName_by_NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed VPCName by NSX Operator"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_VLANConnectionName_by_non-NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed VLANConnectionName by non-NSX Operator"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ns-6/subnet-to-update: spec.vlanConnectionName can only be updated by NSX Operator",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_VLANConnectionName_by_NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed VLANConnectionName by NSX Operator"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_IPAddresses - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed IPAddresses"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ipAddresses can only be updated when ipAddressType transitions from IPv4 or IPv6 to IPv4IPv6",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_IPBlockNames_-_invalid_without_IPAddressType_transition - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed IPBlockNames - invalid without IPAddressType transition"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet ipBlockNames can only be updated when ipAddressType transitions from IPv4 or IPv6 to IPv4IPv6",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_IPBlockNames_-_valid_conversion_(IPv4_to_IPv4IPv6_with_added_block) - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed IPBlockNames - valid conversion (IPv4 to IPv4IPv6 with added block)"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_with_changed_IPBlockNames_-_invalid_removal_of_existing_block - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet with changed IPBlockNames - invalid removal of existing block"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet existing ipBlockNames cannot be removed or modified",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_shared_subnet_by_non-NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update shared subnet by non-NSX Operator"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Shared Subnet ns-7/shared-subnet-to-update can only be updated by NSX Operator",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_shared_subnet_by_NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update shared subnet by NSX Operator"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Delete_shared_subnet_by_non-NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Delete shared subnet by non-NSX Operator"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Shared Subnet ns-7/shared-subnet-to-update can only be deleted by NSX Operator",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Delete_shared_subnet_by_NSX_Operator - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Delete shared subnet by NSX Operator"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_IPAddressType_-_invalid_conversion_(IPv4_to_IPv6) - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet IPAddressType - invalid conversion (IPv4 to IPv6)"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet IPAddressType converting from IPv4 to IPv6 is not supported",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_IPAddressType_-_valid_conversion_(IPv4_to_IPv4IPv6) - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet IPAddressType - valid conversion (IPv4 to IPv4IPv6)"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_IPAddressType_-_valid_conversion_(empty_to_IPv4) - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet IPAddressType - valid conversion (empty to IPv4)"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_AccessMode_-_invalid_change_(Public_to_Private_on_IPv4) - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet AccessMode - invalid change (Public to Private on IPv4)"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet accessMode is immutable",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Update_subnet_AccessMode_-_valid_change_(AccessMode_changed_when_converting_from_IPv6_to_IPv4IPv6) - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Update subnet AccessMode - valid change (AccessMode changed when converting from IPv6 to IPv4IPv6)"
+ },
+ "payload": {
+  "allowed": true,
+  "status": {
+   "code": 200,
+   "metadata": {}
+  },
+  "uid": ""
+ }
+}
+---
+
+[TestSubnetValidator_Handle/Create_subnet_IPAddressType_-_non-intersecting_with_supervisor_IP_family_(IPv6_subnet_on_IPv4_supervisor) - 1]
+{
+ "metadata": {
+  "component": "subnet_webhook",
+  "description": "Verify Subnet admission decision, status code and rejection message",
+  "scenario": "Create subnet IPAddressType - non-intersecting with supervisor IP family (IPv6 subnet on IPv4 supervisor)"
+ },
+ "payload": {
+  "allowed": false,
+  "status": {
+   "code": 403,
+   "message": "Subnet IPAddressType IPv6 does not intersect with supervisor IP family IPv4",
+   "metadata": {},
+   "reason": "Forbidden"
+  },
+  "uid": ""
+ }
+}
+---

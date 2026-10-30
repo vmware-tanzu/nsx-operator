@@ -798,6 +798,12 @@ func TestSubnetService_createOrUpdateSubnet_RestoreMode(t *testing.T) {
 		}
 	}
 	assert.True(t, hasCondition, "SubnetCreationFailed condition should remain intact in restore mode")
+	unittests.NewGuard(t, unittests.Metadata{
+		Feature:     "subnet",
+		Component:   "subnet_service",
+		Scenario:    "restore_preserves_conditions",
+		Description: "Verify SubnetSet conditions and cached NSX subnet after reconciliation",
+	}).AssertOutput(map[string]interface{}{"status": updatedSubnetSet.Status, "cachedSubnet": service.SubnetStore.GetByKey("subnet-1")})
 
 	// 2. In restoreMode = false: SubnetCreationFailed condition MUST be removed
 	patches.ApplyMethod(reflect.TypeOf(service), "UpdateSubnetSetStatus",
@@ -818,6 +824,12 @@ func TestSubnetService_createOrUpdateSubnet_RestoreMode(t *testing.T) {
 		}
 	}
 	assert.False(t, hasCondition, "SubnetCreationFailed condition should be removed when not in restore mode")
+	unittests.NewGuard(t, unittests.Metadata{
+		Feature:     "subnet",
+		Component:   "subnet_service",
+		Scenario:    "normal_reconcile_clears_failure",
+		Description: "Verify SubnetSet conditions and cached NSX subnet after reconciliation",
+	}).AssertOutput(map[string]interface{}{"status": updatedSubnetSet.Status, "cachedSubnet": service.SubnetStore.GetByKey("subnet-1")})
 }
 
 func TestSubnetService_DeleteSubnet(t *testing.T) {
@@ -936,6 +948,13 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 			return false, nil
 		})
 	defer patchesTepLess.Reset()
+	patchesTepLess.ApplyFunc(util.GetRandomIndexString, func() string { return "restore1" })
+	type restoreCall struct {
+		Subnet      model.VpcSubnet `json:"subnet"`
+		RestoreMode bool            `json:"restoreMode"`
+	}
+	calls := []restoreCall{}
+	indexLookups := []string{}
 
 	service := &SubnetService{
 		Service: common.Service{
@@ -970,13 +989,13 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 			},
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
-					switch key {
-					case common.TagScopeSubnetSetCRUID:
-						assert.Equal(t, "pod-default-ns-1", value)
+					if key == common.TagScopeSubnetSetCRUID {
+						indexLookups = append(indexLookups, value)
 					}
 					return []*model.VpcSubnet{}
 				})
 				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
+					calls = append(calls, restoreCall{Subnet: *nsxSubnet, RestoreMode: restoreMode})
 					return nil, nil
 				})
 				return patches
@@ -998,16 +1017,19 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 			},
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
+					if key == common.TagScopeSubnetSetCRUID {
+						indexLookups = append(indexLookups, value)
+					}
 					switch key {
 					case common.TagScopeSubnetSetCRUID:
-						assert.Equal(t, "pod-default-ns-1", value)
 						return []*model.VpcSubnet{
-							{IpAddresses: []string{"10.0.0.0/28"}},
+							{Id: common.String("existing-subnet"), Path: common.String("/orgs/default/projects/default/vpcs/vpc-1/subnets/existing-subnet"), IpAddresses: []string{"10.0.0.0/28"}},
 						}
 					}
 					return []*model.VpcSubnet{}
 				})
 				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
+					calls = append(calls, restoreCall{Subnet: *nsxSubnet, RestoreMode: restoreMode})
 					return nil, nil
 				})
 				return patches
@@ -1029,13 +1051,13 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 			},
 			prepareFunc: func() *gomonkey.Patches {
 				patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(s *SubnetStore, key string, value string) []*model.VpcSubnet {
-					switch key {
-					case common.TagScopeSubnetSetCRUID:
-						assert.Equal(t, "pod-default-ns-1", value)
+					if key == common.TagScopeSubnetSetCRUID {
+						indexLookups = append(indexLookups, value)
 					}
 					return []*model.VpcSubnet{}
 				})
 				patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(service *SubnetService, obj client.Object, nsxSubnet *model.VpcSubnet, vpcInfo *common.VPCResourceInfo, restoreMode bool) (*model.VpcSubnet, error) {
+					calls = append(calls, restoreCall{Subnet: *nsxSubnet, RestoreMode: restoreMode})
 					return nil, fmt.Errorf("mocked error")
 				})
 				return patches
@@ -1044,18 +1066,58 @@ func TestSubnetService_RestoreSubnetSet(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		patches := tt.prepareFunc()
-		err := service.RestoreSubnetSet(tt.subnetset, common.VPCResourceInfo{}, []model.Tag{})
-		if tt.expectedErr != "" {
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), tt.expectedErr)
-		} else {
-			assert.Nil(t, err)
-		}
-		if patches != nil {
-			patches.Reset()
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			calls = []restoreCall{}
+			indexLookups = []string{}
+			patches := tt.prepareFunc()
+			defer patches.Reset()
+			err := service.RestoreSubnetSet(tt.subnetset.DeepCopy(), common.VPCResourceInfo{}, []model.Tag{})
+			errText := ""
+			if tt.expectedErr != "" {
+				require.ErrorContains(t, err, tt.expectedErr)
+				errText = err.Error()
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, []string{string(tt.subnetset.UID)}, indexLookups)
+			require.Len(t, calls, len(tt.subnetset.Status.Subnets))
+			for _, call := range calls {
+				assert.True(t, call.RestoreMode)
+			}
+			unittests.NewGuard(t, unittests.Metadata{
+				Feature:     "subnet",
+				Component:   "subnet_service",
+				Scenario:    tt.name,
+				Description: "Verify restored NSX subnet payloads and restore mode propagation",
+			}).AssertOutput(map[string]interface{}{"calls": calls, "error": errText})
+		})
 	}
+	t.Run("UnchangedSubnetSkipsAPI", func(t *testing.T) {
+		obj := tests[1].subnetset.DeepCopy()
+		existing, err := service.buildSubnet(obj, []model.Tag{}, obj.Status.Subnets[0].NetworkAddresses, &common.VPCResourceInfo{})
+		require.NoError(t, err)
+		patches := gomonkey.ApplyFunc((*SubnetStore).GetByIndex, func(_ *SubnetStore, key, value string) []*model.VpcSubnet {
+			if key == common.TagScopeSubnetSetCRUID {
+				return []*model.VpcSubnet{existing}
+			}
+			return nil
+		})
+		defer patches.Reset()
+		apiCalls := 0
+		patches.ApplyFunc((*SubnetService).createOrUpdateSubnet, func(_ *SubnetService, _ client.Object, _ *model.VpcSubnet, _ *common.VPCResourceInfo, _ bool) (*model.VpcSubnet, error) {
+			apiCalls++
+			return nil, nil
+		})
+		require.NoError(t, service.RestoreSubnetSet(obj, common.VPCResourceInfo{}, []model.Tag{}))
+		assert.Zero(t, apiCalls)
+		unittests.NewGuard(t, unittests.Metadata{
+			Feature:     "subnet",
+			Component:   "subnet_service",
+			Scenario:    "unchanged_subnet_skips_api",
+			Description: "Verify unchanged restored subnet avoids NSX writes and retains status",
+		}).AssertOutput(map[string]interface{}{"apiCalls": apiCalls, "status": obj.Status})
+	})
+
 }
 
 func TestBuildSubnetCR(t *testing.T) {
