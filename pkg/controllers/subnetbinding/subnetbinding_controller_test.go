@@ -1549,12 +1549,17 @@ func TestRestoreReconcile(t *testing.T) {
 		assert.Empty(t, list)
 	})
 
-	t.Run("missing dependency fails restore", func(t *testing.T) {
+	t.Run("missing dependency does not block restore", func(t *testing.T) {
 		r := createFakeReconciler(bmWithStatus)
 		err := r.RestoreReconcile()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "errors found in SubnetConnectionBindingMap restore")
+		require.NoError(t, err)
 		assert.False(t, r.restoreMode)
+		current := &v1alpha1.SubnetConnectionBindingMap{}
+		require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: bmWithStatus.Namespace, Name: bmWithStatus.Name}, current))
+		require.Len(t, current.Status.Conditions, 1)
+		assert.Equal(t, v1alpha1.Ready, current.Status.Conditions[0].Type)
+		assert.Equal(t, corev1.ConditionFalse, current.Status.Conditions[0].Status)
+		assert.Equal(t, "DependencyNotReady", current.Status.Conditions[0].Reason)
 	})
 
 	t.Run("terminating CR is deleted without dependency validation", func(t *testing.T) {
@@ -1842,8 +1847,60 @@ func TestRestoreWithEmptyTargetSubnetSet(t *testing.T) {
 			}
 			assert.Equal(t, []types.NamespacedName{{Namespace: binding.Namespace, Name: binding.Name}}, list)
 			if scenario == "expected subnet missing" {
-				require.ErrorContains(t, r.RestoreReconcile(), "SubnetSet CR target is not realized on NSX")
+				require.NoError(t, r.RestoreReconcile())
+				current := &v1alpha1.SubnetConnectionBindingMap{}
+				require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}, current))
+				require.NotEmpty(t, current.Status.Conditions)
+				assert.Equal(t, corev1.ConditionFalse, current.Status.Conditions[0].Status)
+				assert.Equal(t, "DependencyNotReady", current.Status.Conditions[0].Reason)
 			}
 		})
+	}
+}
+
+func TestRestoreContinuesAfterUnsupportedSubnetAssociation(t *testing.T) {
+	unsupported := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "a-unsupported", Namespace: "ns-1", UID: "unsupported-uid"},
+		Spec: v1alpha1.SubnetConnectionBindingMapSpec{
+			SubnetName: "child", TargetSubnetName: "parent", SubnetAssociation: v1alpha1.SubnetAssociationBranch,
+		},
+		Status: v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(101)},
+	}
+	valid := &v1alpha1.SubnetConnectionBindingMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "b-valid", Namespace: "ns-1", UID: "valid-uid"},
+		Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "child", TargetSubnetName: "parent"},
+		Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: common.Int64(102)},
+	}
+	r := createFakeReconciler(unsupported, valid)
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetBindingService.NSXClient), "NSXCheckVersion",
+		func(_ *nsx.Client, feature int) bool { return feature != nsx.SubnetAssociation })
+	defer patches.Reset()
+	patches.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency",
+		func(_ *Reconciler, _ context.Context, binding *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+			assert.Equal(t, valid.UID, binding.UID, "unsupported bindings must stop before dependency validation")
+			return "/child", []string{"/parent"}, nil
+		})
+	restored := false
+	patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "CreateOrUpdateSubnetConnectionBindingMap",
+		func(_ *subnetbinding.BindingService, binding *v1alpha1.SubnetConnectionBindingMap, _ int64, _ string, _ []string) (int64, error) {
+			assert.Equal(t, valid.UID, binding.UID)
+			restored = true
+			return 102, nil
+		})
+	require.NoError(t, r.RestoreReconcile())
+	assert.True(t, restored)
+	assert.False(t, r.restoreMode)
+	for _, binding := range []*v1alpha1.SubnetConnectionBindingMap{unsupported, valid} {
+		got := &v1alpha1.SubnetConnectionBindingMap{}
+		require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}, got))
+		require.Len(t, got.Status.Conditions, 1)
+		assert.Equal(t, v1alpha1.Ready, got.Status.Conditions[0].Type)
+		assert.Equal(t, binding.Status.VLANTrafficTag, got.Status.VLANTrafficTag)
+		if binding.UID == unsupported.UID {
+			assert.Equal(t, corev1.ConditionFalse, got.Status.Conditions[0].Status)
+			assert.Equal(t, "NSXVersionNotSupported", got.Status.Conditions[0].Reason)
+		} else {
+			assert.Equal(t, corev1.ConditionTrue, got.Status.Conditions[0].Status)
+		}
 	}
 }

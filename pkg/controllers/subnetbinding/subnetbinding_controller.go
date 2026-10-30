@@ -195,9 +195,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		err := fmt.Errorf("subnetAssociation is not supported in current NSX version")
 		log.Error(err, "NSX version check failed for SubnetAssociation", "SubnetConnectionBindingMap", req.NamespacedName)
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "subnetAssociation is not supported in current NSX version", updateBindingMapStatusWithUnreadyCondition, "NSXVersionNotSupported", err.Error())
-		if r.restoreMode {
-			return common.ResultNormal, err
-		}
+		// A configuration unsupported by this NSX version requires user action;
+		// restarting restore cannot fix it and must not block other resources.
 		return common.ResultNormal, nil
 	}
 
@@ -206,9 +205,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		// Update SubnetConnectionBindingMap with not-ready condition
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "dependent Subnets are not ready", updateBindingMapStatusWithUnreadyCondition, "DependencyNotReady", err.message)
 		if !err.retry {
-			if r.restoreMode {
-				return common.ResultNormal, fmt.Errorf("%s", err.message)
-			}
 			return common.ResultNormal, nil
 		}
 		// Requeue after 60s to support the case that the dependent Subnet is not nested.
