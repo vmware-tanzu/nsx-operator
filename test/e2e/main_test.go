@@ -178,7 +178,7 @@ func printTreeNode(node *testTreeNode, prefix string, isLast bool, results map[s
 }
 
 // PrintSummary prints a summary of all test results in tree format
-func (tr *TestResultTracker) PrintSummary() {
+func (tr *TestResultTracker) PrintSummary(suiteErr error) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 
@@ -233,7 +233,9 @@ func (tr *TestResultTracker) PrintSummary() {
 	}
 
 	fmt.Println(strings.Repeat("=", 80))
-	if failed > 0 {
+	if suiteErr != nil {
+		fmt.Printf("RESULT: ❌ FAILED (%v)\n", suiteErr)
+	} else if failed > 0 {
 		fmt.Printf("RESULT: ❌ FAILED (%d test(s) failed)\n", failed)
 	} else {
 		fmt.Println("RESULT: ✅ ALL TESTS PASSED")
@@ -253,7 +255,13 @@ func testMain(m *testing.M) int {
 	flag.StringVar(&testOptions.vcPassword, "vc-password", "", "The password used by the user when requesting vCenter API session")
 	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
 	flag.IntVar(&testOptions.logLevel, "log-level", 0, "")
+	flag.DurationVar(&podStartupTimeout, "pod-startup-timeout", podStartupTimeout, "Maximum wait for Pod startup and operator rollout")
+	flag.DurationVar(&namespaceCleanupTimeout, "namespace-cleanup-timeout", namespaceCleanupTimeout, "Maximum wait for Namespace cleanup")
 	flag.Parse()
+	if podStartupTimeout <= 0 || namespaceCleanupTimeout <= 0 {
+		fmt.Fprintln(os.Stderr, "Lifecycle timeouts must be positive")
+		return 1
+	}
 
 	log = logger.ZapCustomLogger(testOptions.debugLog, testOptions.logLevel)
 	logger.Log = log
@@ -272,6 +280,10 @@ func testMain(m *testing.M) int {
 		return 1
 	}
 
+	if err := testData.waitForOperatorReady(); err != nil {
+		log.Error(err, "Operator rollout or webhook backend is not ready")
+		return 1
+	}
 	log.Info("Collecting information about K8s cluster")
 	if err := collectClusterInfo(); err != nil {
 		log.Error(err, "Error when collecting information about K8s cluster")
@@ -287,6 +299,10 @@ func testMain(m *testing.M) int {
 	// Batch create all VC namespaces once
 	if err := InitAllNamespaces(); err != nil {
 		log.Error(err, "failed to init all e2e namespaces")
+		if cleanupErr := CleanupAllNamespaces(); cleanupErr != nil {
+			log.Error(cleanupErr, "Failed to clean up partially initialized namespaces")
+		}
+		return 1
 	}
 
 	// Handle Ctrl+C to trigger cleanup
@@ -295,7 +311,9 @@ func testMain(m *testing.M) int {
 	go func() {
 		sig := <-sigChan
 		log.Info("Received signal, triggering cleanup", "signal", sig)
-		CleanupAllNamespaces()
+		if err := CleanupAllNamespaces(); err != nil {
+			log.Error(err, "Namespace cleanup failed")
+		}
 		os.Exit(1)
 	}()
 
@@ -305,8 +323,10 @@ func testMain(m *testing.M) int {
 	go func() {
 		<-timeoutChan
 		log.Info("⚠️  WARNING: E2E test suite exceeded timeout, forcing cleanup", "timeout", e2eTimeout)
-		testResultTracker.PrintSummary()
-		CleanupAllNamespaces()
+		testResultTracker.PrintSummary(fmt.Errorf("suite exceeded timeout %s", e2eTimeout))
+		if err := CleanupAllNamespaces(); err != nil {
+			log.Error(err, "Namespace cleanup failed")
+		}
 		os.Exit(1)
 	}()
 
@@ -329,10 +349,15 @@ func testMain(m *testing.M) int {
 	testResultTracker.startTime = time.Now()
 	ret := m.Run()
 
-	// Print test summary at the end
-	testResultTracker.PrintSummary()
-
-	CleanupAllNamespaces()
+	cleanupErr := CleanupAllNamespaces()
+	if cleanupErr != nil {
+		log.Error(cleanupErr, "Namespace cleanup failed")
+		ret = 1
+	}
+	if cleanupErr != nil {
+		cleanupErr = fmt.Errorf("Namespace cleanup failed: %w", cleanupErr)
+	}
+	testResultTracker.PrintSummary(cleanupErr)
 	return ret
 }
 
