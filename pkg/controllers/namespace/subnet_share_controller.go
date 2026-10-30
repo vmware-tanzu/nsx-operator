@@ -91,10 +91,10 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 
 	if nsxSubnet != nil {
 		if tagVal := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeWCPSegmentTrackingSubnet); tagVal != "" {
-			if subnetCR.Labels == nil {
-				subnetCR.Labels = make(map[string]string)
+			if subnetCR.Annotations == nil {
+				subnetCR.Annotations = make(map[string]string)
 			}
-			subnetCR.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet] = tagVal
+			subnetCR.Annotations[servicecommon.AnnotationSegmentPath] = tagVal
 		}
 	}
 
@@ -356,16 +356,20 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 				if err == nil && nsxSubnet != nil {
 					if tagVal := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeWCPSegmentTrackingSubnet); tagVal != "" {
 						needUpdate := false
-						if existingSubnet.Labels == nil {
-							existingSubnet.Labels = make(map[string]string)
+						if existingSubnet.Annotations == nil {
+							existingSubnet.Annotations = make(map[string]string)
 						}
-						if existingSubnet.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet] != tagVal {
-							existingSubnet.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet] = tagVal
+						if existingSubnet.Annotations[servicecommon.AnnotationSegmentPath] != tagVal {
+							existingSubnet.Annotations[servicecommon.AnnotationSegmentPath] = tagVal
+							needUpdate = true
+						}
+						if _, exists := existingSubnet.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet]; exists {
+							delete(existingSubnet.Labels, servicecommon.TagScopeWCPSegmentTrackingSubnet)
 							needUpdate = true
 						}
 						if needUpdate {
 							if err := r.Client.Update(ctx, existingSubnet); err != nil {
-								log.Error(err, "Failed to update existing shared Subnet CR for WCP_SEGMENT_TRACKING_SUBNET", "Subnet", existingSubnet.Name)
+								log.Error(err, "Failed to update segment path annotation on existing shared Subnet CR", "Subnet", existingSubnet.Name)
 							}
 						}
 					}

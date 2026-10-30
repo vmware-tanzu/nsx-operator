@@ -166,6 +166,18 @@ func (store *SegmentPortStore) DeleteMultipleObjects(ports []*model.SegmentPort)
 	}
 }
 
+func (store *SegmentPortStore) TransResourceToStore(entity *data.StructValue) error {
+	obj, errs := common.NewConverter().ConvertToGolang(entity, store.BindingType)
+	for _, err := range errs {
+		return err
+	}
+	segmentPort, ok := nsxutil.CasttoPointer(obj).(*model.SegmentPort)
+	if !ok || segmentPort == nil {
+		return errors.New("failed to convert SegmentPort")
+	}
+	return store.Apply(segmentPort)
+}
+
 func (store *SegmentPortStore) Apply(i interface{}) error {
 	if i == nil {
 		return nil
@@ -178,6 +190,16 @@ func (store *SegmentPortStore) Apply(i interface{}) error {
 			return err
 		}
 	} else {
+		if segmentPort.ParentPath == nil || *segmentPort.ParentPath == "" {
+			if segmentPort.Path == nil {
+				return errors.New("segment port path is empty")
+			}
+			segmentPath, portID, found := strings.Cut(*segmentPort.Path, "/ports/")
+			if !found || segmentPath == "" || portID == "" || strings.Contains(portID, "/") {
+				return fmt.Errorf("invalid segment port path: %s", *segmentPort.Path)
+			}
+			segmentPort.ParentPath = common.String(segmentPath)
+		}
 		err := store.Add(segmentPort)
 		log.Debug("add SegmentPort to store", "segmentPort", segmentPort)
 		if err != nil {
@@ -225,7 +247,10 @@ func (service *SubnetPortService) buildSegmentPort(
 	}
 	namespaceUid := namespace.UID
 
-	segmentPortID, segmentPortName := service.BuildSegmentPortIdAndName(&subnetPort.ObjectMeta, namespaceUid)
+	segmentPortID, segmentPortName, err := service.BuildSegmentPortIdAndName(&subnetPort.ObjectMeta, namespaceUid)
+	if err != nil {
+		return nil, err
+	}
 	segmentPortPath := fmt.Sprintf("%s/ports/%s", segmentPath, segmentPortID)
 
 	tags := util.BuildBasicTags(getCluster(service), subnetPort, namespaceUid)
@@ -273,10 +298,29 @@ func (service *SubnetPortService) buildSegmentPort(
 	return nsxSegmentPort, nil
 }
 
-func (service *SubnetPortService) BuildSegmentPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID) (string, string) {
-	existingSegmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(obj.GetUID())
-	if err == nil && existingSegmentPort != nil {
-		return *existingSegmentPort.Id, *existingSegmentPort.DisplayName
+func (service *SubnetPortService) GetSegmentPortForSubnetPort(obj *metav1.ObjectMeta) (*model.SegmentPort, error) {
+	segmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(obj.UID)
+	if err != nil || segmentPort != nil {
+		return segmentPort, err
+	}
+	for _, owner := range obj.OwnerReferences {
+		if owner.Kind == "Pod" && owner.UID != "" {
+			segmentPort, err = service.SegmentPortStore.GetSegmentPortByUID(owner.UID)
+			if err != nil || segmentPort != nil {
+				return segmentPort, err
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (service *SubnetPortService) BuildSegmentPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID) (string, string, error) {
+	existingSegmentPort, err := service.GetSegmentPortForSubnetPort(obj)
+	if err != nil {
+		return "", "", err
+	}
+	if existingSegmentPort != nil {
+		return *existingSegmentPort.Id, *existingSegmentPort.DisplayName, nil
 	}
 
 	objWithNamespaceUID := &metav1.ObjectMeta{
@@ -285,7 +329,7 @@ func (service *SubnetPortService) BuildSegmentPortIdAndName(obj *metav1.ObjectMe
 	}
 	return common.BuildUniqueIDWithRandomUUID(objWithNamespaceUID, util.GenerateIDByObject, func(id string) bool {
 		return service.SegmentPortStore.GetByKey(id) != nil
-	}), service.BuildSubnetPortName(obj)
+	}), service.BuildSubnetPortName(obj), nil
 }
 
 // CreateOrUpdateSegmentPort creates or updates SegmentPort on NSX
@@ -317,16 +361,17 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 	}
 
 	existingSegmentPort := service.SegmentPortStore.GetByKey(*nsxSegmentPort.Id)
-	isChanged := true
-	if existingSegmentPort != nil {
-		if existingSegmentPort.Attachment != nil {
-			nsxSegmentPort.Attachment.Id = existingSegmentPort.Attachment.Id
-		}
-		isChanged = common.CompareResource(SegmentPortToComparable(existingSegmentPort), SegmentPortToComparable(nsxSegmentPort))
+	if existingSegmentPort != nil && existingSegmentPort.Attachment != nil {
+		nsxSegmentPort.Attachment.Id = existingSegmentPort.Attachment.Id
 	}
 
 	if restoreMode && nsx.RestoreVifFeatureEnabled(service.NSXClient, service.NSXConfig) && attachmentID != "" {
 		nsxSegmentPort.Attachment.Id = &attachmentID
+	}
+
+	isChanged := true
+	if existingSegmentPort != nil {
+		isChanged = common.CompareResource(SegmentPortToComparable(existingSegmentPort), SegmentPortToComparable(nsxSegmentPort))
 	}
 
 	if !isChanged {
@@ -365,6 +410,9 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 		log.Error(err, "check and update NSX segment port failed, would retry exponentially", "nsxSegmentPort.Id", *nsxSegmentPort.Id, "segmentPath", segmentPath)
 		return nil, err
 	}
+	if createdNSXSegmentPort.ParentPath == nil || *createdNSXSegmentPort.ParentPath == "" {
+		createdNSXSegmentPort.ParentPath = common.String(segmentPath)
+	}
 
 	err = service.SegmentPortStore.Apply(&createdNSXSegmentPort)
 	if err != nil {
@@ -381,7 +429,7 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 }
 
 func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.SubnetPort, segmentPath string) (*model.SegmentPortState, error) {
-	nsxSegmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(subnetPort.UID)
+	nsxSegmentPort, err := service.GetSegmentPortForSubnetPort(&subnetPort.ObjectMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -424,16 +472,29 @@ func (service *SubnetPortService) GetSegmentPortState(segmentID string, portID s
 	return &nsxSegmentPortState, nil
 }
 
-func (service *SubnetPortService) DeleteSegmentPort(nsxSegmentPort *model.SegmentPort, segmentPath string) error {
-	if nsxSegmentPort.Path == nil {
-		return errors.New("segment port path is nil")
+func (service *SubnetPortService) DeleteSegmentPort(nsxSegmentPort *model.SegmentPort) error {
+	if nsxSegmentPort == nil || nsxSegmentPort.Id == nil || *nsxSegmentPort.Id == "" {
+		return errors.New("segment port ID is empty")
+	}
+	segmentPath := ""
+	if nsxSegmentPort.ParentPath != nil {
+		segmentPath = *nsxSegmentPort.ParentPath
+	}
+	if segmentPath == "" && nsxSegmentPort.Path != nil {
+		parent, portID, found := strings.Cut(*nsxSegmentPort.Path, "/ports/")
+		if found && portID == *nsxSegmentPort.Id {
+			segmentPath = parent
+		}
 	}
 	parts := strings.Split(strings.Trim(segmentPath, "/"), "/")
-	segmentID := parts[len(parts)-1]
+	if len(parts) != 3 || parts[0] != "infra" || parts[1] != "segments" || parts[2] == "" {
+		return fmt.Errorf("invalid segment path for port %s: %s", *nsxSegmentPort.Id, segmentPath)
+	}
+	segmentID := parts[2]
 	err := service.NSXClient.SegmentPortsClient.Delete(segmentID, *nsxSegmentPort.Id)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
-		log.Error(err, "failed to delete nsxSegmentPort", "nsxSegmentPort.Path", *nsxSegmentPort.Path)
+		log.Error(err, "failed to delete nsxSegmentPort", "nsxSegmentPortID", *nsxSegmentPort.Id)
 		return err
 	}
 	if err = service.SegmentPortStore.Delete(*nsxSegmentPort.Id); err != nil {

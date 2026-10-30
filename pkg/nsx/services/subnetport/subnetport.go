@@ -53,10 +53,9 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	builder, _ := servicecommon.PolicyPathVpcSubnetPort.NewPolicyTreeBuilder()
 
 	wg := sync.WaitGroup{}
-	wgDone := make(chan bool)
-	fatalErrors := make(chan error)
+	fatalErrors := make(chan error, 2)
 
-	wg.Add(1)
+	wg.Add(2)
 
 	subnetPortService := &SubnetPortService{
 		Service:                    service,
@@ -69,19 +68,16 @@ func InitializeSubnetPort(service servicecommon.Service, vpcService servicecommo
 	subnetPortService.SegmentPortStore = setupSegmentPortStore()
 
 	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, ResourceTypeSubnetPort, nil, subnetPortService.SubnetPortStore)
-	go func() {
-		wg.Wait()
-		close(wgDone)
-	}()
+	go subnetPortService.InitializeResourceStore(&wg, fatalErrors, servicecommon.ResourceTypeSegmentPort, nil, subnetPortService.SegmentPortStore)
+	wg.Wait()
+	close(fatalErrors)
 
-	select {
-	case <-wgDone:
-		break
-	case err := <-fatalErrors:
-		return subnetPortService, err
+	var initErr error
+	for err := range fatalErrors {
+		initErr = errors.Join(initErr, err)
 	}
 
-	return subnetPortService, nil
+	return subnetPortService, initErr
 }
 
 func setupStore() *SubnetPortStore {
@@ -818,6 +814,24 @@ func (service *SubnetPortService) ListSubnetPortByName(ns string, name string) [
 			if !found {
 				result = append(result, subnetport)
 			}
+		}
+	}
+	return result
+}
+
+func (service *SubnetPortService) ListSegmentPortByName(ns string, name string) []*model.SegmentPort {
+	var result []*model.SegmentPort
+	if service.SegmentPortStore == nil {
+		return result
+	}
+	for _, obj := range service.SegmentPortStore.List() {
+		port := obj.(*model.SegmentPort)
+		if nsxutil.FindTag(port.Tags, servicecommon.TagScopeSubnetPortCRName) != name {
+			continue
+		}
+		if nsxutil.FindTag(port.Tags, servicecommon.TagScopeVMNamespace) == ns ||
+			nsxutil.FindTag(port.Tags, servicecommon.TagScopeNamespace) == ns {
+			result = append(result, port)
 		}
 	}
 	return result

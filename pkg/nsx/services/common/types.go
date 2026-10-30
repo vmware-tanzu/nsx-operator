@@ -101,6 +101,7 @@ const (
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
+	AnnotationSegmentPath              string = "nsx.vmware.com/segment-path"
 	AnnotationAssociatedResource       string = "nsx.vmware.com/associated-resource"
 	AnnotationReusePort                string = "nsx.vmware.com/reuse-port"
 	AnnotationReconfigureNic           string = "nsx/reconfigure-nic"
