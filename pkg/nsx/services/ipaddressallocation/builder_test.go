@@ -35,7 +35,7 @@ func (qIface *fakeQueryClient) List(_ string, _ *string, _ *string, _ *int64, _ 
 }
 
 func createService(t *testing.T) (*vpc.VPCService, *gomock.Controller, *mocks.MockVpcsClient) {
-	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 
 	cluster, _ := nsx.NewCluster(config2)
 	rc := cluster.NewRestConnector()

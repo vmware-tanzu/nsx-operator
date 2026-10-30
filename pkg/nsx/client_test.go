@@ -25,7 +25,7 @@ import (
 
 func TestNSXHealthChecker_CheckNSXHealth(t *testing.T) {
 	host := "1.1.1.1"
-	config := NewConfig(host, "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config := NewConfig(host, "1", "1", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := NewCluster(config)
 	req := &http.Request{}
 
@@ -222,7 +222,7 @@ func TestRestConnectorAllowOverwrite(t *testing.T) {
 	thumbprint := []string{"123"}
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
-	config := NewConfig(a, "admin", "passw0rd", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
+	config := NewConfig(a, "admin", "passw0rd", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, thumbprint)
 	cluster, _ := NewCluster(config)
 	nsxVersion, err := cluster.GetVersion()
 	assert.Equal(t, err, nil)
