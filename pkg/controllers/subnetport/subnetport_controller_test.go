@@ -12,6 +12,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
@@ -2898,4 +2899,168 @@ func TestSubnetPortReconciler_ZeroMACRealizedBindings(t *testing.T) {
 			assert.Equal(t, tt.expectedMAC, capturedSP.Status.NetworkInterfaceConfig.MACAddress)
 		})
 	}
+}
+
+func TestIsSubnetNotFound(t *testing.T) {
+	// nil error
+	assert.False(t, isSubnetNotFound(nil, false))
+	assert.False(t, isSubnetNotFound(nil, true))
+
+	// Shared subnet - Generic / connection error
+	assert.False(t, isSubnetNotFound(errors.New("connection reset"), true))
+
+	// Shared subnet - NSX 404 (NotFound) error
+	nsxNotFound := util.NewNSXApiError(&model.ApiError{}, stderrors.ErrorType_NOT_FOUND)
+	assert.True(t, isSubnetNotFound(nsxNotFound, true))
+
+	// Shared subnet - NSX 503 (ServiceUnavailable) error
+	nsxServiceUnavailable := util.NewNSXApiError(&model.ApiError{}, stderrors.ErrorType_SERVICE_UNAVAILABLE)
+	assert.False(t, isSubnetNotFound(nsxServiceUnavailable, true))
+
+	// Non-shared subnet - ErrSubnetNotFoundInStore
+	assert.True(t, isSubnetNotFound(subnet.ErrSubnetNotFoundInStore, false))
+	assert.True(t, isSubnetNotFound(fmt.Errorf("wrap: %w", subnet.ErrSubnetNotFoundInStore), false))
+
+	// Non-shared subnet - other errors should NOT be considered Not Found
+	assert.False(t, isSubnetNotFound(errors.New("invalid path while getting Subnet"), false))
+	assert.False(t, isSubnetNotFound(errors.New("connection reset"), false))
+}
+
+func TestSubnetPortReconciler_GetSubnetByPath_TransientErrorDoesNotDeletePort(t *testing.T) {
+	mockCtl := gomock.NewController(t)
+	defer mockCtl.Finish()
+	k8sClient := mock_client.NewMockClient(mockCtl)
+	service := &subnetport.SubnetPortService{
+		Service: servicecommon.Service{
+			NSXClient: &nsx.Client{},
+			NSXConfig: &config.NSXOperatorConfig{
+				NsxConfig: &config.NsxConfig{
+					EnforcementPoint: "vmc-enforcementpoint",
+				},
+			},
+		},
+		SubnetPortStore: &subnetport.SubnetPortStore{},
+	}
+	r := &SubnetPortReconciler{
+		Client:            k8sClient,
+		SubnetPortService: service,
+		SubnetService:     &mock.MockSubnetServiceProvider{},
+		Recorder:          fakeRecorder{},
+	}
+	r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, r.Recorder, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+	ctx := context.Background()
+	req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "dummy", Name: "dummy"}}
+
+	sp := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dummy",
+			Namespace: "dummy",
+			UID:       types.UID("test-uid-1"),
+		},
+		Spec: v1alpha1.SubnetPortSpec{
+			Subnet: "subnet-1",
+		},
+	}
+	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).AnyTimes().Do(
+		func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+			v1sp, ok := obj.(*v1alpha1.SubnetPort)
+			if ok {
+				*v1sp = *sp
+			}
+			return nil
+		})
+
+	patchesUpdateConditions := gomonkey.ApplyFunc(updateSubnetPortStatusConditions, func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, newConditions []v1alpha1.Condition) {
+	})
+	defer patchesUpdateConditions.Reset()
+	patchesSetAB := gomonkey.ApplyFunc(setAddressBindingStatusBySubnetPort, func(client client.Client, ctx context.Context, subnetPort *v1alpha1.SubnetPort, subnetPortService *subnetport.SubnetPortService, transitionTime metav1.Time, err error) {
+	})
+	defer patchesSetAB.Reset()
+
+	patchesCheckPath := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
+		func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, error) {
+			return true, false, "/orgs/default/projects/default/vpcs/vpc-1/subnets/shared-subnet-1", nil, nil, nil
+		})
+	defer patchesCheckPath.Reset()
+
+	patchesGetVM := gomonkey.ApplyFunc((*SubnetPortReconciler).getVirtualMachine,
+		func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort, restoreMode bool) (*vmv1alpha1.VirtualMachine, string, error) {
+			return nil, "", nil
+		})
+	defer patchesGetVM.Reset()
+
+	patchesShared := gomonkey.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+		return true, nil
+	})
+	defer patchesShared.Reset()
+
+	// Case 1: Shared subnet fails with 503 ServiceUnavailable
+	// DeleteSubnetPort should NOT be called!
+	service503Err := util.NewNSXApiError(&model.ApiError{}, stderrors.ErrorType_SERVICE_UNAVAILABLE)
+	patchesGetSubnetByPath := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+		func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+			return nil, service503Err
+		})
+	defer patchesGetSubnetByPath.Reset()
+
+	deletePortCalled := false
+	patchesDeletePort := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeleteSubnetPort",
+		func(s *subnetport.SubnetPortService, port *model.VpcSubnetPort) error {
+			deletePortCalled = true
+			return nil
+		})
+	defer patchesDeletePort.Reset()
+
+	patchesPortStore := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService.SubnetPortStore), "GetVpcSubnetPortByUID",
+		func(s *subnetport.SubnetPortStore, uid types.UID) (*model.VpcSubnetPort, error) {
+			return &model.VpcSubnetPort{Id: ptr.To("port-1")}, nil
+		})
+	defer patchesPortStore.Reset()
+
+	fakewriter := &fakeStatusWriter{}
+	k8sClient.EXPECT().Status().Return(fakewriter).AnyTimes()
+
+	_, err := r.Reconcile(ctx, req)
+	assert.Error(t, err)
+	assert.False(t, deletePortCalled, "DeleteSubnetPort must NOT be called on 503 service unavailable error")
+
+	// Case 2: Shared subnet fails with 404 NotFound
+	// DeleteSubnetPort SHOULD be called!
+	deletePortCalled = false
+	notFoundErr := util.NewNSXApiError(&model.ApiError{}, stderrors.ErrorType_NOT_FOUND)
+	patchesGetSubnetByPath.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+		func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+			return nil, notFoundErr
+		})
+
+	_, err = r.Reconcile(ctx, req)
+	assert.Error(t, err)
+	assert.True(t, deletePortCalled, "DeleteSubnetPort MUST be called when shared subnet returns 404 NotFound")
+
+	// Case 3: Non-shared subnet fails with ErrSubnetNotFoundInStore
+	// DeleteSubnetPort SHOULD be called!
+	patchesShared.ApplyFunc(common.IsSharedSubnetPath, func(ctx context.Context, client client.Client, path string, ns string) (bool, error) {
+		return false, nil
+	})
+	deletePortCalled = false
+	patchesGetSubnetByPath.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+		func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+			return nil, subnet.ErrSubnetNotFoundInStore
+		})
+
+	_, err = r.Reconcile(ctx, req)
+	assert.Error(t, err)
+	assert.True(t, deletePortCalled, "DeleteSubnetPort MUST be called when non-shared subnet is not found in store")
+
+	// Case 4: Non-shared subnet fails with unexpected error (e.g., path parse error)
+	// DeleteSubnetPort should NOT be called!
+	deletePortCalled = false
+	patchesGetSubnetByPath.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetSubnetByPath",
+		func(s *mock.MockSubnetServiceProvider, nsxSubnetPath string, sharedSubnet bool) (*model.VpcSubnet, error) {
+			return nil, errors.New("invalid path while getting Subnet")
+		})
+
+	_, err = r.Reconcile(ctx, req)
+	assert.Error(t, err)
+	assert.False(t, deletePortCalled, "DeleteSubnetPort must NOT be called when non-shared subnet fails with unexpected error")
 }
