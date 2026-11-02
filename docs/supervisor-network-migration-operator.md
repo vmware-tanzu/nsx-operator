@@ -97,8 +97,9 @@ workflow/condition history, and namespace counts. API tests validate the full
 ## NSX resource recovery contract
 
 `status.nsxWorkflows` retains the workflow ID for each source VDN. Conversion
-handlers query `GET /policy/api/v1/workflows/{workflow-id}/status` and use the
-workflow's per-resource paths, types and progress as the conversion inventory.
+handlers use the SDK workflow GET (`/policy/api/v1/workflows/{workflow-id}`)
+and read `workflow_state.migration_status` for per-resource paths, types and
+progress as the conversion inventory.
 The CRDs do not duplicate that inventory in `status.fabricResources` and do not
 expose per-resource consumer lists or creation/adoption provenance.
 
@@ -475,3 +476,22 @@ The following source topologies are also outside the migration scope:
 - VDS networks with private VLAN type are not eligible for migration.
 - A Supervisor using VDS networks with SR-IOV cannot be migrated because NSX
   VPC does not support SR-IOV.
+
+## WBS 1.4.1: NSX workflow SDK client
+
+The migration service lazily calls `nsx.NewMigrationClient`, which registers the
+SDK `WorkflowsClient` and `Dvpg_validation_resultsClient` in `pkg/nsx/client.go`.
+Ordinary `nsx.NewClient` callers leave workflow clients unset. Disabled migration
+does not invoke migration handlers or initialize their NSX clients.
+
+Migration requests and responses use SDK models,
+including `DvpgToSubnetWorkflow` and `DvpgToSubnetConfig`, with SDK binding
+conversion. The NSXT module is pinned to dev commit `125769460d42`.
+
+NSX validates workflow IDs and request configuration. The migration wrapper adds
+response identity checks, validation-result pagination, and polling that checks the requested desired state, nested workflow status and
+resource completion in the expected VPC scope. Auto-commit stays disabled so the
+operator retains its Commit/Finalize boundary. SDK errors remain available to
+callers. Context cancellation stops polling; in-flight SDK requests use the
+shared NSX transport timeout. No separate JSON transport or workflow models are
+maintained by the operator.
