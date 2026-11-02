@@ -253,7 +253,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "3",
+					ResourceVersion: "2",
 				},
 				Spec: nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
@@ -296,7 +296,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Name:            requestArgs.req.Name,
 					Namespace:       requestArgs.req.Namespace,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "3",
+					ResourceVersion: "2",
 				},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
 					Phase:       nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
@@ -371,7 +371,7 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 					Namespace:       requestArgs.req.Namespace,
 					Name:            requestArgs.req.Name,
 					Finalizers:      []string{servicecommon.NSXServiceAccountFinalizerName},
-					ResourceVersion: "3",
+					ResourceVersion: "2",
 				},
 				Spec:   nsxvmwarecomv1alpha1.NSXServiceAccountSpec{},
 				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{},
@@ -664,182 +664,74 @@ func TestNSXServiceAccountReconciler_StartController(t *testing.T) {
 	patches.ApplyFunc((*NSXServiceAccountReconciler).setupWithManager, func(r *NSXServiceAccountReconciler, mgr manager.Manager) error {
 		return nil
 	})
+	collectorCalled := make(chan struct{})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+		close(collectorCalled)
 	})
 	defer patches.Reset()
 	reconciler := NewNSXServiceAccountReconciler(mockMgr, service)
 	err := reconciler.StartController(mockMgr, nil)
 	assert.Nil(t, err)
+	// StartController launches the collector asynchronously. Keep its patch installed
+	// until the goroutine has entered the mock.
+	select {
+	case <-collectorCalled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("garbage collector was not started")
+	}
 }
 
 func TestNSXServiceAccountReconciler_updateNSXServiceAccountStatuswithError(t *testing.T) {
-	ctx := context.TODO()
-	err := fmt.Errorf("test error")
-	type args struct {
-		ctx context.Context
-		o   *nsxvmwarecomv1alpha1.NSXServiceAccount
-		e   error
-	}
-	tests := []struct {
-		name     string
-		initial  args
-		args     args
-		expected args
-	}{
-		{
-			name: "success",
-			initial: args{
-				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "name1",
-						Namespace: "ns1",
-					},
-				},
-			},
-			args: args{
-				ctx: ctx,
-				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "name1",
-						Namespace:       "ns1",
-						ResourceVersion: "1",
-					},
-					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
-						Reason: "testReason",
-						Conditions: []metav1.Condition{
-							{
-								Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
-								Status:  metav1.ConditionTrue,
-								Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationSuccess,
-								Message: "testReason",
-							},
-						},
-						VPCPath:        "testVPCPath",
-						NSXManagers:    []string{"dummyHost:443"},
-						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
-						ClusterID:      "testClusterID",
-						ClusterName:    "testClusterName",
-						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
-							Name:      "testSecret",
-							Namespace: "ns1",
-						}},
-					},
-				},
-			},
-			expected: args{
-				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "name1",
-						Namespace:       "ns1",
-						ResourceVersion: "2",
-					},
-					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized,
-						Reason: "testReason",
-						Conditions: []metav1.Condition{
-							{
-								Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
-								Status:  metav1.ConditionTrue,
-								Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationSuccess,
-								Message: "testReason",
-							},
-						},
-						VPCPath:        "testVPCPath",
-						NSXManagers:    []string{"dummyHost:443"},
-						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
-						ClusterID:      "testClusterID",
-						ClusterName:    "testClusterName",
-						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
-							Name:      "testSecret",
-							Namespace: "ns1",
-						}},
-					},
-				},
-			},
-		},
-		{
-			name: "error",
-			initial: args{
-				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "name1",
-						Namespace: "ns1",
-					},
-				},
-			},
-			args: args{
-				ctx: ctx,
-				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "name1",
-						Namespace:       "ns1",
-						ResourceVersion: "1",
-					},
-					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						VPCPath:        "testVPCPath",
-						NSXManagers:    []string{"dummyHost:443"},
-						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
-						ClusterID:      "testClusterID",
-						ClusterName:    "testClusterName",
-						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
-							Name:      "testSecret",
-							Namespace: "ns1",
-						}},
-					},
-				},
-				e: err,
-			},
-			expected: args{
-				o: &nsxvmwarecomv1alpha1.NSXServiceAccount{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:            "name1",
-						Namespace:       "ns1",
-						ResourceVersion: "2",
-					},
-					Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
-						Phase:  nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed,
-						Reason: "Error: test error",
-						Conditions: []metav1.Condition{
-							{
-								Type:    nsxvmwarecomv1alpha1.ConditionTypeRealized,
-								Status:  metav1.ConditionFalse,
-								Reason:  nsxvmwarecomv1alpha1.ConditionReasonRealizationError,
-								Message: "Error: test error",
-							},
-						},
-						VPCPath:        "testVPCPath",
-						NSXManagers:    []string{"dummyHost:443"},
-						ProxyEndpoints: nsxvmwarecomv1alpha1.NSXProxyEndpoint{},
-						ClusterID:      "testClusterID",
-						ClusterName:    "testClusterName",
-						Secrets: []nsxvmwarecomv1alpha1.NSXSecret{{
-							Name:      "testSecret",
-							Namespace: "ns1",
-						}},
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, failure := range []error{nil, fmt.Errorf("test error")} {
+		name := "NoErrorLeavesStatusUnchanged"
+		if failure != nil {
+			name = "ErrorPreservesLatestRealizedFields"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
 			r := newFakeNSXServiceAccountReconciler()
 			nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
-			assert.NoError(t, r.Client.Create(ctx, tt.initial.o))
-
-			updateNSXServiceAccountStatuswithError(r.Client, tt.args.ctx, tt.args.o, metav1.Now(), tt.args.e)
-			actualNSXServiceAccount := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
-			assert.NoError(t, r.Client.Get(ctx, types.NamespacedName{
-				Namespace: tt.args.o.Namespace,
-				Name:      tt.args.o.Name,
-			}, actualNSXServiceAccount))
-			assert.Equal(t, tt.expected.o.ObjectMeta, actualNSXServiceAccount.ObjectMeta)
-			assert.Equal(t, tt.expected.o.Spec, actualNSXServiceAccount.Spec)
-			for i := range actualNSXServiceAccount.Status.Conditions {
-				actualNSXServiceAccount.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+			initial := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{Name: "name1", Namespace: "ns1", Generation: 2},
+				Status: nsxvmwarecomv1alpha1.NSXServiceAccountStatus{
+					Phase: nsxvmwarecomv1alpha1.NSXServiceAccountPhaseRealized, Reason: "Success",
+					VPCPath: "latest-vpc", ClusterID: "latest-cluster", ClusterName: "latest-name",
+					NSXManagers:      []string{"manager:443"},
+					Secrets:          []nsxvmwarecomv1alpha1.NSXSecret{{Name: "cert", Namespace: "ns1"}},
+					NSXRestoreStatus: &nsxvmwarecomv1alpha1.NSXRestoreStatus{Status: "SUCCESS"},
+					Conditions:       []metav1.Condition{{Type: "Other", Status: metav1.ConditionTrue, Reason: "Preserved"}},
+				},
 			}
-			assert.Equal(t, tt.expected.o.Status, actualNSXServiceAccount.Status)
+			assert.NoError(t, r.Client.Create(ctx, initial))
+			// A stale reconcile must not overwrite status maintained by other operations.
+			stale := &nsxvmwarecomv1alpha1.NSXServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{Name: initial.Name, Namespace: initial.Namespace, Generation: 1},
+				Status:     nsxvmwarecomv1alpha1.NSXServiceAccountStatus{ClusterID: "stale-cluster"},
+			}
+			updateNSXServiceAccountStatuswithError(r.Client, ctx, stale, metav1.Now(), failure)
+			actual := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
+			assert.NoError(t, r.Client.Get(ctx, client.ObjectKeyFromObject(initial), actual))
+			expected := initial.DeepCopy()
+			if failure != nil {
+				expected.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
+				expected.Status.Reason = "Error: test error"
+				expected.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(
+					expected.Status.Conditions, initial.Generation, metav1.ConditionFalse,
+					nsxvmwarecomv1alpha1.ConditionReasonRealizationError, expected.Status.Reason)
+			}
+			for i := range actual.Status.Conditions {
+				actual.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+			}
+			for i := range expected.Status.Conditions {
+				expected.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+			}
+			assert.Equal(t, expected.Status, actual.Status)
+			if failure != nil {
+				for i := range stale.Status.Conditions {
+					stale.Status.Conditions[i].LastTransitionTime = metav1.Time{}
+				}
+				assert.Equal(t, actual.Status, stale.Status)
+			}
 		})
 	}
 }
@@ -1087,7 +979,11 @@ func TestNSXServiceAccountReconciler_validateRealized(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &NSXServiceAccountReconciler{
-				Service: &nsxserviceaccount.NSXServiceAccountService{},
+				Service: &nsxserviceaccount.NSXServiceAccountService{
+					Service: servicecommon.Service{
+						NSXClient: &nsx.Client{},
+					},
+				},
 			}
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, r)

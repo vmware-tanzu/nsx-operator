@@ -183,14 +183,14 @@ func (r *NSXServiceAccountReconciler) Reconcile(ctx context.Context, req ctrl.Re
 				r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 				return ResultRequeue, err
 			}
-			r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
+			r.StatusUpdater.UpdateSuccess(ctx, obj, nil)
 			return ResultNormal, nil
 		}
 		if err := r.Service.CreateOrUpdateNSXServiceAccount(ctx, obj); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, obj, err, "", updateNSXServiceAccountStatuswithError)
 			return ResultRequeue, err
 		}
-		r.StatusUpdater.UpdateSuccess(ctx, obj, updateNSXServiceAccountStatus)
+		r.StatusUpdater.UpdateSuccess(ctx, obj, nil)
 	} else {
 		if controllerutil.ContainsFinalizer(obj, servicecommon.NSXServiceAccountFinalizerName) {
 			r.StatusUpdater.IncreaseDeleteTotal()
@@ -395,29 +395,29 @@ func (r *NSXServiceAccountReconciler) garbageCollector(nsxServiceAccountUIDSet s
 	return
 }
 
-func updateNSXServiceAccountStatus(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, _ ...interface{}) {
+func updateNSXServiceAccountStatuswithError(c client.Client, ctx context.Context, obj client.Object, _ metav1.Time, e error, _ ...interface{}) {
+	if e == nil {
+		return
+	}
 	nsa := obj.(*nsxvmwarecomv1alpha1.NSXServiceAccount)
-	err := client.Status().Update(ctx, obj)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &nsxvmwarecomv1alpha1.NSXServiceAccount{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(nsa), latest); err != nil {
+			return err
+		}
+		latest.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
+		latest.Status.Reason = fmt.Sprintf("Error: %v", e)
+		latest.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(
+			latest.Status.Conditions, latest.Generation, metav1.ConditionFalse,
+			nsxvmwarecomv1alpha1.ConditionReasonRealizationError, latest.Status.Reason)
+		if err := c.Status().Update(ctx, latest); err != nil {
+			return err
+		}
+		nsa.ResourceVersion = latest.ResourceVersion
+		nsa.Status = latest.Status
+		return nil
+	})
 	if err != nil {
-		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
-	} else {
-		log.Debug("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
-	}
-}
-
-func updateNSXServiceAccountStatuswithError(client client.Client, ctx context.Context, o client.Object, _ metav1.Time, e error, _ ...interface{}) {
-	obj := o.(*nsxvmwarecomv1alpha1.NSXServiceAccount)
-	nsa := obj
-	if e != nil {
-		nsa = obj.DeepCopy()
-		nsa.Status.Phase = nsxvmwarecomv1alpha1.NSXServiceAccountPhaseFailed
-		nsa.Status.Reason = fmt.Sprintf("Error: %v", e)
-		nsa.Status.Conditions = nsxserviceaccount.GenerateNSXServiceAccountConditions(nsa.Status.Conditions, nsa.Generation, metav1.ConditionFalse, nsxvmwarecomv1alpha1.ConditionReasonRealizationError, fmt.Sprintf("Error: %v", e))
-	}
-	err := client.Status().Update(ctx, nsa)
-	if err != nil {
-		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
-	} else {
-		log.Debug("Updated NSXServiceAccount", "Namespace", nsa.Namespace, "Name", nsa.Name, "Status", nsa.Status)
+		log.Error(err, "Update NSXServiceAccount failed", "Namespace", nsa.Namespace, "Name", nsa.Name)
 	}
 }
