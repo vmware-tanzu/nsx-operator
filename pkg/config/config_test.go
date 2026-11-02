@@ -280,3 +280,128 @@ thumbprint = 81:49:DD:B7:E8:79:55:5D:9E:75:A9:FA:A6:7D:CB:EA:A4:CA:12:C6
 	assert.NotNil(t, cfg.K8sConfig.PodV2)
 	assert.True(t, cfg.K8sConfig.PodV2Enabled())
 }
+
+func TestConfig_Mode(t *testing.T) {
+	// Nil receiver tests
+	var nilCfg *NSXOperatorConfig
+	assert.Equal(t, ModeVPC, nilCfg.GetMode())
+	assert.False(t, nilCfg.IsAntreaNSXOnly())
+	assert.True(t, nilCfg.IsVPCMode())
+
+	// Nil DefaultConfig
+	cfgNoDefault := &NSXOperatorConfig{}
+	assert.Equal(t, ModeVPC, cfgNoDefault.GetMode())
+	assert.False(t, cfgNoDefault.IsAntreaNSXOnly())
+	assert.True(t, cfgNoDefault.IsVPCMode())
+
+	// Default mode
+	cfg := NewNSXOpertorConfig()
+	assert.Equal(t, ModeVPC, cfg.GetMode())
+	assert.True(t, cfg.IsVPCMode())
+	assert.False(t, cfg.IsAntreaNSXOnly())
+
+	// Empty string defaults to VPC
+	cfg.DefaultConfig.Mode = ""
+	assert.Equal(t, ModeVPC, cfg.GetMode())
+	assert.True(t, cfg.IsVPCMode())
+	assert.False(t, cfg.IsAntreaNSXOnly())
+
+	// Explicit VPC mode (case-insensitive)
+	cfg.DefaultConfig.Mode = "vpc"
+	assert.Nil(t, cfg.validateMode())
+	assert.Equal(t, ModeVPC, cfg.GetMode())
+	assert.True(t, cfg.IsVPCMode())
+	assert.False(t, cfg.IsAntreaNSXOnly())
+
+	// antreaNSXOnly mode (canonical)
+	cfg.DefaultConfig.Mode = ModeAntreaNSXOnly
+	cfg.CoeConfig.EnableVPCNetwork = true
+	cfg.K8sConfig.EnableAntreaNSXInterworking = false
+	assert.Nil(t, cfg.validateMode())
+	assert.Equal(t, ModeAntreaNSXOnly, cfg.GetMode())
+	assert.True(t, cfg.IsAntreaNSXOnly())
+	assert.False(t, cfg.IsVPCMode())
+	assert.False(t, cfg.CoeConfig.EnableVPCNetwork)
+	assert.True(t, cfg.K8sConfig.EnableAntreaNSXInterworking)
+
+	// antreaNSXOnly with nil CoeConfig and nil K8sConfig
+	cfgMinimal := &NSXOperatorConfig{
+		DefaultConfig: &DefaultConfig{Mode: ModeAntreaNSXOnly},
+	}
+	assert.Nil(t, cfgMinimal.validateMode())
+	assert.NotNil(t, cfgMinimal.K8sConfig)
+	assert.True(t, cfgMinimal.K8sConfig.EnableAntreaNSXInterworking)
+
+	// antreaNSXOnly variants
+	for _, modeVariant := range []string{"antreaNSXOnly", "Antrea-NSX-Only", "antrea-nsx-only", "antreansxonly"} {
+		cfg.DefaultConfig.Mode = modeVariant
+		assert.True(t, cfg.IsAntreaNSXOnly(), "expected %s to be antreaNSXOnly", modeVariant)
+		assert.False(t, cfg.IsVPCMode(), "expected %s to not be VPCMode", modeVariant)
+		assert.Nil(t, cfg.validateMode())
+		assert.Equal(t, ModeAntreaNSXOnly, cfg.GetMode())
+	}
+
+	// Invalid mode in validateMode
+	cfg.DefaultConfig.Mode = "invalid_mode"
+	assert.NotNil(t, cfg.validateMode())
+
+	// Invalid mode in validate()
+	assert.NotNil(t, cfg.validate())
+}
+
+func TestConfig_ModeFromConfigFile(t *testing.T) {
+	// 1. Config file with [coe] mode fallback
+	f1, err := os.CreateTemp("", "nsxop_coe_mode_*.ini")
+	assert.Nil(t, err)
+	defer os.Remove(f1.Name())
+	_, err = f1.WriteString(`
+[DEFAULT]
+[coe]
+cluster = k8scl-one
+mode = antreaNSXOnly
+[nsx_v3]
+nsx_api_managers = 127.0.0.1
+nsx_api_user = admin
+nsx_api_password = admin
+thumbprint = 81:49:DD:B7:E8:79:55:5D:9E:75:A9:FA:A6:7D:CB:EA:A4:CA:12:C6
+[vc]
+`)
+	assert.Nil(t, err)
+	f1.Close()
+
+	oldPath := configFilePath
+	defer func() { configFilePath = oldPath }()
+
+	configFilePath = f1.Name()
+	loadedCfg, err := NewNSXOperatorConfigFromFile()
+	assert.Nil(t, err)
+	assert.Equal(t, ModeAntreaNSXOnly, loadedCfg.GetMode())
+	assert.True(t, loadedCfg.IsAntreaNSXOnly())
+	assert.False(t, loadedCfg.CoeConfig.EnableVPCNetwork)
+	assert.True(t, loadedCfg.K8sConfig.EnableAntreaNSXInterworking)
+
+	// 2. Config file with [DEFAULT] mode
+	f2, err := os.CreateTemp("", "nsxop_default_mode_*.ini")
+	assert.Nil(t, err)
+	defer os.Remove(f2.Name())
+	_, err = f2.WriteString(`
+[DEFAULT]
+mode = antreaNSXOnly
+[coe]
+cluster = k8scl-one
+[nsx_v3]
+nsx_api_managers = 127.0.0.1
+nsx_api_user = admin
+nsx_api_password = admin
+thumbprint = 81:49:DD:B7:E8:79:55:5D:9E:75:A9:FA:A6:7D:CB:EA:A4:CA:12:C6
+[vc]
+`)
+	assert.Nil(t, err)
+	f2.Close()
+
+	configFilePath = f2.Name()
+	loadedCfg2, err := NewNSXOperatorConfigFromFile()
+	assert.Nil(t, err)
+	assert.Equal(t, ModeAntreaNSXOnly, loadedCfg2.GetMode())
+	assert.True(t, loadedCfg2.IsAntreaNSXOnly())
+}
