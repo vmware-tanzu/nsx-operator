@@ -41,6 +41,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/workflows"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -75,12 +76,14 @@ type Client struct {
 	RestConnector client.Connector
 	Cluster       *Cluster
 
-	QueryClient    search.QueryClient
-	GroupClient    domains.GroupsClient
-	SecurityClient domains.SecurityPoliciesClient
-	RuleClient     security_policies.RulesClient
-	InfraClient    nsx_policy.InfraClient
-	StatusClient   restore.StatusClient
+	QueryClient                     search.QueryClient
+	GroupClient                     domains.GroupsClient
+	SecurityClient                  domains.SecurityPoliciesClient
+	RuleClient                      security_policies.RulesClient
+	InfraClient                     nsx_policy.InfraClient
+	StatusClient                    restore.StatusClient
+	WorkflowsClient                 nsx_policy.WorkflowsClient
+	WorkflowValidationResultsClient workflows.Dvpg_validation_resultsClient
 
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	HostTransPortNodesClient   enforcement_points.HostTransportNodesClient
@@ -189,6 +192,18 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		log.Error(err, "Failed to initialize NSX client")
 	}
 	return client
+}
+
+// NewMigrationClient opts into workflow clients for migration handlers. Ordinary
+// NSX operator clients do not initialize these migration-only clients.
+func NewMigrationClient(cf *config.NSXOperatorConfig) (*Client, error) {
+	client, err := NewClient(cf)
+	if err != nil {
+		return nil, err
+	}
+	client.WorkflowsClient = nsx_policy.NewWorkflowsClient(client.RestConnector)
+	client.WorkflowValidationResultsClient = workflows.NewDvpg_validation_resultsClient(client.RestConnector)
+	return client, nil
 }
 
 // NewClient initializes NSX connectivity and reports configuration/constructor errors.
