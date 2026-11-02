@@ -103,7 +103,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, result)
 		assert.EqualError(t, err, "failed to find VPCInfo for IPAddressAllocation CR test-ip-alloc in Namespace default")
 	})
@@ -135,7 +135,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
@@ -145,6 +145,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, "EXTERNAL", *result.IpAddressBlockVisibility)
 		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
 		assert.Equal(t, 6, len(result.Tags))
+		assert.Nil(t, result.UsedFor)
 	})
 
 	t.Run("Success case for IPAddressAllocation CR with allocationIPs", func(t *testing.T) {
@@ -174,7 +175,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
@@ -212,7 +213,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc-ipv6_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc-ipv6", *result.DisplayName)
@@ -250,7 +251,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			})
 		defer patch.Reset()
 
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
 		assert.Nil(t, err)
 		assert.Equal(t, "2001:db8::/128", *result.AllocationIps)
 		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *result.IpAddressType)
@@ -289,7 +290,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				return "nsUUid"
 			})
 		defer patch.Reset()
-		result, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, true)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, true)
 		assert.Nil(t, err)
 		assert.Equal(t, "test-ip-alloc_p26xv", *result.Id)
 		assert.Equal(t, "test-ip-alloc", *result.DisplayName)
@@ -323,7 +324,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				UID:       "sp-uid1",
 			},
 		}
-		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, false)
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ab, sp, false)
 		assert.Nil(t, err)
 		assert.Nil(t, result)
 	})
@@ -354,9 +355,16 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			func(s *common.Service, ns string) types.UID {
 				return "nsUUid"
 			})
+		wantVPCInfo := []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1"}}
+		patch.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo",
+			func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+				assert.Equal(t, ab.Namespace, ns)
+				return wantVPCInfo
+			})
 		defer patch.Reset()
-		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
+		result, vpcInfo, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
 		assert.Nil(t, err)
+		assert.Equal(t, wantVPCInfo, vpcInfo)
 		assert.Equal(t, "test-ab_p26xv", *result.Id)
 		assert.Equal(t, "test-ab", *result.DisplayName)
 		assert.Equal(t, "1.2.3.4", *result.AllocationIps)
@@ -393,9 +401,16 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			func(s *common.Service, ns string) types.UID {
 				return "nsUUid"
 			})
+		wantVPCInfo := []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "proj1", VPCID: "vpc1"}}
+		patch.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo",
+			func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+				assert.Equal(t, ab.Namespace, ns)
+				return wantVPCInfo
+			})
 		defer patch.Reset()
-		result, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
+		result, vpcInfo, err := ipAllocService.BuildIPAddressAllocation(ab, sp, true)
 		assert.Nil(t, err)
+		assert.Equal(t, wantVPCInfo, vpcInfo)
 		assert.Equal(t, "2001:db8::1", *result.AllocationIps)
 		assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, *result.IpAddressType)
 		assert.Equal(t, (*string)(nil), result.IpAddressBlockVisibility)
@@ -403,4 +418,409 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
 		assert.Equal(t, 8, len(result.Tags))
 	})
+
+	t.Run("Success case with explicit project IPBlock", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-infra",
+				Namespace: "default",
+				UID:       "uid-infra",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
+				AllocationSize:           4,
+				IPBlockName:              "proj2:custom-block",
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, "/orgs/org1/projects/proj2/infra/ip-blocks/custom-block", *result.IpBlock)
+	})
+
+	t.Run("Success case with IPBlock under infra (leading colon)", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-infra-colon",
+				Namespace: "default",
+				UID:       "uid-infra-colon",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
+				AllocationSize:           4,
+				IPBlockName:              ":infra-block-id",
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, "/infra/ip-blocks/infra-block-id", *result.IpBlock)
+	})
+
+	t.Run("Success case with IPBlock and loadBalancerVPC selection via usedFor", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-usedfor",
+				Namespace: "default",
+				UID:       "uid-usedfor",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				UsedFor:                  v1alpha1.UsedForLBFrontend,
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
+				AllocationSize:           4,
+				IPBlockName:              "proj-1:custom-block",
+			},
+		}
+
+		nc := &v1alpha1.VPCNetworkConfiguration{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				LoadBalancerVPC: "/orgs/default/projects/proj-1/vpcs/vpc-lb",
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+			return nc, nil
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, vpcInfo, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(vpcInfo))
+		assert.Equal(t, "default", vpcInfo[0].OrgID)
+		assert.Equal(t, "proj-1", vpcInfo[0].ProjectID)
+		assert.Equal(t, "vpc-lb", vpcInfo[0].VPCID)
+		assert.Equal(t, "/orgs/default/projects/proj-1/infra/ip-blocks/custom-block", *result.IpBlock)
+		assert.Equal(t, []string{model.VpcIpAddressAllocation_USED_FOR_FRONTEND}, result.UsedFor)
+
+		hasLBTag := false
+		for _, tag := range result.Tags {
+			if *tag.Scope == "nsx-op/lb" && *tag.Tag == "true" {
+				hasLBTag = true
+				break
+			}
+		}
+		assert.True(t, hasLBTag)
+	})
+
+	t.Run("Success case with usedFor LB_FRONTEND when LoadBalancerVPC unset", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-no-lb-vpc",
+				Namespace: "default",
+				UID:       "uid-no-lb-vpc",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				UsedFor:                  v1alpha1.UsedForLBFrontend,
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
+				AllocationSize:           4,
+				IPBlockName:              ":ipblock-192.168.0.0-netmask-16",
+			},
+		}
+
+		nc := &v1alpha1.VPCNetworkConfiguration{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+			return nc, nil
+		})
+		defaultVPC := []common.VPCResourceInfo{{OrgID: "org-default", ProjectID: "proj-default", VPCID: "vpc-default"}}
+		patch.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+			assert.Equal(t, ipAlloc.Namespace, ns)
+			return defaultVPC
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID", func(_ *common.Service, _ string) types.UID {
+			return "nsUUid"
+		})
+		defer patch.Reset()
+
+		result, vpcInfo, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.NoError(t, err)
+		assert.Equal(t, defaultVPC, vpcInfo)
+		assert.Equal(t, []string{model.VpcIpAddressAllocation_USED_FOR_FRONTEND}, result.UsedFor)
+		assert.Equal(t, "/infra/ip-blocks/ipblock-192.168.0.0-netmask-16", *result.IpBlock)
+		assert.Contains(t, result.Tags, model.Tag{Scope: String(common.TagScopeIPAllocLB), Tag: String("true")})
+	})
+
+	t.Run("Failure case with full path IPBlock", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-fullpath",
+				Namespace: "default",
+				UID:       "uid-fullpath",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
+				AllocationSize:           4,
+				IPBlockName:              "/infra/ip-blocks/custom-block",
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, result)
+		assert.ErrorContains(t, err, "expected ':<ipBlockID>' or '<project ID>:<ipBlockID>'")
+	})
+
+	t.Run("Failure case with invalid full path IPBlock", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-invalid-slash",
+				Namespace: "default",
+				UID:       "uid-invalid-slash",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
+				AllocationSize:           4,
+				IPBlockName:              "/invalid/prefix/custom-block",
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		defer patch.Reset()
+
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, result)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "expected ':<ipBlockID>' or '<project ID>:<ipBlockID>'")
+	})
+
+	t.Run("Failure case with only colon in IPBlock", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-only-colon",
+				Namespace: "default",
+				UID:       "uid-only-colon",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
+				AllocationSize:           4,
+				IPBlockName:              ":", // missing block ID
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		defer patch.Reset()
+
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, result)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "expected ':<ipBlockID>' or '<project ID>:<ipBlockID>'")
+	})
+
+	t.Run("Success case with IPBlock containing spaces", func(t *testing.T) {
+		ipAlloc := &v1alpha1.IPAddressAllocation{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-ip-alloc-spaces",
+				Namespace: "default",
+				UID:       "uid-spaces",
+			},
+			Spec: v1alpha1.IPAddressAllocationSpec{
+				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityPrivate,
+				AllocationSize:           4,
+				IPBlockName:              "  proj2 : custom-block-id  ",
+			},
+		}
+
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+			return []common.VPCResourceInfo{
+				{
+					OrgID:     "org1",
+					ProjectID: "proj1",
+					VPCID:     "vpc1",
+				},
+			}
+		})
+		patch.ApplyMethod(reflect.TypeOf(&ipAllocService.Service), "GetNamespaceUID",
+			func(s *common.Service, ns string) types.UID {
+				return "nsUUid"
+			})
+		defer patch.Reset()
+
+		result, _, err := ipAllocService.BuildIPAddressAllocation(ipAlloc, nil, false)
+		assert.Nil(t, err)
+		assert.Equal(t, "/orgs/org1/projects/proj2/infra/ip-blocks/custom-block-id", *result.IpBlock)
+	})
+}
+
+func TestBuildIPBlockPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		invalid bool
+	}{
+		{name: "omitted"},
+		{name: "whitespace only", input: "   "},
+		{name: "infra", input: ":block", want: "/infra/ip-blocks/block"},
+		{name: "infra with whitespace", input: "  : block  ", want: "/infra/ip-blocks/block"},
+		{name: "project", input: "project:block", want: "/orgs/org1/projects/project/infra/ip-blocks/block"},
+		{name: "project with whitespace", input: " project : block ", want: "/orgs/org1/projects/project/infra/ip-blocks/block"},
+		{name: "project with ipblock prefix", input: "project:ipblock-pool", want: "/orgs/org1/projects/project/infra/ip-blocks/ipblock-pool"},
+		{name: "bare ID", input: "block", invalid: true},
+		{name: "bare ID with ipblock prefix", input: "ipblock-pool", invalid: true},
+		{name: "only colon", input: ":", invalid: true},
+		{name: "missing project block ID", input: "project:", invalid: true},
+		{name: "whitespace block ID", input: "project:   ", invalid: true},
+		{name: "extra colon", input: "project:block:extra", invalid: true},
+		{name: "double leading colon", input: "::block", invalid: true},
+		{name: "infra full path", input: "/infra/ip-blocks/block", invalid: true},
+		{name: "project full path", input: "/orgs/org1/projects/project/infra/ip-blocks/block", invalid: true},
+		{name: "slash in project ID", input: "other/project:block", invalid: true},
+		{name: "slash in block ID", input: "project:other/block", invalid: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildIPBlockPath(tt.input, "org1")
+			if tt.invalid {
+				assert.Nil(t, got)
+				assert.ErrorContains(t, err, "expected ':<ipBlockID>' or '<project ID>:<ipBlockID>'")
+				return
+			}
+			assert.NoError(t, err)
+			if tt.want == "" {
+				assert.Nil(t, got)
+			} else {
+				assert.Equal(t, String(tt.want), got)
+			}
+		})
+	}
+}
+
+func Test_convertIpAddressBlockVisibility(t *testing.T) {
+	assert.Equal(t, v1alpha1.IPAddressVisibilityPrivate, convertIpAddressBlockVisibility(""))
+	assert.Equal(t, v1alpha1.IPAddressVisibilityExternal, convertIpAddressBlockVisibility(v1alpha1.IPAddressVisibilityExternal))
+	assert.Equal(t, v1alpha1.IPAddressVisibility("PRIVATE_TGW"), convertIpAddressBlockVisibility(v1alpha1.IPAddressVisibility("PRIVATE_TGW")))
+}
+
+func Test_ipAddressTypeToNSX(t *testing.T) {
+	assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6, ipAddressTypeToNSX(v1alpha1.IPAllocationIPAddressTypeIPv6))
+	assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, ipAddressTypeToNSX(v1alpha1.IPAllocationIPAddressTypeIPv4))
+	assert.Equal(t, model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV4, ipAddressTypeToNSX(v1alpha1.IPAllocationAddressType("UNKNOWN")))
+}
+
+func Test_getVPCInfo(t *testing.T) {
+	vpcService, _, _ := createService(t)
+	ipAllocService := &IPAddressAllocationService{
+		VPCService: vpcService,
+	}
+
+	t.Run("isLB true, GetVPCNetworkConfigByNamespace error", func(t *testing.T) {
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "GetVPCNetworkConfigByNamespace",
+			func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+				return nil, assert.AnError
+			})
+		defer patch.Reset()
+
+		res, err := ipAllocService.getVPCInfo("ns1", true)
+		assert.ErrorIs(t, err, assert.AnError)
+		assert.Nil(t, res)
+	})
+
+	t.Run("isLB true, invalid LoadBalancerVPC path error", func(t *testing.T) {
+		nc := &v1alpha1.VPCNetworkConfiguration{
+			Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				LoadBalancerVPC: "invalid-vpc-path",
+			},
+		}
+		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "GetVPCNetworkConfigByNamespace",
+			func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+				return nc, nil
+			})
+		defer patch.Reset()
+
+		res, err := ipAllocService.getVPCInfo("ns1", true)
+		assert.Error(t, err)
+		assert.Nil(t, res)
+	})
+
+	for _, tt := range []struct {
+		name string
+		nc   *v1alpha1.VPCNetworkConfiguration
+	}{
+		{name: "network config is nil"},
+		{name: "LoadBalancerVPC is empty", nc: &v1alpha1.VPCNetworkConfiguration{}},
+	} {
+		t.Run(tt.name+", uses namespace default VPC", func(t *testing.T) {
+			patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "GetVPCNetworkConfigByNamespace",
+				func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return tt.nc, nil
+				})
+			defaultVPC := []common.VPCResourceInfo{{OrgID: "org1", ProjectID: "project1", VPCID: "vpc1"}}
+			patch.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo",
+				func(_ *vpc.VPCService, ns string) []common.VPCResourceInfo {
+					assert.Equal(t, "ns1", ns)
+					return defaultVPC
+				})
+			defer patch.Reset()
+
+			res, err := ipAllocService.getVPCInfo("ns1", true)
+			assert.NoError(t, err)
+			assert.Equal(t, defaultVPC, res)
+		})
+	}
 }
