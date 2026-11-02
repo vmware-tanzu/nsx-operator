@@ -34,7 +34,7 @@ require (
 	github.com/vmware/govmomi v0.53.1
 	github.com/vmware/vsphere-automation-sdk-go/lib v0.8.0
 	github.com/vmware/vsphere-automation-sdk-go/runtime v0.8.0
-	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.0.0-20260918040257-df14078d062c
+	github.com/vmware/vsphere-automation-sdk-go/services/nsxt v0.12.1-0.20261102123024-125769460d42
 	github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp v0.6.1-0.20260731022611-0b74bd8dd86c
 	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.1
@@ -59,6 +59,7 @@ require (
 	go.uber.org/mock v0.6.0
 	k8s.io/klog/v2 v2.140.0
 	sigs.k8s.io/gateway-api v1.5.1
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -176,5 +177,4 @@ require (
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )

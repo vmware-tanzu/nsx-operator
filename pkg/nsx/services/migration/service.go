@@ -24,7 +24,7 @@ type Service struct {
 
 // NewService defers reading configuration and contacting NSX until a handler needs it.
 func NewService() *Service {
-	return &Service{loadConfig: config.NewNSXOperatorConfigFromFile, newClient: nsx.NewClient}
+	return &Service{loadConfig: config.NewNSXOperatorConfigFromFile, newClient: nsx.NewMigrationClient}
 }
 
 // Client returns the shared client for this migration process. It does not share
