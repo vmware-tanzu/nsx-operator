@@ -1,0 +1,153 @@
+---
+# Sample 1: Workload Cutover (subnetPortCutovers)
+# Demonstrates cutover of SubnetIPReservations to target SubnetPorts.
+# Shows status reporting with 1 cutover succeeded and 1 cutover failed (overall phase: Failed).
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NetworkResourceTransition
+metadata:
+  name: transition-workloads-sample
+spec:
+  subnetPortCutovers:
+    # Workload 1: Dual-stack VM (one dual-stack reservation cut over to one SubnetPort)
+    - subnetIPReservation:
+        namespace: source-namespace
+        name: ipres-vm-webapp-eth0
+      subnetPort:
+        namespace: target-namespace
+        name: vm-webapp-eth0
+
+    # Workload 2: Single-stack Pod
+    - subnetIPReservation:
+        namespace: source-namespace
+        name: ipres-pod-frontend-0
+      subnetPort:
+        namespace: target-namespace
+        name: pod-frontend-0
+
+status:
+  observedGeneration: 1
+  phase: Failed
+  totalResources: 2
+  succeededResources: 1
+  failedResources: 1
+
+  # Per-workload cutover status
+  subnetPortCutovers:
+    # Succeeded cutover: Atomic NSX transaction deleted the reservation and realized SubnetPort
+    - subnetPort:
+        namespace: target-namespace
+        name: vm-webapp-eth0
+      subnetIPReservation:
+        namespace: source-namespace
+        name: ipres-vm-webapp-eth0
+      phase: Succeeded
+      message: "Atomic cutover complete: SubnetPort realized with allocate_addresses: IP_POOL, source reservation deleted"
+      attachmentID: "502e2a4e-cb8a-2385-861b-d3cca41848c6"
+      ipAddresses:
+        - "192.168.10.25"
+        - "fd00::10:25"
+      macAddress: "00:50:56:a1:b2:c3"
+
+    # Failed cutover: Source reservation missing or subnet port realization failed
+    - subnetPort:
+        namespace: target-namespace
+        name: pod-frontend-0
+      subnetIPReservation:
+        namespace: source-namespace
+        name: ipres-pod-frontend-0
+      phase: Failed
+      message: "Failed to cut over SubnetPort: SubnetIPReservation 'ipres-pod-frontend-0' not found in namespace 'source-namespace'"
+
+  conditions:
+    - type: Ready
+      status: "False"
+      lastTransitionTime: "2026-09-20T08:30:00Z"
+      reason: TransitionFailed
+      message: "1 of 2 SubnetPort cutovers failed"
+
+---
+# Sample 2: IPAddressAllocation Transfer (ipAddressAllocationMoves)
+# Demonstrates transferring IPAddressAllocations across Namespaces without releasing IPs.
+# Shows status reporting with 1 move succeeded and 1 move failed (overall phase: Failed).
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NetworkResourceTransition
+metadata:
+  name: transition-ipaddressallocations-sample
+spec:
+  ipAddressAllocationMoves:
+    # Resource 1: Ingress HTTPS IPAddressAllocation
+    - source:
+        namespace: source-namespace
+        name: source-ip-ingress-https
+      target:
+        namespace: target-namespace
+        name: ip-ingress-https
+
+    # Resource 2: Database Service IPAddressAllocation
+    - source:
+        namespace: source-namespace
+        name: source-ip-db-service
+      target:
+        namespace: target-namespace
+        name: ip-db-service
+
+status:
+  observedGeneration: 1
+  phase: Failed
+  totalResources: 2
+  succeededResources: 1
+  failedResources: 1
+
+  # Per-allocation move status
+  ipAddressAllocationMoves:
+    # Succeeded move: In-place NSX Policy tag adoption and ownership rebinding completed
+    - source:
+        namespace: source-namespace
+        name: source-ip-ingress-https
+      target:
+        namespace: target-namespace
+        name: ip-ingress-https
+      phase: Succeeded
+      message: "In-place tag adoption complete: ownership transferred with 0 duplicate IP collision"
+
+    # Failed move: Source IPAddressAllocation not found in source namespace
+    - source:
+        namespace: source-namespace
+        name: source-ip-db-service
+      target:
+        namespace: target-namespace
+        name: ip-db-service
+      phase: Failed
+      message: "Failed to move IPAddressAllocation: source 'source-ip-db-service' not found in namespace 'source-namespace'"
+
+  conditions:
+    - type: Ready
+      status: "False"
+      lastTransitionTime: "2026-09-20T08:32:00Z"
+      reason: TransitionFailed
+      message: "1 of 2 IPAddressAllocation moves failed"
+
+---
+# Sample 3: Namespace rollback: detached port -> one dual-stack reservation, plus reverse VIP move.
+# Schema example only: inverse controller/NSX transaction integration is required.
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NetworkResourceTransition
+metadata:
+  name: rollback-ns-production
+spec:
+  subnetPortReverts:
+  - subnetPort:
+      namespace: ns-production
+      name: vm-webapp-eth0
+    # Resolve the source SubnetPort's Subnet name in the destination Namespace.
+    subnetIPReservation:
+      namespace: destination-namespace
+      name: restored-vm-webapp-eth0
+    reservedIPs: ["192.168.10.25", "fd00::10:25"]
+  ipAddressAllocationMoves:
+  - source:
+      namespace: ns-production
+      name: vip-ingress-https
+    target:
+      namespace: destination-namespace
+      name: restored-vip-ingress-https

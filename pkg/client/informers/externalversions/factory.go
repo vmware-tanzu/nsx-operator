@@ -12,6 +12,7 @@ import (
 
 	versioned "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
 	internalinterfaces "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/internalinterfaces"
+	migration "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/migration"
 	vpc "github.com/vmware-tanzu/nsx-operator/pkg/client/informers/externalversions/vpc"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -242,7 +243,12 @@ type SharedInformerFactory interface {
 	// client.
 	InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
 
+	Migration() migration.Interface
 	Crd() vpc.Interface
+}
+
+func (f *sharedInformerFactory) Migration() migration.Interface {
+	return migration.New(f, f.namespace, f.tweakListOptions)
 }
 
 func (f *sharedInformerFactory) Crd() vpc.Interface {

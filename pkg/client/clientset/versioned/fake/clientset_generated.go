@@ -7,6 +7,8 @@ package fake
 
 import (
 	clientset "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned"
+	migrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/migration/v1alpha1"
+	fakemigrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/migration/v1alpha1/fake"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1"
 	fakecrdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/client/clientset/versioned/typed/vpc/v1alpha1/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -85,6 +87,11 @@ var (
 	_ clientset.Interface = &Clientset{}
 	_ testing.FakeClient  = &Clientset{}
 )
+
+// MigrationV1alpha1 retrieves the MigrationV1alpha1Client
+func (c *Clientset) MigrationV1alpha1() migrationv1alpha1.MigrationV1alpha1Interface {
+	return &fakemigrationv1alpha1.FakeMigrationV1alpha1{Fake: &c.Fake}
+}
 
 // CrdV1alpha1 retrieves the CrdV1alpha1Client
 func (c *Clientset) CrdV1alpha1() crdv1alpha1.CrdV1alpha1Interface {

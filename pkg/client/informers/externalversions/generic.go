@@ -8,6 +8,7 @@ package externalversions
 import (
 	fmt "fmt"
 
+	migrationv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	v1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
@@ -72,6 +73,10 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().VPCEndpoints().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vpcnetworkconfigurations"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Crd().V1alpha1().VPCNetworkConfigurations().Informer()}, nil
+
+		// Group=migration.network.vmware.com, Version=v1alpha1
+	case migrationv1alpha1.SchemeGroupVersion.WithResource("networkresourcetransitions"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Migration().V1alpha1().NetworkResourceTransitions().Informer()}, nil
 
 	}
 

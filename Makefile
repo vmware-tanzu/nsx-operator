@@ -47,6 +47,7 @@ changecrd: manifests generate generate-api-docs
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
+	$(CONTROLLER_GEN) crd paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1" output:crd:artifacts:config=build/yaml/crd/migration/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1" output:crd:artifacts:config=build/yaml/crd/eas/
 # NOTE: EAS types are served by the generic API server (via APIService), NOT as CRDs.
 # Do NOT run controller-gen crd for pkg/apis/eas/v1alpha1 — installing EAS CRDs alongside
@@ -225,6 +226,7 @@ generate-api-docs: ## Generate API documentation
 	  --config=./.crd-ref-docs/config.yaml \
 	  --output-path=./docs/ref/apis/
 	mv ./docs/ref/apis/out.md ./docs/ref/apis/vpc.md
+	$(CRD_REF_DOCS) --renderer=markdown --source-path=./pkg/apis/migration/v1alpha1 --config=./.crd-ref-docs/config.yaml --output-path=./docs/ref/apis/migration.md
 	$(CRD_REF_DOCS) \
 	  --renderer=markdown \
 	  --source-path=./pkg/apis/legacy/v1alpha1 \
