@@ -4017,7 +4017,8 @@ func TestSubnetPortReconciler_RestoreReconcile(t *testing.T) {
 		Client:    k8sClient,
 		APIReader: k8sClient,
 		SubnetPortService: &subnetport.SubnetPortService{
-			SubnetPortStore: &subnetport.SubnetPortStore{},
+			SubnetPortStore:  &subnetport.SubnetPortStore{},
+			SegmentPortStore: &subnetport.SegmentPortStore{},
 		},
 	}
 	patches := gomonkey.ApplyFunc((*servicecommon.ResourceStore).ListIndexFuncValues, func(s *servicecommon.ResourceStore, key string) sets.Set[string] {

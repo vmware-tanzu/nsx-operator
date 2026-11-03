@@ -974,12 +974,24 @@ func (r *SubnetPortReconciler) RestoreReconcile() error {
 
 func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	nsxSubnetPortCRIDs := r.SubnetPortService.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
+	nsxSegmentPortCRIDs := r.SubnetPortService.SegmentPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
 	restoreList := []types.NamespacedName{}
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	if err := r.APIReader.List(context.TODO(), subnetPortList); err != nil {
 		return restoreList, err
 	}
 	for _, subnetport := range subnetPortList.Items {
+		subnetCR, _, err := r.getSubnetCR(context.TODO(), &subnetport)
+		if err != nil {
+			return restoreList, err
+		}
+		if subnetCR != nil && subnetCR.Annotations[servicecommon.AnnotationSegmentPath] != "" {
+			if !nsxSegmentPortCRIDs.Has(string(subnetport.UID)) &&
+				subnetport.Status.Attachment.ID != "" && subnetport.Status.NetworkInterfaceConfig.LogicalSwitchUUID != "" {
+				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+			}
+			continue
+		}
 		isPodOwned := common.GetPodNameForSubnetPort(&subnetport) != ""
 		if isPodOwned {
 			// With Pod V2 disabled, the Pod controller owns Pod port restoration.
