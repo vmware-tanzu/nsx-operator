@@ -224,7 +224,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if len(subnetCR.Spec.IPBlockNames) == 0 && nsxSubnet != nil && len(nsxSubnet.IpBlocks) > 0 {
-		subnetCR.Spec.IPBlockNames = r.SubnetService.MapIPBlocksToNames(nsxSubnet.IpBlocks)
+		subnetCR.Spec.IPBlockNames = r.SubnetService.IPBlockPathsToNames(nsxSubnet.IpBlocks)
 		if err := r.Client.Update(ctx, subnetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetCR, err, "Failed to update Subnet IPBlockNames", setSubnetReadyStatusFalse)
 			return ResultRequeue, err

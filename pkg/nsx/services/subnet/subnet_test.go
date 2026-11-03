@@ -3889,7 +3889,7 @@ func TestCreateOrUpdateSubnet_PoolRangeCapacityReset(t *testing.T) {
 	}
 }
 
-func TestSubnetService_MapIPBlocksToNames(t *testing.T) {
+func TestSubnetService_IPBlockPathsToNames(t *testing.T) {
 	service := &SubnetService{}
 	tests := []struct {
 		name     string
@@ -3920,7 +3920,7 @@ func TestSubnetService_MapIPBlocksToNames(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res := service.MapIPBlocksToNames(tt.paths)
+			res := service.IPBlockPathsToNames(tt.paths)
 			assert.Equal(t, tt.expected, res)
 		})
 	}

@@ -842,10 +842,10 @@ func (service *SubnetService) MapNSXSubnetToSubnetCR(subnetCR *v1alpha1.Subnet, 
 	// to avoid ambiguity across projects and keep the consumer model clean.
 }
 
-// MapIPBlocksToNames converts NSX Policy IPBlock paths to Subnet CR IPBlock name formats.
+// IPBlockPathsToNames converts NSX Policy IPBlock paths to Subnet CR IPBlock name formats.
 // Infra IPBlocks (/infra/ip-blocks/<id>) map to ":<id>", while project-scoped IPBlocks
 // (/orgs/.../projects/.../infra/ip-blocks/<name>) map to "<name>".
-func (service *SubnetService) MapIPBlocksToNames(ipBlockPaths []string) []string {
+func (service *SubnetService) IPBlockPathsToNames(ipBlockPaths []string) []string {
 	if len(ipBlockPaths) == 0 {
 		return nil
 	}
