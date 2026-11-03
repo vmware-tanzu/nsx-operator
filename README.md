@@ -23,3 +23,8 @@ This repository is available under the [Apache 2.0 license](LICENSE).
 
 NetworkResourceTransition API documentation and installation notes are available
 in [Network resource transitions](docs/network-resource-transition.md).
+
+## Supervisor network migration
+
+The optional migration container and framework are described in
+[Supervisor network migration](docs/supervisor-network-migration-operator.md).
