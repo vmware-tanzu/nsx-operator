@@ -204,3 +204,105 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 	assert.Equal(t, "existing-attachment", sp.Status.Attachment.ID)
 	assert.Empty(t, sp.Status.NetworkInterfaceConfig)
 }
+
+func newSegmentRestorePortStore() *subnetport.SegmentPortStore {
+	indexers := cache.Indexers{}
+	for _, scope := range []string{servicecommon.TagScopeSubnetPortCRUID, servicecommon.TagScopePodUID} {
+		indexers[scope] = func(obj interface{}) ([]string, error) {
+			var values []string
+			for _, tag := range obj.(*model.SegmentPort).Tags {
+				if *tag.Scope == scope {
+					values = append(values, *tag.Tag)
+				}
+			}
+			return values, nil
+		}
+	}
+	return &subnetport.SegmentPortStore{ResourceStore: servicecommon.ResourceStore{
+		Indexer: cache.NewIndexer(func(obj interface{}) (string, error) {
+			return *obj.(*model.SegmentPort).Id, nil
+		}, indexers),
+	}}
+}
+
+func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	for _, tt := range []struct {
+		name          string
+		segment       bool
+		cached        bool
+		attachmentID  string
+		logicalSwitch string
+		hasIP         bool
+		podOwned      bool
+		missingParent bool
+		wantRestore   bool
+	}{
+		{name: "missing segment port", segment: true, attachmentID: "attachment", logicalSwitch: "switch", wantRestore: true},
+		{name: "cached segment port", segment: true, cached: true, attachmentID: "attachment", logicalSwitch: "switch", hasIP: true},
+		{name: "missing attachment", segment: true, logicalSwitch: "switch", hasIP: true},
+		{name: "missing logical switch", segment: true, attachmentID: "attachment", hasIP: true},
+		{name: "missing status", segment: true, hasIP: true},
+		{name: "segment port skips Pod handling", segment: true, attachmentID: "attachment", logicalSwitch: "switch", podOwned: true, wantRestore: true},
+		{name: "normal port uses saved IP", hasIP: true, wantRestore: true},
+		{name: "normal port without saved IP", attachmentID: "attachment", logicalSwitch: "switch"},
+		{name: "missing parent", missingParent: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			sp := &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: "ns", UID: "port-uid"},
+				Spec:       v1alpha1.SubnetPortSpec{Subnet: "parent"},
+				Status: v1alpha1.SubnetPortStatus{
+					Attachment:             v1alpha1.PortAttachment{ID: tt.attachmentID},
+					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{LogicalSwitchUUID: tt.logicalSwitch},
+				},
+			}
+			if tt.hasIP {
+				sp.Status.NetworkInterfaceConfig.IPAddresses = []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}}
+			}
+			if tt.podOwned {
+				sp.OwnerReferences = []metav1.OwnerReference{{Kind: "Pod", Name: "pod", UID: "pod-uid"}}
+			}
+			parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: sp.Namespace}}
+			if tt.segment {
+				parent.Annotations = map[string]string{servicecommon.AnnotationSegmentPath: "/infra/segments/segment-1"}
+			}
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sp)
+			if !tt.missingParent {
+				builder = builder.WithObjects(parent)
+			}
+			k8sClient := builder.Build()
+			segmentStore := newSegmentRestorePortStore()
+			if tt.cached {
+				require.NoError(t, segmentStore.Add(&model.SegmentPort{
+					Id: servicecommon.String("nsx-port"),
+					Tags: []model.Tag{{
+						Scope: servicecommon.String(servicecommon.TagScopeSubnetPortCRUID),
+						Tag:   servicecommon.String(string(sp.UID)),
+					}},
+				}))
+			}
+			r := &SubnetPortReconciler{
+				Client: k8sClient, APIReader: k8sClient,
+				SubnetPortService: &subnetport.SubnetPortService{
+					Service:          servicecommon.Service{Client: k8sClient},
+					SubnetPortStore:  newPodRestorePortStore(),
+					SegmentPortStore: segmentStore,
+				},
+			}
+			restoreList, err := r.getRestoreList()
+			if tt.missingParent {
+				require.Error(t, err)
+				assert.Empty(t, restoreList)
+				return
+			}
+			require.NoError(t, err)
+			if tt.wantRestore {
+				assert.Equal(t, []types.NamespacedName{client.ObjectKeyFromObject(sp)}, restoreList)
+			} else {
+				assert.Empty(t, restoreList)
+			}
+		})
+	}
+}

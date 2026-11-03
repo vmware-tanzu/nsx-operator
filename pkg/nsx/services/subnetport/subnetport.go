@@ -580,6 +580,23 @@ func (service *SubnetPortService) GetSubnetPathForSubnetPortFromStore(crUid type
 	return *existingSubnetPort.ParentPath
 }
 
+func (service *SubnetPortService) GetSegmentPathForSubnetPortFromStore(crUid types.UID) string {
+	existingSegmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(crUid)
+	if err != nil {
+		log.Error(err, "Failed to use the CR UID to search SegmentPort, return ''", "CR UID", crUid)
+		return ""
+	}
+	if existingSegmentPort == nil {
+		log.Info("SegmentPort is not found in store", "CR UID", crUid)
+		return ""
+	}
+	if existingSegmentPort.ParentPath == nil {
+		log.Info("SegmentPort has not set the Segment path", "CR UID", crUid, "Id", *existingSegmentPort.Id)
+		return ""
+	}
+	return *existingSegmentPort.ParentPath
+}
+
 func (service *SubnetPortService) GetPortsOfSubnet(subnetPath string) (ports []*model.VpcSubnetPort) {
 	subnetPortList := service.SubnetPortStore.GetByIndex(servicecommon.IndexKeySubnetPath, subnetPath)
 	return subnetPortList

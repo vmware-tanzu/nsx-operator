@@ -1513,6 +1513,10 @@ func (r *SubnetPortReconciler) RestoreReconcile() error {
 
 func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	nsxSubnetPortCRIDs := r.SubnetPortService.SubnetPortStore.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
+	nsxSegmentPortCRIDs := sets.New[string]()
+	if store := r.SubnetPortService.SegmentPortStore; store != nil && store.Indexer != nil {
+		nsxSegmentPortCRIDs = store.ListIndexFuncValues(servicecommon.TagScopeSubnetPortCRUID)
+	}
 	restoreList := []types.NamespacedName{}
 	subnetPortList := &v1alpha1.SubnetPortList{}
 	reader := client.Reader(r.Client)
@@ -1525,6 +1529,17 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 	for _, subnetport := range subnetPortList.Items {
 		// Skip SubnetPort if it is pending deletion
 		if !subnetport.ObjectMeta.DeletionTimestamp.IsZero() {
+			continue
+		}
+		subnetCR, _, err := r.getSubnetCR(context.TODO(), &subnetport)
+		if err != nil {
+			return restoreList, err
+		}
+		if subnetCR != nil && subnetCR.Annotations[servicecommon.AnnotationSegmentPath] != "" {
+			if !nsxSegmentPortCRIDs.Has(string(subnetport.UID)) &&
+				subnetport.Status.Attachment.ID != "" && subnetport.Status.NetworkInterfaceConfig.LogicalSwitchUUID != "" {
+				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+			}
 			continue
 		}
 		isPodOwned := common.GetPodNameForSubnetPort(&subnetport) != ""

@@ -226,7 +226,7 @@ func TestInitializeCleanupService_Success(t *testing.T) {
 	// Only the VPC service participates in VPC cleanup; the T1 wrapper is infra-only.
 	assert.Len(t, cleanupService.vpcPreCleaners, 7)
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 5)
-	assert.Len(t, cleanupService.infraCleaners, 4)
+	assert.Len(t, cleanupService.infraCleaners, 5)
 }
 
 func TestInitializeCleanupService_VPCError(t *testing.T) {
@@ -272,6 +272,6 @@ func TestInitializeCleanupService_VPCError(t *testing.T) {
 	assert.Len(t, cleanupService.vpcChildrenCleaners, 3)
 	// The T1 SecurityPolicy wrapper is infra-only and therefore does not inflate VPC cleaner counts.
 	assert.Len(t, cleanupService.vpcPreCleaners, 4)
-	assert.Len(t, cleanupService.infraCleaners, 2)
+	assert.Len(t, cleanupService.infraCleaners, 3)
 	assert.Equal(t, expectedError, cleanupService.svcErr)
 }

@@ -48,6 +48,7 @@ type SubnetPortServiceProvider interface {
 	IsEmptySubnet(path string) bool
 	DeletePortCount(path string)
 	GetSubnetPathForSubnetPortFromStore(crUid types.UID) string
+	GetSegmentPathForSubnetPortFromStore(crUid types.UID) string
 	ResetSubnetTotalIP(path string)
 }
 
