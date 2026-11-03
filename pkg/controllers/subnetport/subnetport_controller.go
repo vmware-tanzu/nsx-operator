@@ -449,23 +449,17 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 }
 
 func (r *SubnetPortReconciler) resolvePodTransportNode(subnetPort *v1alpha1.SubnetPort, pod *v1.Pod, spKey types.NamespacedName) (string, error) {
-	hostName := subnetPort.Annotations[servicecommon.AnnotationESXHostName]
-	nodeName := hostName
-	if nodeName == "" {
-		nodeName = pod.Spec.NodeName
+	nodeName := pod.Spec.NodeName
+	if pod.Annotations[servicecommon.AnnotationPodNodeType] == servicecommon.PodNodeTypeVirtualNode {
+		// Virtual Node names do not identify ESX hosts. The host annotation can
+		// supply context_id after the port and its network status are ready.
+		nodeName = subnetPort.Annotations[servicecommon.AnnotationESXHostName]
 	}
 	if nodeName == "" {
-		log.Info("Node name is empty for Pod, skipping transport node resolution", "SubnetPort", spKey, "Pod", pod.Name)
+		log.Info("Pod host information is unavailable, skipping transport node resolution", "SubnetPort", spKey, "Pod", pod.Name)
 		return "", nil
 	}
 	node, err := common.GetNodeByName(r.NodeServiceReader, nodeName)
-	var notFound *common.NodeNotFoundError
-	if hostName == "" && nsx.PodV2FeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && errors.As(err, &notFound) {
-		// A virtual node name need not identify an ESX host. The host annotation
-		// can supply context_id after the port and its network status are ready.
-		log.Info("Pod node has no matching transport node, proceeding without context_id", "SubnetPort", spKey, "Pod", pod.Name, "Node", nodeName)
-		return "", nil
-	}
 	if err == nil && (node == nil || node.UniqueId == nil || *node.UniqueId == "") {
 		return "", fmt.Errorf("transport node %s has no unique ID", nodeName)
 	}
@@ -762,7 +756,8 @@ var podPredicate = predicate.Funcs{
 		if !okOld || !okNew {
 			return false
 		}
-		if oldPod.Spec.NodeName != newPod.Spec.NodeName {
+		if oldPod.Spec.NodeName != newPod.Spec.NodeName ||
+			oldPod.Annotations[servicecommon.AnnotationPodNodeType] != newPod.Annotations[servicecommon.AnnotationPodNodeType] {
 			return true
 		}
 		return !reflect.DeepEqual(oldPod.Labels, newPod.Labels)

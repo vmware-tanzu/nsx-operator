@@ -235,8 +235,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		assert.Equal(t, common.ResultNormal, res)
 	})
 
-	// Pod-owned SubnetPort with ESX 9.2 annotation
-	t.Run("Pod-owned SubnetPort with ESX 9.2 annotation", func(t *testing.T) {
+	// Virtual Node Pod-owned SubnetPort with host annotation
+	t.Run("Virtual Node Pod-owned SubnetPort with host annotation", func(t *testing.T) {
 		patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
 			func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
 				return true, false, "/orgs/org1/projects/proj1/vpcs/vpc1/subnets/subnet1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
@@ -306,7 +306,8 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 				pod.Name = "pod1"
 				pod.Namespace = "dummy"
 				pod.UID = "pod-uid-123"
-				pod.Spec.NodeName = "fallback-node"
+				pod.Spec.NodeName = "virtual-node"
+				pod.Annotations = map[string]string{servicecommon.AnnotationPodNodeType: servicecommon.PodNodeTypeVirtualNode}
 				return nil
 			})
 
@@ -5164,7 +5165,15 @@ func TestPodPredicate(t *testing.T) {
 		},
 	}
 
+	podNodeTypeChanged := podOld.DeepCopy()
+	podNodeTypeChanged.Annotations = map[string]string{servicecommon.AnnotationPodNodeType: servicecommon.PodNodeTypeVirtualNode}
+	podOtherAnnotationChanged := podOld.DeepCopy()
+	podOtherAnnotationChanged.Annotations = map[string]string{"unrelated": "value"}
+
 	// Update events
+	assert.True(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podNodeTypeChanged}), "Node type change should trigger reconcile")
+	assert.True(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podNodeTypeChanged, ObjectNew: podOld}), "Node type removal should trigger reconcile")
+	assert.False(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podOtherAnnotationChanged}), "Unrelated annotation changes should not trigger reconcile")
 	assert.True(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podNodeChanged}), "NodeName change should trigger reconcile")
 	assert.True(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podLabelChanged}), "Label change should trigger reconcile")
 	assert.False(t, podPredicate.Update(event.UpdateEvent{ObjectOld: podOld, ObjectNew: podUnchanged}), "Unchanged pod should not trigger reconcile")
