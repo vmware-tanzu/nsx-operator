@@ -296,6 +296,7 @@ func (v *SubnetSetValidator) getSubnetPortsID(ctx context.Context, subnetSet *v1
 func (v *SubnetSetValidator) validateRemovedSubnets(ctx context.Context, subnetSet *v1alpha1.SubnetSet, subnetNames []string) (bool, error) {
 	log.Debug("Verify if Subnets can be removed from SubnetSet", "Namespace", subnetSet.Namespace, "subnetSetName", subnetSet.Name, "subnetNames", subnetNames)
 	usedSubnetPaths := sets.New[string]()
+	usedSegmentPaths := sets.New[string]()
 	ids, err := v.getSubnetPortsID(ctx, subnetSet)
 	if err != nil {
 		return false, fmt.Errorf("failed to get SubnetPort IDs: %v", err)
@@ -304,6 +305,10 @@ func (v *SubnetSetValidator) validateRemovedSubnets(ctx context.Context, subnetS
 		subnetPath := v.subnetPortService.GetSubnetPathForSubnetPortFromStore(id)
 		if subnetPath != "" {
 			usedSubnetPaths.Insert(subnetPath)
+		}
+		segmentPath := v.subnetPortService.GetSegmentPathForSubnetPortFromStore(id)
+		if segmentPath != "" {
+			usedSegmentPaths.Insert(segmentPath)
 		}
 	}
 	for _, subnetName := range subnetNames {
@@ -316,7 +321,8 @@ func (v *SubnetSetValidator) validateRemovedSubnets(ctx context.Context, subnetS
 		if err != nil {
 			return false, fmt.Errorf("failed to get NSX Subnet %s/%s: %v", subnetSet.Namespace, subnetName, err)
 		}
-		if usedSubnetPaths.Has(*nsxSubnet.Path) {
+		segmentPath := nsxutil.FindTag(nsxSubnet.Tags, common.TagScopeWCPSegmentTrackingSubnet)
+		if usedSubnetPaths.Has(*nsxSubnet.Path) || usedSegmentPaths.Has(segmentPath) {
 			return false, nil
 		}
 	}

@@ -230,7 +230,7 @@ func TestPodRestoreListRequiresRealizedCurrentOwner(t *testing.T) {
 			}
 
 			api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, sp).Build()
-			svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api}, SubnetPortStore: store}
+			svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api}, SubnetPortStore: store, SegmentPortStore: newSegmentRestorePortStore()}
 			if tc.v2mode {
 				tr := true
 				svc.NSXClient = &nsx.Client{}

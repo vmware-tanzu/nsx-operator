@@ -337,6 +337,15 @@ func (service *SubnetPortService) BuildSegmentPortIdAndName(obj *metav1.ObjectMe
 	}), service.BuildSubnetPortName(obj), nil
 }
 
+func parseSegmentPath(segmentPath string) (string, error) {
+	parts := strings.Split(strings.Trim(segmentPath, "/"), "/")
+	if len(parts) != 3 || parts[0] != "infra" || parts[1] != "segments" ||
+		parts[2] == "" || parts[2] == "." || parts[2] == ".." {
+		return "", fmt.Errorf("invalid segment path: %s", segmentPath)
+	}
+	return parts[2], nil
+}
+
 // CreateOrUpdateSegmentPort creates or updates SegmentPort on NSX
 func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 	subnetPort *v1alpha1.SubnetPort,
@@ -346,14 +355,10 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 	isVmSubnetPort bool,
 	restoreMode bool,
 ) (*model.SegmentPortState, error) {
-	if len(segmentPath) == 0 {
-		return nil, fmt.Errorf("segmentPath is invalid or empty")
+	segmentID, err := parseSegmentPath(segmentPath)
+	if err != nil {
+		return nil, err
 	}
-	parts := strings.Split(strings.Trim(segmentPath, "/"), "/")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid segmentPath: %s", segmentPath)
-	}
-	segmentID := parts[len(parts)-1]
 
 	uid := string(subnetPort.UID)
 	attachmentID := subnetPort.Status.Attachment.ID
@@ -445,6 +450,10 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 }
 
 func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.SubnetPort, segmentPath string) (*model.SegmentPortState, error) {
+	segmentID, err := parseSegmentPath(segmentPath)
+	if err != nil {
+		return nil, err
+	}
 	nsxSegmentPort, err := service.GetSegmentPortForSubnetPort(&subnetPort.ObjectMeta)
 	if err != nil {
 		return nil, err
@@ -453,8 +462,6 @@ func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.Sub
 		return nil, errors.New("failed to get segment port from store")
 	}
 
-	parts := strings.Split(strings.Trim(segmentPath, "/"), "/")
-	segmentID := parts[len(parts)-1]
 	portID := *nsxSegmentPort.Id
 	realizeService := realizestate.InitializeRealizeState(service.Service)
 
@@ -508,14 +515,14 @@ func (service *SubnetPortService) deleteSegmentPort(nsxSegmentPort *model.Segmen
 		segmentPath = parent
 	}
 	if segmentPath != "" {
-		parts := strings.Split(strings.Trim(segmentPath, "/"), "/")
-		if len(parts) != 3 || parts[0] != "infra" || parts[1] != "segments" || parts[2] == "" {
-			return fmt.Errorf("invalid segment path for port %s: %s", *nsxSegmentPort.Id, segmentPath)
+		parentSegmentID, err := parseSegmentPath(segmentPath)
+		if err != nil {
+			return err
 		}
-		if segmentID != "" && segmentID != parts[2] {
+		if segmentID != "" && segmentID != parentSegmentID {
 			return fmt.Errorf("segment ID %s does not match parent path %s", segmentID, segmentPath)
 		}
-		segmentID = parts[2]
+		segmentID = parentSegmentID
 	}
 	if segmentID == "" || segmentID == "." || segmentID == ".." || strings.Contains(segmentID, "/") {
 		return fmt.Errorf("invalid segment ID for port %s: %s", *nsxSegmentPort.Id, segmentID)

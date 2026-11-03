@@ -157,7 +157,7 @@ func TestPodV2RestoreThenNormalReconcileKeepsOnePort(t *testing.T) {
 				cached := util.NewRestoreClient(podRestoreCachedClient{api})
 				cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{RestoreVif: &restoreVIF}, K8sConfig: &config.K8sConfig{PodV2: servicecommon.Bool(true)}, CoeConfig: &config.CoeConfig{Cluster: "test"}}
 				backend := &podRestorePortsClient{ports: map[string]model.VpcSubnetPort{}}
-				svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api, NSXConfig: cfg, NSXClient: &nsx.Client{PortClient: backend}}, SubnetPortStore: newPodRestorePortStore()}
+				svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api, NSXConfig: cfg, NSXClient: &nsx.Client{PortClient: backend}}, SubnetPortStore: newPodRestorePortStore(), SegmentPortStore: newSegmentRestorePortStore()}
 				p := &podcontroller.PodReconciler{Client: cached, APIReader: api, Scheme: scheme, SubnetPortService: svc, Recorder: fakeRecorder{}}
 				p.StatusUpdater = common.NewStatusUpdater(cached, cfg, p.Recorder, "Pod", "SubnetPort", "Pod")
 				patches := gomonkey.ApplyFunc((*nsx.Client).NSXCheckVersion, func(*nsx.Client, int) bool { return true })

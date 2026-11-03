@@ -26,6 +26,52 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+func TestSegmentPortPathValidation(t *testing.T) {
+	for _, tt := range []struct {
+		path      string
+		segmentID string
+	}{
+		{path: "/infra/segments/seg-1", segmentID: "seg-1"},
+		{path: "infra/segments/seg-1/", segmentID: "seg-1"},
+		{path: ""},
+		{path: "/segments/seg-1"},
+		{path: "/wrong/segments/seg-1"},
+		{path: "/infra/wrong/seg-1"},
+		{path: "/infra/segments/"},
+		{path: "/infra/segments//seg-1"},
+		{path: "/infra/segments/seg-1/ports/port-1"},
+		{path: "/infra/segments/."},
+		{path: "/infra/segments/.."},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			segmentID, err := parseSegmentPath(tt.path)
+			if tt.segmentID != "" {
+				require.NoError(t, err)
+				assert.Equal(t, tt.segmentID, segmentID)
+				return
+			}
+			require.Error(t, err)
+
+			segmentClient := &fakeDeleteSegmentPortsClient{}
+			service := &SubnetPortService{
+				Service:          common.Service{NSXClient: &nsx.Client{SegmentPortsClient: segmentClient}},
+				SegmentPortStore: setupSegmentPortStore(),
+			}
+			subnetPort := &v1alpha1.SubnetPort{}
+			_, err = service.CreateOrUpdateSegmentPort(subnetPort, tt.path, "", nil, false, false)
+			assert.Error(t, err)
+			_, err = service.CheckSegmentPortState(subnetPort, tt.path)
+			assert.Error(t, err)
+			port := segmentPortForDeletion()
+			port.ParentPath = common.String(tt.path)
+			port.Path = common.String(tt.path + "/ports/" + *port.Id)
+			assert.Error(t, service.DeleteSegmentPort(port))
+			assert.Zero(t, segmentClient.calls)
+			assert.Empty(t, service.SegmentPortStore.List())
+		})
+	}
+}
+
 func TestSegmentPortStore(t *testing.T) {
 	store := setupSegmentPortStore()
 	assert.NotNil(t, store)
@@ -180,6 +226,38 @@ func TestSegmentPortStoreMissingParentPath(t *testing.T) {
 		Id:              common.String("port-1"),
 		MarkedForDelete: common.Bool(true),
 	}))
+}
+
+func TestGetSegmentPathForSubnetPortFromStore(t *testing.T) {
+	const segmentPath = "/infra/segments/segment-1"
+	for _, tt := range []struct {
+		name       string
+		scope      string
+		parentPath *string
+		want       string
+	}{
+		{name: "CR UID", scope: common.TagScopeSubnetPortCRUID, parentPath: common.String(segmentPath), want: segmentPath},
+		{name: "Pod UID", scope: common.TagScopePodUID, parentPath: common.String(segmentPath), want: segmentPath},
+		{name: "not found"},
+		{name: "nil parent", scope: common.TagScopeSubnetPortCRUID},
+		{name: "empty parent", scope: common.TagScopeSubnetPortCRUID, parentPath: common.String("")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := setupSegmentPortStore()
+			// Allow incomplete cached records to exercise the missing-parent check.
+			store.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
+				common.TagScopeSubnetPortCRUID: segmentPortIndexByCRUID,
+				common.TagScopePodUID:          segmentPortIndexByPodUID,
+			})
+			require.NoError(t, store.Add(&model.SegmentPort{
+				Id: common.String("port-1"), ParentPath: tt.parentPath,
+				Tags: []model.Tag{{Scope: common.String(tt.scope), Tag: common.String("uid-1")}},
+			}))
+			service := &SubnetPortService{SegmentPortStore: store}
+			path := service.GetSegmentPathForSubnetPortFromStore("uid-1")
+			assert.Equal(t, tt.want, path)
+		})
+	}
 }
 
 func TestBuildSegmentPortIdAndNameExisting(t *testing.T) {

@@ -1099,6 +1099,16 @@ func TestValidateRemovedSubnets(t *testing.T) {
 	subnetsetName := "test-subnetset"
 	subnetName := "subnet-1"
 	subnetPath := "/orgs/default/projects/default/vps/ns-1/subnets/subnet-1"
+	segmentPath := "/infra/segments/segment-1"
+	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: subnetName, Namespace: ns}}
+	subnetPortCR := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{Name: "port-1", Namespace: ns, UID: "uid-1"},
+		Spec:       v1alpha1.SubnetPortSpec{SubnetSet: subnetsetName},
+	}
+	trackingSubnet := &model.VpcSubnet{
+		Path: &subnetPath,
+		Tags: []model.Tag{{Scope: common.String(common.TagScopeWCPSegmentTrackingSubnet), Tag: &segmentPath}},
+	}
 
 	tests := []struct {
 		name            string
@@ -1137,10 +1147,42 @@ func TestValidateRemovedSubnets(t *testing.T) {
 			},
 			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {
 				mp.On("GetSubnetPathForSubnetPortFromStore", types.UID("uid-1")).Return(subnetPath)
+				mp.On("GetSegmentPathForSubnetPortFromStore", types.UID("uid-1")).Return("")
 				ms.On("GetSubnetByCR", mock.Anything).Return(&model.VpcSubnet{Path: &subnetPath}, nil)
 			},
 			want:    false,
 			wantErr: false,
+		},
+		{
+			name:            "Failure - Tracking Subnet is used by a SegmentPort",
+			subnetNames:     []string{subnetName},
+			existingObjects: []runtime.Object{subnetCR, subnetPortCR},
+			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {
+				mp.On("GetSubnetPathForSubnetPortFromStore", types.UID("uid-1")).Return("")
+				mp.On("GetSegmentPathForSubnetPortFromStore", types.UID("uid-1")).Return(segmentPath)
+				ms.On("GetSubnetByCR", mock.Anything).Return(trackingSubnet, nil)
+			},
+			want: false,
+		},
+		{
+			name:            "Success - SegmentPort belongs to another segment",
+			subnetNames:     []string{subnetName},
+			existingObjects: []runtime.Object{subnetCR, subnetPortCR},
+			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {
+				mp.On("GetSubnetPathForSubnetPortFromStore", types.UID("uid-1")).Return("")
+				mp.On("GetSegmentPathForSubnetPortFromStore", types.UID("uid-1")).Return("/infra/segments/other")
+				ms.On("GetSubnetByCR", mock.Anything).Return(trackingSubnet, nil)
+			},
+			want: true,
+		},
+		{
+			name:            "Success - Tracking Subnet has no ports",
+			subnetNames:     []string{subnetName},
+			existingObjects: []runtime.Object{subnetCR},
+			mockSetup: func(ms *pkgmock.MockSubnetServiceProvider, mp *pkgmock.MockSubnetPortServiceProvider) {
+				ms.On("GetSubnetByCR", mock.Anything).Return(trackingSubnet, nil)
+			},
+			want: true,
 		},
 		{
 			name:        "Error - Subnet CR not found",
