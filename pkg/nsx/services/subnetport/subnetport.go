@@ -780,6 +780,7 @@ func (service *SubnetPortService) ResetSubnetTotalIP(path string) {
 	defer info.lock.Unlock()
 	info.totalStaticIP = 0
 	info.totalDhcpIP = 0
+	info.relayCapacityInitialized = false
 	info.totalStaticIPv6 = 0
 	info.totalDhcpIPv6 = nil
 }
@@ -817,8 +818,14 @@ func (service *SubnetPortService) ListSubnetPortByStsUid(ns string, stsUid strin
 // AllocatePortFromSubnet checks capacity for all IPs the SubnetPort requests (addressBindings
 // may ask for more than one per family) and reserves them if available. staticIPAllocationType
 // decides, per family, whether the IP is drawn from the static pool or the DHCP pool - needed
-// for mixed-mode Subnets where both exist at once.
-func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (bool, error) {
+// for mixed-mode Subnets where both exist at once. When portUID identifies an
+// already allocated port, recover it into the store without a new reservation;
+// callers must treat that port as existing and must not release a reservation.
+func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (bool, error) {
+	requestedIPs, err := util.RequestedBindingIPs(addressBindings)
+	if err != nil {
+		return false, err
+	}
 	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
 
 	info := &CountInfo{}
@@ -827,6 +834,34 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 
 	info.lock.Lock()
 	defer info.lock.Unlock()
+	if len(requestedIPs) > 0 {
+		for _, ip := range requestedIPs {
+			if (ip.To4() != nil && !util.IPAddressTypeIncludesIPv4(interfaceIPType)) ||
+				(ip.To4() == nil && !util.IPAddressTypeIncludesIPv6(interfaceIPType)) {
+				return false, fmt.Errorf("requested IP %s is incompatible with InterfaceIPType %s", ip, interfaceIPType)
+			}
+			if info.requestedIPs.Has(ip.String()) {
+				return false, fmt.Errorf("requested IP %s is already reserved in Subnet %s", ip, *subnet.Path)
+			}
+		}
+		var uid types.UID
+		if len(portUID) > 0 {
+			uid = portUID[0]
+		}
+		existing, err := service.checkRequestedIPConflicts(subnet, sharedSubnet, requestedIPs, uid)
+		if err != nil {
+			return false, err
+		}
+		if existing != nil {
+			// The backend already allocated this port. Restore the cache before
+			// building the retry, so it reuses the same ID and attachment. Do not
+			// charge capacity or reserve addresses a second time.
+			if err := service.SubnetPortStore.Apply(existing); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
 
 	ipv4Count, ipv6Count := util.CountAddressBindingsByFamily(addressBindings)
 	if util.IPAddressTypeIncludesIPv4(interfaceIPType) && ipv4Count == 0 {
@@ -854,6 +889,15 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 		}
 	}
 
+	// Reserve addresses only after every check passes, under the same lock as capacity.
+	if len(requestedIPs) > 0 {
+		if info.requestedIPs == nil {
+			info.requestedIPs = sets.New[string]()
+		}
+		for _, ip := range requestedIPs {
+			info.requestedIPs.Insert(ip.String())
+		}
+	}
 	// Increment counters for successful allocation
 	if util.IPAddressTypeIncludesIPv4(interfaceIPType) {
 		if useStaticIPv4 {
@@ -875,6 +919,106 @@ func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet
 	}
 
 	return true, nil
+}
+
+// Check both cached ports and, for shared Subnets, ports created outside this
+// operator. NSX remains authoritative for concurrent changes from other clients.
+func (service *SubnetPortService) checkRequestedIPConflicts(subnet *model.VpcSubnet, shared bool, ips []net.IP, uid types.UID) (*model.VpcSubnetPort, error) {
+	var existing *model.VpcSubnetPort
+	check := func(port *model.VpcSubnetPort) error {
+		var matchesUID, matchesCluster bool
+		var uidTags, clusterTags int
+		validTags := true
+		for _, tag := range port.Tags {
+			if tag.Scope == nil || tag.Tag == nil {
+				validTags = false
+				continue
+			}
+			switch *tag.Scope {
+			case servicecommon.TagScopeSubnetPortCRUID:
+				uidTags++
+				matchesUID = uid != "" && *tag.Tag == string(uid)
+			case servicecommon.TagScopeCluster:
+				clusterTags++
+				matchesCluster = uid != "" && *tag.Tag == getCluster(service)
+			}
+		}
+		if matchesUID && matchesCluster && uidTags == 1 && clusterTags == 1 {
+			if !validTags {
+				return fmt.Errorf("cannot recover SubnetPort %s with incomplete tags", uid)
+			}
+			if port.Id == nil || *port.Id == "" || port.ParentPath == nil || *port.ParentPath != *subnet.Path ||
+				port.Path == nil || *port.Path != *subnet.Path+"/ports/"+*port.Id || port.DisplayName == nil ||
+				(port.MarkedForDelete != nil && *port.MarkedForDelete) {
+				return fmt.Errorf("cannot recover SubnetPort %s with invalid identity or path", uid)
+			}
+			if existing != nil && *existing.Id != *port.Id {
+				return fmt.Errorf("multiple backend ports belong to SubnetPort %s", uid)
+			}
+			existing = port
+			return nil
+		}
+		for _, binding := range port.AddressBindings {
+			if binding.IpAddress == nil {
+				continue
+			}
+			for _, ip := range ips {
+				if ip.Equal(net.ParseIP(*binding.IpAddress)) {
+					return fmt.Errorf("requested IP %s is already allocated in Subnet %s", ip, *subnet.Path)
+				}
+			}
+		}
+		return nil
+	}
+	ports, err := service.SubnetPortStore.ByIndex(servicecommon.IndexKeySubnetPath, *subnet.Path)
+	if err != nil {
+		return nil, err
+	}
+	for _, port := range ports {
+		if err := check(port.(*model.VpcSubnetPort)); err != nil {
+			return nil, err
+		}
+	}
+	if shared {
+		resource, err := servicecommon.ParseVPCResourcePath(*subnet.Path)
+		if err != nil {
+			return nil, err
+		}
+		var cursor *string
+		for {
+			page, err := service.NSXClient.PortClient.List(resource.OrgID, resource.ProjectID, resource.VPCID, resource.ID, cursor, nil, nil, nil, nil, nil, nil)
+			if err != nil {
+				return nil, nsxutil.TransNSXApiError(err)
+			}
+			for i := range page.Results {
+				if err := check(&page.Results[i]); err != nil {
+					return nil, err
+				}
+			}
+			if page.Cursor == nil || *page.Cursor == "" {
+				break
+			}
+			if cursor != nil && *cursor == *page.Cursor {
+				return nil, fmt.Errorf("repeated cursor while checking address conflicts in Subnet %s", *subnet.Path)
+			}
+			cursor = page.Cursor
+		}
+	}
+	if existing != nil {
+		for _, ip := range ips {
+			found := false
+			for _, binding := range existing.AddressBindings {
+				if binding.IpAddress != nil && ip.Equal(net.ParseIP(*binding.IpAddress)) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("backend port for SubnetPort %s does not contain requested IP %s", uid, ip)
+			}
+		}
+	}
+	return existing, nil
 }
 
 // checkIPv4Capacity checks for ipCount more IPv4 addresses in the static or DHCP pool,
@@ -928,7 +1072,7 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 		if sharedSubnet && len(dhcpServerStats.IpPoolStats) > 0 && dhcpServerStats.IpPoolStats[0].AllocatedNumber != nil {
 			allocatedIPNumber = int(*dhcpServerStats.IpPoolStats[0].AllocatedNumber)
 		}
-	} else if !existedEntry && dhcpMode == model.SubnetDhcpConfig_MODE_RELAY {
+	} else if !info.relayCapacityInitialized && dhcpMode == model.SubnetDhcpConfig_MODE_RELAY {
 		// For DHCP Relay mode Subnet, assume 4 reserved IPs
 		var totalIP int
 		if subnet.Ipv4SubnetSize != nil {
@@ -936,11 +1080,16 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 		}
 		if len(subnet.IpAddresses) > 0 {
 			// totalIP will be overrided if IpAddresses are specified.
-			totalIP, _ = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+			var err error
+			totalIP, err = util.CalculateIPFromCIDRs(subnet.IpAddresses)
+			if err != nil {
+				return false, err
+			}
 		}
 		// NSX reserves 4 ip addresses in each subnet for network address, gateway address,
 		// dhcp server address and broadcast address.
 		info.totalDhcpIP = totalIP - 4
+		info.relayCapacityInitialized = true
 	}
 
 	if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
@@ -1080,6 +1229,11 @@ func (service *SubnetPortService) ReleasePortInSubnet(path string, interfaceIPTy
 	info := obj.(*CountInfo)
 	info.lock.Lock()
 	defer info.lock.Unlock()
+	for _, binding := range addressBindings {
+		if ip := net.ParseIP(binding.IPAddress); ip != nil {
+			info.requestedIPs.Delete(ip.String())
+		}
+	}
 
 	ipv4Count, ipv6Count := util.CountAddressBindingsByFamily(addressBindings)
 	if util.IPAddressTypeIncludesIPv4(interfaceIPType) && ipv4Count == 0 {

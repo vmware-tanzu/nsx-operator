@@ -146,7 +146,7 @@ func (m *MockSubnetPortServiceProvider) GetPortsOfSubnet(subnetPath string) (por
 	return args.Get(0).([]*model.VpcSubnetPort)
 }
 
-func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (bool, error) {
+func (m *MockSubnetPortServiceProvider) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (bool, error) {
 	args := m.Called(subnet, sharedSubnet, interfaceIPType, staticIPAllocationType, addressBindings)
 	return args.Bool(0), args.Error(1)
 }

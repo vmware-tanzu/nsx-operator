@@ -2,8 +2,6 @@ package namespace
 
 import (
 	"context"
-	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/agiledragon/gomonkey/v2"
@@ -18,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 )
 
 // Helper function to create a test VPCNetworkConfiguration
@@ -248,103 +245,16 @@ func TestPredicateFuncsVPCNetworkConfig_DeleteFunc(t *testing.T) {
 }
 
 func TestRequeueNamespacesByVPCNetworkConfiguration(t *testing.T) {
-	// Test cases
-	tests := []struct {
-		name                string
-		reconcilerNil       bool
-		vpcNetConfig        *v1alpha1.VPCNetworkConfiguration
-		namespaces          []string
-		getNamespacesError  error
-		expectedQueueLength int
-	}{
-		{
-			name:                "Nil reconciler",
-			reconcilerNil:       true,
-			vpcNetConfig:        createTestVPCNetworkConfiguration("test-vpc-net-config", []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"}),
-			namespaces:          []string{},
-			getNamespacesError:  nil,
-			expectedQueueLength: 0,
-		},
-		{
-			name:                "Error getting namespaces",
-			reconcilerNil:       false,
-			vpcNetConfig:        createTestVPCNetworkConfiguration("test-vpc-net-config", []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"}),
-			namespaces:          []string{},
-			getNamespacesError:  fmt.Errorf("error getting namespaces"),
-			expectedQueueLength: 0,
-		},
-		{
-			name:                "No namespaces",
-			reconcilerNil:       false,
-			vpcNetConfig:        createTestVPCNetworkConfiguration("test-vpc-net-config", []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"}),
-			namespaces:          []string{},
-			getNamespacesError:  nil,
-			expectedQueueLength: 0,
-		},
-		{
-			name:                "One namespace",
-			reconcilerNil:       false,
-			vpcNetConfig:        createTestVPCNetworkConfiguration("test-vpc-net-config", []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"}),
-			namespaces:          []string{"test-namespace"},
-			getNamespacesError:  nil,
-			expectedQueueLength: 1,
-		},
-		{
-			name:                "Multiple namespaces",
-			reconcilerNil:       false,
-			vpcNetConfig:        createTestVPCNetworkConfiguration("test-vpc-net-config", []string{"/orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1"}),
-			namespaces:          []string{"test-namespace-1", "test-namespace-2", "test-namespace-3"},
-			getNamespacesError:  nil,
-			expectedQueueLength: 3,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create a reconciler
-			var reconciler *NamespaceReconciler
-			if !tt.reconcilerNil {
-				reconciler = createTestNamespaceReconciler(nil)
-
-				// Mock the GetNamespacesByNetworkconfigName method
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(reconciler.VPCService), "GetNamespacesByNetworkconfigName",
-					func(_ *vpc.VPCService, _ string) ([]string, error) {
-						return tt.namespaces, tt.getNamespacesError
-					})
-				defer patches.Reset()
-			}
-
-			// Create a queue
-			queue := workqueue.NewTypedRateLimitingQueue(
-				workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-
-			// Call the function being tested
-			requeueNamespacesByVPCNetworkConfiguration(context.TODO(), reconciler, tt.vpcNetConfig, queue)
-
-			// Assert the expected queue length
-			assert.Equal(t, tt.expectedQueueLength, queue.Len(), "Expected queue to have %d items", tt.expectedQueueLength)
-
-			// If there should be items in the queue, verify they are the expected namespaces
-			if tt.expectedQueueLength > 0 {
-				// Get all items from the queue
-				var items []reconcile.Request
-				for i := 0; i < tt.expectedQueueLength; i++ {
-					item, _ := queue.Get()
-					items = append(items, item)
-				}
-
-				// Verify each namespace is in the queue
-				for _, ns := range tt.namespaces {
-					found := false
-					for _, item := range items {
-						if item.Name == ns {
-							found = true
-							break
-						}
-					}
-					assert.True(t, found, "Expected namespace %s to be in the queue", ns)
-				}
-			}
-		})
-	}
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer queue.ShutDown()
+	nc := createTestVPCNetworkConfiguration("config", nil)
+	requeueNamespacesByVPCNetworkConfiguration(context.Background(), nil, nc, queue)
+	assert.Zero(t, queue.Len())
+	// No client/service is configured: the event handler must not perform API reads.
+	requeueNamespacesByVPCNetworkConfiguration(context.Background(), &NamespaceReconciler{}, nc, queue)
+	assert.Equal(t, 1, queue.Len())
+	request, _ := queue.Get()
+	defer queue.Done(request)
+	assert.Equal(t, "config", request.Name)
+	assert.Equal(t, networkConfigDependency, request.Namespace)
 }

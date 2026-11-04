@@ -3123,7 +3123,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 						}}
 					})
 				patches.ApplyFunc((*subnetport.SubnetPortService).AllocatePortFromSubnet,
-					func(s *subnetport.SubnetPortService, nsxSubnet *model.VpcSubnet, sharedSubnet bool, interfaceType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (bool, error) {
+					func(s *subnetport.SubnetPortService, nsxSubnet *model.VpcSubnet, sharedSubnet bool, interfaceType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (bool, error) {
 						return true, nil
 					})
 				return patches
@@ -3237,7 +3237,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 				})
 
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
 						return "subnet-path-1", v1alpha1.StaticIPAllocationTypeIPv4, nil, nil, nil
 					})
 				return patches
@@ -3295,7 +3295,7 @@ func TestSubnetPortReconciler_CheckAndGetSubnetPathForSubnetPort(t *testing.T) {
 					})
 
 				patches.ApplyFunc(common.AllocateSubnetFromSubnetSet,
-					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+					func(client client.Client, apiReader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
 						return "subnet-path-1", v1alpha1.StaticIPAllocationTypeIPv4, nil, nil, nil
 					})
 				return patches
@@ -7016,6 +7016,18 @@ func TestSubnetPortReconciler_Reconcile_ReuseSubnetPort(t *testing.T) {
 			return portState, nil
 		})
 	defer patchesReuse.Reset()
+
+	// Reuse must bypass ordinary CIDR selection/reservation and its deferred
+	// release, including on retry. The existing port owns its allocation.
+	patchesReuse.ApplyMethod(r, "CheckAndGetSubnetPathForSubnetPort",
+		func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
+			t.Error("reused ports must not allocate a new address")
+			return false, false, "", nil, nil, "", "", fmt.Errorf("unexpected allocation")
+		})
+	patchesReuse.ApplyMethod(r.SubnetPortService, "ReleasePortInSubnet",
+		func(_ *subnetport.SubnetPortService, _ string, _ v1alpha1.IPAddressType, _ v1alpha1.StaticIPAllocationType, _ []v1alpha1.PortAddressBinding) {
+			t.Error("reused ports must not release an unreserved address")
+		})
 
 	patchesReuse.ApplyPrivateMethod(r, "updateSubnetPortIPType",
 		func(_ *SubnetPortReconciler, _ context.Context, _ *v1alpha1.SubnetPort, _ v1alpha1.IPAddressType, _ *model.VpcSubnet) error {
