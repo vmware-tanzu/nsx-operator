@@ -571,7 +571,7 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				Client:    fc,
 				NSXConfig: cfg,
 				NSXClient: tt.setupMock(t, ctrl),
-			}, vpcM, fc)
+			}, vpcM)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
