@@ -231,7 +231,7 @@ func checkInput(vdnName string, dhcpInput api.DHCPNetworkConfiguration) ([]api.R
 		}
 	}
 	if len(missingFields) > 0 {
-		missingInputs = append(missingInputs, api.RequiredInput{Key: fmt.Sprintf("%s%x", inputPrefix, sha256.Sum256([]byte(vdnName))), Description: fmt.Sprintf("Supply %s for DHCP-backed VDN %s in the transition's subnet inputs", strings.Join(missingFields, ", "), vdnName)})
+		missingInputs = append(missingInputs, api.RequiredInput{FieldName: fmt.Sprintf("%s%x", inputPrefix, sha256.Sum256([]byte(vdnName))), Description: fmt.Sprintf("Supply %s for DHCP-backed VDN %s in the transition's subnet inputs", strings.Join(missingFields, ", "), vdnName)})
 	}
 	// Check relationships among available values even if another field is absent.
 	if maskAddress, err := netip.ParseAddr(dhcpInput.SubnetMask); err == nil && maskAddress.Is4() {
@@ -275,9 +275,9 @@ func (result Result) Apply(target *api.TransitionStatus, generation int64) error
 	}
 	retainedInputs := make([]api.RequiredInput, 0)
 	for _, requiredInput := range nextStatus.RequiredInputs {
-		if !strings.HasPrefix(requiredInput.Key, inputPrefix) &&
-			!strings.HasPrefix(requiredInput.Key, "namespaceDHCPNetworks/") &&
-			!strings.HasPrefix(requiredInput.Key, "controlPlaneAndServiceDHCPNetworks/") {
+		if !strings.HasPrefix(requiredInput.FieldName, inputPrefix) &&
+			!strings.HasPrefix(requiredInput.FieldName, "namespaceDHCPNetworks/") &&
+			!strings.HasPrefix(requiredInput.FieldName, "controlPlaneAndServiceDHCPNetworks/") {
 			retainedInputs = append(retainedInputs, requiredInput)
 		}
 	}

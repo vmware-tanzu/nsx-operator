@@ -33,7 +33,7 @@ func TestEvaluateReportsBothCRDsAndRejectsStaleSnapshots(t *testing.T) {
 	freshControlPlaneTransition := &api.ControlPlaneNetworkTransition{}
 	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(controlPlaneTransition), freshControlPlaneTransition))
 	require.Equal(t, api.PhaseNeedsInput, freshControlPlaneTransition.Status.Phase)
-	require.Contains(t, freshControlPlaneTransition.Status.RequiredInputs[0].Key, "controlPlaneAndServiceDHCPNetworks/")
+	require.Contains(t, freshControlPlaneTransition.Status.RequiredInputs[0].FieldName, "controlPlaneAndServiceDHCPNetworks/")
 	require.Contains(t, freshControlPlaneTransition.Status.RequiredInputs[0].Description, "spec.networkConfiguration.controlPlaneAndServiceDHCPNetworks")
 	_, err = inspectionService.EvaluateControlPlane(ctx, kubeClient, controlPlaneTransition, []string{"a"})
 	require.Error(t, err)
@@ -51,7 +51,7 @@ func TestEvaluateReportsBothCRDsAndRejectsStaleSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, kubeClient.Get(ctx, client.ObjectKeyFromObject(namespaceTransition), namespaceTransition))
 	require.Equal(t, api.PhaseNeedsInput, namespaceTransition.Status.Phase)
-	require.Contains(t, namespaceTransition.Status.RequiredInputs[0].Key, "namespaceDHCPNetworks/")
+	require.Contains(t, namespaceTransition.Status.RequiredInputs[0].FieldName, "namespaceDHCPNetworks/")
 	require.Contains(t, namespaceTransition.Status.RequiredInputs[0].Description, "spec.networkConfiguration.namespaceDHCPNetworks")
 	require.Empty(t, namespaceTransition.Status.LastAction)
 	namespaceTransition.Spec.NetworkConfiguration = &api.NamespaceNetworkConfiguration{NamespaceDHCPNetworks: []api.DHCPNetworkConfiguration{validDHCPInput("a")}}

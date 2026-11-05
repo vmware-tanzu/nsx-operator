@@ -62,7 +62,7 @@ func (service Service) EvaluateNamespaces(ctx context.Context, kubeClient client
 func (result *Result) qualifyInputs(inputField string) {
 	for inputIndex := range result.RequiredInputs {
 		requiredInput := &result.RequiredInputs[inputIndex]
-		requiredInput.Key = inputField + "/" + strings.TrimPrefix(requiredInput.Key, inputPrefix)
+		requiredInput.FieldName = inputField + "/" + strings.TrimPrefix(requiredInput.FieldName, inputPrefix)
 		requiredInput.Description += " at spec.networkConfiguration." + inputField
 	}
 }

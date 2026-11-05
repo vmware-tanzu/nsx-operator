@@ -46,7 +46,7 @@ func TestInspectionAndDiagnostics(t *testing.T) {
 	require.Len(t, result.RequiredInputs, 1)
 	require.Contains(t, result.RequiredInputs[0].Description, "dhcpRange.start")
 	require.Contains(t, result.RequiredInputs[0].Description, "VDN a")
-	status := api.TransitionStatus{RequiredInputs: []api.RequiredInput{{Key: "other", Description: "another service"}}, LastAction: api.ActionEvaluate, ActionGeneration: 1, ActionState: api.ActionStateRunning}
+	status := api.TransitionStatus{RequiredInputs: []api.RequiredInput{{FieldName: "other", Description: "another service"}}, LastAction: api.ActionEvaluate, ActionGeneration: 1, ActionState: api.ActionStateRunning}
 	require.NoError(t, result.Apply(&status, 1))
 	require.Equal(t, api.PhaseNeedsInput, status.Phase)
 	require.Len(t, status.RequiredInputs, 2)
@@ -55,7 +55,7 @@ func TestInspectionAndDiagnostics(t *testing.T) {
 	require.True(t, result.Ready())
 	require.NoError(t, result.Apply(&status, 2))
 	require.Len(t, status.RequiredInputs, 1)
-	require.Equal(t, "other", status.RequiredInputs[0].Key)
+	require.Equal(t, "other", status.RequiredInputs[0].FieldName)
 	require.Equal(t, api.PhaseNeedsInput, status.Phase)
 	require.Equal(t, api.ActionStateRunning, status.ActionState)
 	require.Equal(t, int64(1), status.ActionGeneration)

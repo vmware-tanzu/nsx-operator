@@ -72,7 +72,7 @@ func (inventory KubernetesInventory) Resolve(ctx context.Context, vdnName string
 		return resolvedSource, fmt.Errorf("Kubernetes reader is required")
 	}
 	vdnResource := &netop.VSphereDistributedNetwork{}
-	if err := k.Reader.Get(ctx, client.ObjectKey{Name: vdnName}, vdnResource); err != nil {
+	if err := inventory.Reader.Get(ctx, client.ObjectKey{Name: vdnName}, vdnResource); err != nil {
 		return resolvedSource, err
 	}
 	vdnSpec := vdnResource.Spec
