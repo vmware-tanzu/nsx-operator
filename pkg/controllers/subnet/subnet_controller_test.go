@@ -1539,6 +1539,63 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+func TestSharedSubnetRestoreClearsOnlyMissingNSXReady(t *testing.T) {
+	key := types.NamespacedName{Namespace: "ns-1", Name: "shared-subnet"}
+	originalAddresses := []string{"10.0.0.0/28"}
+	originalGateways := []string{"10.0.0.1"}
+	cr := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: key.Name, Namespace: key.Namespace,
+			Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:shared-subnet"},
+		},
+		Status: v1alpha1.SubnetStatus{
+			NetworkAddresses: originalAddresses,
+			GatewayAddresses: originalGateways,
+		},
+	}
+	r := createFakeSubnetReconciler([]client.Object{cr})
+	missing := true
+	patches := gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI,
+		func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) {
+			if missing {
+				return nil, nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_NOT_FOUND)
+			}
+			return &model.VpcSubnet{Id: common.String("shared-subnet")}, nil
+		})
+	defer patches.Reset()
+
+	list, err := r.getRestoreList()
+	require.NoError(t, err)
+	assert.Empty(t, list)
+	var actual v1alpha1.Subnet
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	require.Len(t, actual.Status.Conditions, 1)
+	assert.Equal(t, corev1.ConditionFalse, actual.Status.Conditions[0].Status)
+	assert.Equal(t, sharedSubnetMissingDuringRestore, actual.Status.Conditions[0].Message)
+
+	missing = false
+	list, err = r.getRestoreList()
+	require.NoError(t, err)
+	assert.Empty(t, list)
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	require.Len(t, actual.Status.Conditions, 1)
+	assert.True(t, common2.IsObjectReady(actual.Status.Conditions))
+	assert.Equal(t, corev1.ConditionTrue, actual.Status.Conditions[0].Status)
+	assert.Equal(t, subnetReadyCondition(&actual, metav1.Now()).Message, actual.Status.Conditions[0].Message)
+	assert.Equal(t, originalAddresses, actual.Status.NetworkAddresses)
+	assert.Equal(t, originalGateways, actual.Status.GatewayAddresses)
+
+	actual.Status.Conditions = []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionFalse,
+		Reason: "SubnetNotReady", Message: "unrelated failure"}}
+	require.NoError(t, r.Client.Status().Update(context.Background(), &actual))
+	_, err = r.getRestoreList()
+	require.NoError(t, err)
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	require.Len(t, actual.Status.Conditions, 1)
+	assert.Equal(t, "unrelated failure", actual.Status.Conditions[0].Message)
+	assert.Equal(t, originalAddresses, actual.Status.NetworkAddresses)
+}
+
 func TestHandleSharedSubnet(t *testing.T) {
 	// Test cases
 	tests := []struct {

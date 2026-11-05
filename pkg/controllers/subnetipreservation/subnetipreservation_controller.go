@@ -60,8 +60,10 @@ func (r *Reconciler) RestoreReconcile() error {
 	r.restoreMode = true
 	for _, key := range restoreList {
 		result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
-		if err != nil || common.IsReconcileResultRequeue(result) {
-			errorList = append(errorList, fmt.Errorf("failed to restore SubnetIPReservation %s, error: %w", key, err))
+		if err != nil {
+			errorList = append(errorList, fmt.Errorf("failed to restore SubnetIPReservation %s: %w", key, err))
+		} else if common.IsReconcileResultRequeue(result) {
+			errorList = append(errorList, fmt.Errorf("SubnetIPReservation %s requires another restore attempt", key))
 		}
 	}
 	if len(errorList) > 0 {
@@ -197,7 +199,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if !r.IPReservationService.NSXClient.NSXCheckVersion(nsx.SubnetIPReservation) {
 		log.Warn("NSX Subnet IP Reservation is not supported", "SubnetIPReservation", req.NamespacedName)
 		if err := r.setNotSupported(ctx, req); err != nil {
-			return common.ResultRequeue, nil
+			return common.ResultNormal, err
 		}
 		return common.ResultNormal, nil
 	}
@@ -209,13 +211,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			if err := r.IPReservationService.DeleteIPReservationByCRName(req.Namespace, req.Name); err != nil {
 				log.Error(err, "Failed to delete NSX SubnetIPReservation", "SubnetIPReservation", req.NamespacedName)
 				r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-				return common.ResultRequeue, nil
+				return common.ResultNormal, err
 			}
 			r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 			return common.ResultNormal, nil
 		}
 		log.Error(err, "Unable to fetch SubnetIPReservation CR", "SubnetIPReservation", req.NamespacedName)
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 
 	// Delete the NSX Subnet IPReservation if the CR is marked for delete
@@ -223,7 +225,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		r.StatusUpdater.IncreaseDeleteTotal()
 		if err := r.IPReservationService.DeleteIPReservationByCRId(string(ipReservationCR.UID)); err != nil {
 			r.StatusUpdater.DeleteFail(req.NamespacedName, nil, err)
-			return common.ResultRequeue, nil
+			return common.ResultNormal, err
 		}
 		r.StatusUpdater.DeleteSuccess(req.NamespacedName, nil)
 		return common.ResultNormal, nil
@@ -234,8 +236,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	subnetCR, validateErr := r.validateSubnet(ctx, req.Namespace, ipReservationCR.Spec.Subnet)
 	if validateErr != nil {
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, validateErr.error, validateErr.message, setReadyStatusFalse)
-		if validateErr.retry {
-			return common.ResultRequeue, nil
+		if validateErr.retry || r.restoreMode {
+			// In restore mode, only realized SubnetIPReservaion will be reconciled.
+			// The realized SubnetIPReservaion may encounter error for validateSubnet when the
+			// relied subnet is a shared subnet and is deleted during the NSX restore.
+			// SubnetIPReservation restore needs to retry until the shared subnet is recovered.
+			return common.ResultNormal, validateErr
 		}
 		return common.ResultNormal, nil
 	}
@@ -253,7 +259,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		log.Error(err, "failed to get NSX Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, "failed to get NSX Subnet", setReadyStatusFalse)
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 
 	// Create or update SubnetIPReservation
@@ -261,7 +267,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		log.Error(err, "Failed to get or create NSX SubnetIPReservations")
 		r.StatusUpdater.UpdateFail(ctx, ipReservationCR, err, "Failed to get or create NSX SubnetIPReservations", setReadyStatusFalse)
-		return common.ResultRequeue, nil
+		return common.ResultNormal, err
 	}
 
 	if !reflect.DeepEqual(ipReservationCR.Status.IPs, ips) {
@@ -284,7 +290,7 @@ func (r *Reconciler) validateSubnet(ctx context.Context, ns, name string) (*v1al
 	}, subnetCR); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Not requeue the SubnetIPReservation if Subnet is not created
-			log.Debug("Subnet CR does not exists", "Namespace", ns, "Subnet", name)
+			log.Warn("Subnet CR does not exists", "Namespace", ns, "Subnet", name)
 			return nil, &errorWithRetry{
 				error:   err,
 				retry:   false,
@@ -307,7 +313,7 @@ func (r *Reconciler) validateSubnet(ctx context.Context, ns, name string) (*v1al
 	}
 	if !subnetRealized {
 		// Not requeue the SubnetIPReservation if Subnet is not realized
-		log.Debug("Subnet is not realized", "Namespace", ns, "Subnet", name)
+		log.Warn("Subnet is not realized", "Namespace", ns, "Subnet", name)
 		return nil, &errorWithRetry{
 			error:   fmt.Errorf("Subnet is not realized"),
 			retry:   false,
