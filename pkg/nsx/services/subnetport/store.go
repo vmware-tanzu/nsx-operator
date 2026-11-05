@@ -142,6 +142,9 @@ type SubnetPortStore struct {
 }
 
 type CountInfo struct {
+	// requestedIPs protects explicit addresses while a port is being created.
+	// It is guarded by lock, together with the capacity counters.
+	requestedIPs sets.Set[string]
 	// dirtyDhcpCount/dirtyStaticCount defines the number of IPv4 addresses requested by
 	// SubnetPorts under creation in the Subnet, split by the pool the address is allocated
 	// from. On a non-mixed-mode Subnet only one of the two pools exists and is used.
@@ -153,8 +156,9 @@ type CountInfo struct {
 	lock                 sync.Mutex
 	// totalDhcpIP/totalStaticIP defines the number of available IPv4 in the Subnet's DHCP
 	// pool and static IP pool respectively.
-	totalDhcpIP   int
-	totalStaticIP int
+	relayCapacityInitialized bool
+	totalDhcpIP              int
+	totalStaticIP            int
 	// totalDhcpIPv6/totalStaticIPv6 are the IPv6 equivalents of totalDhcpIP/totalStaticIP.
 	// totalDhcpIPv6 is only populated on NSX versions that expose DHCPv6 pool statistics
 	// via dhcp-server-config-stats (see checkIPv6Capacity); on older versions the

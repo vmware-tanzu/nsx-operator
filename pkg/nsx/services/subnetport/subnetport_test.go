@@ -1921,9 +1921,8 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 		},
 		{
 			// Multi-IP addressBindings: 2 IPv4 addresses requested on a static pool
-			// with room for two such allocations (the test harness below calls
-			// AllocatePortFromSubnet twice when expectedValue is true, so capacity
-			// must cover 2x the requested count).
+			// with sufficient capacity. The harness releases explicit addresses
+			// before checking that the same request can be retried.
 			name:                   "Multi-IP addressBindings fits in static pool capacity",
 			subnet:                 staticSubnet,
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4,
@@ -1983,6 +1982,11 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			}
 
 			if tt.expectedValue {
+				// A second port cannot reserve the same explicit IP until the first
+				// reservation is released. Keep repeated capacity checks for auto IPs.
+				if requested, _ := util.RequestedBindingIPs(tt.addressBindings); len(requested) > 0 {
+					subnetPortService.ReleasePortInSubnet(*tt.subnet.Path, tt.interfaceIPType, tt.staticIPAllocationType, tt.addressBindings)
+				}
 				canAllocate, err = subnetPortService.AllocatePortFromSubnet(tt.subnet, tt.sharedSubnet, tt.interfaceIPType, tt.staticIPAllocationType, tt.addressBindings)
 				assert.Equal(t, tt.expectedValue, canAllocate)
 				if tt.expectedErr != "" {

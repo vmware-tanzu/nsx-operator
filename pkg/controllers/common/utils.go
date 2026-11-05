@@ -121,11 +121,15 @@ func ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType v1alpha1.S
 // StaticIPAllocationType actually resolved for the winning Subnet, so callers can release
 // the same pool capacity they reserved without having to recompute it later from state that
 // may no longer be available (e.g. if a later step fails).
-func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, error) {
+func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, error) {
+	requestedIPs, err := util.RequestedBindingIPs(addressBindings)
+	if err != nil {
+		return "", "", err
+	}
+	matched := false
 	var errList []error
 	defaultSubnetSetFor := util.GetSubnetSetKind(subnetSet)
 	subnetPathsFromConfig := sets.New[string]()
-	var err error
 	// Get default Subnets from VPCNetworkConfiguration CR
 	if len(defaultSubnetSetFor) > 0 {
 		subnetPathsFromConfig, err = getSubnetFromVPCNetworkConfiguration(vpcService, subnetSet.Namespace, defaultSubnetSetFor)
@@ -157,8 +161,17 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 				continue
 			}
 		}
+		matches, err := subnetContainsRequestedIPs(nsxSubnet, requestedIPs)
+		if err != nil {
+			errList = append(errList, err)
+			continue
+		}
+		if !matches {
+			continue
+		}
+		matched = true
 		effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceIPType, effectiveStaticType, addressBindings)
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceIPType, effectiveStaticType, addressBindings, portUID...)
 		if err != nil {
 			log.Error(err, "Failed to check capacity of NSX Subnet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace, "NSXSubnet", nsxSubnet.Id)
 			errList = append(errList, err)
@@ -168,10 +181,48 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 			return *nsxSubnet.Path, effectiveStaticType, nil
 		}
 	}
+	if len(requestedIPs) > 0 {
+		return "", "", requestedSubnetAllocationError(subnetSet, requestedIPs, matched, errList)
+	}
 	if len(errList) > 0 {
 		return "", "", errors.Join(errList...)
 	}
 	return "", "", fmt.Errorf("all Subnets for SubnetSet %s/%s are not available", subnetSet.Namespace, subnetSet.Name)
+}
+
+func subnetContainsRequestedIPs(subnet *model.VpcSubnet, ips []net.IP) (bool, error) {
+	if len(ips) == 0 {
+		return true, nil
+	}
+	var networks []*net.IPNet
+	for _, cidr := range subnet.IpAddresses {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return false, fmt.Errorf("invalid Subnet CIDR %q: %w", cidr, err)
+		}
+		networks = append(networks, network)
+	}
+	for _, ip := range ips {
+		contains := false
+		for _, network := range networks {
+			if network.Contains(ip) {
+				contains = true
+				break
+			}
+		}
+		if !contains {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func requestedSubnetAllocationError(subnetSet *v1alpha1.SubnetSet, ips []net.IP, matched bool, causes []error) error {
+	message := fmt.Sprintf("no eligible Subnet in SubnetSet %s/%s contains all requested IPs %v", subnetSet.Namespace, subnetSet.Name, ips)
+	if matched {
+		message = fmt.Sprintf("matching Subnets in SubnetSet %s/%s cannot allocate requested IPs %v", subnetSet.Namespace, subnetSet.Name, ips)
+	}
+	return errors.Join(append([]error{errors.New(message)}, causes...)...)
 }
 
 // IsNamespaceInTepLessMode checks if the namespace has a VLAN-backed VPC (tepless mode).
@@ -205,7 +256,11 @@ func IsNamespaceInTepLessMode(client k8sclient.Client, namespace string) (bool, 
 // AllocateSubnetFromSubnetSet also returns the StaticIPAllocationType actually resolved for
 // the Subnet it picked, so callers can release the same pool capacity they reserved without
 // having to recompute it later from state that may no longer be available.
-func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+	requestedIPs, err := util.RequestedBindingIPs(addressBindings)
+	if err != nil {
+		return "", "", nil, nil, err
+	}
 	if subnetSet.Spec.SubnetDHCPConfig.Mode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 		// From NSX Operator 9.1.1, DHCPRelay SubnetSet is no longer supported.
 		return "", "", nil, nil, fmt.Errorf("Creating SubnetPort on DHCPRelay SubnetSet is not supported")
@@ -218,22 +273,41 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 		if err := apiReader.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name}, subnetSet); err != nil {
 			return "", "", &subnetSet.UID, subnetSetLock, err
 		}
-		nsxSubnet, staticIPAllocationType, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService, interfaceIPType, rawStaticIPAllocationType, addressBindings)
+		nsxSubnet, staticIPAllocationType, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService, interfaceIPType, rawStaticIPAllocationType, addressBindings, portUID...)
 		return nsxSubnet, staticIPAllocationType, &subnetSet.UID, subnetSetLock, err
 	}
 	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created
 	subnetSetLock := WLockSubnetSet(subnetSet.GetUID())
 	defer WUnlockSubnetSet(subnetSet.GetUID(), subnetSetLock)
 	subnetList := subnetService.GetSubnetsByIndex(servicecommon.TagScopeSubnetSetCRUID, string(subnetSet.GetUID()))
+	matched := false
+	var errList []error
 	for _, nsxSubnet := range subnetList {
-		effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
-		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType, effectiveStaticType, addressBindings)
+		matches, err := subnetContainsRequestedIPs(nsxSubnet, requestedIPs)
 		if err != nil {
+			errList = append(errList, err)
+			continue
+		}
+		if !matches {
+			continue
+		}
+		matched = true
+		effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
+		canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType, effectiveStaticType, addressBindings, portUID...)
+		if err != nil {
+			if len(requestedIPs) > 0 {
+				errList = append(errList, err)
+				continue
+			}
 			return "", "", nil, nil, err
 		}
 		if canAllocate {
 			return *nsxSubnet.Path, effectiveStaticType, nil, nil, nil
 		}
+	}
+	// Creating an arbitrary new member cannot satisfy an explicit address request.
+	if len(requestedIPs) > 0 {
+		return "", "", nil, nil, requestedSubnetAllocationError(subnetSet, requestedIPs, matched, errList)
 	}
 	tags := subnetService.GenerateSubnetNSTags(subnetSet)
 	if tags == nil {
@@ -251,7 +325,7 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 		return "", "", nil, nil, err
 	}
 	effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
-	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType, effectiveStaticType, addressBindings)
+	canAllocate, err := subnetPortService.AllocatePortFromSubnet(nsxSubnet, false, interfaceIPType, effectiveStaticType, addressBindings, portUID...)
 	if err != nil {
 		return "", "", nil, nil, err
 	}

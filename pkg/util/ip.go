@@ -299,3 +299,25 @@ func CountAddressBindingsByFamily(addressBindings []v1alpha1.PortAddressBinding)
 	}
 	return ipv4Count, ipv6Count
 }
+
+// RequestedBindingIPs returns only explicitly requested addresses. MAC-only bindings
+// still use pool allocation and do not constrain SubnetSet member selection.
+func RequestedBindingIPs(bindings []v1alpha1.PortAddressBinding) ([]net.IP, error) {
+	var ips []net.IP
+	seen := make(map[string]bool)
+	for _, binding := range bindings {
+		if binding.IPAddress == "" {
+			continue
+		}
+		ip := net.ParseIP(binding.IPAddress)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid requested IP address %q", binding.IPAddress)
+		}
+		if seen[ip.String()] {
+			return nil, fmt.Errorf("duplicate requested IP address %s", ip)
+		}
+		seen[ip.String()] = true
+		ips = append(ips, ip)
+	}
+	return ips, nil
+}

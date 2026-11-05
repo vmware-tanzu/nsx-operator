@@ -96,8 +96,19 @@ func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) ([]string, erro
 		log.Error(err, "Failed to list Namespaces")
 		return result, err
 	}
+	// Resolve owners from the same list snapshot. Extra Get calls can fail or
+	// observe a different owner configuration and silently lose update targets.
+	byName := make(map[string]*v1.Namespace, len(namespaces.Items))
+	for i := range namespaces.Items {
+		byName[namespaces.Items[i].Name] = &namespaces.Items[i]
+	}
 	for _, ns := range namespaces.Items {
-		name, err := s.GetNetworkconfigNameFromAnnotation(ns.Name, ns.Annotations)
+		source := byName[networkconfigSourceNamespace(&ns)]
+		if source == nil {
+			// The owner's creation/update event will reconcile its inheritors.
+			continue
+		}
+		name, err := s.GetNetworkconfigNameFromAnnotation(source.Name, source.Annotations)
 		if err != nil {
 			continue
 		}
@@ -318,7 +329,29 @@ func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) 
 	if err != nil {
 		return "", err
 	}
-	return s.GetNetworkconfigNameFromAnnotation(ns, obj.Annotations)
+	return s.getEffectiveNetworkconfigName(ctx, obj)
+}
+
+func (s *VPCService) getEffectiveNetworkconfigName(ctx context.Context, obj *v1.Namespace) (string, error) {
+	// A namespace sharing a VPC may omit its own network configuration. In that
+	// case use the owner's configuration, rather than the cluster default.
+	if source := networkconfigSourceNamespace(obj); source != obj.Name {
+		owner, err := s.getNamespace(ctx, source)
+		if err != nil {
+			return "", err
+		}
+		return s.GetNetworkconfigNameFromAnnotation(owner.Name, owner.Annotations)
+	}
+	return s.GetNetworkconfigNameFromAnnotation(obj.Name, obj.Annotations)
+}
+
+func networkconfigSourceNamespace(obj *v1.Namespace) string {
+	if _, explicit := obj.Annotations[common.AnnotationVPCNetworkConfig]; !explicit {
+		if shared := obj.Annotations[common.AnnotationSharedVPCNamespace]; shared != "" {
+			return shared
+		}
+	}
+	return obj.Name
 }
 
 func (s *VPCService) GetNetworkconfigNameFromAnnotation(ns string, annos map[string]string) (string, error) {

@@ -64,29 +64,12 @@ var PredicateFuncsVPCNetworkConfig = predicate.Funcs{
 	},
 }
 
-// requeueNamespacesByVPCNetworkConfiguration enqueues reconcile requests for all namespaces
-// that use the given VPCNetworkConfiguration
+// Defer dependency lookup to Reconcile so API failures are retried by the queue.
 func requeueNamespacesByVPCNetworkConfiguration(_ context.Context, reconciler *NamespaceReconciler, vpcNetConfig *v1alpha1.VPCNetworkConfiguration, q ReconcileQueue) {
 	if reconciler == nil {
 		log.Error(nil, "Reconciler is nil, cannot requeue Namespaces")
 		return
 	}
 
-	// Get all namespaces that use this VPCNetworkConfiguration
-	namespaces, err := reconciler.VPCService.GetNamespacesByNetworkconfigName(vpcNetConfig.Name)
-	if err != nil {
-		log.Error(err, "Failed to get Namespaces for VPCNetworkConfiguration", "Name", vpcNetConfig.Name)
-		return
-	}
-
-	// Requeue each namespace
-	for _, ns := range namespaces {
-		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: ns,
-			},
-		}
-		q.Add(req)
-		log.Info("Requeue Namespace for VPCNetworkConfiguration", "Namespace", ns)
-	}
+	q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: networkConfigDependency, Name: vpcNetConfig.Name}})
 }

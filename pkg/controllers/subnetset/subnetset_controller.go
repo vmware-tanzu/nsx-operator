@@ -140,6 +140,16 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultRequeue, err
 	}
 
+	if subnetsetCR.DeletionTimestamp.IsZero() {
+		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetsetCR)
+		if err != nil {
+			return ResultRequeue, err
+		}
+		if !allowed {
+			return ResultNormal, nil
+		}
+	}
+
 	if subnetsetCR.Spec.SubnetNames != nil {
 		// For SubnetSet with pre-created Subnet, update the Status from Subnet CR
 		if err := r.UpdateSubnetSetForSubnetNames(ctx, subnetsetCR); err != nil {
@@ -437,7 +447,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetSet{}).
-		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
+		WithEventFilter(common.SubnetResourceNamespacePredicate(r.Client)).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).
