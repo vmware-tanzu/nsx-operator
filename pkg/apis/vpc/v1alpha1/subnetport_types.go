@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -58,6 +59,16 @@ type PortAddressBinding struct {
 	MACAddress string `json:"macAddress,omitempty"`
 }
 
+// IPFamilyFQDN associates a fully qualified domain name with an IP family.
+type IPFamilyFQDN struct {
+	// IPFamily identifies the address family associated with the FQDN.
+	// +kubebuilder:validation:Enum=IPv4;IPv6
+	IPFamily corev1.IPFamily `json:"ipFamily"`
+	// FQDN is the system-computed fully qualified domain name, formed by combining
+	// dnsHostName with DomainName.
+	FQDN string `json:"fqdn"`
+}
+
 // SubnetPortStatus defines the observed state of SubnetPort.
 type SubnetPortStatus struct {
 	// Conditions describes current state of SubnetPort.
@@ -65,9 +76,11 @@ type SubnetPortStatus struct {
 	// SubnetPort attachment state.
 	Attachment             PortAttachment         `json:"attachment,omitempty"`
 	NetworkInterfaceConfig NetworkInterfaceConfig `json:"networkInterfaceConfig,omitempty"`
-	// FQDN is the system-computed fully qualified domain name, formed by combining dnsHostName with DomainName.
-	// +optional
-	FQDN string `json:"fqdn,omitempty"`
+	// FQDNs contains the system-computed fully qualified domain names for the port,
+	// keyed by IP family. At most one FQDN can be specified per IP family.
+	// +listType=map
+	// +listMapKey=ipFamily
+	FQDNs []IPFamilyFQDN `json:"fqdns,omitempty"`
 }
 
 // VIF attachment state of a SubnetPort.
