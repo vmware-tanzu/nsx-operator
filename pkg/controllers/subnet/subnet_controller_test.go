@@ -1428,88 +1428,6 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	err = r.RestoreReconcile()
 	assert.ErrorContains(t, err, "failed to restore Subnet ns-1/subnet-1")
 
-	// Shared Subnet
-	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		subnetList := list.(*v1alpha1.SubnetList)
-		subnetList.Items = []v1alpha1.Subnet{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-1",
-					Namespace:   "ns-1",
-					UID:         "subnet-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-1"},
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.0/28"},
-					GatewayAddresses: []string{"10.0.0.0"},
-				},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-2",
-					Namespace:   "ns-1",
-					UID:         "subnet-2",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-2"},
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.32/28"},
-					GatewayAddresses: []string{"10.0.0.32"},
-				},
-			},
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "subnet-3",
-					Namespace: "ns-1",
-				},
-			},
-		}
-		return nil
-	})
-
-	patches = gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *subnet.SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
-		switch associatedResource {
-		case ":vpc-1:subnet-1":
-			return &model.VpcSubnet{Id: common.String("subnet-1")}, nil
-		case ":vpc-1:subnet-2":
-			return nil, nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_NOT_FOUND)
-		}
-		return nil, nil
-	})
-	patches.ApplyFunc((*common2.StatusUpdater).UpdateFail, func(_ *common2.StatusUpdater, ctx context.Context, obj client.Object, err error, msg string, setStatusFn common2.UpdateFailStatusFn, args ...interface{}) {
-	})
-
-	defer patches.Reset()
-	err = r.RestoreReconcile()
-	assert.Nil(t, err)
-
-	// Shared Subnet with get error
-	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
-		subnetList := list.(*v1alpha1.SubnetList)
-		subnetList.Items = []v1alpha1.Subnet{
-			{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "subnet-1",
-					Namespace:   "ns-1",
-					UID:         "subnet-1",
-					Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:subnet-1"},
-				},
-				Status: v1alpha1.SubnetStatus{
-					NetworkAddresses: []string{"10.0.0.0/28"},
-					GatewayAddresses: []string{"10.0.0.0"},
-				},
-			},
-		}
-		return nil
-	})
-
-	patches = gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI, func(s *subnet.SubnetService, associatedResource string, forceAPI bool) (*model.VpcSubnet, error) {
-		return nil, errors.New("mocked get NSX Subnet error")
-	})
-
-	defer patches.Reset()
-	err = r.RestoreReconcile()
-	assert.ErrorContains(t, err, "mocked get NSX Subnet error")
-
 	// Skip Subnet pending deletion
 	now := metav1.Now()
 	k8sClient.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, list client.ObjectList, _ ...client.ListOption) error {
@@ -1537,6 +1455,124 @@ func TestSubnetReconciler_RestoreReconcile(t *testing.T) {
 	defer patches.Reset()
 	err = r.RestoreReconcile()
 	assert.Nil(t, err)
+}
+
+func TestSharedSubnetRestoreUpdatesReadyWhenNSXReturns(t *testing.T) {
+	key := types.NamespacedName{Namespace: "ns-1", Name: "shared-subnet"}
+	originalAddresses := []string{"10.0.0.0/28"}
+	originalGateways := []string{"10.0.0.1"}
+	cr := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: key.Name, Namespace: key.Namespace,
+			Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:shared-subnet"},
+		},
+		Status: v1alpha1.SubnetStatus{
+			NetworkAddresses: originalAddresses,
+			GatewayAddresses: originalGateways,
+		},
+	}
+	r := createFakeSubnetReconciler([]client.Object{cr})
+	missing := true
+	transientError := false
+	patches := gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI,
+		func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) {
+			if transientError {
+				return nil, errors.New("NSX API unavailable")
+			}
+			if missing {
+				return nil, nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_NOT_FOUND)
+			}
+			return &model.VpcSubnet{Id: common.String("shared-subnet")}, nil
+		})
+	defer patches.Reset()
+	patches.ApplyFunc((*subnet.SubnetService).GetSubnetStatusFromCacheOrAPI,
+		func(_ *subnet.SubnetService, _ *model.VpcSubnet, _ string) ([]model.VpcSubnetStatus, error) {
+			t.Fatal("shared Subnet restore must not query NSX status")
+			return nil, nil
+		})
+	patches.ApplyFunc((*SubnetReconciler).handleSharedSubnet,
+		func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ client.ObjectKey, _ string) (ctrl.Result, error) {
+			t.Fatal("normal shared Subnet reconciliation must not run during restore")
+			return ResultNormal, nil
+		})
+
+	require.NoError(t, r.RestoreReconcile())
+	var actual v1alpha1.Subnet
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	require.Len(t, actual.Status.Conditions, 1)
+	assert.Equal(t, corev1.ConditionFalse, actual.Status.Conditions[0].Status)
+	assert.Equal(t, sharedSubnetMissingDuringRestore, actual.Status.Conditions[0].Message)
+
+	missing = false
+	require.NoError(t, r.RestoreReconcile())
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	require.Len(t, actual.Status.Conditions, 1)
+	assert.True(t, common2.IsObjectReady(actual.Status.Conditions))
+	assert.Equal(t, corev1.ConditionTrue, actual.Status.Conditions[0].Status)
+	assert.Equal(t, subnetReadyCondition(&actual, metav1.Now()).Message, actual.Status.Conditions[0].Message)
+	assert.Equal(t, originalAddresses, actual.Status.NetworkAddresses)
+	assert.Equal(t, originalGateways, actual.Status.GatewayAddresses)
+
+	missing = true
+	require.NoError(t, r.RestoreReconcile())
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	assert.Equal(t, corev1.ConditionFalse, actual.Status.Conditions[0].Status)
+	missing = false
+	require.NoError(t, r.RestoreReconcile())
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	assert.Equal(t, corev1.ConditionTrue, actual.Status.Conditions[0].Status)
+
+	actual.Status.Conditions = []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionFalse,
+		Reason: "SubnetNotReady", Message: "unrelated failure"}}
+	require.NoError(t, r.Client.Status().Update(context.Background(), &actual))
+	require.NoError(t, r.RestoreReconcile())
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	require.Len(t, actual.Status.Conditions, 1)
+	assert.Equal(t, corev1.ConditionTrue, actual.Status.Conditions[0].Status)
+	assert.Equal(t, "SubnetReady", actual.Status.Conditions[0].Reason)
+	assert.Equal(t, originalAddresses, actual.Status.NetworkAddresses)
+
+	transientError = true
+	assert.ErrorContains(t, r.RestoreReconcile(), "NSX API unavailable")
+}
+
+func TestSharedSubnetRestoreRecoversReadyWithoutChangingAddresses(t *testing.T) {
+	key := types.NamespacedName{Namespace: "ns-1", Name: "shared-subnet"}
+	cr := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: key.Name, Namespace: key.Namespace,
+			Annotations: map[string]string{common.AnnotationAssociatedResource: ":vpc-1:shared-subnet"},
+		},
+		Status: v1alpha1.SubnetStatus{
+			Shared: true,
+			Conditions: []v1alpha1.Condition{
+				{Type: v1alpha1.Ready, Status: corev1.ConditionFalse, Reason: "SubnetNotReady", Message: "temporary polling failure"},
+				{Type: v1alpha1.DeleteFailure, Status: corev1.ConditionTrue, Reason: "UnrelatedFailure", Message: "keep this condition"},
+			},
+		},
+	}
+	r := createFakeSubnetReconciler([]client.Object{cr})
+	patches := gomonkey.ApplyFunc((*subnet.SubnetService).GetNSXSubnetFromCacheOrAPI,
+		func(_ *subnet.SubnetService, _ string, forceAPI bool) (*model.VpcSubnet, error) {
+			require.False(t, forceAPI)
+			return &model.VpcSubnet{Id: common.String("shared-subnet")}, nil
+		})
+	defer patches.Reset()
+	patches.ApplyFunc((*subnet.SubnetService).GetSubnetStatusFromCacheOrAPI,
+		func(_ *subnet.SubnetService, _ *model.VpcSubnet, _ string) ([]model.VpcSubnetStatus, error) {
+			t.Fatal("shared Subnet restore must not query NSX status")
+			return nil, nil
+		})
+
+	require.NoError(t, r.RestoreReconcile())
+	var actual v1alpha1.Subnet
+	require.NoError(t, r.Client.Get(context.Background(), key, &actual))
+	assert.Empty(t, actual.Status.NetworkAddresses)
+	assert.Empty(t, actual.Status.GatewayAddresses)
+	require.Len(t, actual.Status.Conditions, 2)
+	assert.Equal(t, corev1.ConditionTrue, actual.Status.Conditions[0].Status)
+	assert.Equal(t, "SubnetReady", actual.Status.Conditions[0].Reason)
+	assert.Equal(t, cr.Status.Conditions[1], actual.Status.Conditions[1])
 }
 
 func TestHandleSharedSubnet(t *testing.T) {
