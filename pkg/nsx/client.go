@@ -5,6 +5,7 @@ package nsx
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -180,7 +181,24 @@ func restConnectorAllowOverwrite(c *Cluster) client.Connector {
 	return c.NewRestConnectorAllowOverwrite()
 }
 
+// GetClient preserves the existing constructor API for callers without error handling.
+// New callers should use NewClient to handle initialization failures explicitly.
 func GetClient(cf *config.NSXOperatorConfig) *Client {
+	client, err := NewClient(cf)
+	if err != nil {
+		log.Error(err, "Failed to initialize NSX client")
+	}
+	return client
+}
+
+// NewClient initializes NSX connectivity and reports configuration/constructor errors.
+func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
+	if cf == nil || cf.NsxConfig == nil || cf.VCConfig == nil {
+		return nil, errors.New("NSX and VC configuration must be provided")
+	}
+	if len(cf.NsxApiManagers) == 0 {
+		return nil, errors.New("at least one NSX API manager must be provided")
+	}
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
@@ -194,7 +212,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	c.EnvoyHost = cf.EnvoyHost
 	c.EnvoyPort = cf.EnvoyPort
-	cluster, _ := NewCluster(c)
+	cluster, err := NewCluster(c)
+	if err != nil {
+		return nil, fmt.Errorf("creating NSX cluster: %w", err)
+	}
 
 	connector := restConnector(cluster)
 	connectorAllowOverwrite := restConnectorAllowOverwrite(cluster)
@@ -260,7 +281,15 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	StaticIPReservationsClient := subnets.NewStaticIpReservationsClient(connector)
 	portSettingsClient := subnets.NewPortSettingsClient(connector)
 
-	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
+	nsxApiClient, err := CreateNsxtApiClient(cf, cluster.client)
+	if err != nil {
+		for _, endpoint := range cluster.endpoints {
+			close(endpoint.stop)
+		}
+		cluster.client.CloseIdleConnections()
+		cluster.noBalancerClient.CloseIdleConnections()
+		return nil, fmt.Errorf("creating NSX management API client: %w", err)
+	}
 	vifsClient := fabric.NewVifsClient(connector)
 	dnsZoneClient := dns_services.NewZonesClient(connector)
 	dnsRecordsClient := projects.NewDnsRecordsClient(connector)
@@ -364,7 +393,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		log.Error(err, "Initial NSX version check for ServiceAccountCertRotation got error")
 	}
 
-	return nsxClient
+	return nsxClient, nil
 }
 
 func CreateNsxtApiClient(config *config.NSXOperatorConfig, client *http.Client) (*nsxt.APIClient, error) {
