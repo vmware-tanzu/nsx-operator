@@ -66,7 +66,7 @@ linters:
         # requires generated apply configurations (--with-applyconfig). Until apply
         # configs are generated for this project the existing test helpers cannot be
         # migrated, so suppress the warning project-wide.
-        text: "SA1019: kubefake.NewSimpleClientset is deprecated"
+        text: "SA1019: .*NewSimpleClientset is deprecated"
 
 formatters:
   enable:
