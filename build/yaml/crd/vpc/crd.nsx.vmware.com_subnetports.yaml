@@ -161,10 +161,28 @@ spec:
                   - type
                   type: object
                 type: array
-              fqdn:
-                description: FQDN is the system-computed fully qualified domain name,
-                  formed by combining dnsHostName with DomainName.
-                type: string
+              fqdns:
+                description: FQDNs contains the system-computed fully qualified domain names for the port, keyed by IP family. At most one FQDN can be specified per IP family.
+                items:
+                  description: IPFamilyFQDN associates a fully qualified domain name with an IP family.
+                  properties:
+                    fqdn:
+                      description: FQDN is the system-computed fully qualified domain name, formed by combining dnsHostName with DomainName.
+                      type: string
+                    ipFamily:
+                      description: IPFamily identifies the address family associated with the FQDN.
+                      enum:
+                      - IPv4
+                      - IPv6
+                      type: string
+                  required:
+                  - fqdn
+                  - ipFamily
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - ipFamily
+                x-kubernetes-list-type: map
               networkInterfaceConfig:
                 properties:
                   dhcpDeactivatedOnSubnet:

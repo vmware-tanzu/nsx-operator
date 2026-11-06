@@ -431,6 +431,23 @@ _Appears in:_
 | `cidr` _string_ | CIDR is a string representing the IP Block.<br />Valid examples are "192.168.1.0/24" and "2001:db8::/32". |  |  |
 
 
+#### IPFamilyFQDN
+
+
+
+IPFamilyFQDN associates a fully qualified domain name with an IP family.
+
+
+
+_Appears in:_
+- [SubnetPortStatus](#subnetportstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ipFamily` _[IPFamily](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#ipfamily-v1-core)_ | IPFamily identifies the address family associated with the FQDN. |  | Enum: [IPv4 IPv6] <br /> |
+| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining dnsHostName with DomainName. |  |  |
+
+
 #### IPBlocksInfo
 
 
@@ -1274,7 +1291,7 @@ _Appears in:_
 | `conditions` _[Condition](#condition) array_ | Conditions describes current state of SubnetPort. |  |  |
 | `attachment` _[PortAttachment](#portattachment)_ | SubnetPort attachment state. |  |  |
 | `networkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ |  |  |  |
-| `fqdn` _string_ | FQDN is the system-computed fully qualified domain name, formed by combining dnsHostName with DomainName. |  |  |
+| `fqdns` _[IPFamilyFQDN](#ipfamilyfqdn) array_ | FQDNs contains the system-computed fully qualified domain names for the port, keyed by IP family. At most one FQDN can be specified per IP family. |  |  |
 
 
 #### SubnetSet
