@@ -215,7 +215,6 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 			realizeErrs = append(realizeErrs, perr)
 			continue
 		}
-
 		var live model.DnsRecord
 		var gerr error
 		err := retry.OnError(util.NSXTRealizeRetry, func(err error) bool {
@@ -498,9 +497,21 @@ func (s *DNSRecordService) getInvolvedRecordLockKeysForOwner(kind, namespace, na
 
 // DeleteRecordByOwnerNN deletes or retags rows for kind/ns/name. Returns (storeMutated, err).
 func (s *DNSRecordService) DeleteRecordByOwnerNN(ctx context.Context, kind, namespace, name string) (bool, error) {
+	return s.DeleteRecordByOwnerNNIf(ctx, kind, namespace, name, nil)
+}
+
+// DeleteRecordByOwnerNNIf checks shouldDelete while holding the owner lock so
+// garbage collection cannot delete a record reconciled after an earlier CR list.
+func (s *DNSRecordService) DeleteRecordByOwnerNNIf(ctx context.Context, kind, namespace, name string, shouldDelete func(context.Context) (bool, error)) (bool, error) {
 	ownerKey := "owner/" + kind + "/" + namespace + "/" + name
 	recordArbitrator.lock(ownerKey)
 	defer recordArbitrator.unlock(ownerKey)
+	if shouldDelete != nil {
+		deleteRecord, err := shouldDelete(ctx)
+		if err != nil || !deleteRecord {
+			return false, err
+		}
+	}
 
 	// calculate distinct record IDs to lock to prevent overlapping calculations and patches
 	sortedRecordIDs := s.getInvolvedRecordLockKeysForOwner(kind, namespace, name)

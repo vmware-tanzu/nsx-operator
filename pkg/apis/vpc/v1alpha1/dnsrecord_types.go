@@ -40,8 +40,8 @@ type DNSRecordSpec struct {
 	RecordValues []string `json:"recordValues"`
 
 	// TTL specifies the Time-To-Live in seconds for this DNS record.
-	// Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes).
-	// +kubebuilder:validation:Minimum=0
+	// Overrides the zone's default TTL. Range: 30-86400 seconds. Default: 300 (5 minutes).
+	// +kubebuilder:validation:Minimum=30
 	// +kubebuilder:validation:Maximum=86400
 	// +kubebuilder:default=300
 	// +optional
