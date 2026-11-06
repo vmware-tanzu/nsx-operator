@@ -182,7 +182,7 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 	})
 	patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
 		func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) {
-			return &model.VpcSubnet{Tags: []model.Tag{{
+			return &model.VpcSubnet{RealizationId: servicecommon.String("switch-uuid"), Tags: []model.Tag{{
 				Scope: servicecommon.String(servicecommon.TagScopeWCPSegmentTrackingSubnet), Tag: servicecommon.String("/infra/segments/segment-1"),
 			}}}, nil
 		})
@@ -202,7 +202,64 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 	vpcService.AssertNotCalled(t, "IsRADeactivatedByVPCPath", "/tracking-subnet")
 	require.NoError(t, k8sClient.Get(ctx, key, sp))
 	assert.Equal(t, "existing-attachment", sp.Status.Attachment.ID)
-	assert.Empty(t, sp.Status.NetworkInterfaceConfig)
+	assert.Equal(t, v1alpha1.NetworkInterfaceConfig{LogicalSwitchUUID: "switch-uuid"}, sp.Status.NetworkInterfaceConfig)
+}
+
+func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		realizationID *string
+		wantUUID      string
+	}{
+		{name: "backfill unchanged port", realizationID: servicecommon.String("switch-uuid"), wantUUID: "switch-uuid"},
+		{name: "missing realization ID", wantUUID: "old-switch-uuid"},
+		{name: "empty realization ID", realizationID: servicecommon.String(""), wantUUID: "old-switch-uuid"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha1.AddToScheme(scheme))
+			sp := &v1alpha1.SubnetPort{
+				ObjectMeta: metav1.ObjectMeta{Name: "port-1", Namespace: "ns-1", UID: "port-uid"},
+				Status: v1alpha1.SubnetPortStatus{
+					Attachment: v1alpha1.PortAttachment{ID: "attachment"},
+					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+						MACAddress:  "02:50:56:00:00:01",
+						IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}},
+					},
+				},
+			}
+			if tt.realizationID == nil || *tt.realizationID == "" {
+				sp.Status.NetworkInterfaceConfig.LogicalSwitchUUID = "old-switch-uuid"
+			}
+			oldStatus := sp.Status.DeepCopy()
+			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(sp).WithObjects(sp).Build()
+			service := &subnetport.SubnetPortService{Service: servicecommon.Service{
+				NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}},
+			}}
+			r := &SubnetPortReconciler{Client: k8sClient, SubnetPortService: service}
+			r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
+			patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSegmentPort,
+				func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort, _, _ string, _ *map[string]string, _, _ bool) (*model.SegmentPortState, error) {
+					return nil, nil
+				})
+			defer patches.Reset()
+			patches.ApplyFunc(setAddressBindingStatusBySubnetPort,
+				func(client.Client, context.Context, *v1alpha1.SubnetPort, *subnetport.SubnetPortService, metav1.Time, error, bool) {
+				})
+			key := types.NamespacedName{Namespace: sp.Namespace, Name: sp.Name}
+			result, err := r.reconcileSubnetPort(ctx, ctrl.Request{NamespacedName: key}, sp, oldStatus,
+				&model.VpcSubnet{RealizationId: tt.realizationID}, "/tracking-subnet", "/infra/segments/segment-1", true,
+				nil, true, v1alpha1.IPAddressTypeIPv4, nil, "", false, false, "", nil, k8sClient)
+			require.NoError(t, err)
+			assert.Equal(t, common.ResultNormal, result)
+			require.NoError(t, k8sClient.Get(ctx, key, sp))
+			wantConfig := oldStatus.NetworkInterfaceConfig
+			wantConfig.LogicalSwitchUUID = tt.wantUUID
+			assert.Equal(t, wantConfig, sp.Status.NetworkInterfaceConfig)
+			assert.Equal(t, oldStatus.Attachment, sp.Status.Attachment)
+		})
+	}
 }
 
 func newSegmentRestorePortStore() *subnetport.SegmentPortStore {

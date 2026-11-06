@@ -1069,6 +1069,13 @@ func TestBuildSubnetCR(t *testing.T) {
 			nsxSubnet: &model.VpcSubnet{
 				AccessMode:     common.String("Private_TGW"),
 				Ipv4SubnetSize: common.Int64(24),
+				// Segment path annotations are added only by shared subnet creation.
+				Tags: []model.Tag{
+					{
+						Scope: common.String(common.TagScopeWCPSegmentTrackingSubnet),
+						Tag:   common.String("/infra/segments/seg-tracking-1"),
+					},
+				},
 			},
 			expectedSubnet: &v1alpha1.Subnet{
 				ObjectMeta: metav1.ObjectMeta{
