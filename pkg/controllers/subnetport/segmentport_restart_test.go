@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -23,6 +24,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
+	mockrealized "github.com/vmware-tanzu/nsx-operator/pkg/mock/realizedentitiesclient"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
@@ -163,7 +166,15 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 		},
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(sp).WithObjects(sp).Build()
+	entitiesClient := mockrealized.NewMockRealizedEntitiesClient(gomock.NewController(t))
+	entitiesClient.EXPECT().List("/infra/segments/segment-1", nil).Return(model.GenericPolicyRealizedResourceListResult{
+		Results: []model.GenericPolicyRealizedResource{{
+			EntityType: servicecommon.String("RealizedLogicalSwitch"), State: servicecommon.String("REALIZED"),
+			RealizationSpecificIdentifier: servicecommon.String("switch-uuid"),
+		}},
+	}, nil)
 	service := &subnetport.SubnetPortService{Service: servicecommon.Service{
+		NSXClient: &nsx.Client{RealizedEntitiesClient: entitiesClient},
 		NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}},
 	}}
 	vpcService := &mock.MockVPCServiceProvider{}
@@ -182,7 +193,7 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 	})
 	patches.ApplyFunc((*subnet.SubnetService).GetSubnetByPath,
 		func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) {
-			return &model.VpcSubnet{RealizationId: servicecommon.String("switch-uuid"), Tags: []model.Tag{{
+			return &model.VpcSubnet{RealizationId: servicecommon.String("tracking-subnet-switch-uuid"), Tags: []model.Tag{{
 				Scope: servicecommon.String(servicecommon.TagScopeWCPSegmentTrackingSubnet), Tag: servicecommon.String("/infra/segments/segment-1"),
 			}}}, nil
 		})
@@ -207,13 +218,19 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 
 func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 	for _, tt := range []struct {
-		name          string
-		realizationID *string
-		wantUUID      string
+		name                 string
+		subnetRealizationID  *string
+		segmentRealizationID *string
+		lookupErr            error
+		wantUUID             string
+		wantErr              bool
 	}{
-		{name: "backfill unchanged port", realizationID: servicecommon.String("switch-uuid"), wantUUID: "switch-uuid"},
-		{name: "missing realization ID", wantUUID: "old-switch-uuid"},
-		{name: "empty realization ID", realizationID: servicecommon.String(""), wantUUID: "old-switch-uuid"},
+		{name: "correct unchanged port", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid"},
+		{name: "missing subnet realization ID", segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid"},
+		{name: "empty subnet realization ID", subnetRealizationID: servicecommon.String(""), segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid"},
+		{name: "missing segment realization", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), wantUUID: "old-switch-uuid", wantErr: true},
+		{name: "empty segment realization ID", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), segmentRealizationID: servicecommon.String(""), wantUUID: "old-switch-uuid", wantErr: true},
+		{name: "segment lookup error", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), lookupErr: errors.New("NSX unavailable"), wantUUID: "old-switch-uuid", wantErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -224,17 +241,25 @@ func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 				Status: v1alpha1.SubnetPortStatus{
 					Attachment: v1alpha1.PortAttachment{ID: "attachment"},
 					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
-						MACAddress:  "02:50:56:00:00:01",
-						IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}},
+						LogicalSwitchUUID: "old-switch-uuid",
+						MACAddress:        "02:50:56:00:00:01",
+						IPAddresses:       []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}},
 					},
 				},
 			}
-			if tt.realizationID == nil || *tt.realizationID == "" {
-				sp.Status.NetworkInterfaceConfig.LogicalSwitchUUID = "old-switch-uuid"
-			}
 			oldStatus := sp.Status.DeepCopy()
 			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(sp).WithObjects(sp).Build()
+			entitiesClient := mockrealized.NewMockRealizedEntitiesClient(gomock.NewController(t))
+			var entities []model.GenericPolicyRealizedResource
+			if tt.segmentRealizationID != nil {
+				entities = append(entities, model.GenericPolicyRealizedResource{
+					EntityType: servicecommon.String("RealizedLogicalSwitch"), State: servicecommon.String("REALIZED"),
+					RealizationSpecificIdentifier: tt.segmentRealizationID,
+				})
+			}
+			entitiesClient.EXPECT().List("/infra/segments/segment-1", nil).Return(model.GenericPolicyRealizedResourceListResult{Results: entities}, tt.lookupErr)
 			service := &subnetport.SubnetPortService{Service: servicecommon.Service{
+				NSXClient: &nsx.Client{RealizedEntitiesClient: entitiesClient},
 				NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}},
 			}}
 			r := &SubnetPortReconciler{Client: k8sClient, SubnetPortService: service}
@@ -249,15 +274,22 @@ func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 				})
 			key := types.NamespacedName{Namespace: sp.Namespace, Name: sp.Name}
 			result, err := r.reconcileSubnetPort(ctx, ctrl.Request{NamespacedName: key}, sp, oldStatus,
-				&model.VpcSubnet{RealizationId: tt.realizationID}, "/tracking-subnet", "/infra/segments/segment-1", true,
+				&model.VpcSubnet{RealizationId: tt.subnetRealizationID}, "/tracking-subnet", "/infra/segments/segment-1", true,
 				nil, true, v1alpha1.IPAddressTypeIPv4, nil, "", false, false, "", nil, k8sClient)
-			require.NoError(t, err)
-			assert.Equal(t, common.ResultNormal, result)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Equal(t, common.ResultRequeue, result)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, common.ResultNormal, result)
+			}
 			require.NoError(t, k8sClient.Get(ctx, key, sp))
 			wantConfig := oldStatus.NetworkInterfaceConfig
 			wantConfig.LogicalSwitchUUID = tt.wantUUID
 			assert.Equal(t, wantConfig, sp.Status.NetworkInterfaceConfig)
 			assert.Equal(t, oldStatus.Attachment, sp.Status.Attachment)
+			require.Len(t, sp.Status.Conditions, 1)
+			assert.Equal(t, !tt.wantErr, common.IsObjectReady(sp.Status.Conditions))
 		})
 	}
 }
