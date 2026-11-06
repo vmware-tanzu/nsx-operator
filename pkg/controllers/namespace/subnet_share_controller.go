@@ -89,17 +89,6 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 	// Create the Subnet CR object with spec populated from NSX subnet
 	subnetCR := r.SubnetService.BuildSubnetCR(ns, subnetName, vpcFullID, associatedName, nsxSubnet)
 
-	if nsxSubnet != nil {
-		if tagVal := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeWCPSegmentTrackingSubnet); tagVal != "" {
-			if subnetCR.Annotations == nil {
-				subnetCR.Annotations = make(map[string]string)
-			}
-			subnetCR.Annotations[servicecommon.AnnotationSegmentPath] = tagVal
-			subnetCR.Spec.IPAddressType = ""
-			subnetCR.Spec.AdvancedConfig.ConnectivityState = ""
-		}
-	}
-
 	// Create the Subnet CR in Kubernetes
 	err = r.createSubnetCRInK8s(ctx, subnetCR)
 	if err != nil {

@@ -898,6 +898,11 @@ func (service *SubnetService) BuildSubnetCR(ns, subnetName, vpcFullID, associate
 	// Initialize subnetCR spec from nsxSubnet if available
 	if nsxSubnet != nil {
 		service.MapNSXSubnetToSubnetCR(subnetCR, nsxSubnet)
+		if segmentPath := nsxutil.FindTag(nsxSubnet.Tags, common.TagScopeWCPSegmentTrackingSubnet); segmentPath != "" {
+			subnetCR.Annotations[common.AnnotationSegmentPath] = segmentPath
+			subnetCR.Spec.IPAddressType = ""
+			subnetCR.Spec.AdvancedConfig.ConnectivityState = ""
+		}
 	}
 
 	log.Info("Build Subnet CR", "Subnet", subnetCR)
