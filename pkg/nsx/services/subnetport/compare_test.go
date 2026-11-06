@@ -150,6 +150,41 @@ func TestSubnetPortToComparable(t *testing.T) {
 	}
 }
 
+func TestSubnetPortPortSettingComparison(t *testing.T) {
+	parent := "/orgs/default/projects/project/vpcs/vpc/subnets/subnet"
+	defaultPath := common.String(parent + "/port-settings/default")
+	namedPath := common.String(parent + "/port-settings/named")
+	for _, tc := range []struct {
+		name          string
+		parent        *string
+		existing      *string
+		desired       *string
+		expectChanged bool
+	}{
+		{"unset", &parent, nil, nil, false},
+		{"default readback", &parent, defaultPath, nil, false},
+		{"explicit default", &parent, nil, defaultPath, false},
+		{"same named setting", &parent, namedPath, namedPath, false},
+		{"change named setting", &parent, namedPath, common.String(parent + "/port-settings/replacement"), true},
+		{"clear named setting", &parent, namedPath, nil, true},
+		{"default to named setting", &parent, defaultPath, namedPath, true},
+		{"named to explicit default", &parent, namedPath, defaultPath, true},
+		{"other subnet default", &parent, common.String(parent + "-other/port-settings/default"), nil, true},
+		{"default prefix is not default", &parent, common.String(parent + "/port-settings/default-custom"), nil, true},
+		{"unknown parent", nil, defaultPath, nil, true},
+		{"empty parent", common.String(""), common.String("/port-settings/default"), nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			existing := &model.VpcSubnetPort{ParentPath: tc.parent, PortSettingPath: tc.existing}
+			desired := &model.VpcSubnetPort{ParentPath: tc.parent, PortSettingPath: tc.desired}
+			changed := common.CompareResource(SubnetPortToComparable(existing), SubnetPortToComparable(desired))
+			assert.Equal(t, tc.expectChanged, changed)
+			assert.Equal(t, tc.existing, existing.PortSettingPath, "comparison must preserve the cached response")
+			assert.Equal(t, tc.desired, desired.PortSettingPath, "comparison must preserve the request")
+		})
+	}
+}
+
 func TestSubnetPort_Key(t *testing.T) {
 	id := "fakeSubnetPortID"
 	sp := &SubnetPort{Id: &id}
