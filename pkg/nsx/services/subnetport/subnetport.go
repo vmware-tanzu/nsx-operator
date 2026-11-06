@@ -407,12 +407,6 @@ func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
 			subnetPortSet.Insert(subnetPortIDs...)
 		}
 	}
-	if service.SegmentPortStore != nil {
-		for _, podUID := range service.SegmentPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID).UnsortedList() {
-			subnetPortIDs, _ := service.SegmentPortStore.IndexKeys(servicecommon.TagScopePodUID, podUID)
-			subnetPortSet.Insert(subnetPortIDs...)
-		}
-	}
 	return subnetPortSet
 }
 
@@ -565,7 +559,7 @@ func (service *SubnetPortService) ListSubnetPortIDsFromCRs(ctx context.Context) 
 			}
 		}
 		if service.SegmentPortStore != nil {
-			segmentPort, err := service.GetSegmentPortForSubnetPort(&subnetPort.ObjectMeta)
+			segmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(subnetPort.UID)
 			if err != nil {
 				log.Error(err, "Failed to get SegmentPort by SubnetPort CR", "CR UID", subnetPort.UID)
 				return nil, err

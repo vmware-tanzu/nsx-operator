@@ -1179,15 +1179,6 @@ func (r *SubnetPortReconciler) CollectGarbage(ctx context.Context) error {
 	var errList []error
 	diffSet := nsxSubnetPortSet.Difference(crSubnetPortIDsSet)
 	for elem := range diffSet {
-		segmentStore := r.SubnetPortService.SegmentPortStore
-		if segmentStore != nil && segmentStore.Indexer != nil {
-			if nsxSegmentPort := segmentStore.GetByKey(elem); nsxSegmentPort != nil &&
-				r.SubnetPortService.NSXClient != nil &&
-				nsx.StatefulSetPodSubnetPortFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && nsxutil.FindTag(nsxSegmentPort.Tags, servicecommon.TagScopeStatefulSetUID) != "" {
-				log.Info("Skipping SubnetPort GC for StatefulSet segment port", "NSXSegmentPortID", elem, "statefulset-uid", nsxutil.FindTag(nsxSegmentPort.Tags, servicecommon.TagScopeStatefulSetUID))
-				continue
-			}
-		}
 		store := r.SubnetPortService.SubnetPortStore
 		if store != nil && store.Indexer != nil {
 			if nsxSubnetPort := store.GetByKey(elem); nsxSubnetPort != nil &&
@@ -1430,7 +1421,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		return
 	}
 
-	existingSegmentPort, err := r.SubnetPortService.GetSegmentPortForSubnetPort(&subnetPort.ObjectMeta)
+	existingSegmentPort, err := r.SubnetPortService.SegmentPortStore.GetSegmentPortByUID(subnetPort.UID)
 	if err != nil {
 		return
 	}
