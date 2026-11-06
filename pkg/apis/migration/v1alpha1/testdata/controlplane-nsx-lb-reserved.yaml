@@ -1,0 +1,26 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: ControlPlaneNetworkTransition
+metadata:
+  name: supervisor-vds-to-vpc
+spec:
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  targetLbProvider: NSX_LB
+  action: Evaluate
+  networkConfiguration:
+    # Supply only when evaluation requests fallback addresses for exhausted VIP pools.
+    # Supervisor VDS source networks are IPv4-only in this release.
+    # The field remains a list so a future release can add IPv6 support.
+    lbSnatIPs: ["10.2.1.50"]
+status:
+  lastAction: Evaluate
+  actionState: Running
+  actionGeneration: 1
+  lbSnatIPAllocations:
+  - ipAddress: "10.2.1.50"
+    allocationRef:
+      namespace: vmware-system-netop
+      name: migration-lb-snat-ipv4

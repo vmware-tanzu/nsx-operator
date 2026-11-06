@@ -1,0 +1,71 @@
+# Confluence page 2586034708, version 158. Illustrative handler output.
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NamespaceNetworkTransition
+metadata:
+  generation: 5
+  name: batch-ns-migration-01
+spec:
+  action: Execute
+  namespaces:
+  - ns1
+  - ns2
+  - ns3
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+status:
+  actionGeneration: 5
+  actionState: Failed
+  conditions:
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: L3 VLAN extension subnets derived successfully for all backing DVS switches.
+    observedGeneration: 5
+    reason: SubnetsProvisioned
+    status: 'True'
+    type: SubnetsDerived
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Network provider updated from VSPHERE_NETWORK to NSX_VPC for all batch
+      namespaces.
+    observedGeneration: 5
+    reason: ProviderUpdated
+    status: 'True'
+    type: NetworkProviderTransitioned
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: '1 of 3 namespaces failed workload vNIC rebind: ns3 failed due to VM-Operator
+      vNIC attach timeout.'
+    observedGeneration: 5
+    reason: vNICRebindPartialFailure
+    status: 'False'
+    type: WorkloadsMigrated
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Load Balancer VIP repatriation skipped due to WorkloadsMigrated failure
+      in ns3.
+    observedGeneration: 5
+    reason: SkippedDueToPriorFailure
+    status: 'False'
+    type: LoadBalancerMigrated
+  - lastTransitionTime: '2026-10-19T00:00:00Z'
+    message: Illustrative migration status; concrete milestones require service handlers.
+    observedGeneration: 5
+    reason: ActionFailed
+    status: 'False'
+    type: Ready
+  lastAction: Execute
+  namespaceStatuses:
+  - message: Workload vNICs and LB VIPs successfully rebound to VPC backing.
+    name: ns1
+    phase: Completed
+    reason: CutoverVerified
+  - message: Workload vNICs and LB VIPs successfully rebound to VPC backing.
+    name: ns2
+    phase: Completed
+    reason: CutoverVerified
+  - message: 'Failed during WorkloadsMigrated: VM-Operator vNIC attach timed out on
+      PodVM ''podvm-worker-02''.'
+    name: ns3
+    phase: Failed
+    reason: MigrationFailed
+  nsxWorkflows:
+  - workflowId: wf-batch-dvs10
+    vdnName: vdn-source-1
+  observedGeneration: 5
+  phase: Failed
