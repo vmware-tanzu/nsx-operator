@@ -32,6 +32,12 @@ var ticker = time.NewTicker(subnetservice.SharedSubnetRefreshInterval)
 // It runs in a separate goroutine and polls every 10 minutes.
 // The polling can be stopped by sending a value to the stopCh channel.
 func (r *SubnetReconciler) pollSharedSubnets(stopCh chan bool) {
+	vpcWcpEnhanceEnabled := false
+	if r.SubnetService != nil && r.SubnetService.NSXConfig != nil {
+		vpcWcpEnhanceEnabled = r.SubnetService.NSXConfig.NsxConfig.VpcWcpEnhanceEnabled()
+	}
+	log.Info("Starting shared Subnet polling", "Interval", subnetservice.SharedSubnetRefreshInterval.String(),
+		"VPCWCPEnhanceEnabled", vpcWcpEnhanceEnabled)
 	defer ticker.Stop()
 	for {
 		select {
@@ -51,7 +57,9 @@ func (r *SubnetReconciler) pollSharedSubnets(stopCh chan bool) {
 // It also removes subnets from the queue if they no longer exist or are being deleted.
 func (r *SubnetReconciler) pollAllSharedSubnets() {
 	ctx := context.Background()
-	for associatedResource, namespacedNames := range r.SubnetService.GetSharedSubnetResourceMapSnapshot() {
+	sharedSubnets := r.SubnetService.GetSharedSubnetResourceMapSnapshot()
+	log.Info("Polling shared Subnets", "SharedSubnetSourceCount", len(sharedSubnets))
+	for associatedResource, namespacedNames := range sharedSubnets {
 		r.pollSharedSubnet(ctx, associatedResource, namespacedNames)
 	}
 
@@ -273,14 +281,17 @@ func (r *SubnetReconciler) handleNSXSubnetError(ctx context.Context, err error, 
 // and synchronizes SubnetPortSetting CRs across all namespaces where the subnet is shared.
 func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associatedResource string, namespacedNames sets.Set[types.NamespacedName]) {
 	if !nsx.SubnetPortSettingFeatureEnabled(r.SubnetService.NSXClient, r.SubnetService.NSXConfig) {
+		log.Info("Skipping PortSettings polling: requires NSX 9.2+ and vpc_wcp_enhance=true", "AssociatedResource", associatedResource)
 		return
 	}
 
+	log.Info("Polling NSX PortSettings for shared Subnet", "AssociatedResource", associatedResource, "SubnetCount", len(namespacedNames))
 	portSettingIDs, err := r.SubnetService.GetPortSettingIDsFromCacheOrAPI(associatedResource, true)
 	if err != nil {
 		log.Warn("Failed to list PortConfigs for shared Subnet during polling", "AssociatedResource", associatedResource, "err", err)
 		return
 	}
+	log.Info("Listed NSX PortSettings for shared Subnet", "AssociatedResource", associatedResource, "PortSettingCount", len(portSettingIDs))
 
 	nsxPortSettingIDs := sets.New(portSettingIDs...)
 	portSettings := make([]model.VpcSubnetPortSetting, len(portSettingIDs))
