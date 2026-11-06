@@ -5,6 +5,7 @@ package nsx
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -40,6 +41,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/workflows"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -74,12 +76,14 @@ type Client struct {
 	RestConnector client.Connector
 	Cluster       *Cluster
 
-	QueryClient    search.QueryClient
-	GroupClient    domains.GroupsClient
-	SecurityClient domains.SecurityPoliciesClient
-	RuleClient     security_policies.RulesClient
-	InfraClient    nsx_policy.InfraClient
-	StatusClient   restore.StatusClient
+	QueryClient                     search.QueryClient
+	GroupClient                     domains.GroupsClient
+	SecurityClient                  domains.SecurityPoliciesClient
+	RuleClient                      security_policies.RulesClient
+	InfraClient                     nsx_policy.InfraClient
+	StatusClient                    restore.StatusClient
+	WorkflowsClient                 nsx_policy.WorkflowsClient
+	WorkflowValidationResultsClient workflows.Dvpg_validation_resultsClient
 
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	HostTransPortNodesClient   enforcement_points.HostTransportNodesClient
@@ -180,7 +184,36 @@ func restConnectorAllowOverwrite(c *Cluster) client.Connector {
 	return c.NewRestConnectorAllowOverwrite()
 }
 
+// GetClient preserves the existing constructor API for callers without error handling.
+// New callers should use NewClient to handle initialization failures explicitly.
 func GetClient(cf *config.NSXOperatorConfig) *Client {
+	client, err := NewClient(cf)
+	if err != nil {
+		log.Error(err, "Failed to initialize NSX client")
+	}
+	return client
+}
+
+// NewMigrationClient opts into workflow clients for migration handlers. Ordinary
+// NSX operator clients do not initialize these migration-only clients.
+func NewMigrationClient(cf *config.NSXOperatorConfig) (*Client, error) {
+	client, err := NewClient(cf)
+	if err != nil {
+		return nil, err
+	}
+	client.WorkflowsClient = nsx_policy.NewWorkflowsClient(client.RestConnector)
+	client.WorkflowValidationResultsClient = workflows.NewDvpg_validation_resultsClient(client.RestConnector)
+	return client, nil
+}
+
+// NewClient initializes NSX connectivity and reports configuration/constructor errors.
+func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
+	if cf == nil || cf.NsxConfig == nil || cf.VCConfig == nil {
+		return nil, errors.New("NSX and VC configuration must be provided")
+	}
+	if len(cf.NsxApiManagers) == 0 {
+		return nil, errors.New("at least one NSX API manager must be provided")
+	}
 	// Set log level for vsphere-automation-sdk-go
 	logger := logrus.New()
 	vspherelog.SetLogger(logger)
@@ -194,7 +227,10 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		ratelimiter.AIMD, cf.GetTokenProvider(), nil, cf.Thumbprint)
 	c.EnvoyHost = cf.EnvoyHost
 	c.EnvoyPort = cf.EnvoyPort
-	cluster, _ := NewCluster(c)
+	cluster, err := NewCluster(c)
+	if err != nil {
+		return nil, fmt.Errorf("creating NSX cluster: %w", err)
+	}
 
 	connector := restConnector(cluster)
 	connectorAllowOverwrite := restConnectorAllowOverwrite(cluster)
@@ -260,7 +296,15 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 	StaticIPReservationsClient := subnets.NewStaticIpReservationsClient(connector)
 	portSettingsClient := subnets.NewPortSettingsClient(connector)
 
-	nsxApiClient, _ := CreateNsxtApiClient(cf, cluster.client)
+	nsxApiClient, err := CreateNsxtApiClient(cf, cluster.client)
+	if err != nil {
+		for _, endpoint := range cluster.endpoints {
+			close(endpoint.stop)
+		}
+		cluster.client.CloseIdleConnections()
+		cluster.noBalancerClient.CloseIdleConnections()
+		return nil, fmt.Errorf("creating NSX management API client: %w", err)
+	}
 	vifsClient := fabric.NewVifsClient(connector)
 	dnsZoneClient := dns_services.NewZonesClient(connector)
 	dnsRecordsClient := projects.NewDnsRecordsClient(connector)
@@ -364,7 +408,7 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		log.Error(err, "Initial NSX version check for ServiceAccountCertRotation got error")
 	}
 
-	return nsxClient
+	return nsxClient, nil
 }
 
 func CreateNsxtApiClient(config *config.NSXOperatorConfig, client *http.Client) (*nsxt.APIClient, error) {
