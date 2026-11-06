@@ -1,0 +1,54 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Reference: Confluence page 2586034708, version 158, sections 4.1 and 4.2.
+# Adaptation: workflow handles are recorded per VDN; redundant status summaries are omitted.
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NamespaceNetworkTransition
+metadata:
+  name: batch-ns-migration-01
+spec:
+  namespaces: ["ns1", "ns2", "ns3"]
+  sourceMode: "VSPHERE_VDS"
+  targetMode: "NSX_VPC"
+  action: "Execute"                       # Evaluate | Plan | Derive | Execute | Rollback | Commit
+  networkConfiguration:
+    resourceNaming:
+      networks:
+      - vdnName: vdn-tenant-1
+        tgwName: migration-tenant-tgw
+        vpcName: migration-tenant-vpc
+        dvcName: migration-tenant-dvc
+        subnetName: migration-tenant-subnet
+    namespaceDHCPNetworks:
+    - vdnName: vdn-tenant-1
+      dhcpRange:
+        start: "10.2.1.100"
+        end: "10.2.1.200"
+      subnetMask: "255.255.255.0"
+      gatewayAddress: "10.2.1.1"
+
+status:
+  phase: "Failed"                     # Aggregate batch phase
+  nsxWorkflows:
+  - vdnName: "vdn-source-1"
+    workflowId: "wf-batch-dvs10"
+  - vdnName: "vdn-source-2"
+    workflowId: "wf-batch-dvs20"
+  conditions:                         # Macro batch milestones
+  - type: SubnetsDerived
+    status: "True"
+  - type: NetworkProviderTransitioned
+    status: "True"
+  - type: WorkloadsMigrated
+    status: "False"                   # Partial failure flagged
+    reason: "vNICRebindPartialFailure"
+    message: "1 of 3 namespaces failed vNIC rebind (ns3 timeout)."
+  namespaceStatuses:                  # Clean per-namespace outcome list
+  - name: "ns1"
+    phase: "Completed"
+  - name: "ns2"
+    phase: "Completed"
+  - name: "ns3"
+    phase: "Failed"
+    message: "VM-Operator vNIC attach timed out on PodVM 'podvm-worker-02'."
