@@ -5,8 +5,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -26,12 +24,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	crdv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/gateway"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/ipaddressallocation"
@@ -121,13 +119,12 @@ func init() {
 }
 
 func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
-	// Generate webhook certificates and start refreshing webhook certificates periodically
-	if config.HasVPCNamespaces() {
-		if err := pkgutil.GenerateWebhookCerts(); err != nil {
-			log.Error(err, "Failed to generate webhook certificates")
-			os.Exit(1)
-		}
-		log.Info("Successfully generated webhook certificates")
+	hookServer, err := controllercommon.SetupWebhookServer(mgr, config.HasVPCNamespaces())
+	if err != nil {
+		log.Error(err, "Failed to set up webhook server")
+		os.Exit(1)
+	}
+	if hookServer != nil {
 		go refreshCertPeriodically()
 	}
 
@@ -164,7 +161,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	var reconcilerList []pkgutil.ReconcilerProvider
 
 	var vpcService *vpc.VPCService
-	var hookServer webhook.Server
 	var subnetSetReconcile *subnetset.SubnetSetReconciler
 
 	if config.HasVPCNamespaces() {
@@ -229,24 +225,6 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 		if err != nil {
 			log.Error(err, "Failed to initialize SubnetIPReservation commonService", "controller", "SubnetIPReservation")
 			os.Exit(1)
-		}
-
-		if _, err := os.Stat(config.WebhookCertDir); errors.Is(err, os.ErrNotExist) {
-			log.Error(err, "Server cert not found, disabling webhook server", "cert", config.WebhookCertDir)
-		} else {
-			hookServer = webhook.NewServer(webhook.Options{
-				Port:    config.WebhookServerPort,
-				CertDir: config.WebhookCertDir,
-				TLSOpts: []func(*tls.Config){
-					func(cfg *tls.Config) {
-						cfg.MinVersion = tls.VersionTLS13
-					},
-				},
-			})
-			if err := mgr.Add(hookServer); err != nil {
-				log.Error(err, "Failed to add hook server")
-				os.Exit(1)
-			}
 		}
 
 		// Create controllers which only supports VPC
@@ -321,7 +299,7 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 	}
 
 	// Update pod labels to determine if this pod is the master
-	err := updatePodLabels(mgr)
+	err = updatePodLabels(mgr)
 	if err != nil {
 		log.Error(err, "Failed to update Pod labels")
 		panic(err)

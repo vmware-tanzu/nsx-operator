@@ -99,6 +99,7 @@ const (
 	AnnotationVPCNetworkConfig         string = "nsx.vmware.com/vpc_network_config"
 	AnnotationSharedVPCNamespace       string = "nsx.vmware.com/shared_vpc_namespace"
 	AnnotationDefaultNetworkConfig     string = "nsx.vmware.com/default"
+	AnnotationLBProvider               string = "nsx.vmware.com/lb-provider"
 	AnnotationAttachmentRef            string = "nsx.vmware.com/attachment_ref"
 	AnnotationAssociatedResource       string = "nsx.vmware.com/associated-resource"
 	AnnotationReusePort                string = "nsx.vmware.com/reuse-port"

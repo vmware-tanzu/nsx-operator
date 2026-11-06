@@ -11,6 +11,40 @@ webhooks:
     service:
       name: vmware-system-nsx-operator-webhook-service
       namespace: vmware-system-nsx
+      path: /validate-nsx-vmware-com-v1-ncpconfig
+  failurePolicy: Fail
+  # Restore status bootstrap writes can happen before the webhook serves; provider changes are validated once it is ready.
+  matchConditions:
+  - name: restore-status
+    expression: "request.name == 'nsx-restore-status'"
+  - name: untrusted-writer-or-provider-change
+    expression: >-
+      request.userInfo.username != 'system:serviceaccount:vmware-system-nsx:ncp-svc-account' ||
+      (request.operation == 'UPDATE' &&
+      ((has(oldObject.metadata.annotations) && 'nsx.vmware.com/lb-provider' in oldObject.metadata.annotations) !=
+      (has(object.metadata.annotations) && 'nsx.vmware.com/lb-provider' in object.metadata.annotations) ||
+      (has(oldObject.metadata.annotations) && 'nsx.vmware.com/lb-provider' in oldObject.metadata.annotations &&
+      has(object.metadata.annotations) && 'nsx.vmware.com/lb-provider' in object.metadata.annotations &&
+      oldObject.metadata.annotations['nsx.vmware.com/lb-provider'] != object.metadata.annotations['nsx.vmware.com/lb-provider'])))
+  name: ncpconfig.validating.nsx.vmware.com
+  rules:
+  - apiGroups:
+    - nsx.vmware.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - ncpconfigs
+    scope: Cluster
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: vmware-system-nsx-operator-webhook-service
+      namespace: vmware-system-nsx
       # kubebuilder webhookpath.
       path: /validate-crd-nsx-vmware-com-v1alpha1-subnetset
   failurePolicy: Fail

@@ -8,7 +8,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,30 +31,36 @@ type ReconcilerProvider interface {
 	StartController(mgr ctrl.Manager, hookServer webhook.Server) error
 }
 
-func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, error) {
+// GetOrCreateNSXRestoreStatus ensures the shared NCPConfig used for NSX restore
+// tracking and provider persistence exists, initializing the restore timestamp
+// when the object must be created.
+func GetOrCreateNSXRestoreStatus(k8sClient client.Client) (*unstructured.Unstructured, error) {
 	ctx := context.TODO()
-	gvk := schema.GroupVersionKind{
-		Group:   "nsx.vmware.com",
-		Version: "v1",
-		Kind:    "NCPConfig",
-	}
-
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvk)
+	obj := NewNSXRestoreStatus()
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: NSXRestoreStatus}, obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			obj.SetName(NSXRestoreStatus)
-			obj.SetAnnotations(map[string]string{AnnotationRestoreEndTime: "-1"})
-			log.Info("ncpconfig not exists, create ncpconfig for restore", "ncpconfig", obj)
-			// create may fail due to concurrent create with ncp, restart in this case
-			if err = k8sClient.Create(ctx, obj); err != nil {
-				return false, fmt.Errorf("failed to create %s: %w", NSXRestoreStatus, err)
-			}
-		} else {
-			return false, fmt.Errorf("failed to get %s: %w", NSXRestoreStatus, err)
+		if !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get %s: %w", NSXRestoreStatus, err)
+		}
+		obj.SetAnnotations(map[string]string{AnnotationRestoreEndTime: "-1"})
+		log.Info("ncpconfig not exists, create ncpconfig for restore", "ncpconfig", obj)
+		// create may fail due to concurrent create with ncp, restart in this case
+		if err = k8sClient.Create(ctx, obj); err != nil {
+			return nil, fmt.Errorf("failed to create %s: %w", NSXRestoreStatus, err)
 		}
 	}
+	return obj, nil
+}
+
+func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, error) {
+	ctx := context.TODO()
+	obj, err := GetOrCreateNSXRestoreStatus(k8sClient)
+	if err != nil {
+		return false, err
+	}
 	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
 
 	forceRestoreStr, ok := annotations[AnnotationForceRestore]
 	if ok {
@@ -103,14 +108,7 @@ func CompareNSXRestore(k8sClient client.Client, nsxClient *nsx.Client) (bool, er
 
 func updateRestoreEndTime(k8sClient client.Client) error {
 	ctx := context.TODO()
-	gvk := schema.GroupVersionKind{
-		Group:   "nsx.vmware.com",
-		Version: "v1",
-		Kind:    "NCPConfig",
-	}
-
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvk)
+	obj := NewNSXRestoreStatus()
 
 	return retry.OnError(retry.DefaultBackoff, func(err error) bool {
 		return err != nil
@@ -119,6 +117,9 @@ func updateRestoreEndTime(k8sClient client.Client) error {
 			return err
 		}
 		annotations := obj.GetAnnotations()
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
 		annotations[AnnotationRestoreEndTime] = strconv.Itoa(int(time.Now().UnixMilli()))
 		obj.SetAnnotations(annotations)
 		return k8sClient.Update(ctx, obj)
