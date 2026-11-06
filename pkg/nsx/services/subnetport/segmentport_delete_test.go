@@ -41,7 +41,6 @@ func segmentPortForDeletion() *model.SegmentPort {
 		Path:       common.String("/infra/segments/seg-1/ports/port-1"),
 		Tags: []model.Tag{
 			{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: common.String("cr-uid")},
-			{Scope: common.String(common.TagScopePodUID), Tag: common.String("pod-uid")},
 		},
 	}
 }
@@ -97,7 +96,6 @@ func TestDeleteSegmentPortCacheCleanup(t *testing.T) {
 				assert.Equal(t, "port-1", segmentClient.portID)
 				for index, value := range map[string]string{
 					common.TagScopeSubnetPortCRUID: "cr-uid",
-					common.TagScopePodUID:          "pod-uid",
 					common.IndexKeySegmentPath:     "/infra/segments/seg-1",
 				} {
 					objects, err := service.SegmentPortStore.ByIndex(index, value)
@@ -114,7 +112,7 @@ func TestDeleteSegmentPortCacheCleanup(t *testing.T) {
 }
 
 func TestDeleteSegmentPortPathFallback(t *testing.T) {
-	for _, method := range []string{"object", "ID", "GC", "CR UID", "Pod UID"} {
+	for _, method := range []string{"object", "ID", "GC", "CR UID"} {
 		for _, parent := range []struct {
 			name  string
 			value *string
@@ -128,7 +126,6 @@ func TestDeleteSegmentPortPathFallback(t *testing.T) {
 				// Simulate an incomplete cached GET response without startup normalization.
 				service.SegmentPortStore.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
 					common.TagScopeSubnetPortCRUID: segmentPortIndexByCRUID,
-					common.TagScopePodUID:          segmentPortIndexByPodUID,
 				})
 				port := segmentPortForDeletion()
 				port.ParentPath = parent.value
@@ -144,8 +141,6 @@ func TestDeleteSegmentPortPathFallback(t *testing.T) {
 					err = service.DeletePortById("port-1")
 				case "CR UID":
 					err = service.DeletePortByUID("cr-uid")
-				case "Pod UID":
-					err = service.DeletePortByUID("pod-uid")
 				}
 				require.NoError(t, err)
 				assert.Equal(t, 1, segmentClient.calls)

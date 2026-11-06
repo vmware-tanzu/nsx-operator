@@ -75,15 +75,6 @@ func segmentPortIndexByCRUID(obj interface{}) ([]string, error) {
 	}
 }
 
-func segmentPortIndexByPodUID(obj interface{}) ([]string, error) {
-	switch o := obj.(type) {
-	case *model.SegmentPort:
-		return filterTag(o.Tags, common.TagScopePodUID), nil
-	default:
-		return nil, errors.New("segmentPortIndexByPodUID doesn't support unknown type")
-	}
-}
-
 func segmentPortIndexBySegmentPath(obj interface{}) ([]string, error) {
 	switch o := obj.(type) {
 	case *model.SegmentPort:
@@ -109,7 +100,6 @@ func setupSegmentPortStore() *SegmentPortStore {
 				keyFunc,
 				cache.Indexers{
 					common.TagScopeSubnetPortCRUID: segmentPortIndexByCRUID,
-					common.TagScopePodUID:          segmentPortIndexByPodUID,
 					common.IndexKeySegmentPath:     segmentPortIndexBySegmentPath,
 				}),
 			BindingType: model.SegmentPortBindingType(),
@@ -121,14 +111,10 @@ func (store *SegmentPortStore) GetSegmentPortByUID(uid types.UID) (*model.Segmen
 	if store == nil {
 		return nil, nil
 	}
-	var indexResults []interface{}
-	for _, index := range []string{common.TagScopeSubnetPortCRUID, common.TagScopePodUID} {
-		indexResult, err := store.ByIndex(index, string(uid))
-		if err != nil {
-			log.Error(err, "Failed to get SegmentPort", "index", index, "UID", string(uid))
-			return nil, err
-		}
-		indexResults = append(indexResults, indexResult...)
+	indexResults, err := store.ByIndex(common.TagScopeSubnetPortCRUID, string(uid))
+	if err != nil {
+		log.Error(err, "Failed to get SegmentPort", "UID", string(uid))
+		return nil, err
 	}
 
 	if len(indexResults) > 0 {
@@ -303,24 +289,8 @@ func (service *SubnetPortService) buildSegmentPort(
 	return nsxSegmentPort, nil
 }
 
-func (service *SubnetPortService) GetSegmentPortForSubnetPort(obj *metav1.ObjectMeta) (*model.SegmentPort, error) {
-	segmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(obj.UID)
-	if err != nil || segmentPort != nil {
-		return segmentPort, err
-	}
-	for _, owner := range obj.OwnerReferences {
-		if owner.Kind == "Pod" && owner.UID != "" {
-			segmentPort, err = service.SegmentPortStore.GetSegmentPortByUID(owner.UID)
-			if err != nil || segmentPort != nil {
-				return segmentPort, err
-			}
-		}
-	}
-	return nil, nil
-}
-
 func (service *SubnetPortService) BuildSegmentPortIdAndName(obj *metav1.ObjectMeta, namespaceUID types.UID) (string, string, error) {
-	existingSegmentPort, err := service.GetSegmentPortForSubnetPort(obj)
+	existingSegmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(obj.UID)
 	if err != nil {
 		return "", "", err
 	}
@@ -392,11 +362,6 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 	existingSegmentPort := service.SegmentPortStore.GetByKey(*nsxSegmentPort.Id)
 	if existingSegmentPort != nil && existingSegmentPort.Attachment != nil {
 		nsxSegmentPort.Attachment.Id = existingSegmentPort.Attachment.Id
-		if controllercommon.GetPodNameForSubnetPort(subnetPort) != "" && contextID == "" &&
-			nsx.PodV2FeatureEnabled(service.NSXClient, service.NSXConfig) {
-			// An unresolved Pod host must not clear a context already on the port.
-			nsxSegmentPort.Attachment.ContextId = existingSegmentPort.Attachment.ContextId
-		}
 	}
 
 	if restoreMode && nsx.RestoreVifFeatureEnabled(service.NSXClient, service.NSXConfig) && attachmentID != "" {
@@ -473,7 +438,7 @@ func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.Sub
 	if err != nil {
 		return nil, err
 	}
-	nsxSegmentPort, err := service.GetSegmentPortForSubnetPort(&subnetPort.ObjectMeta)
+	nsxSegmentPort, err := service.SegmentPortStore.GetSegmentPortByUID(subnetPort.UID)
 	if err != nil {
 		return nil, err
 	}

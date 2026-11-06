@@ -37,13 +37,11 @@ func TestCheckAndGetSubnetPathForExistingSegmentPort(t *testing.T) {
 	tests := []struct {
 		name     string
 		parent   string
-		podOwner bool
 		pathOnly bool
 		segments []string
 		wantErr  bool
 	}{
 		{name: "Subnet CR UID", parent: "Subnet", segments: []string{segmentPath}},
-		{name: "owner Pod UID", parent: "Subnet", podOwner: true, segments: []string{segmentPath}},
 		{name: "parent recovered from port path", parent: "Subnet", pathOnly: true, segments: []string{segmentPath}},
 		{name: "explicit SubnetSet", parent: "SubnetSet", segments: []string{"/infra/segments/other", segmentPath}},
 		{name: "default SubnetSet", segments: []string{segmentPath}},
@@ -67,12 +65,8 @@ func TestCheckAndGetSubnetPathForExistingSegmentPort(t *testing.T) {
 				sp.Spec.SubnetSet = "subnetset-1"
 			}
 			uid, scope := sp.UID, servicecommon.TagScopeSubnetPortCRUID
-			if tt.podOwner {
-				uid, scope = "pod-uid", servicecommon.TagScopePodUID
-				sp.OwnerReferences = []metav1.OwnerReference{{Kind: "Pod", Name: "pod-1", UID: uid}}
-			}
 			indexers := cache.Indexers{}
-			for _, scope := range []string{servicecommon.TagScopeSubnetPortCRUID, servicecommon.TagScopePodUID} {
+			for _, scope := range []string{servicecommon.TagScopeSubnetPortCRUID} {
 				indexers[scope] = func(obj interface{}) ([]string, error) {
 					for _, tag := range obj.(*model.SegmentPort).Tags {
 						if *tag.Scope == scope {
@@ -84,9 +78,7 @@ func TestCheckAndGetSubnetPathForExistingSegmentPort(t *testing.T) {
 			}
 			keyFunc := func(obj interface{}) (string, error) { return *obj.(*model.SegmentPort).Id, nil }
 			service := &subnetport.SubnetPortService{
-				SubnetPortStore: &subnetport.SubnetPortStore{ResourceStore: servicecommon.ResourceStore{
-					Indexer: cache.NewIndexer(keyFunc, indexers),
-				}},
+				SubnetPortStore: newPodRestorePortStore(),
 				SegmentPortStore: &subnetport.SegmentPortStore{ResourceStore: servicecommon.ResourceStore{
 					Indexer: cache.NewIndexer(keyFunc, indexers),
 				}},
@@ -275,7 +267,7 @@ func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 			key := types.NamespacedName{Namespace: sp.Namespace, Name: sp.Name}
 			result, err := r.reconcileSubnetPort(ctx, ctrl.Request{NamespacedName: key}, sp, oldStatus,
 				&model.VpcSubnet{RealizationId: tt.subnetRealizationID}, "/tracking-subnet", "/infra/segments/segment-1", true,
-				nil, true, v1alpha1.IPAddressTypeIPv4, nil, "", false, false, "", nil, k8sClient)
+				nil, true, v1alpha1.IPAddressTypeIPv4, nil, "", false, false, "", nil, k8sClient, nil)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Equal(t, common.ResultRequeue, result)
@@ -296,7 +288,7 @@ func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 
 func newSegmentRestorePortStore() *subnetport.SegmentPortStore {
 	indexers := cache.Indexers{}
-	for _, scope := range []string{servicecommon.TagScopeSubnetPortCRUID, servicecommon.TagScopePodUID} {
+	for _, scope := range []string{servicecommon.TagScopeSubnetPortCRUID} {
 		indexers[scope] = func(obj interface{}) ([]string, error) {
 			var values []string
 			for _, tag := range obj.(*model.SegmentPort).Tags {
@@ -324,7 +316,6 @@ func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
 		attachmentID  string
 		logicalSwitch string
 		hasIP         bool
-		podOwned      bool
 		missingParent bool
 		wantRestore   bool
 	}{
@@ -333,7 +324,6 @@ func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
 		{name: "missing attachment", segment: true, logicalSwitch: "switch", hasIP: true},
 		{name: "missing logical switch", segment: true, attachmentID: "attachment", hasIP: true},
 		{name: "missing status", segment: true, hasIP: true},
-		{name: "segment port skips Pod handling", segment: true, attachmentID: "attachment", logicalSwitch: "switch", podOwned: true, wantRestore: true},
 		{name: "normal port uses saved IP", hasIP: true, wantRestore: true},
 		{name: "normal port without saved IP", attachmentID: "attachment", logicalSwitch: "switch"},
 		{name: "missing parent", missingParent: true},
@@ -349,9 +339,6 @@ func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
 			}
 			if tt.hasIP {
 				sp.Status.NetworkInterfaceConfig.IPAddresses = []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}}
-			}
-			if tt.podOwned {
-				sp.OwnerReferences = []metav1.OwnerReference{{Kind: "Pod", Name: "pod", UID: "pod-uid"}}
 			}
 			parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: sp.Namespace}}
 			if tt.segment {

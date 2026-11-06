@@ -51,28 +51,19 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 		newPort         bool
 		contextID       string
 		existingContext string
-		podOwner        bool
-		podV2           bool
-		updateTags      bool
 		expectedContext string
 		patchCount      int
 	}{
 		{name: "new port", newPort: true, contextID: "host-1", expectedContext: "host-1", patchCount: 1},
 		{name: "changed context", contextID: "host-2", existingContext: "host-1", expectedContext: "host-2", patchCount: 1},
 		{name: "unchanged context", contextID: "host-1", existingContext: "host-1", expectedContext: "host-1"},
-		{name: "unresolved Pod host", existingContext: "host-1", podOwner: true, podV2: true, expectedContext: "host-1"},
-		{name: "tag update preserves unresolved Pod host", existingContext: "host-1", podOwner: true, podV2: true, updateTags: true, expectedContext: "host-1", patchCount: 1},
-		{name: "PodV2 disabled", existingContext: "host-1", podOwner: true, patchCount: 1},
-		{name: "VM port", existingContext: "host-1", podV2: true, patchCount: 1},
+		{name: "cleared context", existingContext: "host-1", patchCount: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{
 				Name: "port", Namespace: "ns", UID: "00000000-0000-0000-0000-000000000001",
 			}}
-			if tt.podOwner {
-				sp.OwnerReferences = []metav1.OwnerReference{{Kind: "Pod", Name: "pod", UID: "pod-uid"}}
-			}
 			segmentClient := &fakeSegmentPortsClient{}
 			service := &SubnetPortService{
 				Service: common.Service{
@@ -80,14 +71,13 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 					NSXClient: &nsx.Client{SegmentPortsClient: segmentClient},
 					NSXConfig: &config.NSXOperatorConfig{
 						CoeConfig: &config.CoeConfig{Cluster: "cluster"},
-						K8sConfig: &config.K8sConfig{PodV2: &tt.podV2},
 					},
 				},
 				SegmentPortStore: setupSegmentPortStore(),
 			}
 			segmentPath := "/infra/segments/seg-1"
 			if !tt.newPort {
-				port, err := service.buildSegmentPort(sp, segmentPath, "", nil, !tt.podOwner, false)
+				port, err := service.buildSegmentPort(sp, segmentPath, "", nil, true, false)
 				require.NoError(t, err)
 				port.Attachment.ContextId = common.String(tt.existingContext)
 				require.NoError(t, service.SegmentPortStore.Apply(port))
@@ -97,15 +87,11 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 				return &model.SegmentPortState{}, nil
 			})
 			defer patches.Reset()
-			var tags *map[string]string
-			if tt.updateTags {
-				tags = &map[string]string{"app": "updated"}
-			}
 
-			_, err := service.CreateOrUpdateSegmentPort(sp, segmentPath, tt.contextID, tags, !tt.podOwner, false)
+			_, err := service.CreateOrUpdateSegmentPort(sp, segmentPath, tt.contextID, nil, true, false)
 			require.NoError(t, err)
 			assert.Equal(t, tt.patchCount, segmentClient.patchCount)
-			cached, err := service.GetSegmentPortForSubnetPort(&sp.ObjectMeta)
+			cached, err := service.SegmentPortStore.GetSegmentPortByUID(sp.UID)
 			require.NoError(t, err)
 			require.NotNil(t, cached)
 			if tt.expectedContext == "" {
