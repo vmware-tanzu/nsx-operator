@@ -1134,7 +1134,7 @@ func TestBuildSubnetCR(t *testing.T) {
 		expectedSubnet *v1alpha1.Subnet
 	}{
 		{
-			name:           "Build Subnet CR with NSX Subnet",
+			name:           "Build Subnet CR with segment tracking",
 			ns:             "test-ns",
 			subnetName:     "test-subnet",
 			vpcFullID:      "proj-1:vpc-1",
@@ -1142,7 +1142,10 @@ func TestBuildSubnetCR(t *testing.T) {
 			nsxSubnet: &model.VpcSubnet{
 				AccessMode:     common.String("Private_TGW"),
 				Ipv4SubnetSize: common.Int64(24),
-				// Segment path annotations are added only by shared subnet creation.
+				IpAddressType:  common.String("IPV4"),
+				AdvancedConfig: &model.SubnetAdvancedConfig{
+					ConnectivityState: common.String("CONNECTED"),
+				},
 				Tags: []model.Tag{
 					{
 						Scope: common.String(common.TagScopeWCPSegmentTrackingSubnet),
@@ -1156,13 +1159,13 @@ func TestBuildSubnetCR(t *testing.T) {
 					Namespace: "test-ns",
 					Annotations: map[string]string{
 						common.AnnotationAssociatedResource: "proj-1:vpc-1:subnet-1",
+						common.AnnotationSegmentPath:        "/infra/segments/seg-tracking-1",
 					},
 				},
 				Spec: v1alpha1.SubnetSpec{
 					VPCName:        "proj-1:vpc-1",
 					AccessMode:     v1alpha1.AccessMode(v1alpha1.AccessModeProject),
 					IPv4SubnetSize: 24,
-					IPAddressType:  v1alpha1.IPAddressTypeIPv4,
 					SubnetDHCPConfig: v1alpha1.SubnetDHCPConfig{
 						Mode: v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeDeactivated),
 					},
