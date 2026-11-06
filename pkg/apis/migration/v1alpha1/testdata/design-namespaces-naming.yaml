@@ -1,0 +1,25 @@
+apiVersion: migration.network.vmware.com/v1alpha1
+kind: NamespaceNetworkTransition
+metadata:
+  name: batch-ns-migration-01
+  generation: 1
+spec:
+  namespaces: [ns1, ns2]
+  action: Evaluate
+  sourceMode: VSPHERE_VDS
+  targetMode: NSX_VPC
+  networkConfiguration:
+    resourceNaming:
+      networks:
+      - vdnName: vdn-tenant-1
+        tgwName: tgw-workload
+        vpcName: vpc-workload
+        dvcName: dvc-workload
+        subnetName: subnet-workload
+status:
+  observedGeneration: 1
+  optionalInputs:
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-tenant-1].dvcName
+    description: Optional DVC name for vdn-tenant-1; omitted names are generated.
+  - key: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-tenant-1].subnetName
+    description: Optional VLAN extension subnet name for vdn-tenant-1; omitted names are generated.
