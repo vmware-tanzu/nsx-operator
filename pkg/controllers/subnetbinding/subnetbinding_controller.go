@@ -38,8 +38,9 @@ var (
 
 type errorWithRetry struct {
 	error
-	retry   bool
-	message string
+	retry          bool
+	retryInRestore bool
+	message        string
 }
 
 // Reconciler reconciles a SubnetConnectionBindingMap object
@@ -208,6 +209,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err != nil {
 		// Update SubnetConnectionBindingMap with not-ready condition
 		r.StatusUpdater.UpdateFail(ctx, bindingMapCR, err, "dependent Subnets are not ready", updateBindingMapStatusWithUnreadyCondition, "DependencyNotReady", err.message)
+		if r.restoreMode {
+			// In restore mode, only realized Bindingmap will be reconciled.
+			// The realized Bindingmap may encounter error for validateDependency when the
+			// relied subnet is a shared subnet and is deleted during the NSX restore.
+			// Bindingmap restore needs to retry until the shared subnet is recovered.
+			if err.retryInRestore {
+				return common.ResultNormal, err
+			}
+			return common.ResultNormal, nil
+		}
 		if !err.retry {
 			return common.ResultNormal, nil
 		}
@@ -386,6 +397,12 @@ func (r *Reconciler) validateDependency(ctx context.Context, bindingMap *v1alpha
 		// targetSubnetName is trunk Subnet: it can have multiple branch Subnets, but CANNOT be a branch Subnet in any binding.
 		targetSubnetPaths, err = r.validateVpcSubnetsBySubnetCR(ctx, targetNamespace, bindingMap.Spec.TargetSubnetName, targetIsParent)
 		if err != nil {
+			if targetIsParent {
+				// A trunk Subnet cannot be a shared Subnet. If this target is changed
+				// to a missing Subnet after the BindingMap is ready, it is likely a
+				// misconfiguration and should not block restore.
+				err.retryInRestore = false
+			}
 			return "", nil, err
 		}
 	} else {
@@ -425,9 +442,10 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 	if err != nil {
 		log.Error(err, "Failed to get Subnet CR", "Subnet", subnetKey.String())
 		return nil, &errorWithRetry{
-			message: fmt.Sprintf("Unable to get Subnet CR %s", name),
-			retry:   false,
-			error:   fmt.Errorf("failed to get Subnet %s in Namespace %s with error: %v", name, namespace, err),
+			message:        fmt.Sprintf("Unable to get Subnet CR %s", name),
+			retry:          false,
+			retryInRestore: true,
+			error:          fmt.Errorf("failed to get Subnet %s in Namespace %s with error: %v", name, namespace, err),
 		}
 	}
 
@@ -451,9 +469,10 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 		}
 		if !realized {
 			return nil, &errorWithRetry{
-				message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
-				retry:   false,
-				error:   err,
+				message:        fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
+				retry:          false,
+				retryInRestore: true,
+				error:          fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name),
 			}
 		}
 		path, err := servicecommon.GetSubnetPathFromAssociatedResource(anno)
@@ -478,9 +497,10 @@ func (r *Reconciler) validateVpcSubnetsBySubnetCR(ctx context.Context, namespace
 	if len(subnetPaths) == 0 {
 		log.Info("NSX VpcSubnets by Subnet CR do not exist", "Subnet", subnetKey.String())
 		return nil, &errorWithRetry{
-			message: fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
-			retry:   false,
-			error:   fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name),
+			message:        fmt.Sprintf("Subnet CR %s is not realized on NSX", name),
+			retry:          false,
+			retryInRestore: true,
+			error:          fmt.Errorf("not found NSX VpcSubnets created by Subnet CR '%s/%s'", namespace, name),
 		}
 	}
 

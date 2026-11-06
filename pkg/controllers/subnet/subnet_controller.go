@@ -390,7 +390,11 @@ func (r *SubnetReconciler) handleSharedSubnet(ctx context.Context, subnetCR *v1a
 
 func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
 	subnetCR := obj.(*v1alpha1.Subnet)
+	newConditions := []v1alpha1.Condition{subnetReadyCondition(subnetCR, transitionTime)}
+	updateSubnetStatusConditions(client, ctx, subnetCR, newConditions)
+}
 
+func subnetReadyCondition(subnetCR *v1alpha1.Subnet, transitionTime metav1.Time) v1alpha1.Condition {
 	// Build DHCP mode strings only for enabled address types
 	var statusMsgs []string
 
@@ -420,16 +424,13 @@ func setSubnetReadyStatusTrue(client client.Client, ctx context.Context, obj cli
 		message = "NSX Subnet has been successfully created/updated"
 	}
 
-	newConditions := []v1alpha1.Condition{
-		{
-			Type:               v1alpha1.Ready,
-			Status:             v1.ConditionTrue,
-			Message:            message,
-			Reason:             "SubnetReady",
-			LastTransitionTime: transitionTime,
-		},
+	return v1alpha1.Condition{
+		Type:               v1alpha1.Ready,
+		Status:             v1.ConditionTrue,
+		Message:            message,
+		Reason:             "SubnetReady",
+		LastTransitionTime: transitionTime,
 	}
-	updateSubnetStatusConditions(client, ctx, subnetCR, newConditions)
 }
 
 func setSubnetReadyStatusFalse(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error, args ...interface{}) {
@@ -533,6 +534,8 @@ func (r *SubnetReconciler) RestoreReconcile() error {
 	return nil
 }
 
+const sharedSubnetMissingDuringRestore = "NSX Subnet does not exist during restore"
+
 func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 	restoreList := []types.NamespacedName{}
 	subnetList := &v1alpha1.SubnetList{}
@@ -556,13 +559,25 @@ func (r *SubnetReconciler) getRestoreList() ([]types.NamespacedName, error) {
 				if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
 					if nsxErr.Type() == stderrors.ErrorType_NOT_FOUND {
 						log.Warn("Precreated Subnet does not exist in NSX", "associatedResource", associatedResource)
-						r.StatusUpdater.UpdateFail(context.TODO(), &subnetCR, err, "NSX Subnet does not exists", setSubnetReadyStatusFalse)
+						r.StatusUpdater.UpdateFail(context.TODO(), &subnetCR, err, "NSX Subnet does not exist", setSubnetReadyStatusFalse, sharedSubnetMissingDuringRestore)
 						continue
 					}
 				}
 				// For other error, retry the restore
 				log.Error(err, "Failed to get Subnet from NSX", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
 				return restoreList, err
+			}
+			// Restore only the readiness changed by the missing-NSX check above.
+			// Keep the restored network information and unrelated failure conditions intact.
+			// subnetipreseration/subnetconnectionbindingmap relies on Subnet CR status to validate the CR
+			// so the shared subnet CR status need to be update to ready after they are recovered in NSX
+			ready := getExistingConditionOfType(v1alpha1.Ready, subnetCR.Status.Conditions)
+			if ready != nil && ready.Status == v1.ConditionFalse && ready.Reason == "SubnetNotReady" && ready.Message == sharedSubnetMissingDuringRestore {
+				*ready = subnetReadyCondition(&subnetCR, metav1.Now())
+				key := types.NamespacedName{Namespace: subnetCR.Namespace, Name: subnetCR.Name}
+				if err := r.Client.Status().Update(context.TODO(), &subnetCR); err != nil {
+					return restoreList, fmt.Errorf("failed to mark shared Subnet %s ready during restore: %w", key, err)
+				}
 			}
 			log.Debug("Skip handling the Shared Subnet", "Namespace", subnetCR.Namespace, "Subnet", subnetCR.Name)
 			continue

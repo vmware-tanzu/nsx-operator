@@ -310,6 +310,39 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
+func TestReconcileRestoreDependencyErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		retryInRestore bool
+		expectError    bool
+	}{
+		{name: "missing source Subnet is retried", retryInRestore: true, expectError: true},
+		{name: "missing target dependency does not block restore", retryInRestore: false, expectError: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			bm := &v1alpha1.SubnetConnectionBindingMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "binding-restore", Namespace: "default"},
+				Spec:       v1alpha1.SubnetConnectionBindingMapSpec{SubnetName: "child", TargetSubnetSetName: "target"},
+				Status:     v1alpha1.SubnetConnectionBindingMapStatus{VLANTrafficTag: v1alpha1.VLANTrafficTagPtr(101)},
+			}
+			r := createFakeReconciler(bm)
+			r.restoreMode = true
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "validateDependency", func(_ *Reconciler, _ context.Context, _ *v1alpha1.SubnetConnectionBindingMap) (string, []string, *errorWithRetry) {
+				return "", nil, &errorWithRetry{error: fmt.Errorf("dependency is not realized"), message: "dependency is not realized", retryInRestore: tc.retryInRestore}
+			})
+			defer patches.Reset()
+
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "binding-restore"}})
+			if tc.expectError {
+				require.EqualError(t, err, "dependency is not realized")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestCollectGarbage(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -417,21 +450,52 @@ func TestValidateDependency(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name             string
-		objects          []client.Object
-		patches          func(t *testing.T, r *Reconciler) *gomonkey.Patches
-		bindingMap       *v1alpha1.SubnetConnectionBindingMap
-		expErr           string
-		expMsg           string
-		expSubnet        string
-		expTargetSubnets []string
+		name              string
+		objects           []client.Object
+		patches           func(t *testing.T, r *Reconciler) *gomonkey.Patches
+		bindingMap        *v1alpha1.SubnetConnectionBindingMap
+		expErr            string
+		expMsg            string
+		expRetryInRestore bool
+		expSubnet         string
+		expTargetSubnets  []string
 	}{
 		{
-			name:       "child subnet is not ready",
+			name:              "child subnet is not ready",
+			bindingMap:        bindingCR1,
+			objects:           []client.Object{targetSubnetCR},
+			expErr:            "failed to get Subnet subnet in Namespace default with error: subnets.crd.nsx.vmware.com \"subnet\" not found",
+			expMsg:            "Unable to get Subnet CR subnet",
+			expRetryInRestore: true,
+		}, {
+			name:       "child Subnet has no NSX realization and must retry during restore",
 			bindingMap: bindingCR1,
-			objects:    []client.Object{targetSubnetCR},
-			expErr:     "failed to get Subnet subnet in Namespace default with error: subnets.crd.nsx.vmware.com \"subnet\" not found",
-			expMsg:     "Unable to get Subnet CR subnet",
+			objects:    []client.Object{childSubnetCR, targetSubnetCR},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "child-uuid" {
+						return []*model.VpcSubnet{}
+					}
+					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/target")}}
+				})
+			},
+			expErr:            "not found NSX VpcSubnets created by Subnet CR 'default/subnet'",
+			expMsg:            "Subnet CR subnet is not realized on NSX",
+			expRetryInRestore: true,
+		}, {
+			name:       "missing target Subnet realization does not block restore",
+			bindingMap: bindingCR1,
+			objects:    []client.Object{childSubnetCR, targetSubnetCR},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "child-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/child")}}
+					}
+					return []*model.VpcSubnet{}
+				})
+			},
+			expErr: "not found NSX VpcSubnets created by Subnet CR 'default/targetSubnet'",
+			expMsg: "Subnet CR targetSubnet is not realized on NSX",
 		}, {
 			name:       "parent subnet is not ready",
 			bindingMap: bindingCR1,
@@ -474,6 +538,20 @@ func TestValidateDependency(t *testing.T) {
 			},
 			expErr: "failed to get SubnetSet targetSubnetSet in Namespace default with error: subnetsets.crd.nsx.vmware.com \"targetSubnetSet\" not found",
 			expMsg: "Unable to get SubnetSet CR targetSubnetSet",
+		}, {
+			name:       "missing target SubnetSet realization does not block restore",
+			bindingMap: bindingCR2,
+			objects:    []client.Object{childSubnetCR, targetSubnetSetCR},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				return gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if value == "child-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/child")}}
+					}
+					return []*model.VpcSubnet{}
+				})
+			},
+			expErr: "no existing NSX VpcSubnet created by SubnetSet CR 'default/targetSubnetSet'",
+			expMsg: "SubnetSet CR targetSubnetSet is not realized on NSX",
 		}, {
 			name:       "parent subnetSet is ready",
 			bindingMap: bindingCR2,
@@ -589,6 +667,7 @@ func TestValidateDependency(t *testing.T) {
 			if tc.expErr != "" {
 				require.EqualError(t, err.error, tc.expErr)
 				require.Equal(t, tc.expMsg, err.message)
+				require.Equal(t, tc.expRetryInRestore, err.retryInRestore)
 			} else {
 				require.Nil(t, err)
 			}
@@ -1549,10 +1628,10 @@ func TestRestoreReconcile(t *testing.T) {
 		assert.Empty(t, list)
 	})
 
-	t.Run("missing dependency does not block restore", func(t *testing.T) {
+	t.Run("missing dependency keeps previously realized binding pending restore", func(t *testing.T) {
 		r := createFakeReconciler(bmWithStatus)
 		err := r.RestoreReconcile()
-		require.NoError(t, err)
+		require.ErrorContains(t, err, "failed to get Subnet sub-1")
 		assert.False(t, r.restoreMode)
 		current := &v1alpha1.SubnetConnectionBindingMap{}
 		require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: bmWithStatus.Namespace, Name: bmWithStatus.Name}, current))
@@ -1843,7 +1922,8 @@ func TestRestoreWithEmptyTargetSubnetSet(t *testing.T) {
 			}
 			assert.Equal(t, []types.NamespacedName{{Namespace: binding.Namespace, Name: binding.Name}}, list)
 			if scenario == "expected subnet missing" || scenario == "missing SubnetSet" {
-				require.NoError(t, r.RestoreReconcile())
+				restoreErr := r.RestoreReconcile()
+				require.NoError(t, restoreErr, "missing target SubnetSet dependencies must not block restore")
 				current := &v1alpha1.SubnetConnectionBindingMap{}
 				require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: binding.Namespace, Name: binding.Name}, current))
 				require.NotEmpty(t, current.Status.Conditions)
