@@ -1891,7 +1891,11 @@ func TestCreateSharedSubnetCR_WCPSegmentTrackingSubnet(t *testing.T) {
 
 	segmentPathVal := "/infra/segments/seg-tracking-1"
 	nsxSubnet := &model.VpcSubnet{
-		Id: servicecommon.String("sub-1"),
+		Id:            servicecommon.String("sub-1"),
+		IpAddressType: servicecommon.String("IPV4"),
+		AdvancedConfig: &model.SubnetAdvancedConfig{
+			ConnectivityState: servicecommon.String("CONNECTED"),
+		},
 		Tags: []model.Tag{
 			{
 				Scope: servicecommon.String(servicecommon.TagScopeWCPSegmentTrackingSubnet),
@@ -1916,5 +1920,7 @@ func TestCreateSharedSubnetCR_WCPSegmentTrackingSubnet(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, createdCR)
 	assert.Equal(t, segmentPathVal, createdCR.Annotations[servicecommon.AnnotationSegmentPath])
+	assert.Empty(t, createdCR.Spec.IPAddressType)
+	assert.Empty(t, createdCR.Spec.AdvancedConfig.ConnectivityState)
 	assert.NotContains(t, createdCR.Labels, servicecommon.TagScopeWCPSegmentTrackingSubnet)
 }

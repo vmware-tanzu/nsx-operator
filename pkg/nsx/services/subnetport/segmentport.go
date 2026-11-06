@@ -346,6 +346,25 @@ func parseSegmentPath(segmentPath string) (string, error) {
 	return parts[2], nil
 }
 
+// GetSegmentLogicalSwitchID returns the realized logical switch backing the segment.
+func (service *SubnetPortService) GetSegmentLogicalSwitchID(segmentPath string) (string, error) {
+	if _, err := parseSegmentPath(segmentPath); err != nil {
+		return "", err
+	}
+	entities, err := service.NSXClient.RealizedEntitiesClient.List(segmentPath, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get realized entities for segment %s: %w", segmentPath, nsxutil.TransNSXApiError(err))
+	}
+	for _, entity := range entities.Results {
+		if entity.EntityType != nil && *entity.EntityType == "RealizedLogicalSwitch" &&
+			entity.State != nil && *entity.State == model.GenericPolicyRealizedResource_STATE_REALIZED &&
+			entity.RealizationSpecificIdentifier != nil && *entity.RealizationSpecificIdentifier != "" {
+			return *entity.RealizationSpecificIdentifier, nil
+		}
+	}
+	return "", fmt.Errorf("logical switch for segment %s is not realized", segmentPath)
+}
+
 // CreateOrUpdateSegmentPort creates or updates SegmentPort on NSX
 func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 	subnetPort *v1alpha1.SubnetPort,

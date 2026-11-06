@@ -342,8 +342,13 @@ func (r *SubnetPortReconciler) reconcileSubnetPort(
 	}
 
 	// An unchanged segment port may skip the state lookup, but still need its switch UUID populated.
-	if isSegmentTracking && nsxSubnet != nil && nsxSubnet.RealizationId != nil && *nsxSubnet.RealizationId != "" {
-		subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
+	if isSegmentTracking {
+		switchID, err := r.SubnetPortService.GetSegmentLogicalSwitchID(segmentPath)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get segment logical switch ID", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+			return common.ResultRequeue, err
+		}
+		subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = switchID
 	}
 
 	if nsxPortState != nil {
