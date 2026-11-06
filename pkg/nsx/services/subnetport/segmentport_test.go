@@ -5,6 +5,7 @@ package subnetport
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -25,6 +26,71 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
+
+func TestGetSegmentLogicalSwitchID(t *testing.T) {
+	const segmentPath = "/infra/segments/segment-1"
+	switchEntity := model.GenericPolicyRealizedResource{
+		EntityType:                    common.String("RealizedLogicalSwitch"),
+		State:                         common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
+		RealizationSpecificIdentifier: common.String("segment-switch-uuid"),
+	}
+	for _, tt := range []struct {
+		name    string
+		modify  func(*model.GenericPolicyRealizedResource)
+		missing bool
+		badPath bool
+		apiErr  error
+		wantID  string
+	}{
+		{name: "realized switch", wantID: "segment-switch-uuid"},
+		{name: "missing switch", missing: true},
+		{name: "unrealized switch", modify: func(e *model.GenericPolicyRealizedResource) { e.State = common.String("UNREALIZED") }},
+		{name: "switch realization error", modify: func(e *model.GenericPolicyRealizedResource) { e.State = common.String("ERROR") }},
+		{name: "missing state", modify: func(e *model.GenericPolicyRealizedResource) { e.State = nil }},
+		{name: "missing identifier", modify: func(e *model.GenericPolicyRealizedResource) { e.RealizationSpecificIdentifier = nil }},
+		{name: "empty identifier", modify: func(e *model.GenericPolicyRealizedResource) { e.RealizationSpecificIdentifier = common.String("") }},
+		{name: "API error", apiErr: errors.New("NSX unavailable")},
+		{name: "invalid path", badPath: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			entity := switchEntity
+			if tt.modify != nil {
+				tt.modify(&entity)
+			}
+			called := false
+			entitiesClient := &fakeRealizedEntitiesClient{listFn: func(path string, sitePath *string) (model.GenericPolicyRealizedResourceListResult, error) {
+				called = true
+				assert.Equal(t, segmentPath, path)
+				assert.Nil(t, sitePath)
+				// Ignore other realized resources and entities with missing fields.
+				entities := []model.GenericPolicyRealizedResource{{}, {
+					EntityType: common.String("RealizedLogicalPort"), State: common.String("REALIZED"),
+					RealizationSpecificIdentifier: common.String("port-uuid"),
+				}}
+				if !tt.missing {
+					entities = append(entities, entity)
+				}
+				return model.GenericPolicyRealizedResourceListResult{Results: entities}, tt.apiErr
+			}}
+			service := &SubnetPortService{Service: common.Service{NSXClient: &nsx.Client{RealizedEntitiesClient: entitiesClient}}}
+			path := segmentPath
+			if tt.badPath {
+				path = "/tracking-subnet"
+			}
+			got, err := service.GetSegmentLogicalSwitchID(path)
+			assert.Equal(t, tt.wantID, got)
+			assert.Equal(t, !tt.badPath, called)
+			if tt.wantID == "" {
+				require.Error(t, err)
+				if tt.apiErr != nil {
+					assert.ErrorIs(t, err, tt.apiErr)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
 
 func TestSegmentPortPathValidation(t *testing.T) {
 	for _, tt := range []struct {

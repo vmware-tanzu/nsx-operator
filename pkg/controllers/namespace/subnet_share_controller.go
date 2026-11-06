@@ -95,6 +95,8 @@ func (r *NamespaceReconciler) createSharedSubnetCR(ctx context.Context, ns strin
 				subnetCR.Annotations = make(map[string]string)
 			}
 			subnetCR.Annotations[servicecommon.AnnotationSegmentPath] = tagVal
+			subnetCR.Spec.IPAddressType = ""
+			subnetCR.Spec.AdvancedConfig.ConnectivityState = ""
 		}
 	}
 
