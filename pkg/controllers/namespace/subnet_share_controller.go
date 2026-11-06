@@ -350,31 +350,6 @@ func (r *NamespaceReconciler) processNewSharedSubnets(ctx context.Context, ns st
 				Name:      existingSubnet.Name,
 			}
 			r.SubnetService.AddSharedSubnetToResourceMap(associatedResource, namespacedName)
-
-			if r.SubnetService.NSXClient != nil {
-				nsxSubnet, err := r.SubnetService.GetNSXSubnetFromCacheOrAPI(associatedResource, false)
-				if err == nil && nsxSubnet != nil {
-					if tagVal := nsxutil.FindTag(nsxSubnet.Tags, servicecommon.TagScopeWCPSegmentTrackingSubnet); tagVal != "" {
-						needUpdate := false
-						if existingSubnet.Annotations == nil {
-							existingSubnet.Annotations = make(map[string]string)
-						}
-						if existingSubnet.Annotations[servicecommon.AnnotationSegmentPath] != tagVal {
-							existingSubnet.Annotations[servicecommon.AnnotationSegmentPath] = tagVal
-							needUpdate = true
-						}
-						if _, exists := existingSubnet.Labels[servicecommon.TagScopeWCPSegmentTrackingSubnet]; exists {
-							delete(existingSubnet.Labels, servicecommon.TagScopeWCPSegmentTrackingSubnet)
-							needUpdate = true
-						}
-						if needUpdate {
-							if err := r.Client.Update(ctx, existingSubnet); err != nil {
-								log.Error(err, "Failed to update segment path annotation on existing shared Subnet CR", "Subnet", existingSubnet.Name)
-							}
-						}
-					}
-				}
-			}
 		}
 		processedSubnets[associatedResource] = true
 	}
