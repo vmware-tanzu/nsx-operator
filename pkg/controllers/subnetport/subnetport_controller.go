@@ -484,6 +484,11 @@ func (r *SubnetPortReconciler) reconcileSubnetPort(
 		return common.ResultRequeue, err
 	}
 
+	// An unchanged segment port may skip the state lookup, but still need its switch UUID populated.
+	if isSegmentTracking && nsxSubnet != nil && nsxSubnet.RealizationId != nil && *nsxSubnet.RealizationId != "" {
+		subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
+	}
+
 	if nsxPortState != nil {
 		if !isSegmentTracking {
 			ab := r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)

@@ -623,12 +623,6 @@ func TestProcessNewSharedSubnets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r := createTestNamespaceReconciler(tt.existingSubnets)
 
-			cachePatch := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService), "GetNSXSubnetFromCacheOrAPI",
-				func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) {
-					return nil, nil
-				})
-			defer cachePatch.Reset()
-
 			if tt.setupMocks != nil {
 				patches := tt.setupMocks(r)
 				if patches != nil {
