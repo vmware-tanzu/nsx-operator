@@ -41,10 +41,16 @@ import (
 )
 
 const (
-	listenerSetParentGatewayIndex = "listenerSetParentGateway" // ListenerSet -> parent Gateway cache index
-	conditionTypeDNSRecordReady   = "DNSRecordReady"           // per-parent Route DNS status
-	reasonDNSRecordConfigured     = "DNSRecordConfigured"
-	reasonDNSRecordFailed         = "DNSRecordFailed"
+	listenerSetParentGatewayIndex     = "listenerSetParentGateway" // ListenerSet -> parent Gateway cache index
+	conditionTypeDNSRecordReady       = "DNSRecordReady"           // per-parent Route DNS status
+	conditionTypeHostnameAccepted     = "HostnameAccepted"
+	reasonDNSRecordConfigured         = "DNSRecordConfigured"
+	reasonDNSRecordFailed             = "DNSRecordFailed"
+	reasonFQDNsNotMatchParentListener = "FQDNsNotMatchParentListener"
+	reasonDNSHostnamesAccepted        = "DNSHostnamesAccepted"
+	reasonWildcardDNSNameUnsupported  = "WildcardDNSNameUnsupported"
+	reasonNoValidParentGateways       = "NoValidParentGateways"
+	messageNoValidParentGateways      = "No accepted parent Gateway with a usable address is available for this Route."
 
 	// nsxOperatorGatewayDNSController is the controllerName used in the dedicated nsx-operator
 	// parent entry added to Route status.parents. The parentRef in that entry points to the

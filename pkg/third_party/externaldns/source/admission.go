@@ -6,7 +6,6 @@ package source
 import (
 	"strings"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
@@ -126,20 +125,15 @@ func appendAdmissionHostnameFilterString(s string, seen map[string]struct{}, out
 }
 
 // RouteHostnamesMatchingAdmission maps raw route hosts to admitted DNS names via GwMatchingHost.
-func RouteHostnamesMatchingAdmission(allowed []string, routeMeta *metav1.ObjectMeta, rawRouteHostnames []string) ([]string, error) {
+func RouteHostnamesMatchingAdmission(allowed, rawRouteHostnames []string) []string {
 	if len(allowed) == 0 || len(rawRouteHostnames) == 0 {
-		return nil, nil
+		return nil
 	}
-	var annos map[string]string
-	if routeMeta != nil {
-		annos = routeMeta.Annotations
-	}
-	allowWildcardDNSName := RouteHostnameWildcardAllowed(annos)
 	var out []string
 	seen := make(map[string]struct{})
 	for _, rtHost := range rawRouteHostnames {
 		for _, best := range admissionMatchesForRouteHost(allowed, rtHost) {
-			if strings.HasPrefix(best, "*.") && !allowWildcardDNSName {
+			if strings.HasPrefix(best, "*.") {
 				continue
 			}
 			if _, ok := seen[best]; ok {
@@ -150,9 +144,9 @@ func RouteHostnamesMatchingAdmission(allowed []string, routeMeta *metav1.ObjectM
 		}
 	}
 	if len(out) == 0 {
-		return nil, nil
+		return nil
 	}
-	return normalizeHostnamesList(out), nil
+	return normalizeHostnamesList(out)
 }
 
 // admissionMatchesForRouteHost returns allowed canonical hosts for one route hostname token.

@@ -121,13 +121,14 @@ func (r *genericRouteReconciler[PT, T, PI]) Reconcile(ctx context.Context, req c
 		return ctrl.Result{RequeueAfter: ipCacheStartupWarmRequeueAfter}, nil
 	}
 
-	batch, err := r.buildRouteDNSMergedEndpoints(wrapper)
+	observedGeneration := route.GetGeneration()
+	batch, hostnameCondition, err := r.buildRouteDNSMergedEndpoints(wrapper)
 	if err != nil {
 		var zoneValErr *dns.DNSZoneValidationError
 		if errors.As(err, &zoneValErr) {
 			r.statusUpdater.UpdateFail(ctx, route, err, "DNS record validation failed by the allowed DNS zones", nil)
 			log.Error(err, "Route failed DNS zone validation, cleaning up records outside allowed zones", "Route", req.NamespacedName)
-			if statusErr := r.updateRouteParentConditions(ctx, req.NamespacedName, err); statusErr != nil {
+			if statusErr := r.updateRouteConditions(ctx, req.NamespacedName, observedGeneration, err, hostnameCondition, true); statusErr != nil {
 				log.Error(statusErr, "failed to update Route with DNSRecordReady condition", "route", routeKey)
 				return common.ResultRequeueAfter10sec, nil
 			}
@@ -146,7 +147,7 @@ func (r *genericRouteReconciler[PT, T, PI]) Reconcile(ctx context.Context, req c
 		}
 		r.statusUpdater.UpdateFail(ctx, route, err, "DNS record reconcile failed", nil)
 		log.Error(err, "failed to build endpoints for Route", "route", routeKey)
-		if statusErr := r.updateRouteParentConditions(ctx, req.NamespacedName, err); statusErr != nil {
+		if statusErr := r.updateRouteConditions(ctx, req.NamespacedName, observedGeneration, err, hostnameCondition, true); statusErr != nil {
 			log.Error(statusErr, "failed to update Route with DNSRecordReady condition", "route", routeKey)
 			return common.ResultRequeueAfter10sec, nil
 		}
@@ -156,60 +157,55 @@ func (r *genericRouteReconciler[PT, T, PI]) Reconcile(ctx context.Context, req c
 	if batch == nil || len(batch.Rows) == 0 {
 		log.Info("No DNS record are required for route, cleaning up the stale records", "kind", route.GetObjectKind(), "route", req.NamespacedName)
 		_, derr := r.dns.DeleteRecordByOwnerNN(ctx, r.kind, req.Namespace, req.Name)
+		if statusErr := r.updateRouteConditions(ctx, req.NamespacedName, observedGeneration, derr, hostnameCondition, false); statusErr != nil {
+			log.Error(statusErr, "failed to update Route status conditions", "route", routeKey)
+			return common.ResultRequeueAfter10sec, nil
+		}
 		if derr != nil {
 			log.Error(derr, "failed to clean up DNS records for route", "route", routeKey)
 			return common.RequeueResultFromReconcileError(derr), nil
 		}
-		// Route no longer requires DNS — remove the nsx-operator parent status entry entirely.
-		if statusErr := r.removeRouteNSXOperatorParentStatus(ctx, req.NamespacedName); statusErr != nil {
-			log.Error(statusErr, "failed to remove DNS parent status for Route", "route", routeKey)
-			return common.ResultRequeueAfter10sec, nil
-		}
 		return common.ResultNormal, nil
 	}
-
 	_, opErr := r.dns.CreateOrUpdateRecords(ctx, batch)
+	if statusErr := r.updateRouteConditions(ctx, req.NamespacedName, observedGeneration, opErr, hostnameCondition, true); statusErr != nil {
+		log.Error(statusErr, "failed to update Route status conditions", "route", routeKey)
+		return common.ResultRequeueAfter10sec, nil
+	}
 	if opErr != nil {
 		r.statusUpdater.UpdateFail(ctx, route, opErr, "DNS record reconcile failed", nil)
-		if statusErr := r.updateRouteParentConditions(ctx, req.NamespacedName, opErr); statusErr != nil {
-			log.Error(statusErr, "failed to update Route with DNSRecordReady condition", "route", routeKey)
-			return common.ResultRequeueAfter10sec, nil
-		}
 		log.Error(opErr, "DNS record reconcile failed", "route", routeKey)
 		return common.RequeueResultFromReconcileError(opErr), nil
 	}
 
-	// Call updateRouteParentConditions even when cacheChanged=false.
-	if statusErr := r.updateRouteParentConditions(ctx, req.NamespacedName, nil); statusErr != nil {
-		log.Error(statusErr, "failed to update Route with DNSRecordReady condition", "route", routeKey)
-		return common.ResultRequeueAfter10sec, nil
-	}
 	r.statusUpdater.UpdateSuccess(ctx, route, nil)
 	return common.ResultNormal, nil
 }
 
 // buildRouteDNSMergedEndpoints builds owner-scoped Route DNS rows (Gateway or ListenerSet→root Gateway, same rules as aggregation).
-func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSMergedEndpoints(route PT) (*dns.AggregatedDNSEndpoints, error) {
+func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSMergedEndpoints(route PT) (*dns.AggregatedDNSEndpoints, *metav1.Condition, error) {
 	owner := route.GetResourceRef()
 	if owner == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	eps, _, err := r.buildRouteDNSEndpointsForAggregation(route.GetNamespace(), owner, route.GetParentRefs(), route.GetRouteParentStatus(), route.GetObjectMeta(), route.GetSpecHostnames())
-	if len(eps) == 0 || err != nil {
-		return nil, err
+	rows, _, admission, err := r.buildRouteDNSEndpointsForAggregation(route.GetNamespace(), owner, route.GetParentRefs(), route.GetRouteParentStatus(), route.GetObjectMeta(), route.GetSpecHostnames())
+	hostnameCondition := buildRouteHostnameAcceptedCondition(admission)
+	if len(rows) == 0 {
+		return nil, hostnameCondition, err
 	}
-	return dns.NewOwnerScopedAggregatedRouteDNS(owner, eps), nil
+	return dns.NewOwnerScopedAggregatedRouteDNS(owner, rows), hostnameCondition, err
 }
 
-// updateRouteParentConditions adds or updates the dedicated nsx-operator parent entry in the
-// route's status.parents which is used to maintain the DNSRecord configuration conditions.
-func (r *genericRouteReconciler[PT, T, PI]) updateRouteParentConditions(ctx context.Context, routeKey types.NamespacedName, condErr error) error {
-	if !namespaceNetworkInfoExists(ctx, r.client, routeKey.Namespace) {
+// updateRouteConditions updates HostnameAccepted and reports DNS readiness only for
+// generated records or an operation failure. Conditions refer to the generation
+// processed by this reconcile, even if the Route changes before the status write.
+// Successful empty batches remove DNSRecordReady.
+func (r *genericRouteReconciler[PT, T, PI]) updateRouteConditions(ctx context.Context, routeKey types.NamespacedName, observedGeneration int64, condErr error, hostnameCondition *metav1.Condition, hasDNSRecords bool) error {
+	dnsConditionEnabled := namespaceNetworkInfoExists(ctx, r.client, routeKey.Namespace)
+	if !dnsConditionEnabled && hostnameCondition == nil {
 		log.Info("No NetworkInfo found in route namespace; skipping DNSRecordReady status update", "Route", routeKey)
 		return nil
 	}
-	niRef := networkInfoParentRef(routeKey.Namespace)
-	cond := buildDNSRecordReadyCondition(condErr)
 
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		creator := r.objCreator(nil)
@@ -218,12 +214,31 @@ func (r *genericRouteReconciler[PT, T, PI]) updateRouteParentConditions(ctx cont
 			return client.IgnoreNotFound(getErr)
 		}
 
-		cond.ObservedGeneration = creator.GetGeneration()
 		parents := creator.GetRouteParentStatus()
+		conditions := make([]metav1.Condition, 0, 2)
+		hostnameRejected := hostnameCondition != nil && hostnameCondition.Status == metav1.ConditionFalse
+		dnsConditionRequired := !hostnameRejected && (hasDNSRecords || condErr != nil)
+		if dnsConditionEnabled && dnsConditionRequired {
+			dnsCondition := buildDNSRecordReadyCondition(condErr)
+			dnsCondition.ObservedGeneration = observedGeneration
+			conditions = append(conditions, dnsCondition)
+		}
+		if hostnameCondition != nil {
+			hostnameCond := *hostnameCondition
+			hostnameCond.ObservedGeneration = observedGeneration
+			conditions = append(conditions, hostnameCond)
+		}
 
 		for i := range parents {
 			if parents[i].ControllerName == nsxOperatorGatewayDNSController {
-				if meta.SetStatusCondition(&parents[i].Conditions, cond) {
+				changed := false
+				if !dnsConditionRequired {
+					changed = meta.RemoveStatusCondition(&parents[i].Conditions, conditionTypeDNSRecordReady) || changed
+				}
+				for _, condition := range conditions {
+					changed = meta.SetStatusCondition(&parents[i].Conditions, condition) || changed
+				}
+				if changed {
 					return r.client.Status().Update(ctx, route)
 				}
 				return nil
@@ -232,35 +247,10 @@ func (r *genericRouteReconciler[PT, T, PI]) updateRouteParentConditions(ctx cont
 
 		parents = append(parents, gatewayv1.RouteParentStatus{
 			ControllerName: nsxOperatorGatewayDNSController,
-			ParentRef:      niRef,
-			Conditions:     []metav1.Condition{cond},
+			ParentRef:      networkInfoParentRef(routeKey.Namespace),
+			Conditions:     conditions,
 		})
 		creator.SetRouteParentStatus(parents)
-		return r.client.Status().Update(ctx, route)
-	})
-}
-
-// removeRouteNSXOperatorParentStatus removes the dedicated nsx-operator parent entry from
-// status.parents when the route no longer requires any DNS records.
-func (r *genericRouteReconciler[PT, T, PI]) removeRouteNSXOperatorParentStatus(ctx context.Context, routeKey types.NamespacedName) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		creator := r.objCreator(nil)
-		route := creator.GetObject()
-		if getErr := r.client.Get(ctx, routeKey, route); getErr != nil {
-			return client.IgnoreNotFound(getErr)
-		}
-		parents := creator.GetRouteParentStatus()
-		idx := -1
-		for i := range parents {
-			if parents[i].ControllerName == nsxOperatorGatewayDNSController {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			return nil // entry already absent
-		}
-		creator.SetRouteParentStatus(slices.Delete(parents, idx, idx+1))
 		return r.client.Status().Update(ctx, route)
 	})
 }
@@ -395,7 +385,7 @@ func (r *genericRouteReconciler[PT, T, PI]) distinctAcceptedRootGatewayNNs(route
 
 // inferRouteDNSHostnamesFromAcceptedParents fills hostnames from listener admission.
 func (r *genericRouteReconciler[PT, T, PI]) inferRouteDNSHostnamesFromAcceptedParents(routeNS string, parentRefs []gatewayv1.ParentReference,
-	parentStatus []gatewayv1.RouteParentStatus, objMeta *metav1.ObjectMeta) ([]string, error) {
+	parentStatus []gatewayv1.RouteParentStatus) []string {
 	seen := sets.New[string]()
 	for i := range parentRefs {
 		ref := parentRefs[i]
@@ -406,28 +396,62 @@ func (r *genericRouteReconciler[PT, T, PI]) inferRouteDNSHostnamesFromAcceptedPa
 		if !ok {
 			continue
 		}
+		if r.ipCache == nil {
+			continue
+		}
 		ent, ok := r.ipCache.get(gwNN)
-		if !ok || len(ent.IPs) == 0 {
+		if !ok {
 			continue
 		}
 		filters := extdnssrc.AdmissionHostnameFiltersForRouteParentFromRows(ent.AdmissionRows, &ref, routeNS)
-		inh, err := extdnssrc.RouteHostnamesMatchingAdmission(filters, objMeta, []string{""})
-		if err != nil {
-			return nil, err
-		}
+		inh := extdnssrc.RouteHostnamesMatchingAdmission(filters, []string{""})
 		seen.Insert(inh...)
 	}
-	return sets.List(seen), nil
+	return sets.List(seen)
 }
 
-// appendAggregatedRouteDNSEndpointForHostname appends one ExternalDNS endpoint for hostname h into eps.
+type routeHostnameAdmissionResult struct {
+	hasUsableAcceptedParentGateway bool
+	unsupportedWildcard            bool
+	missingAddress                 bool
+	hasDNSEndpoints                bool
+}
+
+// buildRouteHostnameAcceptedCondition accepts the Route when at least one hostname
+// can generate a concrete DNS endpoint through a usable parent listener. Zone
+// authorization, apex restrictions, and infrastructure failures are reported by DNSRecordReady.
+func buildRouteHostnameAcceptedCondition(result routeHostnameAdmissionResult) *metav1.Condition {
+	status := metav1.ConditionFalse
+	reason := reasonFQDNsNotMatchParentListener
+	message := "No Route FQDN matches a hostname configured on its parent listeners."
+	switch {
+	case result.hasDNSEndpoints:
+		status = metav1.ConditionTrue
+		reason = reasonDNSHostnamesAccepted
+		message = "At least one Route hostname matches a usable parent listener and is supported for DNS record generation."
+	case !result.hasUsableAcceptedParentGateway || result.missingAddress:
+		reason = reasonNoValidParentGateways
+		message = messageNoValidParentGateways
+	case result.unsupportedWildcard:
+		reason = reasonWildcardDNSNameUnsupported
+		message = "Wildcard Route hostnames are not supported for NSX DNS record generation."
+	}
+	return &metav1.Condition{
+		Type:               conditionTypeHostnameAccepted,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.Now(),
+	}
+}
+
+// buildRouteDNSEndpointsForHostname returns DNS endpoints and whether h matches a parent listener.
 func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForHostname(routeNS, h string,
 	parentRefs []gatewayv1.ParentReference, parentStatus []gatewayv1.RouteParentStatus,
-	allowWild, allowMultiGatewayTargetMerge bool) []*extdns.Endpoint {
-	if strings.HasPrefix(h, "*.") && !allowWild {
-		return nil
-	}
+	allowMultiGatewayTargetMerge bool) ([]*extdns.Endpoint, bool) {
+	wildcardDNSName := strings.HasPrefix(h, "*.")
 	var matches []parentGatewayMatch
+	listenerMatched := false
 	for i := range parentRefs {
 		ref := parentRefs[i]
 		if !extdnssrc.RouteAcceptedForParentRef(parentStatus, routeNS, ref) {
@@ -437,8 +461,11 @@ func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForHostname(ro
 		if !ok {
 			continue
 		}
+		if r.ipCache == nil {
+			continue
+		}
 		ent, ok := r.ipCache.get(gwNN)
-		if !ok || len(ent.IPs) == 0 {
+		if !ok {
 			continue
 		}
 		filters := extdnssrc.AdmissionHostnameFiltersForRouteParentFromRows(ent.AdmissionRows, &ref, routeNS)
@@ -446,10 +473,14 @@ func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForHostname(ro
 		if !okMatch {
 			continue
 		}
+		listenerMatched = true
+		if wildcardDNSName || len(ent.IPs) == 0 {
+			continue
+		}
 		matches = append(matches, parentGatewayMatch{nn: gwNN, filter: f, ips: ent.IPs})
 	}
 	if len(matches) == 0 {
-		return nil
+		return nil, listenerMatched
 	}
 
 	refF := matches[0].filter
@@ -485,16 +516,25 @@ func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForHostname(ro
 		label = best.nn.String()
 		targets = best.ips
 	}
-	return buildEndpoints([]string{h}, targets, label)
+	return buildEndpoints([]string{h}, targets, label), listenerMatched
 }
 
 // buildRouteDNSEndpointsForAggregation builds validated EndpointRows for a Route (hostnames → endpoints → ValidateEndpointsByZone).
 func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForAggregation(routeNS string, owner *dns.ResourceRef, parentRefs []gatewayv1.ParentReference,
 	parentStatus []gatewayv1.RouteParentStatus, objMeta *metav1.ObjectMeta,
-	specHostnames []gatewayv1.Hostname) ([]dns.EndpointRow, map[string]string, error) {
+	specHostnames []gatewayv1.Hostname) ([]dns.EndpointRow, map[string]string, routeHostnameAdmissionResult, error) {
 	distinctGWs := r.distinctAcceptedRootGatewayNNs(routeNS, parentRefs, parentStatus)
+	admission := routeHostnameAdmissionResult{}
+	if r.ipCache != nil {
+		for _, gwNN := range distinctGWs {
+			if entry, ok := r.ipCache.get(gwNN); ok && len(entry.IPs) > 0 {
+				admission.hasUsableAcceptedParentGateway = true
+				break
+			}
+		}
+	}
 	if len(distinctGWs) == 0 {
-		return nil, nil, nil // no accepted parent Gateway in ipCache
+		return nil, nil, admission, nil // no accepted parent Gateway can be resolved
 	}
 
 	allowMultiGatewayTargetMerge := len(distinctGWs) >= 2
@@ -507,26 +547,28 @@ func (r *genericRouteReconciler[PT, T, PI]) buildRouteDNSEndpointsForAggregation
 	var uniqHostnames []string
 	if len(desiredHostnames) > 0 {
 		uniqHostnames = append([]string(nil), desiredHostnames...)
-	} else {
-		inferedHostnames, err := r.inferRouteDNSHostnamesFromAcceptedParents(routeNS, parentRefs, parentStatus, objMeta)
-		if err != nil {
-			return nil, nil, err
-		}
-		uniqHostnames = append(uniqHostnames, inferedHostnames...)
+	} else if extdnssrc.RouteHostnameInferenceAllowed(objMeta.GetAnnotations()) {
+		inferredHostnames := r.inferRouteDNSHostnamesFromAcceptedParents(routeNS, parentRefs, parentStatus)
+		uniqHostnames = append(uniqHostnames, inferredHostnames...)
 	}
 
 	if len(uniqHostnames) == 0 {
-		return nil, nil, nil
+		return nil, nil, admission, nil
 	}
-
-	allowWild := extdnssrc.RouteHostnameWildcardAllowed(objMeta.GetAnnotations())
 
 	var eps []*extdns.Endpoint
 	for _, h := range uniqHostnames {
-		eps = append(eps, r.buildRouteDNSEndpointsForHostname(routeNS, h, parentRefs, parentStatus, allowWild, allowMultiGatewayTargetMerge)...)
+		hostnameEndpoints, listenerMatched := r.buildRouteDNSEndpointsForHostname(routeNS, h, parentRefs, parentStatus, allowMultiGatewayTargetMerge)
+		eps = append(eps, hostnameEndpoints...)
+		wildcard := strings.HasPrefix(h, "*.")
+		admission.unsupportedWildcard = admission.unsupportedWildcard || (listenerMatched && wildcard)
+		if listenerMatched && !wildcard && len(hostnameEndpoints) == 0 {
+			admission.missingAddress = true
+		}
 	}
 	rows, allowed, err := r.dns.ValidateEndpointsByZone(objMeta.GetNamespace(), owner, eps)
-	return rows, allowed, err
+	admission.hasDNSEndpoints = len(eps) > 0
+	return rows, allowed, admission, err
 }
 
 // buildEndpoints returns extdns endpoints per hostname; sets EndpointLabelParentGateway to gatewayLabel (comma-separated if merged).
