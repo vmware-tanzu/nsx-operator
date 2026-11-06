@@ -31,6 +31,47 @@ type podNodeCacheResult []*model.HostTransportNode
 
 func (nodes podNodeCacheResult) GetNodeByName(string) []*model.HostTransportNode { return nodes }
 
+type podNodeLookup func(string) []*model.HostTransportNode
+
+func (lookup podNodeLookup) GetNodeByName(name string) []*model.HostTransportNode {
+	return lookup(name)
+}
+
+func TestResolvePodTransportNodeSource(t *testing.T) {
+	for _, tc := range []struct {
+		name, nodeType, nodeName, crHost, wantLookup string
+	}{
+		{name: "virtual-node-without-host", nodeType: servicecommon.PodNodeTypeVirtualNode, nodeName: "existing-esx-name"},
+		{name: "virtual-node-with-host", nodeType: servicecommon.PodNodeTypeVirtualNode, nodeName: "virtual-node", crHost: "esx1", wantLookup: "esx1"},
+		{name: "virtual-node-host-before-scheduling", nodeType: servicecommon.PodNodeTypeVirtualNode, crHost: "esx1", wantLookup: "esx1"},
+		{name: "legacy-node", nodeName: "esx1", wantLookup: "esx1"},
+		{name: "legacy-ignores-cr-host", nodeName: "esx1", crHost: "other-esx", wantLookup: "esx1"},
+		{name: "legacy-without-node", crHost: "other-esx"},
+		{name: "other-node-type", nodeType: "other", nodeName: "esx1", wantLookup: "esx1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{servicecommon.AnnotationPodNodeType: tc.nodeType}}, Spec: corev1.PodSpec{NodeName: tc.nodeName}}
+			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{servicecommon.AnnotationESXHostName: tc.crHost}}}
+			calls := 0
+			r := &SubnetPortReconciler{NodeServiceReader: podNodeLookup(func(name string) []*model.HostTransportNode {
+				calls++
+				require.NotEmpty(t, tc.wantLookup, "must not look up a Virtual Node or fall back to the wrong host source")
+				require.Equal(t, tc.wantLookup, name)
+				return []*model.HostTransportNode{{UniqueId: servicecommon.String("host-uuid")}}
+			})}
+			contextID, err := r.resolvePodTransportNode(sp, pod, types.NamespacedName{})
+			require.NoError(t, err)
+			if tc.wantLookup == "" {
+				require.Empty(t, contextID)
+				require.Zero(t, calls)
+			} else {
+				require.Equal(t, "host-uuid", contextID)
+				require.Equal(t, 1, calls)
+			}
+		})
+	}
+}
+
 func TestPodSubnetPortMissingTransportNodeRetries(t *testing.T) {
 	for _, tc := range []struct {
 		name, wantError string
@@ -39,6 +80,7 @@ func TestPodSubnetPortMissingTransportNodeRetries(t *testing.T) {
 		hostName        string
 	}{
 		{name: "missing-node", wantError: "not found"},
+		{name: "v2-unmarked-missing-node", podV2: true, wantError: "not found"},
 		{name: "nil-node", nodes: podNodeCacheResult{nil}, wantError: "no unique ID"},
 		{name: "nil-uuid", nodes: podNodeCacheResult{{}}, wantError: "no unique ID"},
 		{name: "empty-uuid", nodes: podNodeCacheResult{{UniqueId: servicecommon.String("")}}, wantError: "no unique ID"},
@@ -66,6 +108,9 @@ func testPodSubnetPortNodeFailure(t *testing.T, nodes podNodeCacheResult, wantEr
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "pod-uid"}, Spec: corev1.PodSpec{NodeName: "esx1"}}
 	sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: "ns", OwnerReferences: []metav1.OwnerReference{{Kind: "Pod", Name: pod.Name, UID: pod.UID}}}, Spec: v1alpha1.SubnetPortSpec{InterfaceIPType: v1alpha1.IPAddressTypeIPv6, StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeNone}}
 	sp.Annotations = map[string]string{servicecommon.AnnotationESXHostName: hostName}
+	if hostName != "" {
+		pod.Annotations = map[string]string{servicecommon.AnnotationPodNodeType: servicecommon.PodNodeTypeVirtualNode}
+	}
 	api := fake.NewClientBuilder().WithScheme(scheme).WithObjects(pod, sp).WithStatusSubresource(sp).Build()
 	cfg := &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}, K8sConfig: &config.K8sConfig{PodV2: &podV2}}
 	svc := &serviceport.SubnetPortService{Service: servicecommon.Service{Client: api, NSXClient: &nsx.Client{}, NSXConfig: cfg}}
@@ -111,7 +156,7 @@ func TestPodV2SubnetPortBeforeHostAnnotation(t *testing.T) {
 			scheme := runtime.NewScheme()
 			require.NoError(t, corev1.AddToScheme(scheme))
 			require.NoError(t, v1alpha1.AddToScheme(scheme))
-			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "pod-uid"}, Spec: corev1.PodSpec{NodeName: nodeName}}
+			pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", UID: "pod-uid", Annotations: map[string]string{servicecommon.AnnotationPodNodeType: servicecommon.PodNodeTypeVirtualNode}}, Spec: corev1.PodSpec{NodeName: nodeName}}
 			sp := &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: "ns", UID: "aaaaaaaa-1234-1234-1234-123456789abc", OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: pod.Name, UID: pod.UID}}},
 				Spec:       v1alpha1.SubnetPortSpec{InterfaceIPType: v1alpha1.IPAddressTypeIPv4, StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4},
