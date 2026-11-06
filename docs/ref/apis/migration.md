@@ -80,7 +80,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `resourceNaming` _[ControlPlaneResourceNaming](#controlplaneresourcenaming)_ | ResourceNaming supplies optional IDs for NSX resources created for migration.<br />Omitted names use deterministic generated names. Naming inputs never rename<br />or implicitly adopt existing resources and are not requiredInputs. |  |  |
-| `lbSnatIPs` _string array_ | LBSNATIPs optionally supplies a backend IPv4 address for the shared NSX LB<br />service when the IPv4 VIP pool cannot provide a reservation during Evaluate.<br />Supervisor VDS source networks are IPv4-only in this release. Keep this as a<br />slice so a later release can add IPv6 without changing the field shape.<br />The migration service validates availability and reserves the supplied address<br />before use. After status.lbSnatIPAllocations records an accepted allocation,<br />this list cannot be added, changed, or removed, including during Evaluate.<br />Requesting Plan prevents changes to the entire NetworkConfiguration. |  | MaxItems: 1 <br /> |
+| `lbSNATIPs` _string array_ | LBSNATIPs optionally supplies a backend IPv4 address for the shared NSX LB<br />service when the IPv4 VIP pool cannot provide a reservation during Evaluate.<br />Supervisor VDS source networks are IPv4-only in this release. Keep this as a<br />slice so a later release can add IPv6 without changing the field shape.<br />The migration service validates availability and reserves the supplied address<br />before use. After status.lbSNATIPAllocations records an accepted allocation,<br />this list cannot be added, changed, or removed, including during Evaluate.<br />Requesting Plan prevents changes to the entire NetworkConfiguration. |  | MaxItems: 1 <br /> |
 | `controlPlaneAndServiceDHCPNetworks` _[DHCPNetworkConfiguration](#dhcpnetworkconfiguration) array_ | ControlPlaneAndServiceDHCPNetworks describes existing DHCP-backed networks used by<br />control-plane VMs and Supervisor Services. |  | MaxItems: 1000 <br /> |
 
 
@@ -121,9 +121,9 @@ _Appears in:_
 | `sourceMode` _string_ | SourceMode is the source network stack. |  | Enum: [VSPHERE_VDS] <br />MinLength: 1 <br /> |
 | `targetMode` _string_ | TargetMode is the target network stack. |  | Enum: [NSX_VPC] <br />MinLength: 1 <br /> |
 | `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize] <br /> |
-| `targetLbProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | TargetLBProvider selects the desired target load balancer provider.<br />In 9.2, only NSX_LB is supported as the target for FLB sources.<br />If omitted, evaluation resolves an unambiguous supported/configured target.<br />The resolved selection is bound to the reviewed plan and cannot change after planning starts. |  | Enum: [NSX_LB] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
-| `nsxProjectId` _string_ | NSXProjectID selects a pre-existing NSX project; omission selects the default project.<br />Once supplied, the ID cannot be changed or removed. Omission is fixed when planning starts. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
-| `networkConfiguration` _[ControlPlaneNetworkConfiguration](#controlplanenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed during Evaluate before planning.<br />After status.lbSnatIPAllocations records an accepted allocation, LBSNATIPs<br />cannot be added, changed, or removed, including during Evaluate.<br />Changes require requested action Evaluate; requesting Plan freezes inputs,<br />and a recorded planning checkpoint prevents reopening them. |  |  |
+| `targetLBProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | TargetLBProvider selects the desired target load balancer provider.<br />In 9.2, only NSX_LB is supported as the target for FLB sources.<br />If omitted, evaluation resolves an unambiguous supported/configured target.<br />The resolved selection is bound to the reviewed plan and cannot change after planning starts. |  | Enum: [NSX_LB] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
+| `nsxProjectID` _string_ | NSXProjectID selects a pre-existing NSX project; omission selects the default project.<br />Once supplied, the ID cannot be changed or removed. Omission is fixed when planning starts. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
+| `networkConfiguration` _[ControlPlaneNetworkConfiguration](#controlplanenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed during Evaluate before planning.<br />After status.lbSNATIPAllocations records an accepted allocation, LBSNATIPs<br />cannot be added, changed, or removed, including during Evaluate.<br />Changes require requested action Evaluate; requesting Plan freezes inputs,<br />and a recorded planning checkpoint prevents reopening them. |  |  |
 
 
 #### ControlPlaneNetworkTransitionStatus
@@ -149,12 +149,12 @@ _Appears in:_
 | `nsxWorkflows` _[NSXWorkflowStatus](#nsxworkflowstatus) array_ | NSXWorkflows records the exact external workflow handle for each source VDN. |  | MaxItems: 1000 <br /> |
 | `requiredInputs` _[RequiredInput](#requiredinput) array_ | RequiredInputs describe administrator inputs required before proceeding. |  | MaxItems: 1000 <br /> |
 | `optionalInputs` _[OptionalInput](#optionalinput) array_ | OptionalInputs describe optional overrides the UI may offer during Evaluate.<br />Omitting these inputs uses defaults and does not block evaluation. Handlers<br />publish/clear them with RequiredInputs for ObservedGeneration, remove frozen<br />resource names, and revalidate live eligibility before accepting overrides.<br />This is advisory UI information, not a resource inventory or a review gate. |  | MaxItems: 5000 <br /> |
-| `lbSnatIPAllocations` _[IPAllocationStatus](#ipallocationstatus) array_ | LBSNATIPAllocations records the accepted IPv4 LB SNAT address. Once recorded,<br />spec.networkConfiguration.lbSnatIPs cannot be added, changed, or removed,<br />even during Evaluate. spec.targetLbProvider and spec.nsxProjectId must also<br />remain unchanged. The accepted allocation cannot be changed or removed;<br />recording it does not itself allocate or release an address. |  | MaxItems: 1 <br />MinItems: 1 <br /> |
-| `detectedSourceLbProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | DetectedSourceLBProvider identifies the discovered source load balancer provider.<br />In 9.2, only VSPHERE_FOUNDATION (FLB) is supported.<br />Unsupported discovered providers are reported through failure conditions. |  | Enum: [VSPHERE_FOUNDATION] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
-| `targetLbProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | TargetLBProvider identifies the resolved target provider; only NSX_LB is supported in 9.2. |  | Enum: [NSX_LB] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
-| `targetNsxProjectPath` _string_ | TargetNSXProjectPath is the full path of the resolved pre-existing NSX project. |  | MaxLength: 1024 <br />MinLength: 1 <br /> |
-| `primaryVpcPath` _string_ | PrimaryVPCPath is the full path of the infrastructure VPC. |  | MaxLength: 1024 <br />MinLength: 1 <br /> |
-| `loadBalancerVpcPath` _string_ | LoadBalancerVPCPath is the full path of the load balancer VPC. |  | MaxLength: 1024 <br />MinLength: 1 <br /> |
+| `lbSNATIPAllocations` _[IPAllocationStatus](#ipallocationstatus) array_ | LBSNATIPAllocations records the accepted IPv4 LB SNAT address. Once recorded,<br />spec.networkConfiguration.lbSNATIPs cannot be added, changed, or removed<br />during Evaluate. spec.targetLBProvider and spec.nsxProjectID must also<br />remain unchanged. The accepted allocation cannot be changed or removed;<br />recording it does not itself allocate or release an address. |  | MaxItems: 1 <br />MinItems: 1 <br /> |
+| `sourceLBProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | SourceLBProvider identifies the discovered source load balancer provider.<br />In 9.2, only VSPHERE_FOUNDATION (FLB) is supported.<br />Unsupported discovered providers are reported through failure conditions. |  | Enum: [VSPHERE_FOUNDATION] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
+| `targetLBProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | TargetLBProvider identifies the resolved target provider; only NSX_LB is supported in 9.2. |  | Enum: [NSX_LB] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
+| `targetNSXProjectPath` _string_ | TargetNSXProjectPath is the full path of the resolved pre-existing NSX project. |  | MaxLength: 1024 <br />MinLength: 1 <br /> |
+| `primaryVPCPath` _string_ | PrimaryVPCPath is the full path of the infrastructure VPC. |  | MaxLength: 1024 <br />MinLength: 1 <br /> |
+| `loadBalancerVPCPath` _string_ | LoadBalancerVPCPath is the full path of the load balancer VPC. |  | MaxLength: 1024 <br />MinLength: 1 <br /> |
 
 
 #### ControlPlaneResourceNaming
@@ -174,7 +174,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `networks` _[VDNResourceNaming](#vdnresourcenaming) array_ | Networks supplies optional naming overrides per infrastructure VDN.<br />It includes static and DHCP-backed CPVM and Supervisor Service networks. |  | MaxItems: 1000 <br /> |
-| `loadBalancerVpcName` _[NSXResourceName](#nsxresourcename)_ | LoadBalancerVPCName overrides the generated name of the separate LB VPC. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
+| `loadBalancerVPCName` _[NSXResourceName](#nsxresourcename)_ | LoadBalancerVPCName overrides the generated name of the separate LB VPC. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
 
 
 #### DHCPNetworkConfiguration
@@ -322,7 +322,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `vdnName` _string_ | VDNName identifies the source VSphereDistributedNetwork for this workflow. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
-| `workflowId` _string_ | WorkflowID is the persisted NSX handle used for retries, rollback, and cleanup. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
+| `workflowID` _string_ | WorkflowID is the persisted NSX handle used for retries, rollback, and cleanup. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
 
 
 #### NamespaceNetworkConfiguration

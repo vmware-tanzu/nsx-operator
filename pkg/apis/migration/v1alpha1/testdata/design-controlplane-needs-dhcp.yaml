@@ -7,14 +7,14 @@ spec:
   action: Evaluate
   sourceMode: VSPHERE_VDS
   targetMode: NSX_VPC
-  targetLbProvider: NSX_LB
+  targetLBProvider: NSX_LB
 status:
   observedGeneration: 1
   lastAction: Evaluate
   actionGeneration: 1
   actionState: Running
   phase: NeedsInput
-  detectedSourceLbProvider: VSPHERE_FOUNDATION
+  sourceLBProvider: VSPHERE_FOUNDATION
   optionalInputs:
   - fieldName: spec.networkConfiguration.resourceNaming.networks[vdnName=vdn-cp-services-1].tgwName
     description: Optional TGW name for vdn-cp-services-1; omitted names are generated.

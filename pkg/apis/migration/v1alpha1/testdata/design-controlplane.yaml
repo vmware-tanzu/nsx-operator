@@ -5,9 +5,9 @@ metadata:
   name: supervisor-vds-to-vpc
 spec:
   action: Execute
-  nsxProjectId: proj-vcfa-org-01
+  nsxProjectID: proj-vcfa-org-01
   sourceMode: VSPHERE_VDS
-  targetLbProvider: NSX_LB
+  targetLBProvider: NSX_LB
   targetMode: NSX_VPC
   networkConfiguration:
     resourceNaming:
@@ -17,7 +17,7 @@ spec:
         vpcName: vpc-primary
         dvcName: dvc-infra
         subnetName: subnet-infra
-      loadBalancerVpcName: vpc-lb
+      loadBalancerVPCName: vpc-lb
     controlPlaneAndServiceDHCPNetworks:
     - dhcpRange:
         end: 10.2.1.200
@@ -77,14 +77,14 @@ status:
     reason: ActionCompleted
     status: 'True'
     type: Ready
-  detectedSourceLbProvider: VSPHERE_FOUNDATION
+  sourceLBProvider: VSPHERE_FOUNDATION
   lastAction: Execute
-  loadBalancerVpcPath: /orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-lb
+  loadBalancerVPCPath: /orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-lb
   nsxWorkflows:
-  - workflowId: wf-infra-dvs10
+  - workflowID: wf-infra-dvs10
     vdnName: vdn-source-1
   observedGeneration: 5
   phase: InfraTransitionComplete
-  primaryVpcPath: /orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-primary
-  targetLbProvider: NSX_LB
-  targetNsxProjectPath: /orgs/default/projects/proj-vcfa-org-01
+  primaryVPCPath: /orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-primary
+  targetLBProvider: NSX_LB
+  targetNSXProjectPath: /orgs/default/projects/proj-vcfa-org-01

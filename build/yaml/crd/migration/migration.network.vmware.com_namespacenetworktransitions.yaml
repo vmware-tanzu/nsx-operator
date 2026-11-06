@@ -402,7 +402,7 @@ spec:
                       maxLength: 256
                       minLength: 1
                       type: string
-                    workflowId:
+                    workflowID:
                       description: WorkflowID is the persisted NSX handle used for
                         retries, rollback, and cleanup.
                       maxLength: 256
@@ -410,7 +410,7 @@ spec:
                       type: string
                   required:
                   - vdnName
-                  - workflowId
+                  - workflowID
                   type: object
                 maxItems: 1000
                 type: array

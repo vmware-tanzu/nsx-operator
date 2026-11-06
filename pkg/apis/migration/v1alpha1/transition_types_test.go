@@ -92,13 +92,14 @@ func TestRemovedInputFieldsAreRejectedByStrictDecoding(t *testing.T) {
 		`{"spec":{"networkConfiguration":{"lbSnatIPv4":"10.2.1.50"}}}`,
 		`{"spec":{"networkConfiguration":{"lbSnatIPv6":"2001:db8::50"}}}`,
 		`{"spec":{"networkConfiguration":{"controlPlaneAndServiceDHCPNetworks":[{"vdnName":"network","subnetCidr":"192.168.10.0/24"}]}}}`,
-		`{"status":{"lbSnatIPAllocations":[{"allocationRef":{"namespace":"netop","name":"snat","uid":"removed"}}]}}`,
-		`{"status":{"lbSnatIPAllocations":[{"ipFamily":"IPv4","ipAddress":"10.2.1.50","allocationRef":{"namespace":"netop","name":"snat"}}]}}`,
+		`{"status":{"lbSNATIPAllocations":[{"allocationRef":{"namespace":"netop","name":"snat","uid":"removed"}}]}}`,
+		`{"status":{"lbSNATIPAllocations":[{"ipFamily":"IPv4","ipAddress":"10.2.1.50","allocationRef":{"namespace":"netop","name":"snat"}}]}}`,
+		`{"status":{"detectedSourceLbProvider":"VSPHERE_FOUNDATION"}}`,
 		`{"spec":{"networkConfiguration":{"controlPlaneAndServiceDHCPNetworks":[{"vdn":"old-name"}]}}}`,
-		`{"status":{"nsxWorkflows":[{"vdn":"old-name","workflowId":"workflow-1"}]}}`,
+		`{"status":{"nsxWorkflows":[{"vdn":"old-name","workflowID":"workflow-1"}]}}`,
 		`{"spec":{"networkConfiguration":{"tenantNetworks":[]}}}`,
 		`{"spec":{"networkConfiguration":{"controlPlaneAndServiceDHCPNetworks":[{"dvpgId":"dvpg-1"}]}}}`,
-		`{"status":{"nsxWorkflows":[{"dvsUUID":"dvs-1","workflowId":"workflow-1"}]}}`,
+		`{"status":{"nsxWorkflows":[{"dvsUUID":"dvs-1","workflowID":"workflow-1"}]}}`,
 	} {
 		decoder := json.NewDecoder(bytes.NewBufferString(data))
 		decoder.DisallowUnknownFields()
@@ -169,7 +170,6 @@ func TestOptionalInputsRoundTripAndDeepCopy(t *testing.T) {
 	raw, err := json.Marshal(cp)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"fieldName":`)
-	require.NotContains(t, string(raw), `"key":`)
 	var restored ControlPlaneNetworkTransition
 	require.NoError(t, json.Unmarshal(raw, &restored))
 	require.Equal(t, cp, &restored)

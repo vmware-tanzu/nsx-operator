@@ -191,7 +191,7 @@ type NSXWorkflowStatus struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
-	WorkflowID string `json:"workflowId,omitempty"`
+	WorkflowID string `json:"workflowID,omitempty"`
 }
 
 // NSXResourceName is used as both NSX resource ID and display name.

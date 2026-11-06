@@ -10,8 +10,8 @@ metadata:
 spec:
   sourceMode: "VSPHERE_VDS"
   targetMode: "NSX_VPC"
-  targetLbProvider: "NSX_LB"
-  nsxProjectId: "proj-vcfa-org-01"         # Optional: pre-created VCFA Org project; defaults to 'default'
+  targetLBProvider: "NSX_LB"
+  nsxProjectID: "proj-vcfa-org-01"         # Optional: pre-created VCFA Org project; defaults to 'default'
   # Infrastructure has no Rollback; arrange WCP backup-and-restore recovery before migration.
   action: "Evaluate"                      # Evaluate | Plan | Derive | Execute | Finalize
   networkConfiguration:
@@ -22,7 +22,7 @@ spec:
         vpcName: migration-primary-vpc
         dvcName: migration-infra-dvc
         subnetName: migration-infra-subnet
-      loadBalancerVpcName: migration-lb-vpc
+      loadBalancerVPCName: migration-lb-vpc
     # Include for DHCP-backed control plane or Supervisor Service networks.
     controlPlaneAndServiceDHCPNetworks:
     - vdnName: vdn-cp-services-1
@@ -34,11 +34,11 @@ spec:
 
 status:
   phase: "Evaluated"
-  detectedSourceLbProvider: "VSPHERE_FOUNDATION"
-  targetLbProvider: "NSX_LB"
+  sourceLBProvider: "VSPHERE_FOUNDATION"
+  targetLBProvider: "NSX_LB"
   nsxWorkflows:
   - vdnName: "vdn-source-1"
-    workflowId: "wf-infra-dvs10"
-  targetNsxProjectPath: "/orgs/default/projects/proj-vcfa-org-01"
-  primaryVpcPath: "/orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-primary"
-  loadBalancerVpcPath: "/orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-lb"
+    workflowID: "wf-infra-dvs10"
+  targetNSXProjectPath: "/orgs/default/projects/proj-vcfa-org-01"
+  primaryVPCPath: "/orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-primary"
+  loadBalancerVPCPath: "/orgs/default/projects/proj-vcfa-org-01/vpcs/vpc-lb"

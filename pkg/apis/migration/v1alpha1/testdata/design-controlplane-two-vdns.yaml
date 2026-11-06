@@ -7,14 +7,14 @@ spec:
   action: Evaluate
   sourceMode: VSPHERE_VDS
   targetMode: NSX_VPC
-  targetLbProvider: NSX_LB
+  targetLBProvider: NSX_LB
 status:
   observedGeneration: 1
   lastAction: Evaluate
   actionGeneration: 1
   actionState: Running
   phase: NeedsInput
-  detectedSourceLbProvider: VSPHERE_FOUNDATION
+  sourceLBProvider: VSPHERE_FOUNDATION
   requiredInputs:
   - fieldName: spec.networkConfiguration.controlPlaneAndServiceDHCPNetworks[vdnName=vdn-cp-dhcp]
     description: Supply the existing DHCP range, subnet mask and gateway for DHCP-backed VDN vdn-cp-dhcp. Static VDN vdn-services-static needs no DHCP input.

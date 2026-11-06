@@ -6,7 +6,7 @@ spec:
   action: Evaluate
   sourceMode: VSPHERE_VDS
   targetMode: NSX_VPC
-  targetLbProvider: NSX_LB
+  targetLBProvider: NSX_LB
   networkConfiguration:
     resourceNaming:
       networks:
@@ -15,4 +15,4 @@ spec:
         vpcName: vpc-primary
         dvcName: dvc-infra
         subnetName: subnet-infra
-      loadBalancerVpcName: vpc-lb
+      loadBalancerVPCName: vpc-lb

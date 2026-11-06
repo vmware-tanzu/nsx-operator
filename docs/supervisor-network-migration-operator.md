@@ -95,7 +95,7 @@ ControlPlaneNetworkTransition must inspect **all** VDNs used by CPVMs and
 Supervisor Services, including static and DHCP-backed networks. NamespaceNetworkTransition
 inspects all VDNs used by `spec.namespaces`. Neither discovery scope is limited to
 entries in the DHCP input lists. Infrastructure naming also retains the separate
-optional `loadBalancerVpcName` for the dedicated LB VPC.
+optional `loadBalancerVPCName` for the dedicated LB VPC.
 
 For each VDN, Evaluate must:
 
@@ -286,7 +286,7 @@ bounds, unknown VDNs and conflicts between batches, belong to the concrete
 handlers, which have not shipped.
 
 `status.nsxWorkflows` is a map list keyed by `vdnName`, retaining the exact
-`workflowId` for recovery. The execution contract specifies `InfraTransitionComplete`
+`workflowID` for recovery. The execution contract specifies `InfraTransitionComplete`
 and the matching condition for infrastructure, and `Completed` for Namespace
 execution. It specifies `Finalized` for infrastructure finalization and `Committed`
 for Namespace commit. Execution is implemented separately under UBMWM-12405.
@@ -295,26 +295,26 @@ examples. Apply the samples under `build/yaml/samples/migration` to begin with
 `Evaluate`, then request each subsequent action after its prerequisites succeed.
 
 Supervisor networks backed by VDS are IPv4-only. For an NSX_LB target,
-`networkConfiguration.lbSnatIPs` is an array that currently accepts at most one
+`networkConfiguration.lbSNATIPs` is an array that currently accepts at most one
 plain IPv4 backend fallback address when the IPv4 VIP pool cannot provide a
 reservation during Evaluate. The array shape is retained so a future release can
 add IPv6 support if Supervisor VDS supports it. The input may be added, corrected,
 or removed during Evaluate until its allocation is accepted. Once
-`status.lbSnatIPAllocations` records an accepted allocation,
-`spec.networkConfiguration.lbSnatIPs` cannot be added, changed, or removed, even
+`status.lbSNATIPAllocations` records an accepted allocation,
+`spec.networkConfiguration.lbSNATIPs` cannot be added, changed, or removed
 during Evaluate. Requesting Plan freezes all inputs even before its checkpoint
 is recorded. DHCP range bounds and gateways for VDS-backed source networks are
 also IPv4-only. See
 `build/yaml/samples/migration/controlplane-nsx-lb.yaml`.
 The CRD validates syntax and family; availability checks, early reservation,
 reservation ownership, and cancellation cleanup require execution handlers.
-Before recording `status.lbSnatIPAllocations`, a handler must confirm the address
+Before recording `status.lbSNATIPAllocations`, a handler must confirm the address
 and, when it came from a source IPAddressAllocation, that allocation's ownership,
 readiness, and Namespace/name. `allocationRef` is omitted for an administrator-
 supplied backend address that has no source allocation. The accepted checkpoint
 uses the existing `NamespacedName` API type when a source allocation exists and
-prevents changes to `spec.networkConfiguration.lbSnatIPs`,
-`spec.targetLbProvider`, and `spec.nsxProjectId`. The status allocation cannot be
+prevents changes to `spec.networkConfiguration.lbSNATIPs`,
+`spec.targetLBProvider`, and `spec.nsxProjectID`. The status allocation cannot be
 replaced or removed. These records do not allocate addresses; post-planning
 revision/reset handling remains separate service work. Infrastructure has no
 rollback-based reset path.

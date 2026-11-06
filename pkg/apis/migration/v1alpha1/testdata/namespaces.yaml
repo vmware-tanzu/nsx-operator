@@ -32,9 +32,9 @@ status:
   phase: "Failed"                     # Aggregate batch phase
   nsxWorkflows:
   - vdnName: "vdn-source-1"
-    workflowId: "wf-batch-dvs10"
+    workflowID: "wf-batch-dvs10"
   - vdnName: "vdn-source-2"
-    workflowId: "wf-batch-dvs20"
+    workflowID: "wf-batch-dvs20"
   conditions:                         # Macro batch milestones
   - type: SubnetsDerived
     status: "True"

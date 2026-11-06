@@ -54,7 +54,7 @@ status:
     phase: PlanReady
     reason: MigrationInProgress
   nsxWorkflows:
-  - workflowId: wf-batch-finance-01
+  - workflowID: wf-batch-finance-01
     vdnName: vdn-source-1
   observedGeneration: 5
   phase: PlanReady

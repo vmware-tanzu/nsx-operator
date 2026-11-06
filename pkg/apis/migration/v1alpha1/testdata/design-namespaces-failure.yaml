@@ -65,7 +65,7 @@ status:
     phase: Failed
     reason: MigrationFailed
   nsxWorkflows:
-  - workflowId: wf-batch-dvs10
+  - workflowID: wf-batch-dvs10
     vdnName: vdn-source-1
   observedGeneration: 5
   phase: Failed

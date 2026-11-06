@@ -44,17 +44,21 @@ func TestInputAdmission(t *testing.T) {
 			require.Empty(t, crdvalidation.ValidateCustomResourceDefinition(context.Background(), &internalCRD), "the target API server must accept the generated CRD")
 			if stage == "controlplane" {
 				properties := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties
-				require.NotContains(t, properties["spec"].Properties["networkConfiguration"].Properties, "aviConfig")
-				allocationStatus := properties["status"].Properties["lbSnatIPAllocations"].Items.Schema
-				allocation := allocationStatus.Properties["allocationRef"]
-				require.NotContains(t, allocation.Properties, "uid")
+				specProperties := properties["spec"].Properties
+				require.Contains(t, specProperties, "targetLBProvider")
+				require.Contains(t, specProperties, "nsxProjectID")
+				networkProperties := specProperties["networkConfiguration"].Properties
+				require.Contains(t, networkProperties, "lbSNATIPs")
+				statusProperties := properties["status"].Properties
+				require.Contains(t, statusProperties, "lbSNATIPAllocations")
+				require.Contains(t, statusProperties, "sourceLBProvider")
+				workflowProperties := statusProperties["nsxWorkflows"].Items.Schema.Properties
+				require.Contains(t, workflowProperties, "workflowID")
+				allocationStatus := properties["status"].Properties["lbSNATIPAllocations"].Items.Schema
 				require.ElementsMatch(t, []string{"ipAddress"}, allocationStatus.Required)
-				require.NotContains(t, allocationStatus.Required, "allocationRef")
 			}
 			var props apiextensions.JSONSchemaProps
 			require.NoError(t, extensionsv1.Convert_v1_JSONSchemaProps_To_apiextensions_JSONSchemaProps(crd.Spec.Versions[0].Schema.OpenAPIV3Schema, &props, nil))
-			subnetSchema := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties["networkConfiguration"].Properties[key].Items.Schema
-			require.NotContains(t, subnetSchema.Properties, "subnetCidr")
 			structural, err := schema.NewStructural(&props)
 			require.NoError(t, err)
 			validator := cel.NewValidator(structural, true, celconfig.PerCallLimit)
@@ -217,7 +221,6 @@ func TestInputAdmission(t *testing.T) {
 			optionalSchema := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"].Properties["optionalInputs"]
 			require.Equal(t, "map", *optionalSchema.XListType)
 			require.Equal(t, []string{"fieldName"}, optionalSchema.XListMapKeys)
-			require.NotContains(t, crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["status"].Properties, "resourceNaming")
 			namingEntry := func(o map[string]any, entry map[string]any) {
 				inputs(o)["resourceNaming"] = map[string]any{"networks": []any{entry}}
 			}
@@ -232,9 +235,6 @@ func TestInputAdmission(t *testing.T) {
 			}
 			check("maximum resource name", nil, func(o map[string]any) { naming(o, strings.Repeat("a", 255)) }, true)
 			namingSchema := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties["networkConfiguration"].Properties["resourceNaming"]
-			require.NotContains(t, namingSchema.Properties, "mode")
-			require.NotContains(t, namingSchema.Properties, "names")
-			require.NotContains(t, namingSchema.Properties, "tgwName")
 			require.Equal(t, "map", *namingSchema.Properties["networks"].XListType)
 			require.Equal(t, []string{"vdnName"}, namingSchema.Properties["networks"].XListMapKeys)
 			check("VDN without names uses generated names", nil, func(o map[string]any) { namingEntry(o, map[string]any{"vdnName": sourceVDN}) }, true)
@@ -249,9 +249,6 @@ func TestInputAdmission(t *testing.T) {
 				check("invalid per VDN "+field, nil, func(o map[string]any) { namingEntry(o, map[string]any{"vdnName": sourceVDN, field: "invalid/name"}) }, false)
 			}
 
-			vdnNamingSchema := namingSchema.Properties["networks"].Items.Schema
-			require.NotContains(t, vdnNamingSchema.Properties, "vlanSubnets")
-			require.NotContains(t, vdnNamingSchema.Properties, "vlanId")
 			check("duplicate naming VDN", nil, func(o map[string]any) {
 				inputs(o)["resourceNaming"] = map[string]any{"networks": []any{map[string]any{"vdnName": sourceVDN}, map[string]any{"vdnName": sourceVDN}}}
 			}, false)
@@ -275,10 +272,10 @@ func TestInputAdmission(t *testing.T) {
 			}, false)
 			if stage == "controlplane" {
 				check("optional LB VPC name", nil, func(o map[string]any) {
-					inputs(o)["resourceNaming"] = map[string]any{"loadBalancerVpcName": "migration-lb"}
+					inputs(o)["resourceNaming"] = map[string]any{"loadBalancerVPCName": "migration-lb"}
 				}, true)
 				check("invalid LB VPC name", nil, func(o map[string]any) {
-					inputs(o)["resourceNaming"] = map[string]any{"loadBalancerVpcName": "invalid/name"}
+					inputs(o)["resourceNaming"] = map[string]any{"loadBalancerVPCName": "invalid/name"}
 				}, false)
 			}
 			named := runtime.DeepCopyJSON(example)
@@ -421,13 +418,13 @@ func TestInputAdmission(t *testing.T) {
 					delete(spec(empty), "networkConfiguration")
 					check(label+" initial inputs", empty, func(o map[string]any) { spec(o)["action"] = "Plan"; spec(o)["networkConfiguration"] = inputs(example) }, false)
 					if stage == "controlplane" {
-						for _, selection := range []struct{ field, value string }{{"targetLbProvider", "NSX_LB"}, {"nsxProjectId", "different-project"}} {
+						for _, selection := range []struct{ field, value string }{{"targetLBProvider", "NSX_LB"}, {"nsxProjectID", "different-project"}} {
 							omitted := runtime.DeepCopyJSON(base)
 							delete(spec(omitted), selection.field)
 							check(label+" select "+selection.field, omitted, func(o map[string]any) { spec(o)["action"] = "Plan"; spec(o)[selection.field] = selection.value }, false)
 							check(label+" evaluate "+selection.field, omitted, func(o map[string]any) { spec(o)["action"] = "Evaluate"; spec(o)[selection.field] = selection.value }, true)
 						}
-						check(label+" remove provider", base, func(o map[string]any) { spec(o)["action"] = "Plan"; delete(spec(o), "targetLbProvider") }, false)
+						check(label+" remove provider", base, func(o map[string]any) { spec(o)["action"] = "Plan"; delete(spec(o), "targetLBProvider") }, false)
 					}
 				}
 			}
@@ -463,9 +460,9 @@ func TestInputAdmission(t *testing.T) {
 					delete(spec(missing), "networkConfiguration")
 					check(label+" supply inputs", missing, func(o map[string]any) { spec(o)["networkConfiguration"] = inputs(example) }, false)
 					if stage == "controlplane" {
-						delete(spec(locked), "nsxProjectId")
-						check(label+" select different project", locked, func(o map[string]any) { spec(o)["nsxProjectId"] = "different-project"; spec(o)["action"] = "Execute" }, false)
-						check(label+" remove provider", locked, func(o map[string]any) { delete(spec(o), "targetLbProvider") }, false)
+						delete(spec(locked), "nsxProjectID")
+						check(label+" select different project", locked, func(o map[string]any) { spec(o)["nsxProjectID"] = "different-project"; spec(o)["action"] = "Execute" }, false)
+						check(label+" remove provider", locked, func(o map[string]any) { delete(spec(o), "targetLBProvider") }, false)
 
 					}
 				}
@@ -554,95 +551,93 @@ func TestInputAdmission(t *testing.T) {
 				const ipv4, ipv6 = "10.2.1.50", "2001:db8:2::50"
 				for _, values := range [][]any{{ipv4}} {
 					check("valid LB SNAT addresses", nil, func(o map[string]any) {
-						spec(o)["targetLbProvider"] = "NSX_LB"
-						inputs(o)["lbSnatIPs"] = values
+						spec(o)["targetLBProvider"] = "NSX_LB"
+						inputs(o)["lbSNATIPs"] = values
 					}, true)
 				}
 				for _, values := range [][]any{{""}, {"invalid"}, {"10.2.1.50/24"}, {"2001:db8:2::50"}, {"2001:db8:2::50/64"}, {"10.2.1.50", "10.2.1.51"}, {ipv4, ipv6}} {
 					check("invalid LB SNAT addresses", nil, func(o map[string]any) {
-						spec(o)["targetLbProvider"] = "NSX_LB"
-						inputs(o)["lbSnatIPs"] = values
+						spec(o)["targetLBProvider"] = "NSX_LB"
+						inputs(o)["lbSNATIPs"] = values
 					}, false)
 				}
 				check("LB SNAT addresses reject unsupported target", nil, func(o map[string]any) {
-					spec(o)["targetLbProvider"] = "AVI"
-					inputs(o)["lbSnatIPs"] = []any{ipv4}
+					spec(o)["targetLBProvider"] = "AVI"
+					inputs(o)["lbSNATIPs"] = []any{ipv4}
 				}, false)
 				check("LB SNAT addresses permit unresolved target", nil, func(o map[string]any) {
-					delete(spec(o), "targetLbProvider")
-					inputs(o)["lbSnatIPs"] = []any{ipv4}
+					delete(spec(o), "targetLBProvider")
+					inputs(o)["lbSNATIPs"] = []any{ipv4}
 				}, true)
 				fallback := runtime.DeepCopyJSON(example)
-				spec(fallback)["targetLbProvider"] = "NSX_LB"
-				check("add IPv4 LB SNAT fallback during evaluation", fallback, func(o map[string]any) { inputs(o)["lbSnatIPs"] = []any{ipv4} }, true)
+				spec(fallback)["targetLBProvider"] = "NSX_LB"
+				check("add IPv4 LB SNAT fallback during evaluation", fallback, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, true)
 				for _, action := range []string{"Plan", "Derive", "Execute"} {
 					check("cannot add LB SNAT fallback with "+action, fallback, func(o map[string]any) {
 						spec(o)["action"] = action
-						inputs(o)["lbSnatIPs"] = []any{ipv4}
+						inputs(o)["lbSNATIPs"] = []any{ipv4}
 					}, false)
 				}
-				inputs(fallback)["lbSnatIPs"] = []any{ipv4}
-				check("correct LB SNAT fallback before reservation", fallback, func(o map[string]any) { inputs(o)["lbSnatIPs"] = []any{"10.2.1.51"} }, true)
-				check("remove LB SNAT fallback before reservation", fallback, func(o map[string]any) { delete(inputs(o), "lbSnatIPs") }, true)
+				inputs(fallback)["lbSNATIPs"] = []any{ipv4}
+				check("correct LB SNAT fallback before reservation", fallback, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{"10.2.1.51"} }, true)
+				check("remove LB SNAT fallback before reservation", fallback, func(o map[string]any) { delete(inputs(o), "lbSNATIPs") }, true)
 				ipv4Allocation := map[string]any{"ipAddress": ipv4, "allocationRef": map[string]any{"namespace": "vmware-system-netop", "name": "lb-snat-ipv4"}}
 				accepted := runtime.DeepCopyJSON(fallback)
-				inputs(accepted)["lbSnatIPs"] = []any{ipv4}
-				accepted["status"] = map[string]any{"lbSnatIPAllocations": []any{ipv4Allocation}}
+				inputs(accepted)["lbSNATIPs"] = []any{ipv4}
+				accepted["status"] = map[string]any{"lbSNATIPAllocations": []any{ipv4Allocation}}
 				check("user-supplied address allocation may omit source reference", nil, func(o map[string]any) {
-					spec(o)["targetLbProvider"] = "NSX_LB"
-					inputs(o)["lbSnatIPs"] = []any{ipv4}
-					o["status"] = map[string]any{"lbSnatIPAllocations": []any{map[string]any{"ipAddress": ipv4}}}
+					spec(o)["targetLBProvider"] = "NSX_LB"
+					inputs(o)["lbSNATIPs"] = []any{ipv4}
+					o["status"] = map[string]any{"lbSNATIPAllocations": []any{map[string]any{"ipAddress": ipv4}}}
 				}, true)
-				check("accepted IPv4 allocation cannot replace its input", accepted, func(o map[string]any) { inputs(o)["lbSnatIPs"] = []any{"10.2.1.51"} }, false)
-				check("accepted IPv4 allocation cannot remove its input", accepted, func(o map[string]any) { delete(inputs(o), "lbSnatIPs") }, false)
-				check("accepted IPv4 allocation rejects IPv6 input", accepted, func(o map[string]any) { inputs(o)["lbSnatIPs"] = []any{ipv6} }, false)
+				check("accepted IPv4 allocation cannot replace its input", accepted, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{"10.2.1.51"} }, false)
+				check("accepted IPv4 allocation cannot remove its input", accepted, func(o map[string]any) { delete(inputs(o), "lbSNATIPs") }, false)
+				check("accepted IPv4 allocation rejects IPv6 input", accepted, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv6} }, false)
 				check("accepted allocation permits unrelated network correction", accepted, func(o map[string]any) { subnet(o)["gatewayAddress"] = "10.2.1.254" }, true)
 				check("accepted allocation cannot clear status", accepted, func(o map[string]any) { delete(o, "status") }, false)
-				check("accepted allocation cannot clear checkpoints", accepted, func(o map[string]any) { delete(object(o["status"], "status"), "lbSnatIPAllocations") }, false)
+				check("accepted allocation cannot clear checkpoints", accepted, func(o map[string]any) { delete(object(o["status"], "status"), "lbSNATIPAllocations") }, false)
 				check("accepted allocation cannot rebind", accepted, func(o map[string]any) {
-					r := object(o["status"], "status")["lbSnatIPAllocations"].([]any)[0].(map[string]any)
+					r := object(o["status"], "status")["lbSNATIPAllocations"].([]any)[0].(map[string]any)
 					r["allocationRef"].(map[string]any)["name"] = "replacement-allocation"
 				}, false)
 				automatic := runtime.DeepCopyJSON(fallback)
-				delete(inputs(automatic), "lbSnatIPs")
+				delete(inputs(automatic), "lbSNATIPs")
 				automatic["status"] = accepted["status"]
-				check("automatic IPv4 allocation prevents later IPv4 fallback", automatic, func(o map[string]any) { inputs(o)["lbSnatIPs"] = []any{ipv4} }, false)
-				check("automatic IPv4 allocation rejects IPv6 fallback", automatic, func(o map[string]any) { inputs(o)["lbSnatIPs"] = []any{ipv6} }, false)
+				check("automatic IPv4 allocation prevents later IPv4 fallback", automatic, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, false)
+				check("automatic IPv4 allocation rejects IPv6 fallback", automatic, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv6} }, false)
 				missingProject := runtime.DeepCopyJSON(accepted)
-				delete(spec(missingProject), "nsxProjectId")
-				check("accepted allocation cannot select project", missingProject, func(o map[string]any) { spec(o)["nsxProjectId"] = "other" }, false)
+				delete(spec(missingProject), "nsxProjectID")
+				check("accepted allocation cannot select project", missingProject, func(o map[string]any) { spec(o)["nsxProjectID"] = "other" }, false)
 				unresolved := runtime.DeepCopyJSON(accepted)
-				delete(spec(unresolved), "targetLbProvider")
-				check("accepted allocation cannot select provider", unresolved, func(o map[string]any) { spec(o)["targetLbProvider"] = "NSX_LB" }, false)
+				delete(spec(unresolved), "targetLBProvider")
+				check("accepted allocation cannot select provider", unresolved, func(o map[string]any) { spec(o)["targetLBProvider"] = "NSX_LB" }, false)
 				planned := runtime.DeepCopyJSON(fallback)
-				delete(inputs(planned), "lbSnatIPs")
+				delete(inputs(planned), "lbSNATIPs")
 				planned["status"] = map[string]any{"lastAction": "Plan", "actionState": "Succeeded"}
-				check("cannot add LB SNAT input after Plan", planned, func(o map[string]any) { inputs(o)["lbSnatIPs"] = []any{ipv4} }, false)
+				check("cannot add LB SNAT input after Plan", planned, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, false)
 				reservationData, err := os.ReadFile("testdata/controlplane-nsx-lb-reserved.yaml")
 				require.NoError(t, err)
 				var reserved map[string]any
 				require.NoError(t, yaml.Unmarshal(reservationData, &reserved))
 				check("IPv4 reservation fixture", reserved, func(map[string]any) {}, true)
 				check("IPv6 allocation status is unsupported for VDS source", nil, func(o map[string]any) {
-					o["status"] = map[string]any{"lbSnatIPAllocations": []any{map[string]any{"ipAddress": ipv6}}}
+					o["status"] = map[string]any{"lbSNATIPAllocations": []any{map[string]any{"ipAddress": ipv6}}}
 				}, false)
 				for _, provider := range []string{"AVI", "NSX_LB", "VSPHERE_FOUNDATION"} {
 					valid := provider == "NSX_LB"
-					check("target provider "+provider, nil, func(o map[string]any) { spec(o)["targetLbProvider"] = provider }, valid)
-					check("resolved target provider "+provider, nil, func(o map[string]any) { o["status"] = map[string]any{"targetLbProvider": provider} }, valid)
+					check("target provider "+provider, nil, func(o map[string]any) { spec(o)["targetLBProvider"] = provider }, valid)
+					check("resolved target provider "+provider, nil, func(o map[string]any) { o["status"] = map[string]any{"targetLBProvider": provider} }, valid)
 				}
 				for _, provider := range []string{"HAPROXY", "AVI", "NSX_LB"} {
-					check("reject unsupported source provider "+provider, nil, func(o map[string]any) { o["status"] = map[string]any{"detectedSourceLbProvider": provider} }, false)
+					check("reject unsupported source provider "+provider, nil, func(o map[string]any) { o["status"] = map[string]any{"sourceLBProvider": provider} }, false)
 				}
-				configurationSchema := crd.Spec.Versions[0].Schema.OpenAPIV3Schema.Properties["spec"].Properties["networkConfiguration"]
-				require.NotContains(t, configurationSchema.Properties, "sourceLbFrontendDvpgs")
-				check("FLB source provider", nil, func(o map[string]any) { o["status"] = map[string]any{"detectedSourceLbProvider": "VSPHERE_FOUNDATION"} }, true)
+				check("FLB source provider", nil, func(o map[string]any) { o["status"] = map[string]any{"sourceLBProvider": "VSPHERE_FOUNDATION"} }, true)
 				check("singleton", example, func(o map[string]any) { o["metadata"].(map[string]any)["name"] = "another" }, false)
-				check("change project", example, func(o map[string]any) { spec(o)["nsxProjectId"] = "other" }, false)
-				check("remove project", example, func(o map[string]any) { delete(spec(o), "nsxProjectId") }, false)
+				check("change project", example, func(o map[string]any) { spec(o)["nsxProjectID"] = "other" }, false)
+				check("remove project", example, func(o map[string]any) { delete(spec(o), "nsxProjectID") }, false)
 				empty := runtime.DeepCopyJSON(example)
-				delete(spec(empty), "nsxProjectId")
-				check("supply project", empty, func(o map[string]any) { spec(o)["nsxProjectId"] = "project" }, true)
+				delete(spec(empty), "nsxProjectID")
+				check("supply project", empty, func(o map[string]any) { spec(o)["nsxProjectID"] = "project" }, true)
 			}
 		})
 	}

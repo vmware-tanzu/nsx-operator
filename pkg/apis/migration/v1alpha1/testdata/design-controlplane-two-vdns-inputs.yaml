@@ -6,7 +6,7 @@ spec:
   action: Evaluate
   sourceMode: VSPHERE_VDS
   targetMode: NSX_VPC
-  targetLbProvider: NSX_LB
+  targetLBProvider: NSX_LB
   networkConfiguration:
     controlPlaneAndServiceDHCPNetworks:
     - vdnName: vdn-cp-dhcp
