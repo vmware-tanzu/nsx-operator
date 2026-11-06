@@ -303,7 +303,6 @@ func TestGetSegmentPathForSubnetPortFromStore(t *testing.T) {
 		want       string
 	}{
 		{name: "CR UID", scope: common.TagScopeSubnetPortCRUID, parentPath: common.String(segmentPath), want: segmentPath},
-		{name: "Pod UID", scope: common.TagScopePodUID, parentPath: common.String(segmentPath), want: segmentPath},
 		{name: "not found"},
 		{name: "nil parent", scope: common.TagScopeSubnetPortCRUID},
 		{name: "empty parent", scope: common.TagScopeSubnetPortCRUID, parentPath: common.String("")},
@@ -313,7 +312,6 @@ func TestGetSegmentPathForSubnetPortFromStore(t *testing.T) {
 			// Allow incomplete cached records to exercise the missing-parent check.
 			store.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
 				common.TagScopeSubnetPortCRUID: segmentPortIndexByCRUID,
-				common.TagScopePodUID:          segmentPortIndexByPodUID,
 			})
 			require.NoError(t, store.Add(&model.SegmentPort{
 				Id: common.String("port-1"), ParentPath: tt.parentPath,
@@ -327,30 +325,18 @@ func TestGetSegmentPathForSubnetPortFromStore(t *testing.T) {
 }
 
 func TestBuildSegmentPortIdAndNameExisting(t *testing.T) {
-	for _, scope := range []string{common.TagScopeSubnetPortCRUID, common.TagScopePodUID} {
-		t.Run(scope, func(t *testing.T) {
-			service := &SubnetPortService{SegmentPortStore: setupSegmentPortStore()}
-			meta := &metav1.ObjectMeta{
-				Name: "port", UID: "cr-uid",
-				OwnerReferences: []metav1.OwnerReference{{Kind: "Pod", UID: "pod-uid"}},
-			}
-			uid := string(meta.UID)
-			if scope == common.TagScopePodUID {
-				uid = "pod-uid"
-			}
-			port := &model.SegmentPort{
-				Id:          common.String("existing-port"),
-				DisplayName: common.String("existing-name"),
-				Path:        common.String("/infra/segments/seg-1/ports/existing-port"),
-				Tags:        []model.Tag{{Scope: common.String(scope), Tag: common.String(uid)}},
-			}
-			require.NoError(t, service.SegmentPortStore.Apply(port))
-			id, name, err := service.BuildSegmentPortIdAndName(meta, "ns-uid")
-			require.NoError(t, err)
-			assert.Equal(t, "existing-port", id)
-			assert.Equal(t, "existing-name", name)
-		})
+	service := &SubnetPortService{SegmentPortStore: setupSegmentPortStore()}
+	meta := &metav1.ObjectMeta{Name: "port", UID: "cr-uid"}
+	port := &model.SegmentPort{
+		Id: common.String("existing-port"), DisplayName: common.String("existing-name"),
+		Path: common.String("/infra/segments/seg-1/ports/existing-port"),
+		Tags: []model.Tag{{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: common.String(string(meta.UID))}},
 	}
+	require.NoError(t, service.SegmentPortStore.Apply(port))
+	id, name, err := service.BuildSegmentPortIdAndName(meta, "ns-uid")
+	require.NoError(t, err)
+	assert.Equal(t, "existing-port", id)
+	assert.Equal(t, "existing-name", name)
 }
 
 func TestBuildSegmentPortIdAndNameLookupError(t *testing.T) {
@@ -440,10 +426,9 @@ func TestCreateOrUpdateSegmentPortExisting(t *testing.T) {
 	}
 }
 
-func TestListSubnetPortIDsFromCRsSegmentPortOwner(t *testing.T) {
+func TestListSubnetPortIDsFromCRsSegmentPort(t *testing.T) {
 	sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{
 		Name: "port", Namespace: "ns", UID: "cr-uid",
-		OwnerReferences: []metav1.OwnerReference{{Kind: "Pod", UID: "pod-uid"}},
 	}}
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha1.AddToScheme(scheme))
@@ -455,7 +440,7 @@ func TestListSubnetPortIDsFromCRsSegmentPortOwner(t *testing.T) {
 	require.NoError(t, service.SegmentPortStore.Apply(&model.SegmentPort{
 		Id:   common.String("existing-port"),
 		Path: common.String("/infra/segments/seg-1/ports/existing-port"),
-		Tags: []model.Tag{{Scope: common.String(common.TagScopePodUID), Tag: common.String("pod-uid")}},
+		Tags: []model.Tag{{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: common.String(string(sp.UID))}},
 	}))
 	ids, err := service.ListSubnetPortIDsFromCRs(context.Background())
 	require.NoError(t, err)

@@ -521,12 +521,6 @@ func (service *SubnetPortService) ListNSXSubnetPortIDForPod() sets.Set[string] {
 			subnetPortSet.Insert(subnetPortIDs...)
 		}
 	}
-	if service.SegmentPortStore != nil {
-		for _, podUID := range service.SegmentPortStore.ListIndexFuncValues(servicecommon.TagScopePodUID).UnsortedList() {
-			subnetPortIDs, _ := service.SegmentPortStore.IndexKeys(servicecommon.TagScopePodUID, podUID)
-			subnetPortSet.Insert(subnetPortIDs...)
-		}
-	}
 	return subnetPortSet
 }
 
