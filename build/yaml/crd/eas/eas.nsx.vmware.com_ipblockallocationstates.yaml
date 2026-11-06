@@ -1,0 +1,78 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: ipblockallocationstates.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: IPBlockAllocationState
+    listKind: IPBlockAllocationStateList
+    plural: ipblockallocationstates
+    singular: ipblockallocationstate
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: IPBlockAllocationState represents the allocation state of IP
+          Blocks for a VPC.
+        properties:
+          addressType:
+            description: IP address type of the IPBlock. Must be IPv4 or IPv6.
+            enum:
+            - IPv4
+            - IPv6
+            type: string
+          allocations:
+            description: Allocations is the list of allocated IPs/CIDRs from this
+              IP block and their associated CR names.
+            items:
+              description: AllocatedCIDR represents an allocated IP or CIDR and its
+                corresponding IPAddressAllocation CR name.
+              properties:
+                cidr:
+                  description: CIDR represents the allocated CIDR or IP address (e.g.,
+                    "10.0.0.0/24" or "192.168.1.10/32").
+                  type: string
+                ipAddressAllocationName:
+                  description: |-
+                    IPAddressAllocationName is the name of the Kubernetes IPAddressAllocation CR
+                    associated with this allocated IP/CIDR.
+                  type: string
+              type: object
+            type: array
+            x-kubernetes-list-type: atomic
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          ipBlockName:
+            description: Name of the IPBlock.
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          visibility:
+            description: Visibility of the IPBlock. Must be External, Private, or
+              PrivateTGW.
+            enum:
+            - External
+            - Private
+            - PrivateTGW
+            type: string
+        type: object
+    served: true
+    storage: true
