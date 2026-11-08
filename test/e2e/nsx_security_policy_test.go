@@ -19,14 +19,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -38,7 +36,7 @@ func TestSecurityPolicy(t *testing.T) {
 
 	// Clean up shared namespaces when all subtests complete
 	t.Cleanup(func() {
-		CleanupVCNamespaces(
+		CleanupVCNamespaces(t,
 			NsSecurityPolicyBasic,
 			NsSecurityPolicyAddDeleteRule,
 			NsSecurityPolicyMatchExpr,
@@ -111,9 +109,6 @@ func TestSecurityPolicy(t *testing.T) {
 // TestSecurityPolicyBasicTraffic verifies that the basic traffic of security policy.
 // This is the very basic, blocking all in and out traffic between pods should take effect.
 func testSecurityPolicyBasicTraffic(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
-	defer deadlineCancel()
-
 	// Use dedicated pre-created VC namespace
 	ns := NsSecurityPolicyBasic
 	securityPolicyName := "isolate-policy-1"
@@ -124,7 +119,7 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	deploymentName := "server-client"
 	_, err := testData.createDeployment(ns, deploymentName, containerName, podImage, corev1.ProtocolTCP, podPort, 2)
 	require.NoErrorf(t, err, "Deloyment '%s/%s' should be created", ns, deploymentName)
-	serverClientIPs, serverClientNames, err := testData.deploymentWaitForIPsOrNames(2*defaultTimeout, ns, deploymentName, 2)
+	serverClientIPs, serverClientNames, err := testData.deploymentWaitForIPsOrNames(podStartupTimeout, ns, deploymentName, 2)
 	require.NoError(t, err, "Error when waiting for IP for Deployment '%s/%s'", ns, deploymentName)
 
 	serverPodName := serverClientNames[0]
@@ -153,15 +148,15 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 	log.Info("Verified traffic from client Pod to the server Pod")
 
 	// Delete security policy
-	_ = deleteYAML(nsIsolationPath, ns)
-	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	require.NoError(t, deleteYAML(nsIsolationPath, ns))
+	err = pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
 		log.Trace("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
 			}
-			return false, fmt.Errorf("error when waiting for Security Policy %s", securityPolicyName)
+			return false, fmt.Errorf("error when waiting for SecurityPolicy %s: %w", securityPolicyName, err)
 		}
 		return false, nil
 	})
@@ -181,9 +176,6 @@ func testSecurityPolicyBasicTraffic(t *testing.T) {
 // This is once a bug which is fixed later. When adding or deleting rule of one security policy repeatedly,
 // the nsx-t side should keep consistent.
 func testSecurityPolicyAddDeleteRule(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
-	defer deadlineCancel()
-
 	// Use dedicated pre-created VC namespace
 	ns := NsSecurityPolicyAddDeleteRule
 	securityPolicyName := "isolate-policy-1"
@@ -212,16 +204,16 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 	assert.NoError(t, testData.waitForResourceExistOrNot(ns, common.ResourceTypeRule, ruleName1, false))
 
 	// Delete security policy
-	_ = deleteYAML(nsIsolationPath, ns)
+	require.NoError(t, deleteYAML(nsIsolationPath, ns))
 
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err := pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
 		log.Trace("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
 			}
-			return false, fmt.Errorf("error when waiting for Security Policy %s", securityPolicyName)
+			return false, fmt.Errorf("error when waiting for SecurityPolicy %s: %w", securityPolicyName, err)
 		}
 		return false, nil
 	})
@@ -235,9 +227,6 @@ func testSecurityPolicyAddDeleteRule(t *testing.T) {
 // This test is to verify the match expression, NotIn/In operator feature of security policy. It should apply
 // to the specified pod.
 func testSecurityPolicyMatchExpression(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
-	defer deadlineCancel()
-
 	// Use dedicated pre-created VC namespace
 	ns := NsSecurityPolicyMatchExpr
 	securityPolicyName := "expression-policy-1"
@@ -252,11 +241,11 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	clientB := "client-b"
 	podA := "pod-a"
 	// Wait for pods
-	_, err := testData.podWaitForIPs(defaultTimeout, clientA, ns)
+	_, err := testData.podWaitForIPs(podStartupTimeout, clientA, ns)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
-	_, err = testData.podWaitForIPs(defaultTimeout, clientB, ns)
+	_, err = testData.podWaitForIPs(podStartupTimeout, clientB, ns)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientB)
-	iPs, err := testData.podWaitForIPs(defaultTimeout, podA, ns)
+	iPs, err := testData.podWaitForIPs(podStartupTimeout, podA, ns)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", podA)
 
 	// Test traffic from clientA to podA
@@ -284,16 +273,16 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 	log.Info("Verified traffic from client Pod to PodB")
 
 	// Delete security policy
-	_ = deleteYAML(nsIsolationPath, ns)
+	require.NoError(t, deleteYAML(nsIsolationPath, ns))
 
-	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err = pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
 		log.Trace("Check resource", "resp", resp)
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return true, nil
 			}
-			return false, fmt.Errorf("error when waiting for Security Policy %s", securityPolicyName)
+			return false, fmt.Errorf("error when waiting for SecurityPolicy %s: %w", securityPolicyName, err)
 		}
 		return false, nil
 	})
@@ -314,9 +303,6 @@ func testSecurityPolicyMatchExpression(t *testing.T) {
 // testSecurityPolicyVPCFromFieldIngress verifies VPC SecurityPolicy ingress rules using the preferred `from`
 // field (crd.nsx.vmware.com/v1alpha1).
 func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
-	defer deadlineCancel()
-
 	// Use dedicated pre-created VC namespace
 	ns := NsSecurityPolicyVPCFromIngress
 	securityPolicyName := "vpc-from-field-policy-1"
@@ -329,11 +315,11 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	require.NoError(t, applyYAML(podsPath, ns))
 	defer deleteYAML(podsPath, ns)
 
-	srvIP, err := testData.podWaitForIPs(defaultTimeout, "fr-srv", ns)
+	srvIP, err := testData.podWaitForIPs(podStartupTimeout, "fr-srv", ns)
 	require.NoError(t, err, "wait for fr-srv IP")
-	_, err = testData.podWaitForIPs(defaultTimeout, "frclient-allow", ns)
+	_, err = testData.podWaitForIPs(podStartupTimeout, "frclient-allow", ns)
 	require.NoError(t, err, "wait for frclient-allow")
-	_, err = testData.podWaitForIPs(defaultTimeout, "frclient-deny", ns)
+	_, err = testData.podWaitForIPs(podStartupTimeout, "frclient-deny", ns)
 	require.NoError(t, err, "wait for frclient-deny")
 
 	// Pods may be Running before the HTTP process is actually listening; gate on server readiness.
@@ -354,8 +340,8 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 	require.True(t, checkTrafficByCurl(ns, "frclient-allow", "frclient-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server with policy")
 	require.True(t, checkTrafficByCurl(ns, "frclient-deny", "frclient-deny", srvIP.ipv4.String(), podPort, false), "deny client -> server blocked with policy")
 
-	_ = deleteYAML(policyPath, ns)
-	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	require.NoError(t, deleteYAML(policyPath, ns))
+	err = pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
 		_, err = testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -375,9 +361,6 @@ func testSecurityPolicyVPCFromFieldIngress(t *testing.T) {
 
 // testSecurityPolicyVPCToFieldEgress verifies VPC SecurityPolicy egress rules using the preferred `to` field.
 func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
-	defer deadlineCancel()
-
 	// Use dedicated pre-created VC namespace
 	ns := NsSecurityPolicyVPCToEgress
 	securityPolicyName := "vpc-to-field-policy-1"
@@ -390,11 +373,11 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	require.NoError(t, applyYAML(podsPath, ns))
 	defer deleteYAML(podsPath, ns)
 
-	srvIP, err := testData.podWaitForIPs(defaultTimeout, "te-srv", ns)
+	srvIP, err := testData.podWaitForIPs(podStartupTimeout, "te-srv", ns)
 	require.NoError(t, err, "wait for te-srv IP")
-	otherIP, err := testData.podWaitForIPs(defaultTimeout, "te-other", ns)
+	otherIP, err := testData.podWaitForIPs(podStartupTimeout, "te-other", ns)
 	require.NoError(t, err, "wait for te-other IP")
-	_, err = testData.podWaitForIPs(defaultTimeout, "te-cli", ns)
+	_, err = testData.podWaitForIPs(podStartupTimeout, "te-cli", ns)
 	require.NoError(t, err, "wait for te-cli")
 
 	// Ensure both peers are actually serving HTTP before asserting baseline reachability.
@@ -416,8 +399,8 @@ func testSecurityPolicyVPCToFieldEgress(t *testing.T) {
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", srvIP.ipv4.String(), podPort, true), "client -> allowed peer with policy")
 	require.True(t, checkTrafficByCurl(ns, "te-cli", "te-cli", otherIP.ipv4.String(), podPort, false), "client -> other blocked with policy")
 
-	_ = deleteYAML(policyPath, ns)
-	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	require.NoError(t, deleteYAML(policyPath, ns))
+	err = pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
 		_, err = testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -453,7 +436,7 @@ func testSecurityPolicyNamedPortWithoutPod(t *testing.T) {
 	require.NoError(t, applyYAML(yamlPath, nsWeb))
 	defer deleteYAML(yamlPath, nsWeb)
 
-	psb, err := testData.deploymentWaitForNames(defaultTimeout, nsWeb, labelWeb)
+	psb, err := testData.deploymentWaitForNames(podStartupTimeout, nsWeb, labelWeb)
 	log.Trace("Pods", "pods", psb)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
@@ -483,21 +466,21 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 
 	// Create all
 	yamlPath, _ := filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-client.yaml")
-	_ = applyYAML(yamlPath, nsClient)
+	require.NoError(t, applyYAML(yamlPath, nsClient))
 	defer deleteYAML(yamlPath, nsClient)
 
 	yamlPath, _ = filepath.Abs("./manifest/testSecurityPolicy/named-port-with-pod-web.yaml")
-	_ = applyYAML(yamlPath, nsWeb)
+	require.NoError(t, applyYAML(yamlPath, nsWeb))
 	defer deleteYAML(yamlPath, nsWeb)
 
 	clientA := "client"
 	webA := "web"
 	labelWeb := "tcp-deployment"
 	// Wait for pods
-	clientPodIPs, err := testData.podWaitForIPs(defaultTimeout, clientA, nsClient)
+	clientPodIPs, err := testData.podWaitForIPs(podStartupTimeout, clientA, nsClient)
 	t.Logf("client Pods are %v", clientPodIPs)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", clientA)
-	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(defaultTimeout, nsWeb, labelWeb, 2)
+	namedPortPodIPs, _, err := testData.deploymentWaitForIPsOrNames(podStartupTimeout, nsWeb, labelWeb, 2)
 	t.Logf("NamedPort Pods are %v", namedPortPodIPs)
 	require.NoError(t, err, "Error when waiting for IP for Pod %s", webA)
 	assureSecurityPolicyReady(t, nsWeb, securityPolicyCRName)
@@ -521,16 +504,14 @@ func testSecurityPolicyNamedPorWithPod(t *testing.T) {
 }
 
 func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(context.Background(), spName, v1.GetOptions{})
+	err := pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
+		resp, err := testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, spName, v1.GetOptions{})
 		log.Trace("Get resources", "SecurityPolicies", resp, "Namespace", ns, "Name", spName)
 		if err != nil {
-			return false, fmt.Errorf("error when waiting for  %s", spName)
+			return false, fmt.Errorf("error when waiting for SecurityPolicy %s: %w", spName, err)
 		}
 		for _, con := range resp.Status.Conditions {
-			if con.Type == v1alpha1.Ready {
+			if con.Type == v1alpha1.Ready && con.Status == corev1.ConditionTrue {
 				return true, nil
 			}
 		}
@@ -541,9 +522,6 @@ func assureSecurityPolicyReady(t *testing.T, ns, spName string) {
 
 // testNetworkPolicyMultipleIn verifies that multiple In expressions on the same key are properly intersected.
 func testNetworkPolicyMultipleIn(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
-	defer deadlineCancel()
-
 	// Use dedicated pre-created VC namespace
 	ns := NsNetworkPolicyMultipleIn
 	npName := "test-np-multiple-in"
@@ -559,14 +537,16 @@ func testNetworkPolicyMultipleIn(t *testing.T) {
 	target := "target-pod"
 
 	// Wait for pods
-	_, err := testData.podWaitForIPs(defaultTimeout, frontend, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", frontend)
-	_, err = testData.podWaitForIPs(defaultTimeout, backend, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", backend)
-	_, err = testData.podWaitForIPs(defaultTimeout, db, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", db)
-	iPs, err := testData.podWaitForIPs(defaultTimeout, target, ns)
-	assert.NoError(t, err, "Error when waiting for IP for Pod %s", target)
+	_, err := testData.podWaitForIPs(podStartupTimeout, frontend, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", frontend)
+	_, err = testData.podWaitForIPs(podStartupTimeout, backend, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", backend)
+	_, err = testData.podWaitForIPs(podStartupTimeout, db, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", db)
+	iPs, err := testData.podWaitForIPs(podStartupTimeout, target, ns)
+	require.NoError(t, err, "Error when waiting for IP for Pod %s", target)
+	require.NotNil(t, iPs, "target Pod must have IP addresses")
+	require.NotNil(t, iPs.ipv4, "target Pod must have an IPv4 address")
 
 	// Test traffic before policy
 	require.True(t, checkTrafficByCurl(ns, frontend, frontend, iPs.ipv4.String(), podPort, true), "Traffic should work before policy")
@@ -588,9 +568,9 @@ func testNetworkPolicyMultipleIn(t *testing.T) {
 	require.True(t, checkTrafficByCurl(ns, db, db, iPs.ipv4.String(), podPort, false), "Traffic from db should be blocked")
 
 	// Delete NetworkPolicy
-	_ = deleteYAML(npPath, ns)
+	require.NoError(t, deleteYAML(npPath, ns))
 
-	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	err = pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
 		_, err = testData.clientset.NetworkingV1().NetworkPolicies(ns).Get(ctx, npName, v1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -613,9 +593,6 @@ func testNetworkPolicyMultipleIn(t *testing.T) {
 // testSecurityPolicyNativeInventoryGroup verifies SecurityPolicy when native inventory-based groups
 // (using member_type: Namespace and member_type: VirtualMachine) are generated.
 func testSecurityPolicyNativeInventoryGroup(t *testing.T) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout*2)
-	defer deadlineCancel()
-
 	if testData.nsxClient != nil && !testData.nsxClient.NSXCheckVersion(nsx.NamespaceGroup) {
 		t.Skip("NSX backend does not support NamespaceGroup feature (requires NSX 9.2.0+), skipping native inventory group test")
 	}
@@ -632,11 +609,11 @@ func testSecurityPolicyNativeInventoryGroup(t *testing.T) {
 	require.NoError(t, applyYAML(podsPath, ns))
 	defer deleteYAML(podsPath, ns)
 
-	srvIP, err := testData.podWaitForIPs(defaultTimeout, "native-inv-srv", ns)
+	srvIP, err := testData.podWaitForIPs(podStartupTimeout, "native-inv-srv", ns)
 	require.NoError(t, err, "wait for native-inv-srv IP")
-	_, err = testData.podWaitForIPs(defaultTimeout, "native-inv-client-allow", ns)
+	_, err = testData.podWaitForIPs(podStartupTimeout, "native-inv-client-allow", ns)
 	require.NoError(t, err, "wait for native-inv-client-allow IP")
-	_, err = testData.podWaitForIPs(defaultTimeout, "native-inv-client-deny", ns)
+	_, err = testData.podWaitForIPs(podStartupTimeout, "native-inv-client-deny", ns)
 	require.NoError(t, err, "wait for native-inv-client-deny IP")
 
 	// Ensure HTTP endpoint is ready before checking baseline reachability
@@ -664,8 +641,8 @@ func testSecurityPolicyNativeInventoryGroup(t *testing.T) {
 	require.True(t, checkTrafficByCurl(ns, "native-inv-client-allow", "native-inv-client-allow", srvIP.ipv4.String(), podPort, true), "allow client -> server with policy")
 	require.True(t, checkTrafficByCurl(ns, "native-inv-client-deny", "native-inv-client-deny", srvIP.ipv4.String(), podPort, false), "deny client -> server blocked with policy")
 
-	_ = deleteYAML(policyPath, ns)
-	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+	require.NoError(t, deleteYAML(policyPath, ns))
+	err = pollForCondition(defaultTimeout, func(ctx context.Context) (done bool, err error) {
 		_, err = testData.crdClientset.CrdV1alpha1().SecurityPolicies(ns).Get(ctx, securityPolicyName, v1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {

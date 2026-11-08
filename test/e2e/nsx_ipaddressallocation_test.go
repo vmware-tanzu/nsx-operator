@@ -29,7 +29,7 @@ func TestIPAddressAllocation(t *testing.T) {
 	StartParallel(t)
 
 	// Clean up namespace when all IPAddressAllocation tests complete
-	t.Cleanup(func() { CleanupVCNamespaces(NsIPAddressAllocation) })
+	t.Cleanup(func() { CleanupVCNamespaces(t, NsIPAddressAllocation) })
 
 	// Use pre-created namespace
 	ns := NsIPAddressAllocation

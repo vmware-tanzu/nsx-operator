@@ -135,7 +135,7 @@ func TestSubnetPrecreated(t *testing.T) {
 	precreatedSubnetNsTargetNs = NsSubnetPrecreatedTarget
 
 	// Clean up namespaces when all subnet tests complete
-	t.Cleanup(func() { CleanupVCNamespaces(NsSubnetPrecreated1, NsSubnetPrecreated2, NsSubnetPrecreatedTarget) })
+	t.Cleanup(func() { CleanupVCNamespaces(t, NsSubnetPrecreated1, NsSubnetPrecreated2, NsSubnetPrecreatedTarget) })
 
 	// SequentialTests: These tests share precreated subnet namespaces and have dependencies
 	// between tests (e.g., AddPath depends on Basic), so they MUST run sequentially

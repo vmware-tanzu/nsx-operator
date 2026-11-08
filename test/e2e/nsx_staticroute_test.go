@@ -32,7 +32,7 @@ func TestStaticRouteBasic(t *testing.T) {
 	StartParallel(t)
 	testNamespace := fmt.Sprintf("staticroute-%s", getRandomString())
 	setupTest(t, testNamespace)
-	defer teardownTest(t, testNamespace, defaultTimeout)
+	defer teardownTest(t, testNamespace, namespaceCleanupTimeout)
 	ips := createIpAddressAllocation(t, testNamespace, IpAddressAllocationName)
 	defer deleteIpAddressAllocation(t, testNamespace, IpAddressAllocationName)
 
