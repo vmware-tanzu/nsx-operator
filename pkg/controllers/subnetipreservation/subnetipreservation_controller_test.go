@@ -164,6 +164,18 @@ func TestReconciler_RestoreReconcile(t *testing.T) {
 		err := r.RestoreReconcile()
 		assert.NoError(t, err)
 	})
+	t.Run("missing parent Subnet keeps previously allocated IPs pending restore", func(t *testing.T) {
+		r := createFakeReconciler(iprWithStatus)
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(r.IPReservationService.NSXClient), "NSXCheckVersion", func(_ *nsx.Client, _ int) bool {
+			return true
+		})
+		defer patches.Reset()
+		err := r.RestoreReconcile()
+		assert.ErrorContains(t, err, "subnets.crd.nsx.vmware.com \"subnet-1\" not found")
+		current := &v1alpha1.SubnetIPReservation{}
+		assert.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Namespace: iprWithStatus.Namespace, Name: iprWithStatus.Name}, current))
+		assert.Equal(t, iprWithStatus.Status.IPs, current.Status.IPs)
+	})
 	t.Run("success when reconcile succeeds for restore items", func(t *testing.T) {
 		r := createFakeReconciler(iprWithStatus)
 		// Store has different IPs so CR is in restore list
@@ -235,6 +247,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		objects        []client.Object
 		preparedFunc   func(r *Reconciler) *gomonkey.Patches
 		expectedResult ctrl.Result
+		expectedError  string
 	}{
 		{
 			name:    "SubnetIPReservation not supported",
@@ -258,7 +271,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedError:  "mocked get error",
 		},
 		{
 			name: "SubnetIPReservation get error",
@@ -271,7 +285,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedError:  "mocked get error",
 		},
 		{
 			name: "SubnetIPReservation delete error",
@@ -287,7 +302,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedError:  "mocked delete error",
 		},
 		{
 			name: "SubnetIPReservation delete success",
@@ -339,7 +355,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedError:  "fail to get Subnet",
 		},
 		{
 			name:    "NSX Subnet get error",
@@ -356,7 +373,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedError:  "mocked get error",
 		},
 		{
 			name:    "Create IPReservation error",
@@ -376,7 +394,8 @@ func TestReconciler_Reconcile(t *testing.T) {
 				})
 				return patches
 			},
-			expectedResult: common.ResultRequeue,
+			expectedResult: common.ResultNormal,
+			expectedError:  "mocked creation error",
 		},
 		{
 			name:    "Create IPReservation success",
@@ -495,7 +514,11 @@ func TestReconciler_Reconcile(t *testing.T) {
 			patches := tc.preparedFunc(r)
 
 			result, err := r.Reconcile(context.TODO(), request)
-			assert.Nil(t, err)
+			if tc.expectedError != "" {
+				assert.ErrorContains(t, err, tc.expectedError)
+			} else {
+				assert.NoError(t, err)
+			}
 			assert.Equal(t, tc.expectedResult, result)
 			if patches != nil {
 				patches.Reset()
