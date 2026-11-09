@@ -139,6 +139,21 @@ func TestScopeAndResourceFailure(t *testing.T) {
 	require.ErrorContains(t, err, "unknown state")
 }
 
+func TestTargetScopeErrorsIncludeResourceDetails(t *testing.T) {
+	status := model.DvpgToSubnetWorkflow{
+		Id:      ptr.To("workflow-a"),
+		VpcPath: ptr.To(targetVPC),
+		WorkflowState: &model.DvpgToSubnetWorkflowState{MigrationStatus: &model.DvpgToSubnetMigrationStatus{
+			NsxObject: []model.DvpgToSubnetNsxObjectMigrationStatus{{ResourceType: ptr.To("VpcSubnet"), PolicyPath: ptr.To("invalid-path")}},
+		}},
+	}
+	require.ErrorContains(t, ValidateTargetScope(status, targetVPC), `invalid policy path "invalid-path" for resource type "VpcSubnet"`)
+
+	status.WorkflowState.MigrationStatus.NsxObject[0].ResourceType = ptr.To("UnknownResource")
+	status.WorkflowState.MigrationStatus.NsxObject[0].PolicyPath = ptr.To("/infra/unknown/resource-a")
+	require.ErrorContains(t, ValidateTargetScope(status, targetVPC), `unsupported resource type "UnknownResource" at policy path "/infra/unknown/resource-a"`)
+}
+
 func TestAutoCommitGuardAndCancellation(t *testing.T) {
 	client := sdkClient(t, func(w http.ResponseWriter, r *http.Request) { t.Error("unexpected SDK call") })
 	require.Error(t, client.Put(context.Background(), model.DvpgToSubnetWorkflow{Id: ptr.To("workflow-a"), DesiredState: ptr.To(DesiredStatePlan), AutoCommit: ptr.To(true)}))
