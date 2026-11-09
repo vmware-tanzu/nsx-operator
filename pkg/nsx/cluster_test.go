@@ -205,6 +205,9 @@ func TestCluster_enableFeature(t *testing.T) {
 	nsxVersion.ProductVersion = "9.2.0"
 	assert.True(t, nsxVersion.featureSupported(IPv6))
 	assert.True(t, nsxVersion.featureSupported(SubnetAssociation))
+	assert.True(t, nsxVersion.featureSupported(DNSAutoRecord))
+	nsxVersion.ProductVersion = "9.1.99"
+	assert.False(t, nsxVersion.featureSupported(DNSAutoRecord))
 
 	// Test case for short version strings (less than 3 segments)
 	nsxVersion.ProductVersion = "4.1"

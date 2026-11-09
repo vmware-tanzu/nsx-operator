@@ -11,6 +11,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -68,6 +69,9 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	nsxIPAddressAllocation, vpcInfo, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
 	if err != nil {
 		return false, err
+	}
+	if !nsx.DNSAutoRecordFeatureEnabled(service.NSXClient, service.NSXConfig) {
+		nsxIPAddressAllocation.DnsHostname = nil
 	}
 	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(obj.UID)
 	if err != nil {

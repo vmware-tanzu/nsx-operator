@@ -65,10 +65,11 @@ const (
 	SubnetAssociation
 	NamespaceGroup
 	SubnetPortSetting
+	DNSAutoRecord
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION", "STATEFULSET_POD", "IPV6", "SUBNET_ASSOCIATION", "NAMESPACE_GROUP", "SUBNET_PORT_SETTING"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION", "STATEFULSET_POD", "IPV6", "SUBNET_ASSOCIATION", "NAMESPACE_GROUP", "SUBNET_PORT_SETTING", "DNS_AUTO_RECORD"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -137,6 +138,7 @@ type Client struct {
 	NsxApiClient                      *nsxt.APIClient
 	VifsClient                        fabric.VifsClient
 	DnsZoneClient                     dns_services.ZonesClient
+	DnsAutoRecordConfigsClient        projects.DnsAutoRecordConfigsClient
 	DnsRecordsClient                  projects.DnsRecordsClient
 
 	NSXChecker    NSXHealthChecker
@@ -292,6 +294,7 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 	}
 	vifsClient := fabric.NewVifsClient(connector)
 	dnsZoneClient := dns_services.NewZonesClient(connector)
+	dnsAutoRecordConfigsClient := projects.NewDnsAutoRecordConfigsClient(connector)
 	dnsRecordsClient := projects.NewDnsRecordsClient(connector)
 
 	nsxChecker := &NSXHealthChecker{
@@ -368,6 +371,7 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 		NsxApiClient:                      nsxApiClient,
 		VifsClient:                        vifsClient,
 		DnsZoneClient:                     dnsZoneClient,
+		DnsAutoRecordConfigsClient:        dnsAutoRecordConfigsClient,
 		DnsRecordsClient:                  dnsRecordsClient,
 	}
 	nsxClient.Cluster.SetOnProductVersionChanged(func(oldVer, newVer string) {

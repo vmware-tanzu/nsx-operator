@@ -18,6 +18,20 @@ func SubnetPortSettingFeatureEnabled(client *Client, operatorConfig *config.NSXO
 	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
 }
 
+// DNSAutoRecordFeatureEnabled gates automatic DNS hostnames on the NSX DNS auto-record
+// feature and the explicit VPC WCP enhancement opt-in.
+//
+//go:noinline
+func DNSAutoRecordFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
+	if client == nil || !client.NSXCheckVersion(DNSAutoRecord) {
+		return false
+	}
+	if operatorConfig == nil || operatorConfig.NsxConfig == nil {
+		return false
+	}
+	return operatorConfig.NsxConfig.VpcWcpEnhanceEnabled()
+}
+
 // StatefulSetPodSubnetPortFeatureEnabled is true when NSX version is 9.1.2+ and vpc_wcp_enhance=true
 // and operator nsx_v3 sets vpc_wcp_enhance to true (omitted or false keeps the feature off).
 //

@@ -134,6 +134,34 @@ func TestSubnetPortSettingFeatureEnabled(t *testing.T) {
 	}
 }
 
+func TestDNSAutoRecordFeatureEnabled(t *testing.T) {
+	enabled, disabled := true, false
+	nsxClient := &Client{}
+
+	t.Run("requires the DNS auto-record NSX feature", func(t *testing.T) {
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			assert.Equal(t, DNSAutoRecord, feature)
+			return true
+		})
+		defer patches.Reset()
+		assert.False(t, DNSAutoRecordFeatureEnabled(nil, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &enabled}}))
+		assert.False(t, DNSAutoRecordFeatureEnabled(nsxClient, nil))
+		assert.False(t, DNSAutoRecordFeatureEnabled(nsxClient, &config.NSXOperatorConfig{}))
+		assert.False(t, DNSAutoRecordFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}))
+		assert.False(t, DNSAutoRecordFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &disabled}}))
+		assert.True(t, DNSAutoRecordFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &enabled}}))
+	})
+
+	t.Run("returns false when the DNS auto-record NSX feature is unsupported", func(t *testing.T) {
+		patches := gomonkey.ApplyMethod(reflect.TypeOf(nsxClient), "NSXCheckVersion", func(_ *Client, feature int) bool {
+			assert.Equal(t, DNSAutoRecord, feature)
+			return false
+		})
+		defer patches.Reset()
+		assert.False(t, DNSAutoRecordFeatureEnabled(nsxClient, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &enabled}}))
+	})
+}
+
 func TestRestoreVifFeatureEnabled(t *testing.T) {
 	f := false
 	tr := true

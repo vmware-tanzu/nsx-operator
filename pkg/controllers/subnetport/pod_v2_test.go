@@ -128,7 +128,7 @@ func testPodSubnetPortNodeFailure(t *testing.T, nodes podNodeCacheResult, wantEr
 	})
 	called := false
 	contextID := "unset"
-	patches.ApplyFunc((*serviceport.SubnetPortService).CreateOrUpdateSubnetPort, func(_ *serviceport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, ctxID string, _ *map[string]string, _ bool, _ bool, _ v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+	patches.ApplyFunc((*serviceport.SubnetPortService).CreateOrUpdateSubnetPort, func(_ *serviceport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, ctxID string, _ *map[string]string, _ bool, _ bool, _ v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 		called = true
 		contextID = ctxID
 		return nil, nil

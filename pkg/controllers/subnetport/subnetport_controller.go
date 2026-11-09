@@ -383,7 +383,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if isReusedPort {
 			nsxSubnetPortState, err = r.SubnetPortService.ReuseSubnetPort(subnetPort, reusedPort, nsxSubnet, labels)
 		} else {
-			nsxSubnetPortState, err = r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, contextID, labels, isVmSubnetPort, r.restoreMode, interfaceIPType)
+			var dnsHostName string
+			if nsx.DNSAutoRecordFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && subnetPortSupportsDNSAutoRecord(subnetPort) {
+				dnsHostName = subnetPortDNSHostname(subnetPort)
+			}
+			nsxSubnetPortState, err = r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, contextID, labels, isVmSubnetPort, r.restoreMode, interfaceIPType, dnsHostName)
 		}
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
@@ -463,6 +467,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
 			}
 		}
+
+		if dnsErr := r.populateSubnetPortFQDNs(subnetPort, nsxSubnet); dnsErr != nil {
+			log.Error(dnsErr, "Failed to populate SubnetPort FQDNs", "SubnetPort", req.NamespacedName)
+		}
+
 		if reflect.DeepEqual(*old_status, subnetPort.Status) {
 			log.Info("Status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
 		} else {
@@ -574,7 +583,6 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				return common.ResultRequeue, err
 			}
 		}
-
 		ab := r.SubnetPortService.GetAddressBindingBySubnetPort(subnetPort)
 		err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(ab)
 		if err != nil {
@@ -1596,6 +1604,9 @@ func (r *SubnetPortReconciler) Start(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+	if err := mgr.Add(&subnetPortDNSSync{reconciler: r}); err != nil {
+		return err
+	}
 	go r.pollVIFsPeriodically(make(chan bool))
 	return nil
 }
@@ -1775,7 +1786,8 @@ func updateSubnetPortStatusConditions(client client.Client, ctx context.Context,
 				conditionsUpdated = true
 			}
 		}
-		if conditionsUpdated {
+		if conditionsUpdated || !slices.Equal(latestSubnetPort.Status.FQDNs, subnetPort.Status.FQDNs) {
+			latestSubnetPort.Status.FQDNs = slices.Clone(subnetPort.Status.FQDNs)
 			latestSubnetPort.Status.Attachment = subnetPort.Status.Attachment
 			latestSubnetPort.Status.NetworkInterfaceConfig = subnetPort.Status.NetworkInterfaceConfig
 			log.Info("Updated SubnetPort Status", "Name", latestSubnetPort.Name, "Namespace", latestSubnetPort.Namespace, "Status", latestSubnetPort.Status)
@@ -2211,6 +2223,17 @@ func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort
 	}
 	log.Info("Got VirtualMachine for SubnetPort", "subnetPort.UID", subnetPort.UID, "vmName", vmName, "nicName", nicName, "labels", vm.ObjectMeta.Labels)
 	return vm, nicName, nil
+}
+
+func subnetPortDNSHostname(subnetPort *v1alpha1.SubnetPort) string {
+	if !subnetPortSupportsDNSAutoRecord(subnetPort) {
+		return ""
+	}
+	vmName, interfaceName, err := common.GetVirtualMachineNameForSubnetPort(subnetPort)
+	if err != nil || vmName == "" || interfaceName == "" {
+		return ""
+	}
+	return strings.ToLower(vmName + "." + interfaceName + "." + subnetPort.Namespace)
 }
 
 func hasVksClusterNameLabel(vm *vmv1alpha1.VirtualMachine) bool {

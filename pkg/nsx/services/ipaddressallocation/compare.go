@@ -1,6 +1,8 @@
 package ipaddressallocation
 
 import (
+	"strings"
+
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -21,7 +23,12 @@ func (ipa *IpAddressAllocation) Value() data.DataValue {
 	if ipa == nil {
 		return nil
 	}
-	s := &IpAddressAllocation{Id: ipa.Id, DisplayName: ipa.DisplayName, Tags: ipa.Tags, AllocationSize: ipa.AllocationSize, IpAddressBlockVisibility: ipa.IpAddressBlockVisibility, IpAddressType: ipa.IpAddressType, Ipv6AllocationPrefixLength: ipa.Ipv6AllocationPrefixLength, IpBlock: ipa.IpBlock, UsedFor: ipa.UsedFor}
+	var dnsHostname *string
+	if ipa.DnsHostname != nil {
+		normalized := strings.ToLower(strings.TrimSpace(*ipa.DnsHostname))
+		dnsHostname = &normalized
+	}
+	s := &IpAddressAllocation{Id: ipa.Id, DisplayName: ipa.DisplayName, Tags: ipa.Tags, AllocationSize: ipa.AllocationSize, IpAddressBlockVisibility: ipa.IpAddressBlockVisibility, IpAddressType: ipa.IpAddressType, Ipv6AllocationPrefixLength: ipa.Ipv6AllocationPrefixLength, IpBlock: ipa.IpBlock, UsedFor: ipa.UsedFor, DnsHostname: dnsHostname}
 	dataValue, _ := ComparableToIpAddressAllocation(s).GetDataValue__()
 	return dataValue
 }

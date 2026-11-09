@@ -1255,7 +1255,6 @@ _Appears in:_
 | `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType<br />is set, IP families of InterfaceIPType should be a superset of<br />StaticIPAllocationType.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 | `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. If not specified, this field<br />will be back-filled based on InterfaceIPType and Subnet configuration.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
 | `portSettingName` _string_ | Name of PortSetting associated with this SubnetPort. |  |  |
-| `dnsHostName` _string_ | DNSHostName specifies the hostname used when auto-creating DNS records. |  |  |
 
 
 #### SubnetPortStatus

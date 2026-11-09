@@ -1,6 +1,8 @@
 package subnetport
 
 import (
+	"strings"
+
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
@@ -18,10 +20,16 @@ func (sp *SubnetPort) Key() string {
 }
 
 func (sp *SubnetPort) Value() data.DataValue {
+	var dnsHostname *string
+	if sp.DnsHostname != nil {
+		normalized := strings.ToLower(strings.TrimSpace(*sp.DnsHostname))
+		dnsHostname = &normalized
+	}
 	s := &SubnetPort{
 		Id:                     sp.Id,
 		DisplayName:            sp.DisplayName,
 		Tags:                   sp.Tags,
+		DnsHostname:            dnsHostname,
 		Attachment:             sp.Attachment,
 		StaticIpAllocationType: sp.StaticIpAllocationType,
 		PortSettingPath:        sp.PortSettingPath,
