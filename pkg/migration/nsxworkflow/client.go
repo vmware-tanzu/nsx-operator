@@ -96,7 +96,8 @@ func (client *Client) GetStatus(ctx context.Context, workflowID string) (model.D
 	return workflow, ctx.Err()
 }
 
-func (client *Client) GetValidationResults(ctx context.Context, workflowID, cursor string, pageSize int) (model.DvpgValidationResultsList, error) {
+// ListValidationResultsPage returns one page from NSX validation results.
+func (client *Client) ListValidationResultsPage(ctx context.Context, workflowID, cursor string, pageSize int) (model.DvpgValidationResultsList, error) {
 	if err := ctx.Err(); err != nil {
 		return model.DvpgValidationResultsList{}, err
 	}
@@ -118,7 +119,7 @@ func (client *Client) ListValidationResults(ctx context.Context, workflowID stri
 	seen := make(map[string]bool)
 	cursor := ""
 	for pageNumber := 0; pageNumber < maxValidationPages; pageNumber++ {
-		page, err := client.GetValidationResults(ctx, workflowID, cursor, pageSize)
+		page, err := client.ListValidationResultsPage(ctx, workflowID, cursor, pageSize)
 		if err != nil {
 			return nil, err
 		}
@@ -210,10 +211,12 @@ func ValidateTargetScope(workflowStatus model.DvpgToSubnetWorkflow, expectedVPCP
 		return nil
 	}
 	for _, resource := range workflowStatus.WorkflowState.MigrationStatus.NsxObject {
-		if ptr.Deref(resource.ResourceType, "") == "" || !validPolicyPath(ptr.Deref(resource.PolicyPath, "")) {
-			return fmt.Errorf("NSX workflow %q reports an invalid resource path or type", ptr.Deref(workflowStatus.Id, ""))
+		resourceType := ptr.Deref(resource.ResourceType, "")
+		resourcePath := ptr.Deref(resource.PolicyPath, "")
+		if !validPolicyPath(resourcePath) {
+			return fmt.Errorf("NSX workflow %q reports invalid policy path %q for resource type %q", ptr.Deref(workflowStatus.Id, ""), resourcePath, resourceType)
 		}
-		switch ptr.Deref(resource.ResourceType, "") {
+		switch resourceType {
 		case "VpcSubnet", "PortConfig":
 			if !pathIsWithin(ptr.Deref(resource.PolicyPath, ""), expectedVPCPath) {
 				return fmt.Errorf("NSX workflow %q resource %q is outside target VPC %q", ptr.Deref(workflowStatus.Id, ""), ptr.Deref(resource.PolicyPath, ""), expectedVPCPath)
@@ -227,7 +230,7 @@ func ValidateTargetScope(workflowStatus model.DvpgToSubnetWorkflow, expectedVPCP
 				return fmt.Errorf("NSX workflow %q IP block path %q is outside the infrastructure scope", ptr.Deref(workflowStatus.Id, ""), ptr.Deref(resource.PolicyPath, ""))
 			}
 		default:
-			return fmt.Errorf("NSX workflow %q reports unsupported resource type %q", ptr.Deref(workflowStatus.Id, ""), ptr.Deref(resource.ResourceType, ""))
+			return fmt.Errorf("NSX workflow %q reports unsupported resource type %q at policy path %q", ptr.Deref(workflowStatus.Id, ""), resourceType, resourcePath)
 		}
 	}
 	return nil
