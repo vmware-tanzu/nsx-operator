@@ -2,6 +2,7 @@ package ipaddressallocation
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
@@ -105,6 +107,10 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	if err != nil {
 		return false, err
 	}
+	dnsEnabled := nsx.DNSAutoRecordFeatureEnabled(service.NSXClient, service.NSXConfig)
+	if !dnsEnabled {
+		nsxIPAddressAllocation.DnsHostname = nil
+	}
 	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(obj.UID)
 	if err != nil {
 		log.Error(err, "Failed to get ipaddressallocation", "UID", obj.UID)
@@ -118,6 +124,9 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 	}
 
 	if existingIPAddressAllocation != nil {
+		if !dnsEnabled {
+			nsxIPAddressAllocation.DnsHostname = existingIPAddressAllocation.DnsHostname
+		}
 		if existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
 			// For the restored NSX VPC IPAddressAllocation, its allocation_size is null.
 			// After the restore, if the built variable nsxIPAddressAllocation still has the nonempty
@@ -145,6 +154,10 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 			return true, nil
 		}
 		return false, nil
+	}
+
+	if existingIPAddressAllocation != nil {
+		prepareExistingAllocationUpdate(nsxIPAddressAllocation, existingIPAddressAllocation, dnsEnabled)
 	}
 
 	if err := service.Apply(nsxIPAddressAllocation, vpcInfo); err != nil {
@@ -178,6 +191,16 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		return true, nil
 	}
 	return false, nil
+}
+
+func prepareExistingAllocationUpdate(desired, existing *model.VpcIpAddressAllocation, dnsEnabled bool) {
+	// NSX rejects updates that omit an already allocated IP address.
+	desired.AllocationIps = existing.AllocationIps
+	desired.AllocationIp = existing.AllocationIp
+	// An explicit empty hostname clears the field in NSX; nil may be omitted.
+	if dnsEnabled && desired.DnsHostname == nil && existing.DnsHostname != nil && *existing.DnsHostname != "" {
+		desired.DnsHostname = String("")
+	}
 }
 
 // CreateIPAddressAllocationForAddressBinding is only for the restore of external address binding.
@@ -284,6 +307,15 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 	err := service.ipAddressAllocationStore.Apply(&nsxIPAddressAllocationNew)
 	if err != nil {
 		return err
+	}
+	if nsxIPAddressAllocation.DnsHostname != nil {
+		actual := ""
+		if nsxIPAddressAllocationNew.DnsHostname != nil {
+			actual = *nsxIPAddressAllocationNew.DnsHostname
+		}
+		if !strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(*nsxIPAddressAllocation.DnsHostname)) {
+			return fmt.Errorf("NSX IPAddressAllocation %s DNS hostname does not match the requested value", *nsxIPAddressAllocation.Id)
+		}
 	}
 	log.Debug("Successfully created or updated ipaddressallocation", "nsxIPAddressAllocation", nsxIPAddressAllocation)
 	return nil

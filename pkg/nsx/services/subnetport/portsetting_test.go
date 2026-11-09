@@ -234,7 +234,7 @@ func TestCreateOrUpdateSubnetPortDefaultPortSettingConverges(t *testing.T) {
 				})
 			defer patches.Reset()
 			for i := 0; i < 3; i++ {
-				_, err := service.CreateOrUpdateSubnetPort(obj, subnet, "", nil, kind == "SubnetPort", false, v1alpha1.IPAddressTypeIPv4)
+				_, err := service.CreateOrUpdateSubnetPort(obj, subnet, "", nil, kind == "SubnetPort", false, v1alpha1.IPAddressTypeIPv4, "")
 				require.NoError(t, err)
 				require.Len(t, ports.ports, 1, "reconcile %d must not rewrite the default setting", i+1)
 				require.Nil(t, ports.ports[0].PortSettingPath, "request must leave the setting unset")
@@ -279,7 +279,7 @@ func TestCreateOrUpdateSubnetPortPortSetting(t *testing.T) {
 	} {
 		t.Run(step.name, func(t *testing.T) {
 			sp.Spec.PortSettingName = step.setting
-			_, err := service.CreateOrUpdateSubnetPort(sp, subnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+			_, err := service.CreateOrUpdateSubnetPort(sp, subnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4, "")
 			if step.wantError {
 				require.Error(t, err)
 			} else {

@@ -347,7 +347,7 @@ _Appears in:_
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
 | `usedFor` _string_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set, IPs are allocated from LoadBalancerVPC if configured in VPCNetworkConfiguration, otherwise from the namespace's default VPC. |  | Enum: [LB_FRONTEND] <br /> |
 | `ipBlockName` _string_ | IPBlockName specifies the name of the IPBlock to allocate IP addresses. |  |  |
-| `dnsHostName` _string_ | DNSHostName specifies the hostname used when auto-creating DNS record. |  |  |
+| `dnsHostName` _string_ | DNSHostName specifies the DNS name used when auto-creating DNS records.<br />It must be a valid DNS label or domain, with labels up to 63 characters and a total length of at most 253 characters.<br />The operator normalizes it to lowercase before sending it to NSX. |  | MaxLength: 253 <br />Pattern: `^[A-Za-z0-9]([-A-Za-z0-9]\{0,61\}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]\{0,61\}[A-Za-z0-9])?)*$` <br /> |
 
 
 #### IPAddressAllocationStatus
@@ -1255,7 +1255,6 @@ _Appears in:_
 | `interfaceIPType` _[IPAddressType](#ipaddresstype)_ | InterfaceIPType decides the address families of static IP allocation, when<br />DHCP or SLAAC is not activated on the Subnet. When StaticIPAllocationType<br />is set, IP families of InterfaceIPType should be a superset of<br />StaticIPAllocationType.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6] <br /> |
 | `staticIPAllocationType` _[StaticIPAllocationType](#staticipallocationtype)_ | StaticIPAllocationType explicitly requests static IP allocation of the<br />specified the address families. In a mixed-mode Subnet (where both DHCP<br />and static allocation are enabled), use this to define which families<br />should be allocated from the static IP pools. If not specified, this field<br />will be back-filled based on InterfaceIPType and Subnet configuration.<br />Supported starting with VCF 9.2.0. |  | Enum: [IPv4 IPv6 IPv4IPv6 None] <br /> |
 | `portSettingName` _string_ | Name of PortSetting associated with this SubnetPort. |  |  |
-| `dnsHostName` _string_ | DNSHostName specifies the hostname used when auto-creating DNS records. |  |  |
 
 
 #### SubnetPortStatus

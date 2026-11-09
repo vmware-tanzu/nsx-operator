@@ -582,7 +582,7 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case SubnetPortSetting:
 		minVersion = nsx920Version
 		validFeature = true
-	case DNSRecord:
+	case DNSRecord, DNSAutoRecord:
 		minVersion = nsx920Version
 		validFeature = true
 	}

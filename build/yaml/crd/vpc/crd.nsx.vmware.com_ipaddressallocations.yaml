@@ -69,8 +69,13 @@ spec:
                 - message: Value is immutable
                   rule: self == oldSelf
               dnsHostName:
-                description: DNSHostName specifies the hostname used when auto-creating
-                  DNS record.
+                description: |-
+                  DNSHostName specifies the DNS name used when auto-creating DNS records.
+                  It must be a valid DNS label or domain, with labels up to 63 characters
+                  and a total length of at most 253 characters. The operator normalizes it
+                  to lowercase before sending it to NSX.
+                maxLength: 253
+                pattern: ^[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$
                 type: string
               ipAddressBlockVisibility:
                 description: |-
@@ -126,8 +131,6 @@ spec:
                   rule: self == oldSelf
             type: object
             x-kubernetes-validations:
-            - message: spec is immutable
-              rule: self == oldSelf
             - message: Only one of allocationSize or allocationIPs can be specified
               rule: '!has(self.allocationSize) || !has(self.allocationIPs)'
             - message: Only one of ipv6AllocationPrefixLength or allocationIPs can
