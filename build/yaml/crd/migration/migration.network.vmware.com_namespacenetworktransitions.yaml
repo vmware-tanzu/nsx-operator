@@ -492,6 +492,11 @@ spec:
                 x-kubernetes-list-map-keys:
                 - fieldName
                 x-kubernetes-list-type: map
+              rolledBack:
+                description: |-
+                  RolledBack records whether this batch has been restored to VDS and has not
+                  started a new Execute cutover since.
+                type: boolean
             type: object
             x-kubernetes-validations:
             - message: Namespace irreversibleAction must be Commit

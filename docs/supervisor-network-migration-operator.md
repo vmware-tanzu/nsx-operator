@@ -10,13 +10,13 @@ NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` reso
   `electMaster` calls, or `nsx-operator-role` label changes. A migration
   admission server can be enabled independently of the transition controllers.
 - `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.network.vmware.com/v1alpha1.
-- `pkg/migration/controllers`: controller registration and observation of both
-  transition kinds. Reconciliation leaves spec, status, and external resources unchanged.
-- `pkg/migration.SetupWithManager`: registers both `TransitionReconciler` instances
+- `pkg/migration/controllers` and `pkg/migration/transition`: controller-runtime
+  reconcilers, shared action dispatch, status checkpoints, dependency gates, and
+  Commit/Finalize PONR recovery.
+- `pkg/migration.SetupWithManager`: registers both stages with one dispatcher
   when migration is enabled; no intermediate `Operator` owner is constructed.
-- `pkg/nsx/services/migration.Service`: lazy NSX connectivity available for future
-  handlers, reusing `pkg/config` and `nsx.GetClient`. The framework does not
-  construct or inject an unused service. Sessions and connection pools are
+- `pkg/nsx/services/migration.Service`: lazy NSX connectivity for handlers,
+  reusing the standard configuration and client initialization. Connections are
   process-local, not shared between containers.
 
 Migration observation defaults to disabled: no transition controllers, watches,
@@ -25,14 +25,19 @@ configuration without probing API-server health, so an API `/healthz` failure
 does not prevent the process health/readiness endpoints from starting. Valid
 local REST configuration is still required. Enabled startup retains the existing
 API health check and loopback fallback. `--enable-network-migration` enables
-controller observation and the independent lease. This startup flag does not implement the vCenter FSS/HTTP
-authorization gate; a disabled reconciler does not return HTTP 403.
-The framework does not dispatch actions, update
-status, checkpoint execution, or enforce cross-resource dependencies. Those
-behaviors and their tests are isolated on `topic/xl018891/UBMWM-12405` for
-[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
-Startup does not load NSX configuration or contact NSX. Missing configuration or
-failed client initialization can be retried by future handlers. Migration startup
+action dispatch and the independent lease. This startup flag does not implement
+the vCenter FSS/HTTP authorization gate; reconcilers do not return HTTP 403.
+The dispatcher persists accepted action/generation checkpoints before invoking
+handlers. Namespace Commit runs preflight, returns a checkpoint outcome, and
+waits for the controller to persist `status.irreversibleAction: Commit` before
+deleting the exact recorded workflow IDs. A partial delete failure retains the
+checkpoint and `Committing` phase; retries replay the same IDs, treating an
+already absent recorded workflow as success. The dispatcher enforces action
+scope, retry state and dependency gates. Other migration actions still report
+`ActionNotImplemented` until their concrete handlers are registered.
+Startup does not load NSX configuration or contact NSX. The workflow service
+loads NSX configuration lazily when Commit needs it; initialization failures
+remain retryable. Migration startup
 must not depend solely on `HasVPCNamespaces()`, because a VDS Supervisor may not
 have any VPC Namespaces before migration preparation.
 
@@ -43,11 +48,18 @@ actions retain checkpoints for diagnosis and forward retry. Infrastructure
 reversion uses the user-operated WCP backup-and-restore procedure outside the
 migration API; arrange a usable backup and recovery procedure before migration.
 Namespace rollback remains subject to dependency checks and the Commit boundary.
-Status fields define the contract for future execution and recovery, including
+Status fields define the execution and recovery contract, including
 `lastAction`, `actionState`, `actionGeneration`, and `irreversibleAction`. CRD
-validation remains part of the API definitions; no execution checkpoints are
-written by this branch. Namespace status defines `name`, `phase`, `reason`, and
-`message`; milestones are batch conditions, and counters follow spec membership.
+validation and the admission webhook both guard action changes. Namespace status
+defines `name`, `phase`, `reason`, and `message`; milestones are batch conditions,
+and counters follow spec membership.
+
+## Namespace Commit
+
+The handler validates completed per-Namespace progress and checks for workflow
+IDs shared by other Namespace transitions before requesting the irreversible
+checkpoint. It deletes only workflow IDs retained in `status.nsxWorkflows`; a
+partial failure leaves the checkpoint available for retry.
 
 ## NSX resource recovery contract
 

@@ -158,6 +158,11 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	if req.Status.LastAction != req.Action || (req.Status.ActionState != api.ActionStateRunning && req.Status.ActionState != api.ActionStateFailed) || req.Status.ActionGeneration != req.Generation {
 		// Return before invoking the handler so the controller persists the
 		// checkpoint even if the process crashes during external provisioning.
+		// A successful rollback remains true through Evaluate, Plan and Derive;
+		// clear it before an Execute handler can start a new cutover.
+		if req.Stage == Namespaces && req.Action == api.ActionExecute {
+			setBatchRolledBack(req, false)
+		}
 		req.Status.LastAction = req.Action
 		req.Status.ActionState = api.ActionStateRunning
 		req.Status.ActionGeneration = req.Generation
@@ -239,10 +244,20 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	req.Status.LastAction = req.Action
 	req.Status.ActionGeneration = req.Generation
 	req.Status.Phase = completedPhase(req.Stage, req.Action)
+	if req.Stage == Namespaces && req.Action == api.ActionRollback {
+		setBatchRolledBack(req, true)
+	}
 	commitCondition(req, metav1.ConditionTrue, "CommitCompleted", "Namespace migration commit completed")
 	infraCondition(req, metav1.ConditionTrue, "CutoverVerified", "Control plane infrastructure transition completed")
 	condition(req.Status, req.Generation, metav1.ConditionTrue, "ActionCompleted", "Requested migration action completed")
 	return Result{Outcome: OutcomeSucceeded}, nil
+}
+
+func setBatchRolledBack(req Request, rolledBack bool) {
+	batch, ok := req.Object.(*api.NamespaceNetworkTransition)
+	if ok && batch.Status != nil {
+		batch.Status.RolledBack = rolledBack
+	}
 }
 
 // failureMessage keeps handler context within the Kubernetes condition message limit.

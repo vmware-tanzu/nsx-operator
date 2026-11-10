@@ -89,6 +89,10 @@ type NamespaceResourceNaming struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.irreversibleAction) || self.irreversibleAction == 'Commit'",message="Namespace irreversibleAction must be Commit"
 type NamespaceNetworkTransitionStatus struct {
 	TransitionStatus `json:",inline"`
+	// RolledBack records whether this batch has been restored to VDS and has not
+	// started a new Execute cutover since.
+	// +optional
+	RolledBack bool `json:"rolledBack,omitempty"`
 	// NamespaceStatuses records progress without creating separate status resources.
 	// Batch membership comes from spec.namespaces; missing status entries are pending.
 	// +optional

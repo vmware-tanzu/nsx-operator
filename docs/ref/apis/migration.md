@@ -404,6 +404,7 @@ _Appears in:_
 | `nsxWorkflows` _[NSXWorkflowStatus](#nsxworkflowstatus) array_ | NSXWorkflows records the exact external workflow handle for each source VDN. |  | MaxItems: 1000 <br /> |
 | `requiredInputs` _[RequiredInput](#requiredinput) array_ | RequiredInputs describe administrator inputs required before proceeding. |  | MaxItems: 1000 <br /> |
 | `optionalInputs` _[OptionalInput](#optionalinput) array_ | OptionalInputs describe optional overrides the UI may offer during Evaluate.<br />Omitting these inputs uses defaults and does not block evaluation. Handlers<br />publish/clear them with RequiredInputs for ObservedGeneration, remove frozen<br />resource names, and revalidate live eligibility before accepting overrides.<br />This is advisory UI information, not a resource inventory or a review gate. |  | MaxItems: 5000 <br /> |
+| `rolledBack` _boolean_ | RolledBack records whether this batch has been restored to VDS and has not<br />started a new Execute cutover since. |  |  |
 | `namespaceStatuses` _[NamespaceStatus](#namespacestatus) array_ | NamespaceStatuses records progress without creating separate status resources.<br />Batch membership comes from spec.namespaces; missing status entries are pending. |  | MaxItems: 1000 <br /> |
 
 
@@ -740,3 +741,5 @@ _Appears in:_
 | `vpcName` _[NSXResourceName](#nsxresourcename)_ | VPCName overrides the generated name of a new VPC for this VDN. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
 | `dvcName` _[NSXResourceName](#nsxresourcename)_ | DVCName overrides the generated name when a new DVC is needed. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
 | `subnetName` _[NSXResourceName](#nsxresourcename)_ | SubnetName overrides the generated name of a new VLAN extension subnet.<br />All backing DVPGs must use the same discovered VLAN and share one subnet<br />under the resolved VPC/span. Evaluate must reject inconsistent VLANs.<br />Existing compatible resources are reused without creation names. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
+
+

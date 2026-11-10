@@ -49,7 +49,7 @@ func TestObservedResourceRecoversFailedStatusWrite(t *testing.T) {
 		if port.Status.Attachment.ID != "realized-vif" || len(port.Status.Conditions) == 0 || port.Status.Conditions[0].Status != corev1.ConditionTrue {
 			return transition.Result{Outcome: transition.OutcomeInProgress}, nil
 		}
-		req.Object.(*api.ControlPlaneNetworkTransition).Status.SourceLBProvider = "VSPHERE_FOUNDATION"
+		req.Object.(*api.ControlPlaneNetworkTransition).Status.SourceLBProvider = api.LoadBalancerProvider("VSPHERE_FOUNDATION")
 		return transition.Result{Outcome: transition.OutcomeSucceeded}, nil
 	})
 	base := r.Client

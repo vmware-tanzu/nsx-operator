@@ -167,7 +167,11 @@ func (r *Reconciler) dependencyBlock(ctx context.Context, action api.Action, sta
 			if batch.Status != nil {
 				s = &batch.Status.TransitionStatus
 			}
-			rolledBack := isBatchActionCompleted(transition.Namespaces, s, api.ActionRollback, batch.Generation) && batch.Spec.Action == api.ActionRollback
+			// RolledBack survives later Evaluate/Plan/Derive requests and is cleared
+			// before a new Execute cutover starts. Keep the current-action check for
+			// objects written before the durable field was introduced.
+			rolledBack := batch.Status != nil && batch.Status.RolledBack
+			rolledBack = rolledBack || (isBatchActionCompleted(transition.Namespaces, s, api.ActionRollback, batch.Generation) && batch.Spec.Action == api.ActionRollback)
 			committed := isBatchActionCompleted(transition.Namespaces, s, api.ActionCommit, batch.Generation) && batch.Spec.Action == api.ActionCommit
 			// A fully restored historical namespace batch does not require commit.
 			if !batch.DeletionTimestamp.IsZero() || (!rolledBack && !committed) {
