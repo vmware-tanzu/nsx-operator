@@ -1021,69 +1021,85 @@ func TestNetworkConfigDNSZoneChangeEnqueuesRecords(t *testing.T) {
 	rec1 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"}}
 	rec2 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns2", Name: "rec2"}}
 	recOther := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "unrelated"}}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec1, rec2, recOther).Build()
+	ns1 := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: newNC.Name}}}
+	ns2 := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: newNC.Name}}}
+	other := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "other", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "other-config"}}}
+	unannotated := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "unannotated"}}
+	recUnannotated := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: unannotated.Name, Name: "unannotated"}}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec1, rec2, recOther, recUnannotated, ns1, ns2, other, unannotated).Build()
 	r := &DNSRecordReconciler{Client: c}
 	reqs := r.networkConfigToDNSRecordRequests(context.Background(), newNC)
 	require.ElementsMatch(t, []controllerruntime.Request{
 		{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "rec1"}},
 		{NamespacedName: types.NamespacedName{Namespace: "ns2", Name: "rec2"}},
-		{NamespacedName: types.NamespacedName{Namespace: "other", Name: "unrelated"}},
 	}, reqs)
+	reqs, err := r.requestsForNetworkConfig(context.Background(), "unreferenced-config")
+	require.NoError(t, err)
+	require.Empty(t, reqs)
 }
 
 func TestNetworkConfigRecordListFailureIsRetried(t *testing.T) {
-	failList := true
-	rec1 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"}}
-	rec2 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns2", Name: "rec2"}}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec1, rec2).WithInterceptorFuncs(interceptor.Funcs{
-		List: func(ctx context.Context, reader client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-			if _, ok := list.(*v1alpha1.DNSRecordList); ok && failList {
-				return errors.New("DNSRecord list unavailable")
+	for _, failedList := range []string{"namespace", "dnsrecord"} {
+		t.Run(failedList, func(t *testing.T) {
+			failList := true
+			rec1 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"}}
+			rec2 := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns2", Name: "rec2"}}
+			ns1 := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "network-config"}}}
+			ns2 := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "network-config"}}}
+			c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec1, rec2, ns1, ns2).WithInterceptorFuncs(interceptor.Funcs{
+				List: func(ctx context.Context, reader client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					_, isNamespace := list.(*corev1.NamespaceList)
+					_, isRecord := list.(*v1alpha1.DNSRecordList)
+					if failList && ((failedList == "namespace" && isNamespace) || (failedList == "dnsrecord" && isRecord)) {
+						return errors.New("list unavailable")
+					}
+					return reader.List(ctx, list, opts...)
+				},
+			}).Build()
+			r := &DNSRecordReconciler{Client: c}
+			queue := r.getQueue("dnsrecord-config-retry-test", workqueue.DefaultTypedControllerRateLimiter[controllerruntime.Request]())
+			t.Cleanup(queue.ShutDown)
+			nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "network-config"}}
+			reqs := r.networkConfigToDNSRecordRequests(context.Background(), nc)
+			require.Equal(t, []controllerruntime.Request{{NamespacedName: types.NamespacedName{
+				Namespace: networkConfigRetryNamespace, Name: nc.Name,
+			}}}, reqs)
+			_, err := r.Reconcile(context.Background(), reqs[0])
+			require.ErrorContains(t, err, "list unavailable")
+			require.Zero(t, queue.Len())
+			failList = false
+			// An already pending DNSRecord must not be duplicated by the configuration retry.
+			queue.Add(controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(rec1)})
+			result, err := r.Reconcile(context.Background(), reqs[0])
+			require.NoError(t, err)
+			require.Equal(t, ResultNormal, result)
+			// Service and StatusUpdater are deliberately unset: the configuration retry
+			// must enqueue these records rather than reconcile them inline.
+			require.Equal(t, 2, queue.Len())
+			var queued []controllerruntime.Request
+			for i := 0; i < 2; i++ {
+				req, shutdown := queue.Get()
+				require.False(t, shutdown)
+				queued = append(queued, req)
+				queue.Done(req)
 			}
-			return reader.List(ctx, list, opts...)
-		},
-	}).Build()
-	r := &DNSRecordReconciler{Client: c}
-	queue := r.getQueue("dnsrecord-config-retry-test", workqueue.DefaultTypedControllerRateLimiter[controllerruntime.Request]())
-	t.Cleanup(queue.ShutDown)
-	nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "network-config"}}
-	reqs := r.networkConfigToDNSRecordRequests(context.Background(), nc)
-	require.Equal(t, []controllerruntime.Request{{NamespacedName: types.NamespacedName{
-		Namespace: networkConfigRetryNamespace, Name: nc.Name,
-	}}}, reqs)
-	_, err := r.Reconcile(context.Background(), reqs[0])
-	require.ErrorContains(t, err, "DNSRecord list unavailable")
-	require.Zero(t, queue.Len())
-	failList = false
-	// An already pending DNSRecord must not be duplicated by the configuration retry.
-	queue.Add(controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(rec1)})
-	result, err := r.Reconcile(context.Background(), reqs[0])
-	require.NoError(t, err)
-	require.Equal(t, ResultNormal, result)
-	// Service and StatusUpdater are deliberately unset: the configuration retry
-	// must enqueue these records rather than reconcile them inline.
-	require.Equal(t, 2, queue.Len())
-	var queued []controllerruntime.Request
-	for i := 0; i < 2; i++ {
-		req, shutdown := queue.Get()
-		require.False(t, shutdown)
-		queued = append(queued, req)
-		queue.Done(req)
+			require.ElementsMatch(t, []controllerruntime.Request{
+				{NamespacedName: client.ObjectKeyFromObject(rec1)},
+				{NamespacedName: client.ObjectKeyFromObject(rec2)},
+			}, queued)
+			require.Zero(t, queue.Len())
+		})
 	}
-	require.ElementsMatch(t, []controllerruntime.Request{
-		{NamespacedName: client.ObjectKeyFromObject(rec1)},
-		{NamespacedName: client.ObjectKeyFromObject(rec2)},
-	}, queued)
-	require.Zero(t, queue.Len())
 }
 
-func TestDeletedDefaultNetworkConfigEnqueuesAllDNSRecords(t *testing.T) {
+func TestDeletedNetworkConfigEnqueuesReferencingDNSRecords(t *testing.T) {
 	rec := &v1alpha1.DNSRecord{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1", Name: "rec1"}}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec).Build()
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "deleted-config"}}}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithObjects(rec, ns).Build()
 	r := &DNSRecordReconciler{
 		Client: c,
 	}
-	reqs, err := r.requestsForNetworkConfig(context.Background(), "deleted-default")
+	reqs, err := r.requestsForNetworkConfig(context.Background(), "deleted-config")
 	require.NoError(t, err)
 	require.Equal(t, []controllerruntime.Request{{NamespacedName: client.ObjectKeyFromObject(rec)}}, reqs)
 }

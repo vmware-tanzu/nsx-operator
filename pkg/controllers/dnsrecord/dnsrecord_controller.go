@@ -425,16 +425,25 @@ func (r *DNSRecordReconciler) networkConfigToDNSRecordRequests(ctx context.Conte
 }
 
 func (r *DNSRecordReconciler) requestsForNetworkConfig(ctx context.Context, name string) ([]ctrl.Request, error) {
-	// A configuration annotated nsx.vmware.com/default=true is used by Namespaces
-	// without an explicit nsx.vmware.com/vpc_network_config reference. Reconcile
-	// all records to cover default configuration switches and deletions too.
-	recordList := &v1alpha1.DNSRecordList{}
-	if err := r.Client.List(ctx, recordList); err != nil {
-		return nil, fmt.Errorf("listing DNSRecords for VPCNetworkConfiguration %s: %w", name, err)
+	// wcpsvc explicitly annotates each Namespace with its network configuration.
+	// Match those references even when the configuration has been deleted.
+	namespaces := &corev1.NamespaceList{}
+	if err := r.Client.List(ctx, namespaces); err != nil {
+		return nil, fmt.Errorf("listing Namespaces for VPCNetworkConfiguration %s: %w", name, err)
 	}
-	reqs := make([]ctrl.Request, 0, len(recordList.Items))
-	for i := range recordList.Items {
-		reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&recordList.Items[i])})
+	var reqs []ctrl.Request
+	for i := range namespaces.Items {
+		ns := &namespaces.Items[i]
+		if ns.Annotations[servicecommon.AnnotationVPCNetworkConfig] != name {
+			continue
+		}
+		recordList := &v1alpha1.DNSRecordList{}
+		if err := r.Client.List(ctx, recordList, client.InNamespace(ns.Name)); err != nil {
+			return nil, fmt.Errorf("listing DNSRecords in Namespace %s for VPCNetworkConfiguration %s: %w", ns.Name, name, err)
+		}
+		for j := range recordList.Items {
+			reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&recordList.Items[j])})
+		}
 	}
 	return reqs, nil
 }
