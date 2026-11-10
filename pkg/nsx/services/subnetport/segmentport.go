@@ -366,6 +366,7 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 
 	if restoreMode && nsx.RestoreVifFeatureEnabled(service.NSXClient, service.NSXConfig) && attachmentID != "" {
 		nsxSegmentPort.Attachment.Id = &attachmentID
+		nsxSegmentPort.InitState = common.String(model.SegmentPort_INIT_STATE_RESTORE_VIF)
 	}
 
 	isChanged := true
@@ -451,7 +452,8 @@ func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.Sub
 
 	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSegmentPort.Path, []string{}); err != nil {
 		log.Error(err, "Failed to get realized status", "nsxSegmentPortPath", *nsxSegmentPort.Path)
-		if nsxutil.IsRealizeStateError(err) {
+		// Preserve restored ports so their VIF attachment can be recovered on retry.
+		if nsxutil.IsRealizeStateError(err) && (nsxSegmentPort.InitState == nil || *nsxSegmentPort.InitState != model.SegmentPort_INIT_STATE_RESTORE_VIF) {
 			log.Error(err, "The created SegmentPort is in error realization state, cleaning the resource", "SegmentPort", portID)
 			if err := service.DeleteSegmentPortById(segmentID, portID); err != nil {
 				log.Error(err, "Cleanup error SegmentPort failed", "SegmentPort", portID)
