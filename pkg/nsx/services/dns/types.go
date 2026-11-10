@@ -6,6 +6,7 @@ package dns
 import (
 	"context"
 
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -48,8 +49,9 @@ type EndpointRow struct {
 	// suffix (and the separating dot) stripped. For example, if DNSName is "foo.example.com" and
 	// the zone domain is "example.com", nsxRecordName is "foo".
 	nsxRecordName         string
-	effectiveOwner        *ResourceRef // primary for shared FQDN row when adopting
-	contributingOwnerKeys []string     // sorted contributing owner index keys
+	effectiveOwner        *ResourceRef     // primary for shared FQDN row when adopting
+	contributingOwnerKeys []string         // sorted contributing owner index keys
+	existingRecord        *model.DnsRecord // preserves the identity of an existing logical record
 }
 
 func NewEndpointRow(ep *extdns.Endpoint, zonePath string, recordName string) *EndpointRow {
