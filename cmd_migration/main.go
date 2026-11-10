@@ -120,7 +120,7 @@ func startManager(ctx context.Context, opts *options, deps managerDependencies) 
 	}
 	if opts.admissionEnabled {
 		if opts.admissionPort < 1 || opts.admissionPort > 65535 || opts.admissionCertDir == "" {
-			return fmt.Errorf("migration admission requires a valid port and certificate directory")
+			return fmt.Errorf("invalid migration admission configuration: port=%d (expected 1-65535), certDir=%q (must not be empty)", opts.admissionPort, opts.admissionCertDir)
 		}
 		managerOptions.WebhookServer = webhook.NewServer(webhook.Options{
 			Port: opts.admissionPort, CertDir: opts.admissionCertDir,

@@ -4,6 +4,7 @@
 package migration
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -46,4 +47,22 @@ func TestRegisterMigrationControllers(t *testing.T) {
 		require.ErrorIs(t, err, failure)
 		require.Equal(t, 1, calls, "do not continue after failed registration")
 	}
+}
+
+func TestNewEngineRegistersNamespaceCommitHandler(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	deler := workflowDeleterForTest(func(context.Context, string) error { return nil })
+	engine := newEngine(reader, deler)
+	commit := engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionCommit}]
+	require.IsType(t, &transition.NamespaceCommitHandler{}, commit)
+	require.NotContains(t, engine.Handlers, transition.Key{Stage: transition.Infrastructure, Action: api.ActionFinalize})
+	require.NotContains(t, engine.Handlers, transition.Key{Stage: transition.Namespaces, Action: api.ActionRollback})
+}
+
+type workflowDeleterForTest func(context.Context, string) error
+
+func (f workflowDeleterForTest) DeleteWorkflow(ctx context.Context, id string) error {
+	return f(ctx, id)
 }

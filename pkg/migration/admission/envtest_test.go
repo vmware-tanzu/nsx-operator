@@ -23,10 +23,10 @@ import (
 )
 
 // This test uses the actual CRDs and webhook configuration. Set
-// KUBEBUILDER_ASSETS to Kubernetes 1.35 binaries to run it locally or in CI.
+// KUBEBUILDER_ASSETS to Kubernetes 1.33+ binaries to run it locally or in CI.
 func TestTransitionValidatorOnAPIServer(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS with Kubernetes 1.35 is required")
+		t.Skip("KUBEBUILDER_ASSETS with Kubernetes 1.33+ is required")
 	}
 	abs := func(path string) string { p, err := filepath.Abs(path); require.NoError(t, err); return p }
 	env := &envtest.Environment{
@@ -161,6 +161,37 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 			}
 			require.NoError(t, c.Status().Update(ctx, current))
 			require.ErrorContains(t, c.Delete(ctx, snapshot()), "Resolve the unfinished Execute or Rollback")
+
+			if stage == "namespaces" {
+				// Exercise the real API server guard after Commit crosses its PONR.
+				current = snapshot()
+				o := current.(*api.NamespaceNetworkTransition)
+				o.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionDerive, ActionState: api.ActionStateSucceeded, ActionGeneration: o.Generation, ObservedGeneration: o.Generation}
+				require.NoError(t, c.Status().Update(ctx, o))
+				current = snapshot()
+				setAction(current, api.ActionExecute)
+				require.NoError(t, c.Update(ctx, current))
+				current = snapshot()
+				o = current.(*api.NamespaceNetworkTransition)
+				o.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: o.Generation, ObservedGeneration: o.Generation, Phase: "Completed"}
+				require.NoError(t, c.Status().Update(ctx, o))
+				current = snapshot()
+				setAction(current, api.ActionCommit)
+				require.NoError(t, c.Update(ctx, current), "a current successful Execute permits Commit")
+				current = snapshot()
+				o = current.(*api.NamespaceNetworkTransition)
+				o.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionCommit, ActionState: api.ActionStateRunning, ActionGeneration: o.Generation, ObservedGeneration: o.Generation, Phase: "Committing", IrreversibleAction: string(api.ActionCommit)}
+				require.NoError(t, c.Status().Update(ctx, o), "the controller persists PONR before workflow deletion")
+
+				for _, action := range []api.Action{api.ActionRollback, api.ActionEvaluate, api.ActionExecute} {
+					reset := snapshot()
+					setAction(reset, action)
+					require.ErrorContains(t, c.Update(ctx, reset), "irreversible checkpoint")
+				}
+				actionReset := snapshot()
+				setAction(actionReset, "")
+				require.Error(t, c.Update(ctx, actionReset), "the action cannot be cleared after Commit crosses its PONR")
+			}
 		})
 	}
 }

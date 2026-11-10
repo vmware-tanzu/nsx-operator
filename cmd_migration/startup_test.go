@@ -6,13 +6,13 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
-	"net/http"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -204,6 +204,29 @@ func TestAdmissionCanStartWithoutMigrationControllers(t *testing.T) {
 	require.Equal(t, "/validate-migration-transition", server.path)
 	require.NotNil(t, server.handler)
 	require.Contains(t, mgr.readyNames, "migration-admission")
+}
+
+func TestAdmissionReportsInvalidConfigurationValues(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		port        int
+		certDir     string
+		wantMessage string
+	}{
+		{name: "invalid port", port: 0, certDir: "/certs", wantMessage: `port=0 (expected 1-65535), certDir="/certs"`},
+		{name: "empty certificate directory", port: 9982, certDir: "", wantMessage: `port=9982 (expected 1-65535), certDir=""`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := startManager(context.Background(), &options{
+				admissionEnabled: true,
+				admissionPort:    test.port,
+				admissionCertDir: test.certDir,
+			}, managerDependencies{
+				loadConfig: func() (*rest.Config, error) { return &rest.Config{}, nil },
+			})
+			require.ErrorContains(t, err, test.wantMessage)
+		})
+	}
 }
 
 func TestDisabledStartupReportsInvalidLocalConfig(t *testing.T) {
