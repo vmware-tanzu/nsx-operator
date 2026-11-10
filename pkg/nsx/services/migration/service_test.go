@@ -4,12 +4,16 @@
 package migration
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	vapidata "github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	nsxmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -40,6 +44,86 @@ func TestClientIsLazyAndSharedAcrossConcurrentHandlers(t *testing.T) {
 	}
 	require.Equal(t, int32(1), loads.Load())
 	require.Equal(t, int32(1), builds.Load())
+}
+
+type workflowClientStub struct {
+	delete func(string) error
+}
+
+func (s workflowClientStub) Delete(id string) error                  { return s.delete(id) }
+func (workflowClientStub) Get(string) (*vapidata.StructValue, error) { return nil, nil }
+func (workflowClientStub) List(*string, *string, *int64, *bool, *string) (nsxmodel.PolicyWorkflowListResult, error) {
+	return nsxmodel.PolicyWorkflowListResult{}, nil
+}
+func (workflowClientStub) Update(string, *vapidata.StructValue) (*vapidata.StructValue, error) {
+	return nil, nil
+}
+
+func TestDeleteWorkflowIsIdempotentForRecordedMissingWorkflow(t *testing.T) {
+	notFound := vapierrors.NewNotFound()
+	var deleted string
+	s := NewService()
+	s.loadConfig = func() (*config.NSXOperatorConfig, error) { return &config.NSXOperatorConfig{}, nil }
+	s.newClient = func(*config.NSXOperatorConfig) (*nsx.Client, error) {
+		return &nsx.Client{WorkflowsClient: workflowClientStub{delete: func(id string) error {
+			deleted = id
+			return notFound
+		}}}, nil
+	}
+
+	require.NoError(t, s.DeleteWorkflow(context.Background(), "workflow-1"))
+	require.Equal(t, "workflow-1", deleted)
+	require.ErrorContains(t, s.DeleteWorkflow(context.Background(), ""), "workflow ID is required")
+}
+
+func TestDeleteWorkflowRetriesUnexpectedErrors(t *testing.T) {
+	failure := errors.New("NSX unavailable")
+	s := NewService()
+	s.loadConfig = func() (*config.NSXOperatorConfig, error) { return &config.NSXOperatorConfig{}, nil }
+	s.newClient = func(*config.NSXOperatorConfig) (*nsx.Client, error) {
+		return &nsx.Client{WorkflowsClient: workflowClientStub{delete: func(string) error { return failure }}}, nil
+	}
+
+	require.ErrorIs(t, s.DeleteWorkflow(context.Background(), "workflow-1"), failure)
+}
+
+func TestDeleteWorkflowValidatesContextAndClient(t *testing.T) {
+	t.Run("canceled context", func(t *testing.T) {
+		s := NewService()
+		loaded := false
+		s.loadConfig = func() (*config.NSXOperatorConfig, error) {
+			loaded = true
+			return &config.NSXOperatorConfig{}, nil
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		require.ErrorIs(t, s.DeleteWorkflow(ctx, "workflow-1"), context.Canceled)
+		require.False(t, loaded, "canceled requests must not initialize NSX connectivity")
+	})
+
+	t.Run("workflow client unavailable", func(t *testing.T) {
+		s := NewService()
+		s.loadConfig = func() (*config.NSXOperatorConfig, error) { return &config.NSXOperatorConfig{}, nil }
+		s.newClient = func(*config.NSXOperatorConfig) (*nsx.Client, error) { return &nsx.Client{}, nil }
+
+		require.ErrorContains(t, s.DeleteWorkflow(context.Background(), "workflow-1"), "NSX workflow client is unavailable")
+	})
+
+	t.Run("delete succeeds", func(t *testing.T) {
+		deleted := ""
+		s := NewService()
+		s.loadConfig = func() (*config.NSXOperatorConfig, error) { return &config.NSXOperatorConfig{}, nil }
+		s.newClient = func(*config.NSXOperatorConfig) (*nsx.Client, error) {
+			return &nsx.Client{WorkflowsClient: workflowClientStub{delete: func(id string) error {
+				deleted = id
+				return nil
+			}}}, nil
+		}
+
+		require.NoError(t, s.DeleteWorkflow(context.Background(), "workflow-1"))
+		require.Equal(t, "workflow-1", deleted)
+	})
 }
 
 func TestFailedInitializationCanRecover(t *testing.T) {

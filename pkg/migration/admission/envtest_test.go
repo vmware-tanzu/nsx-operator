@@ -214,6 +214,29 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 				}
 				require.NoError(t, c.Status().Update(ctx, o))
 			}
+
+			if stage == "namespaces" {
+				current = snapshot()
+				o := current.(*api.NamespaceNetworkTransition)
+				o.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: o.Generation, ObservedGeneration: o.Generation, Phase: "Completed"}
+				require.NoError(t, c.Status().Update(ctx, o))
+				current = snapshot()
+				setAction(current, api.ActionCommit)
+				require.NoError(t, c.Update(ctx, current), "a current successful Execute permits Commit")
+				current = snapshot()
+				o = current.(*api.NamespaceNetworkTransition)
+				o.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionCommit, ActionState: api.ActionStateRunning, ActionGeneration: o.Generation, ObservedGeneration: o.Generation, Phase: "Committing", IrreversibleAction: string(api.ActionCommit)}
+				require.NoError(t, c.Status().Update(ctx, o), "the controller persists PONR before workflow deletion")
+
+				for _, action := range []api.Action{api.ActionRollback, api.ActionEvaluate, api.ActionExecute} {
+					reset := snapshot()
+					setAction(reset, action)
+					require.ErrorContains(t, c.Update(ctx, reset), "irreversible checkpoint")
+				}
+				actionReset := snapshot()
+				setAction(actionReset, "")
+				require.Error(t, c.Update(ctx, actionReset), "the action cannot be cleared after Commit crosses its PONR")
+			}
 		})
 	}
 }
