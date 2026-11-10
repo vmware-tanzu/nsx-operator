@@ -23,7 +23,12 @@ var (
 )
 
 func addKnownTypes(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(GroupVersion, &NetworkResourceTransition{}, &NetworkResourceTransitionList{})
+	scheme.AddKnownTypes(
+		GroupVersion,
+		&NetworkResourceTransition{}, &NetworkResourceTransitionList{},
+		&ControlPlaneNetworkTransition{}, &ControlPlaneNetworkTransitionList{},
+		&NamespaceNetworkTransition{}, &NamespaceNetworkTransitionList{},
+	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil
 }
