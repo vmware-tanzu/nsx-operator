@@ -7,7 +7,8 @@ NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` reso
 ## Framework and services
 
 - `cmd_migration`: independent controller manager; no normal NSX controllers,
-  webhook servers, `electMaster` calls, or `nsx-operator-role` label changes.
+  `electMaster` calls, or `nsx-operator-role` label changes. A migration
+  admission server can be enabled independently of the transition controllers.
 - `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.network.vmware.com/v1alpha1.
 - `pkg/migration/controllers`: controller registration and observation of both
   transition kinds. Reconciliation leaves spec, status, and external resources unchanged.
@@ -334,8 +335,64 @@ Evaluate-to-Plan freshness belongs to admission work WBS 1.1.4.1. For that actio
 change, require the old object's successful Evaluate checkpoint to have
 `status.actionGeneration == oldObject.metadata.generation`. `observedGeneration`
 alone is not proof of success; the new generation changes with the Plan request.
-This separately tracked admission integration remains pending. No
-`evaluatedSpecHash` field is added.
+The migration transition-validation webhook implements this edge for both transition kinds;
+the existing CRD rules continue to reject input changes in a Plan update. It is
+not active until the admission server and its ValidatingWebhookConfiguration
+are deployed. No `evaluatedSpecHash` field is added. Execute exclusivity,
+namespace/workload guards, and migration handlers remain separate work.
+
+For the Stage 2 happy path, namespace execution depends on completed Stage 1.
+Multiple namespace transitions may request Execute, but the dispatcher must
+start at most one Stage 2 Execute at a time; Evaluate and Plan for other
+namespaces need not be globally serialized. This policy is not implemented by
+the current admission webhook or the observational controllers. A mutex
+covering one reconcile invocation alone does not reserve an Execute across
+subsequent reconciles while that action is still in progress.
+
+TODO: Define whether concurrent namespace Execute and Rollback operations
+conflict, including shared topology and workflow dependencies. Recovery and
+leader-failover behavior for an interrupted Execute also remain to be defined;
+the happy-path policy does not establish those guarantees.
+
+The webhook also requires a new transition to start with Evaluate. An action
+change to Derive or Execute requires a successful current-generation Plan or
+Derive checkpoint respectively; Commit (namespace) and Finalize (control
+plane) require a successful current-generation Execute checkpoint. Namespace
+Rollback can be requested during or after a checkpointed action before the
+irreversible boundary, and Evaluate can resume after successful namespace
+Rollback. Unchanged actions remain retryable. A pending Plan cannot be reset to
+Evaluate to bypass the input freeze. The webhook denies deletion when its last
+Execute/Rollback checkpoint is running, failed, incomplete or inconsistent
+with its completed phase. An Execute/Rollback request without a matching
+current checkpoint is also retained because this guard cannot prove it was
+never started. It does not inspect child resources, verify actual
+recovery, protect workloads, or establish cross-transition exclusivity.
+
+### Deploying the transition-validation webhook
+
+The admission server is opt-in via `--enable-migration-admission`, independent
+of `--enable-network-migration` and leader election. It serves on port 9982
+and reads `tls.crt`/`tls.key` from `/etc/nsx-operator/migration-webhook-certs`
+by default; `--migration-admission-port` and `--migration-admission-cert-dir`
+override these settings. The server is available on every configured Pod,
+including non-leaders, and the readiness check waits for it to start.
+
+`build/yaml/migration/admission/` supplies a Service, a cert-manager Issuer and
+Certificate, and a CA-injected ValidatingWebhookConfiguration. Deployment
+configuration must enable the admission server and mount the certificate Secret
+on each Pod selected by the Service. Downstream packaging must use the actual Pod
+labels and provide equivalent certificate/CA injection if it does not use
+cert-manager. When changing the port or namespace, update the Service,
+certificate DNS names, webhook configuration, and mounted Secret in concert.
+
+Install the certificate and Service, then enable the server and mount the
+Secret on **every** selected Pod; wait for all selected Pods to be ready and
+verify the injected CA and endpoint connectivity. Only then install the
+ValidatingWebhookConfiguration. It is fail-closed for creates, updates and
+deletes of the two main
+transition resources; status subresources are not selected. Install this
+admission before enabling concrete migration action handlers. Remove or
+replace the webhook configuration before disabling its serving endpoint.
 
 VCFA Namespace onboarding and project selection belong to the VCFA client
 workstream: every Namespace must be imported before confirmation/Commit, using
