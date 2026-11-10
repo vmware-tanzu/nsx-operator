@@ -18,6 +18,9 @@ spec:
           image: supervisor-network-migration-operator:latest
           command: [/usr/local/bin/supervisor-network-migration-operator]
           args:
+            - --enable-migration-admission
+            - --migration-admission-port=9982
+            - --migration-admission-cert-dir=/etc/nsx-operator/migration-webhook-certs
             - --health-probe-bind-address=:9924
             - --metrics-bind-address=0
             - --nsxconfig=/etc/nsx-operator/nsxop.ini
@@ -29,6 +32,13 @@ spec:
           ports:
             - name: migration-probe
               containerPort: 9924
+            - name: migration-admission
+              containerPort: 9982
+              protocol: TCP
+          volumeMounts:
+            - name: migration-admission-certs
+              mountPath: /etc/nsx-operator/migration-webhook-certs
+              readOnly: true
           # Allow Kubernetes API discovery and manager startup before liveness checks.
           startupProbe:
             httpGet:
@@ -55,3 +65,7 @@ spec:
               memory: 128Mi
             limits:
               memory: 256Mi
+      volumes:
+        - name: migration-admission-certs
+          secret:
+            secretName: supervisor-network-migration-admission-tls
