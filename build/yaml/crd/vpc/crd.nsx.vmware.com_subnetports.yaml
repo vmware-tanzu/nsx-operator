@@ -161,10 +161,13 @@ spec:
                   - type
                   type: object
                 type: array
-              fqdn:
-                description: FQDN is the system-computed fully qualified domain name,
-                  formed by combining dnsHostName with DomainName.
-                type: string
+              fqdns:
+                description: |-
+                  FQDNs contains the system-computed fully qualified domain names for the port.
+                  Each FQDN is formed by combining the DNS host name with the domain name.
+                items:
+                  type: string
+                type: array
               networkInterfaceConfig:
                 properties:
                   dhcpDeactivatedOnSubnet:

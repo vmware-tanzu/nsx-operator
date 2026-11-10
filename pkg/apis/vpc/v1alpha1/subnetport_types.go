@@ -65,9 +65,10 @@ type SubnetPortStatus struct {
 	// SubnetPort attachment state.
 	Attachment             PortAttachment         `json:"attachment,omitempty"`
 	NetworkInterfaceConfig NetworkInterfaceConfig `json:"networkInterfaceConfig,omitempty"`
-	// FQDN is the system-computed fully qualified domain name, formed by combining dnsHostName with DomainName.
+	// FQDNs contains the system-computed fully qualified domain names for the port.
+	// Each FQDN is formed by combining the DNS host name with the domain name.
 	// +optional
-	FQDN string `json:"fqdn,omitempty"`
+	FQDNs []string `json:"fqdns,omitempty"`
 }
 
 // VIF attachment state of a SubnetPort.
