@@ -22,7 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -2215,6 +2217,69 @@ func TestPortConfigOrphanDeletionPreconditions(t *testing.T) {
 			} else {
 				require.NoError(t, err, "successful deletion and concurrent NotFound are both harmless")
 				assert.True(t, apierrors.IsNotFound(baseClient.Get(ctx, key, stored)))
+			}
+		})
+	}
+}
+
+func TestHandleNSXSubnetError_PreservesOriginalError(t *testing.T) {
+	for _, associatedResource := range []string{"project:vpc:subnet", "invalid-resource"} {
+		t.Run(associatedResource, func(t *testing.T) {
+			ctx := context.Background()
+			objects := []client.Object{}
+			names := sets.New[types.NamespacedName]()
+			for _, namespace := range []string{"team-a", "team-b"} {
+				names.Insert(types.NamespacedName{Namespace: namespace, Name: "shared"})
+				objects = append(objects, &v1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:   namespace,
+						Name:        "shared",
+						Annotations: map[string]string{common.AnnotationAssociatedResource: associatedResource},
+					},
+					Status: v1alpha1.SubnetStatus{
+						Shared:              true,
+						NetworkAddresses:    []string{"10.0.0.0/24"},
+						GatewayAddresses:    []string{"10.0.0.1"},
+						DHCPServerAddresses: []string{"10.0.0.2"},
+					},
+				})
+			}
+			r := createFakeSubnetReconciler(nil)
+			r.Client = fake.NewClientBuilder().WithScheme(r.Client.Scheme()).WithStatusSubresource(&v1alpha1.Subnet{}).WithObjects(objects...).Build()
+			r.APIReader = r.Client
+			r.StatusUpdater.Client = r.Client
+			recorder := record.NewFakeRecorder(10)
+			r.StatusUpdater.Recorder = recorder
+			deletedPaths := []string{}
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetPortService), "DeletePortCount",
+				func(_ *subnetport.SubnetPortService, path string) { deletedPaths = append(deletedPaths, path) })
+			defer patches.Reset()
+			originalErr := fmt.Errorf("NSX subnet status request failed: service unavailable")
+			r.handleNSXSubnetError(ctx, originalErr, names, associatedResource, "subnet status")
+			for name := range names {
+				actual := &v1alpha1.Subnet{}
+				require.NoError(t, r.Client.Get(ctx, name, actual))
+				require.Empty(t, actual.Status.NetworkAddresses)
+				require.Empty(t, actual.Status.GatewayAddresses)
+				require.Empty(t, actual.Status.DHCPServerAddresses)
+				require.True(t, actual.Status.Shared)
+				require.Len(t, actual.Status.Conditions, 1)
+				condition := actual.Status.Conditions[0]
+				assert.Equal(t, v1alpha1.Ready, condition.Type)
+				assert.Equal(t, corev1.ConditionFalse, condition.Status)
+				assert.Contains(t, condition.Message, originalErr.Error())
+				select {
+				case event := <-recorder.Events:
+					assert.Contains(t, event, originalErr.Error())
+					assert.Contains(t, event, "Warning")
+				default:
+					t.Error("missing failure event")
+				}
+			}
+			if associatedResource == "project:vpc:subnet" {
+				assert.Equal(t, []string{"/orgs/default/projects/project/vpcs/vpc/subnets/subnet"}, deletedPaths)
+			} else {
+				assert.Empty(t, deletedPaths)
 			}
 		})
 	}
