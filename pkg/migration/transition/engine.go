@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,10 @@ type Result struct {
 // irreversibleAction is engine-owned; handlers must not assign or clear it.
 // Commit handlers must verify approval/onboarding and shared-workflow ownership,
 // reconcile deletions from the recorded workflow identities and current NSX state.
+// Commit/Finalize preserve NSXWorkflows until all deletions are confirmed. The
+// engine clears the list together with the successful completion checkpoint.
+// After their irreversible checkpoint, use InProgress for pending external state;
+// NeedsInput cannot suspend recovery while the reviewed configuration is frozen.
 type Handler interface {
 	Reconcile(context.Context, Request) (Result, error)
 }
@@ -103,6 +108,7 @@ func (e *Engine) LockReconcile() func() {
 // Reconcile updates shared status and dispatches only a valid, enabled operation.
 func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	observeGeneration(req.Status, req.Generation)
+	requiresIrreversibleCheckpoint := req.Action == api.ActionCommit || req.Action == api.ActionFinalize
 	if !e.Enabled {
 		Block(req.Status, req.Generation, "FeatureDisabled", "Supervisor network migration is disabled")
 		return Result{}, nil
@@ -140,11 +146,7 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 		return Result{}, nil
 	}
 	if req.Status.ActionState == api.ActionStateSucceeded && req.Status.ActionGeneration == req.Generation && req.Status.LastAction == req.Action {
-		req.Status.Phase = completedPhase(req.Stage, req.Action)
-		commitCondition(req, metav1.ConditionTrue, "CommitCompleted", "Namespace migration commit completed")
-		infraCondition(req, metav1.ConditionTrue, "CutoverVerified", "Control plane infrastructure transition completed")
-		condition(req.Status, req.Generation, metav1.ConditionTrue, "ActionCompleted", "Requested migration action completed")
-		return Result{Outcome: OutcomeSucceeded}, nil
+		return markActionCompleted(req), nil
 	}
 	if !allowed(req.Stage, req.Action, req.Status.LastAction, req.Status.ActionState) {
 		Block(req.Status, req.Generation, "InvalidAction", "Requested action is not permitted by the last action and its execution state")
@@ -173,7 +175,13 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	req.Status.ActionState = api.ActionStateRunning
 	req.Status.Phase = activePhase(req.Action)
 	irreversible := req.Status.IrreversibleAction
+	workflows := slices.Clone(req.Status.NSXWorkflows)
 	result, err := handler.Reconcile(ctx, req)
+	if requiresIrreversibleCheckpoint {
+		// Keep recovery IDs through pending work, errors and failed status writes.
+		// Only the engine's confirmed-success path clears the list.
+		req.Status.NSXWorkflows = workflows
+	}
 	if req.Status.IrreversibleAction != irreversible {
 		// A handler receives mutable status for progress reporting, but cannot
 		// create or erase the boundary that authorizes destructive work. Restore
@@ -184,11 +192,15 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	if err == nil && result.Outcome != OutcomeSucceeded && result.Outcome != OutcomeInProgress && result.Outcome != OutcomeNeedsInput && result.Outcome != OutcomeCheckpointIrreversible {
 		err = fmt.Errorf("handler returned invalid outcome %q", result.Outcome)
 	}
-	if err == nil && result.Outcome == OutcomeCheckpointIrreversible && req.Action != api.ActionCommit && req.Action != api.ActionFinalize {
+	if err == nil && result.Outcome == OutcomeCheckpointIrreversible && !requiresIrreversibleCheckpoint {
 		err = fmt.Errorf("action %s cannot establish an irreversible checkpoint", req.Action)
 	}
-	if err == nil && result.Outcome == OutcomeSucceeded && (req.Action == api.ActionCommit || req.Action == api.ActionFinalize) && irreversible != string(req.Action) {
+	if err == nil && result.Outcome == OutcomeSucceeded && requiresIrreversibleCheckpoint && irreversible != string(req.Action) {
 		err = fmt.Errorf("action %s cannot succeed without a persisted irreversible checkpoint", req.Action)
+	}
+	if err == nil && result.Outcome == OutcomeNeedsInput && irreversible != "" {
+		req.Status.RequiredInputs = nil
+		err = fmt.Errorf("action %s cannot wait for input after its irreversible checkpoint; return InProgress for pending external state", req.Action)
 	}
 
 	if err != nil {
@@ -234,15 +246,24 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 		}
 		return result, nil
 	}
-	req.Status.RequiredInputs = nil
 	req.Status.ActionState = api.ActionStateSucceeded
 	req.Status.LastAction = req.Action
 	req.Status.ActionGeneration = req.Generation
+	return markActionCompleted(req), nil
+}
+
+// markActionCompleted records a confirmed action result and clears recovery-only
+// status after irreversible workflow cleanup has finished.
+func markActionCompleted(req Request) Result {
+	req.Status.RequiredInputs = nil
+	if req.Action == api.ActionCommit || req.Action == api.ActionFinalize {
+		req.Status.NSXWorkflows = nil
+	}
 	req.Status.Phase = completedPhase(req.Stage, req.Action)
 	commitCondition(req, metav1.ConditionTrue, "CommitCompleted", "Namespace migration commit completed")
 	infraCondition(req, metav1.ConditionTrue, "CutoverVerified", "Control plane infrastructure transition completed")
 	condition(req.Status, req.Generation, metav1.ConditionTrue, "ActionCompleted", "Requested migration action completed")
-	return Result{Outcome: OutcomeSucceeded}, nil
+	return Result{Outcome: OutcomeSucceeded}
 }
 
 // failureMessage keeps handler context within the Kubernetes condition message limit.

@@ -21,8 +21,9 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 )
 
-// A test handler models durable deletion outcomes. Production workflow intents,
-// approval, ownership and deletion belong to WBS 1.3.7, not this contract test.
+// A test handler models authoritative external workflow state across controller
+// restarts. Production approval, live ownership checks and NSX deletion belong to
+// WBS 1.3.7; this test does not provide a journal or a production workflow client.
 func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 	for _, stage := range []transition.Stage{transition.Namespaces, transition.Infrastructure} {
 		t.Run(string(stage), func(t *testing.T) {
@@ -119,11 +120,13 @@ func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 			failWrite = true
 			require.ErrorIs(t, reconcile(), writeFailure) // Deletes finish, completion status is lost.
 			require.Equal(t, map[string]int{"workflow-a": 1, "workflow-b": 1}, deletions)
+			require.Equal(t, workflows, read().NSXWorkflows, "a lost completion write retains recovery IDs")
 			failWrite = false
 			require.NoError(t, reconcile()) // Resume without repeating confirmed deletes.
 			require.Equal(t, complete, read().Phase)
 			require.Equal(t, api.ActionStateSucceeded, read().ActionState)
 			require.Equal(t, string(action), read().IrreversibleAction)
+			require.Empty(t, read().NSXWorkflows, "clear IDs with the confirmed completion status")
 			if stage == transition.Namespaces {
 				require.True(t, meta.IsStatusConditionTrue(read().Conditions, "NamespaceMigrationCommitted"))
 			}
@@ -145,4 +148,55 @@ func TestCommittedBatchWithoutCheckpointIsNotTerminal(t *testing.T) {
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(batch), batch))
 	require.Equal(t, "Blocked", batch.Status.Phase)
 	require.Equal(t, "InfrastructureNotReady", meta.FindStatusCondition(batch.Status.Conditions, "Ready").Reason)
+}
+
+func TestCommittedBatchRepairsCommitConditionWithoutRepeatingDeletion(t *testing.T) {
+	for _, state := range []string{"missing", "false", "stale"} {
+		t.Run(state, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			require.NoError(t, api.AddToScheme(scheme))
+			batch := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 5},
+				Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionCommit}},
+				Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+					LastAction: api.ActionCommit, ActionState: api.ActionStateSucceeded, ActionGeneration: 5,
+					IrreversibleAction: "Commit", Phase: "Committed",
+					NSXWorkflows: []api.NSXWorkflowStatus{{VDNName: "network", WorkflowID: "workflow"}},
+				}}}
+			if state != "missing" {
+				condition := metav1.Condition{Type: "NamespaceMigrationCommitted", Status: metav1.ConditionFalse, ObservedGeneration: 5, Reason: "CommitInProgress", LastTransitionTime: metav1.Now()}
+				if state == "stale" {
+					condition.Status, condition.ObservedGeneration = metav1.ConditionTrue, 4
+				}
+				batch.Status.Conditions = []metav1.Condition{condition}
+			}
+			// Finalized infrastructure must not strand a terminal namespace repair.
+			infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName},
+				Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{IrreversibleAction: "Finalize", Phase: "Finalized"}}}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(batch, infra).Build()
+			r := Reconciler{Client: c, APIReader: c, Stage: transition.Namespaces,
+				Engine: &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+					{Stage: transition.Namespaces, Action: api.ActionCommit}: actionHandlerFunc(func(context.Context, transition.Request) (transition.Result, error) {
+						t.Fatal("committed workflow deletion must not run again")
+						return transition.Result{}, nil
+					}),
+				}}}
+			key := client.ObjectKeyFromObject(batch)
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+			require.NoError(t, err)
+			require.NoError(t, c.Get(ctx, key, batch))
+			condition := meta.FindStatusCondition(batch.Status.Conditions, "NamespaceMigrationCommitted")
+			require.NotNil(t, condition)
+			require.Equal(t, metav1.ConditionTrue, condition.Status)
+			require.Equal(t, batch.Generation, condition.ObservedGeneration)
+			require.Equal(t, "Committed", batch.Status.Phase)
+			require.Equal(t, "Commit", batch.Status.IrreversibleAction)
+			require.Empty(t, batch.Status.NSXWorkflows)
+			version := batch.ResourceVersion
+			_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+			require.NoError(t, err)
+			require.NoError(t, c.Get(ctx, key, batch))
+			require.Equal(t, version, batch.ResourceVersion, "a repaired terminal record needs no further status writes")
+		})
+	}
 }

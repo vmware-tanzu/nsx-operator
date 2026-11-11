@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -114,5 +115,86 @@ func TestCompletedCheckpointCannotBypassActionScope(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, result.Outcome)
 		require.Equal(t, "InvalidAction", meta.FindStatusCondition(status.Conditions, "Ready").Reason)
+	}
+}
+
+func TestWorkflowIDsClearedOnlyAfterIrreversibleActionSucceeds(t *testing.T) {
+	for _, tc := range []struct {
+		stage  Stage
+		action api.Action
+	}{{Namespaces, api.ActionCommit}, {Infrastructure, api.ActionFinalize}} {
+		t.Run(string(tc.action), func(t *testing.T) {
+			workflows := []api.NSXWorkflowStatus{{VDNName: "vdn-a", WorkflowID: "workflow-a"}, {VDNName: "vdn-b", WorkflowID: "workflow-b"}}
+			status := &api.TransitionStatus{LastAction: tc.action, ActionState: api.ActionStateRunning, ActionGeneration: 2, NSXWorkflows: slices.Clone(workflows)}
+			outcome := OutcomeCheckpointIrreversible
+			var handlerErr error
+			calls := 0
+			engine := Engine{Enabled: true, Handlers: map[Key]Handler{{tc.stage, tc.action}: handlerFunc(func(_ context.Context, req Request) (Result, error) {
+				calls++
+				require.Equal(t, workflows, req.Status.NSXWorkflows)
+				// Premature handler cleanup must not lose recovery IDs on a failure.
+				req.Status.NSXWorkflows = nil
+				return Result{Outcome: outcome}, handlerErr
+			})}}
+			request := Request{Stage: tc.stage, Action: tc.action, Generation: 2, Status: status}
+			_, err := engine.Reconcile(context.Background(), request)
+			require.NoError(t, err)
+			require.Equal(t, workflows, status.NSXWorkflows)
+			outcome = OutcomeInProgress
+			_, err = engine.Reconcile(context.Background(), request)
+			require.NoError(t, err)
+			require.Equal(t, workflows, status.NSXWorkflows)
+			handlerErr = errors.New("second deletion failed")
+			_, err = engine.Reconcile(context.Background(), request)
+			require.ErrorIs(t, err, handlerErr)
+			require.Equal(t, workflows, status.NSXWorkflows)
+			handlerErr, outcome = nil, OutcomeSucceeded
+			_, err = engine.Reconcile(context.Background(), request)
+			require.NoError(t, err)
+			require.Empty(t, status.NSXWorkflows)
+			require.Equal(t, api.ActionStateSucceeded, status.ActionState)
+			require.Equal(t, string(tc.action), status.IrreversibleAction)
+			// Clean up older completed records without replaying any deletion.
+			status.NSXWorkflows = slices.Clone(workflows)
+			_, err = engine.Reconcile(context.Background(), request)
+			require.NoError(t, err)
+			require.Empty(t, status.NSXWorkflows)
+			require.Equal(t, 4, calls)
+		})
+	}
+}
+
+func TestIrreversibleRecoveryCannotWaitForInput(t *testing.T) {
+	for _, tc := range []struct {
+		stage  Stage
+		action api.Action
+	}{{Namespaces, api.ActionCommit}, {Infrastructure, api.ActionFinalize}} {
+		t.Run(string(tc.action), func(t *testing.T) {
+			status := &api.TransitionStatus{LastAction: tc.action, ActionState: api.ActionStateRunning, ActionGeneration: 2, IrreversibleAction: string(tc.action)}
+			status.RequiredInputs = []api.RequiredInput{{FieldName: "frozen-input", Description: "Not editable after the checkpoint"}}
+			outcome := OutcomeNeedsInput
+			engine := Engine{Enabled: true, Handlers: map[Key]Handler{{tc.stage, tc.action}: handlerFunc(func(context.Context, Request) (Result, error) {
+				return Result{Outcome: outcome}, nil
+			})}}
+			request := Request{Stage: tc.stage, Action: tc.action, Generation: 2, Status: status}
+			_, err := engine.Reconcile(context.Background(), request)
+			require.ErrorContains(t, err, "cannot wait for input after its irreversible checkpoint")
+			require.Equal(t, api.ActionStateFailed, status.ActionState)
+			require.Equal(t, string(tc.action), status.IrreversibleAction)
+			require.Empty(t, status.RequiredInputs)
+			if tc.action == api.ActionCommit {
+				require.Equal(t, "Committing", status.Phase)
+				require.False(t, meta.IsStatusConditionTrue(status.Conditions, "NamespaceMigrationCommitted"))
+			}
+			// A corrected handler polls live state without a new user action.
+			outcome = OutcomeInProgress
+			result, err := engine.Reconcile(context.Background(), request)
+			require.NoError(t, err)
+			require.Positive(t, result.RequeueAfter)
+			outcome = OutcomeSucceeded
+			_, err = engine.Reconcile(context.Background(), request)
+			require.NoError(t, err)
+			require.Equal(t, api.ActionStateSucceeded, status.ActionState)
+		})
 	}
 }
