@@ -13,6 +13,34 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
 
+func TestDNSRecordFeatureEnabled(t *testing.T) {
+	enabled, disabled := true, false
+	for _, tc := range []struct {
+		name string
+		cfg  *config.NSXOperatorConfig
+		want bool
+	}{
+		{name: "nil config"},
+		{name: "nil NSX config", cfg: &config.NSXOperatorConfig{}},
+		{name: "omitted flag", cfg: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}},
+		{name: "disabled flag", cfg: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &disabled}}},
+		{name: "enabled flag", cfg: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &enabled}}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.False(t, DNSRecordFeatureEnabled(nil, tc.cfg))
+			supported := false
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(&Client{}), "NSXCheckVersion", func(_ *Client, feature int) bool {
+				assert.Equal(t, DNSRecord, feature)
+				return supported
+			})
+			defer patches.Reset()
+			assert.False(t, DNSRecordFeatureEnabled(&Client{}, tc.cfg))
+			supported = true
+			assert.Equal(t, tc.want, DNSRecordFeatureEnabled(&Client{}, tc.cfg))
+		})
+	}
+}
+
 func TestStatefulSetPodSubnetPortFeatureEnabled(t *testing.T) {
 	f := false
 	tr := true

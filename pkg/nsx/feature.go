@@ -5,6 +5,16 @@ package nsx
 
 import "github.com/vmware-tanzu/nsx-operator/pkg/config"
 
+// DNSRecordFeatureEnabled requires NSX 9.2+ and a temporary vpc_wcp_enhance opt-in.
+//
+//go:noinline
+func DNSRecordFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
+	if operatorConfig == nil || operatorConfig.NsxConfig == nil || !operatorConfig.NsxConfig.VpcWcpEnhanceEnabled() {
+		return false
+	}
+	return client != nil && client.NSXCheckVersion(DNSRecord)
+}
+
 // SubnetPortSettingFeatureEnabled requires NSX 9.2+ and an explicit vpc_wcp_enhance opt-in.
 //
 //go:noinline

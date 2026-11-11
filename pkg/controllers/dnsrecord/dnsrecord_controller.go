@@ -52,6 +52,7 @@ const (
 	ReasonDNSRecordReady            = "DNSRecordReady"
 	ReasonDNSRecordFailed           = "DNSRecordFailed"
 	ReasonDNSRecordValidationFailed = "DNSRecordValidationFailed"
+	ReasonDNSRecordUnsupported      = "DNSRecordUnsupported"
 	// Internal request marker for retrying configuration-to-record mapping.
 	// This is not a Kubernetes Namespace; underscores are invalid in Namespace names.
 	networkConfigRetryNamespace = "_dnsconfig"
@@ -138,17 +139,22 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultNormal, nil
 	}
 
+	if err := r.Service.CheckDNSRecordSupport(); err != nil {
+		if statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordUnsupported, err, "DNSRecord is not supported by this NSX backend"); statusErr != nil {
+			return ResultRequeue, statusErr
+		}
+		return common.ResultRequeueAfter5mins, nil
+	}
+
 	r.StatusUpdater.IncreaseUpdateTotal()
-	if config.IsPerNamespaceProvidersSupported() {
-		namespace := &corev1.Namespace{}
-		err := r.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, namespace)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return ResultRequeue, fmt.Errorf("fetching Namespace %s for DNSRecord: %w", obj.Namespace, err)
-		}
-		if apierrors.IsNotFound(err) || !config.IsVPCNamespace(namespace) {
-			validationErr := fmt.Errorf("Namespace %s is not an active VPC Namespace", obj.Namespace)
-			return r.rejectInvalidRecord(ctx, obj, validationErr, "DNSRecord Namespace validation failed")
-		}
+	namespace := &corev1.Namespace{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: obj.Namespace}, namespace)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return ResultRequeue, fmt.Errorf("fetching Namespace %s for DNSRecord: %w", obj.Namespace, err)
+	}
+	if apierrors.IsNotFound(err) || !config.IsVPCNamespace(namespace) {
+		validationErr := fmt.Errorf("Namespace %s is not an active VPC Namespace", obj.Namespace)
+		return r.rejectInvalidRecord(ctx, obj, validationErr, "DNSRecord Namespace validation failed")
 	}
 
 	switch obj.Spec.RecordType {

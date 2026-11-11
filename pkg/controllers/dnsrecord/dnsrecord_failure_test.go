@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -27,11 +28,76 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	pkgmock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
+	dnszonemocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnszonesclient"
 	orgrootmocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
+
+func TestDNSRecordChecksSupportBeforeReconciling(t *testing.T) {
+	ctx := context.Background()
+	obj := &v1alpha1.DNSRecord{
+		ObjectMeta: metav1.ObjectMeta{Name: "record", Namespace: "default", Generation: 1},
+		Spec:       v1alpha1.DNSRecordSpec{DomainName: "example.com", RecordName: "api", RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	cfg := &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "unit-test"}, NsxConfig: &config.NsxConfig{}}
+	svc, err := dns.InitializeDNSRecordService(servicecommon.Service{Client: c, NSXConfig: cfg, NSXClient: &nsx.Client{}}, nil)
+	require.NoError(t, err)
+	r := &DNSRecordReconciler{Client: c, Service: svc,
+		StatusUpdater: ctlcommon.NewStatusUpdater(c, cfg, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
+	result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)})
+	require.NoError(t, err)
+	require.Equal(t, ctlcommon.ResultRequeueAfter5mins, result)
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(obj), obj))
+	condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
+	require.NotNil(t, condition)
+	require.Equal(t, metav1.ConditionFalse, condition.Status)
+	require.Equal(t, ReasonDNSRecordUnsupported, condition.Reason)
+}
+
+func TestDNSRecordZoneReadFailurePreservesRecordsAndRetries(t *testing.T) {
+	ctx := context.Background()
+	obj := &v1alpha1.DNSRecord{
+		ObjectMeta: metav1.ObjectMeta{Name: "record", Namespace: "default", Generation: 1},
+		Spec:       v1alpha1.DNSRecordSpec{DomainName: "example.com", RecordName: "api", RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
+	svc, store := setupTestDNSRecordService(t, c)
+	r := &DNSRecordReconciler{Client: c, Service: svc,
+		StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, store.ListDNSRecords(), 1)
+	svc.DNSZoneMap = dns.NewDNSZoneCacheFromMap(nil)
+	zones := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
+	svc.NSXClient.DnsZoneClient = zones
+	unsupported := nsxutil.NewNSXApiError(&model.ApiError{
+		ErrorCode:    servicecommon.Int64(258),
+		ErrorMessage: servicecommon.String("The requested URI: /orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1 could not be found."),
+	}, apierrors.ErrorType_NOT_FOUND)
+	gomock.InOrder(
+		zones.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.DnsZone{}, unsupported),
+		zones.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.DnsZone{DnsDomainName: servicecommon.String("example.com")}, nil),
+	)
+	result, err := r.Reconcile(ctx, req)
+	require.ErrorIs(t, err, unsupported)
+	require.Equal(t, ResultRequeue, result)
+	require.Len(t, store.ListDNSRecords(), 1, "unsupported APIs must not trigger validation cleanup")
+	require.NoError(t, c.Get(ctx, req.NamespacedName, obj))
+	condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
+	require.NotNil(t, condition)
+	require.Equal(t, metav1.ConditionFalse, condition.Status)
+	require.Equal(t, ReasonDNSRecordValidationFailed, condition.Reason)
+	result, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, ResultNormal, result)
+	require.NoError(t, c.Get(ctx, req.NamespacedName, obj))
+	require.Equal(t, metav1.ConditionTrue, meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready)).Status)
+}
 
 func TestDNSRecordReadyStatusFailureRetries(t *testing.T) {
 	for _, tc := range []struct {
@@ -107,7 +173,7 @@ func TestDNSRecordWildcardRemovesExistingRecord(t *testing.T) {
 			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	r := &DNSRecordReconciler{
 		Client:        c,
@@ -146,7 +212,7 @@ func TestDNSRecordZoneRevocationRemovesExistingRecord(t *testing.T) {
 			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
 		DNSZones: []string{"/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1"},
@@ -186,7 +252,7 @@ func TestDNSRecordInvalidConfiguredZoneRemovesExistingRecord(t *testing.T) {
 			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
 		DNSZones: []string{"/orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1"},
@@ -229,7 +295,7 @@ func TestDNSRecordMissingNetworkConfigRemovesExistingRecord(t *testing.T) {
 				Spec: v1alpha1.DNSRecordSpec{DomainName: "example.com", RecordName: "api",
 					RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"}},
 			}
-			c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+			c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 			dnsSvc, store := setupTestDNSRecordService(t, c)
 			r := &DNSRecordReconciler{Client: c, Service: dnsSvc,
 				StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
@@ -256,7 +322,7 @@ func TestDNSRecordInvalidAddressRemovesExistingRecord(t *testing.T) {
 		Spec: v1alpha1.DNSRecordSpec{DomainName: "example.com", RecordName: "api",
 			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"}},
 	}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	r := &DNSRecordReconciler{Client: c, Service: dnsSvc,
 		StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
@@ -347,7 +413,7 @@ func TestDNSRecordMovesWhenZonePathChangesWithoutDomainChange(t *testing.T) {
 			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	dnsSvc.DNSZoneMap = dns.NewDNSZoneCacheFromMap(map[string]string{zoneA: "example.com", zoneB: "example.com"})
 	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{zoneA}}}
@@ -381,7 +447,7 @@ func TestDNSRecordInvalidCleanupFailureRetries(t *testing.T) {
 			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	r := &DNSRecordReconciler{
 		Client:        c,
@@ -423,7 +489,7 @@ func TestDNSRecordTransientZoneLookupFailureKeepsExistingRecord(t *testing.T) {
 			RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	r := &DNSRecordReconciler{
 		Client:        c,
@@ -457,7 +523,7 @@ func TestDNSRecordNameConflictRetriesAfterOwnerDeletion(t *testing.T) {
 	}
 	holder := newRecord("holder", "taken")
 	contender := newRecord("contender", "old")
-	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(holder, contender).Build()
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(holder, contender, defaultNamespaceForTest()).Build()
 	dnsSvc, store := setupTestDNSRecordService(t, c)
 	r := &DNSRecordReconciler{
 		Client:        c,
@@ -502,6 +568,7 @@ func TestDNSRecordNameConflictRetriesAfterOwnerDeletion(t *testing.T) {
 }
 
 func TestDNSRecordInvalidTTLIsRejected(t *testing.T) {
+	setVPCClusterForTest(t)
 	for _, tc := range []struct {
 		name string
 		ttl  int32
@@ -521,7 +588,7 @@ func TestDNSRecordInvalidTTLIsRejected(t *testing.T) {
 					TTL: &tc.ttl,
 				},
 			}
-			c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj).Build()
+			c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(obj, defaultNamespaceForTest()).Build()
 			r := &DNSRecordReconciler{
 				Client: c,
 				// Invalid TTL must be rejected before invoking any NSX dependency.

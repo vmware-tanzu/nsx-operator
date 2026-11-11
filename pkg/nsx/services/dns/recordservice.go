@@ -119,6 +119,8 @@ type DNSRecordService struct {
 	DNSRecordStore   *RecordStore
 	DNSZoneMap       *dnsZoneCache
 	DnsRecordBuilder *common.PolicyTreeBuilder[*model.DnsRecord]
+
+	disabled bool // startup feature gate; keep an empty service for existing callers
 }
 
 // getInvolvedRecordLockKeys returns the logical lock keys for all records involved in this batch.
@@ -150,6 +152,9 @@ func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoin
 // CreateOrUpdateRecords reconciles owner-scoped DNS rows. Stale-owner cleanup can
 // succeed even when desired rows conflict; the returned error still reports that conflict.
 func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *AggregatedDNSEndpoints) (bool, error) {
+	if s.disabled {
+		return false, nil
+	}
 	if batch.Owner != nil {
 		ownerKey := "owner/" + batch.Owner.Kind + "/" + batch.Owner.GetNamespace() + "/" + batch.Owner.GetName()
 		recordArbitrator.lock(ownerKey)

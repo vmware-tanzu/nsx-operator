@@ -82,6 +82,9 @@ func (s *DNSRecordService) getZonePathForHostname(z extprovider.ZoneIDName, host
 
 // ValidateEndpointsByZone maps each endpoint to a zone and row; returns validated rows, invalid rows, path→domain map for permitted zones (from sync), and err. owner must be non-nil.
 func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *ResourceRef, eps []*extdns.Endpoint) ([]EndpointRow, map[string]string, error) {
+	if s.disabled {
+		return nil, nil, nil
+	}
 	log.Info("Validating DNS endpoints by zone", "namespace", namespace,
 		"owner", owner.GetName(), "endpoints", len(eps))
 	vpcConfig, err := s.VPCService.GetVPCNetworkConfigByNamespace(namespace)
@@ -130,7 +133,7 @@ func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *Reso
 // SyncDNSZonesByVpcNetworkConfig ensures DNSZoneMap entries for vpcConfig.Spec.DNSZones; returns path→domain map or err.
 func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
 	dnsZonePaths := vpcConfig.Spec.DNSZones
-	if len(dnsZonePaths) == 0 {
+	if len(dnsZonePaths) == 0 || s.disabled {
 		return nil, nil
 	}
 	log.Info("Syncing DNS zones for VPCNetworkConfig", "zones", len(dnsZonePaths))
