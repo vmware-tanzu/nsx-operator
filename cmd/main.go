@@ -45,6 +45,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/pod"
 	securitypolicycontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/securitypolicy"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/service"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/serviceendpoint"
 	statefulsetcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/statefulset"
 	staticroutecontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/staticroute"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnet"
@@ -52,6 +53,7 @@ import (
 	subnetipreservationcontroller "github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetipreservation"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetport"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/subnetset"
+	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/vpcendpoint"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/health"
 	inventoryservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/inventory"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
@@ -69,7 +71,9 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	ipaddressallocationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipaddressallocation"
+	serviceendpointservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/serviceendpoint"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
+	vpcendpointservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpcendpoint"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -209,6 +213,16 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			log.Error(err, "Failed to initialize staticroute commonService", "controller", "StaticRoute")
 			os.Exit(1)
 		}
+		serviceEndpointService, err := serviceendpointservice.InitializeServiceEndpoint(commonService, vpcService)
+		if err != nil {
+			log.Error(err, "Failed to initialize serviceendpoint commonService", "controller", "ServiceEndpoint")
+			os.Exit(1)
+		}
+		vpcEndpointService, err := vpcendpointservice.InitializeVPCEndpoint(commonService, vpcService, ipAddressAllocationService)
+		if err != nil {
+			log.Error(err, "Failed to initialize vpcendpoint commonService", "controller", "VPCEndpoint")
+			os.Exit(1)
+		}
 		dnsRecordService, err := dns.InitializeDNSRecordService(commonService, vpcService)
 		if err != nil {
 			log.Error(err, "Failed to initialize DNS record service", "controller", "DNS")
@@ -268,6 +282,9 @@ func startServiceController(mgr manager.Manager, nsxClient *nsx.Client) {
 			// Pod V2 restore creates missing SubnetPort CRs before their NSX ports are restored.
 			pod.NewPodReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, nodeService),
 			subnetport.NewSubnetPortReconciler(reconcilerMgr, subnetPortService, subnetService, vpcService, ipAddressAllocationService, nodeService),
+			// Reconcile ServiceEndpoint before VPCEndpoint, which depends on it.
+			serviceendpoint.NewServiceEndpointReconciler(reconcilerMgr, serviceEndpointService),
+			vpcendpoint.NewVPCEndpointReconciler(reconcilerMgr, vpcEndpointService),
 			networkpolicycontroller.NewNetworkPolicyReconciler(reconcilerMgr, commonService, vpcService),
 			gateway.NewGatewayReconciler(reconcilerMgr, dnsRecordService),
 			subnetbindingcontroller.NewReconciler(reconcilerMgr, subnetService, subnetBindingService),

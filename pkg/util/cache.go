@@ -9,3 +9,5 @@ const SubnetPortMACInNeed = "index/subnetport/macInNeed"
 const SubnetAssociatedResource = "index/subnet/associatedResource"
 
 const StaticRouteIPAddressAllocationNameIndexKey = "spec.networkIpAllocationName"
+
+const VPCEndpointIPAllocationNameIndexKey = "spec.ipAllocationName"

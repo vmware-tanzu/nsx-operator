@@ -47,6 +47,9 @@ spec:
                 description: ServiceEndpointIP is the IP address of the VPC service
                   endpoint.
                 type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             required:
             - serviceEndpointIP
             type: object
