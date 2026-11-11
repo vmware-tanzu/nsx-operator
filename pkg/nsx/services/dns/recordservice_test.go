@@ -434,6 +434,7 @@ func dnsRecordStructValue(t *testing.T, rec model.DnsRecord) *data.StructValue {
 }
 
 func TestInitializeDNSRecordService_table(t *testing.T) {
+	enableDNSRecordFeatureForTest(t)
 	cfg := &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "unit-test"}}
 	require.NoError(t, v1alpha1.AddToScheme(clientgoscheme.Scheme))
 	fc := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).Build()

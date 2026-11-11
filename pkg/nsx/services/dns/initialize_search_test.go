@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -19,7 +20,14 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+func enableDNSRecordFeatureForTest(t *testing.T) {
+	t.Helper()
+	patches := gomonkey.ApplyFunc(nsx.DNSRecordFeatureEnabled, func(*nsx.Client, *config.NSXOperatorConfig) bool { return true })
+	t.Cleanup(patches.Reset)
+}
+
 func TestInitializeDNSRecordServiceRestoresPaginatedSearch(t *testing.T) {
+	enableDNSRecordFeatureForTest(t)
 	ctrl := gomock.NewController(t)
 	query := searchmocks.NewMockQueryClient(ctrl)
 	zones := dnszonemocks.NewMockZonesClient(ctrl)
@@ -59,6 +67,7 @@ func TestInitializeDNSRecordServiceRestoresPaginatedSearch(t *testing.T) {
 }
 
 func TestInitializeDNSRecordServiceFailsOnSearchError(t *testing.T) {
+	enableDNSRecordFeatureForTest(t)
 	for _, failOnPage := range []int{1, 2} {
 		t.Run(map[int]string{1: "first page", 2: "later page"}[failOnPage], func(t *testing.T) {
 			ctrl := gomock.NewController(t)

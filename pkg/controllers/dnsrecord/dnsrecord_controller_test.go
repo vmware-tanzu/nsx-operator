@@ -52,6 +52,17 @@ func setupScheme() *runtime.Scheme {
 	return scheme
 }
 
+func setVPCClusterForTest(t *testing.T) {
+	t.Helper()
+	hasT1, hasVPC := config.HasT1Namespaces(), config.HasVPCNamespaces()
+	config.SetMixedModeStateForTest(false, true)
+	t.Cleanup(func() { config.SetMixedModeStateForTest(hasT1, hasVPC) })
+}
+
+func defaultNamespaceForTest() *corev1.Namespace {
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+}
+
 func newTestNSXClient(t *testing.T) *nsx.Client {
 	t.Helper()
 	ctrl := gomock.NewController(t)
@@ -109,6 +120,7 @@ func newTestNSXClient(t *testing.T) *nsx.Client {
 
 func setupTestDNSRecordService(t *testing.T, fakeClient client.Client) (*dns.DNSRecordService, *dns.RecordStore) {
 	t.Helper()
+	setVPCClusterForTest(t)
 	mockVPC := &pkgmock.MockVPCServiceProvider{}
 	nc := &v1alpha1.VPCNetworkConfiguration{
 		Spec: v1alpha1.VPCNetworkConfigurationSpec{
@@ -301,6 +313,7 @@ func TestDNSRecordReconciler_Reconcile_CreateAndUpdate(t *testing.T) {
 }
 
 func TestDNSRecordReconciler_Reconcile_UnsupportedRecordType(t *testing.T) {
+	setVPCClusterForTest(t)
 	for _, recordType := range []v1alpha1.DNSRecordType{"CNAME", "PTR", "NS", "TXT", "MX", ""} {
 		t.Run(string(recordType), func(t *testing.T) {
 			scheme := setupScheme()
@@ -314,7 +327,7 @@ func TestDNSRecordReconciler_Reconcile_UnsupportedRecordType(t *testing.T) {
 				},
 			}
 			fakeClient := fake.NewClientBuilder().WithScheme(scheme).
-				WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).Build()
+				WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord, defaultNamespaceForTest()).Build()
 			r := &DNSRecordReconciler{
 				Client: fakeClient,
 				// An unconfigured service would fail if reconciliation reached NSX processing.
@@ -352,7 +365,7 @@ func TestDNSRecordReconciler_Reconcile_FQDNStatusUpdateFailure(t *testing.T) {
 	updateErr := fmt.Errorf("status update failed")
 	statusUpdates := 0
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
-		WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).
+		WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord, defaultNamespaceForTest()).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Update: func(context.Context, client.WithWatch, client.Object, ...client.UpdateOption) error {
 				t.Fatal("FQDN reconciliation must not update spec")
@@ -387,7 +400,7 @@ func TestDNSRecordReconciler_WritesFQDNAndConditionTogether(t *testing.T) {
 	}
 	statusUpdates := 0
 	fakeClient := fake.NewClientBuilder().WithScheme(setupScheme()).
-		WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).
+		WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord, defaultNamespaceForTest()).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(ctx context.Context, c client.Client, subresource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 				require.Equal(t, "status", subresource)
@@ -499,6 +512,77 @@ func TestDNSRecordMixedModeNamespaceTransition(t *testing.T) {
 	require.Empty(t, store.ListDNSRecords())
 }
 
+func TestDNSRecordLegacyNamespaceValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		hasVPC           bool
+		missingNamespace bool
+		getNamespaceErr  error
+		wantReady        metav1.ConditionStatus
+		wantRecords      int
+	}{
+		{name: "VPC cluster without namespace annotation", hasVPC: true, wantReady: metav1.ConditionTrue, wantRecords: 1},
+		{name: "T1 cluster", wantReady: metav1.ConditionFalse},
+		{name: "missing namespace", hasVPC: true, missingNamespace: true, wantReady: metav1.ConditionFalse},
+		{name: "namespace read fails", hasVPC: true, getNamespaceErr: errors.New("Namespace API unavailable"), wantReady: metav1.ConditionTrue, wantRecords: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := config.IsPerNamespaceProvidersSupported()
+			config.SetPerNamespaceProvidersSupportedForTest(false)
+			t.Cleanup(func() { config.SetPerNamespaceProvidersSupportedForTest(previous) })
+
+			ctx := context.Background()
+			namespace := defaultNamespaceForTest()
+			obj := &v1alpha1.DNSRecord{
+				ObjectMeta: metav1.ObjectMeta{Name: "record", Namespace: namespace.Name, Generation: 1},
+				Spec: v1alpha1.DNSRecordSpec{
+					DomainName: "example.com", RecordName: "api", RecordType: v1alpha1.DNSRecordTypeA,
+					RecordValues: []string{"192.0.2.1"},
+				},
+			}
+			var namespaceErr error
+			c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).
+				WithObjects(namespace, obj).WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*corev1.Namespace); ok && namespaceErr != nil {
+						return namespaceErr
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			}).Build()
+			dnsSvc, store := setupTestDNSRecordService(t, c)
+			r := &DNSRecordReconciler{Client: c, Service: dnsSvc,
+				StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
+			req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
+			_, err := r.Reconcile(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, store.ListDNSRecords(), 1)
+
+			config.SetMixedModeStateForTest(!tc.hasVPC, tc.hasVPC)
+			if tc.missingNamespace {
+				require.NoError(t, c.Delete(ctx, namespace))
+			}
+			namespaceErr = tc.getNamespaceErr
+			result, err := r.Reconcile(ctx, req)
+			if tc.getNamespaceErr != nil {
+				require.ErrorIs(t, err, tc.getNamespaceErr)
+				require.Equal(t, ResultRequeue, result)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, ResultNormal, result)
+			}
+			require.Len(t, store.ListDNSRecords(), tc.wantRecords)
+			require.NoError(t, c.Get(ctx, req.NamespacedName, obj))
+			condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
+			require.NotNil(t, condition)
+			require.Equal(t, tc.wantReady, condition.Status)
+			if tc.wantReady == metav1.ConditionFalse {
+				require.Contains(t, condition.Message, "not an active VPC Namespace")
+			}
+		})
+	}
+}
+
 func TestDNSRecordReconciler_Reconcile_Delete(t *testing.T) {
 	scheme := setupScheme()
 	now := metav1.Now()
@@ -518,6 +602,9 @@ func TestDNSRecordReconciler_Reconcile_Delete(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dnsRecord).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					t.Fatal("deletion must not depend on Namespace validation")
+				}
 				if err := c.Get(ctx, key, obj, opts...); err != nil {
 					return err
 				}
@@ -614,6 +701,7 @@ func TestDNSRecordReconciler_Reconcile_DeleteWithService(t *testing.T) {
 }
 
 func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationError(t *testing.T) {
+	setVPCClusterForTest(t)
 	scheme := setupScheme()
 	dnsRecord := &v1alpha1.DNSRecord{
 		ObjectMeta: metav1.ObjectMeta{
@@ -628,7 +716,7 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationError(t *testing.T) 
 		},
 	}
 
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&v1alpha1.DNSRecord{}).WithObjects(dnsRecord, defaultNamespaceForTest()).Build()
 
 	mockVPC := &pkgmock.MockVPCServiceProvider{}
 	nc := &v1alpha1.VPCNetworkConfiguration{
@@ -674,6 +762,7 @@ func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationError(t *testing.T) 
 }
 
 func TestDNSRecordReconciler_Reconcile_ServiceZoneValidationSuccess(t *testing.T) {
+	setVPCClusterForTest(t)
 	minTTL, maxTTL := int32(30), int32(86400)
 	for _, tc := range []struct {
 		recordType v1alpha1.DNSRecordType

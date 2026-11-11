@@ -10,8 +10,17 @@ import (
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
+
+// CheckDNSRecordSupport reports whether DNS was enabled during initialization.
+func (s *DNSRecordService) CheckDNSRecordSupport() error {
+	if s.disabled {
+		return fmt.Errorf("DNSRecord requires NSX 9.2.0 or later and vpc_wcp_enhance=true")
+	}
+	return nil
+}
 
 // InitializeDNSRecordService constructs a DNSRecordService and restores records from NSX search.
 func InitializeDNSRecordService(commonService common.Service, vpcService common.VPCServiceProvider) (*DNSRecordService, error) {
@@ -26,13 +35,16 @@ func InitializeDNSRecordService(commonService common.Service, vpcService common.
 		DNSZoneMap:       newDNSZoneCache(),
 		DnsRecordBuilder: builder,
 	}
+	if !nsx.DNSRecordFeatureEnabled(commonService.NSXClient, commonService.NSXConfig) {
+		s.disabled = true
+		log.Info("DNSRecord is disabled; requires NSX 9.2.0+ and vpc_wcp_enhance=true")
+		return s, nil
+	}
 
 	cluster := commonService.NSXConfig.CoeConfig.Cluster
 	tags := []model.Tag{{Scope: common.String(common.TagScopeCluster), Tag: common.String(cluster)}}
-
 	wg := sync.WaitGroup{}
 	fatalErrors := make(chan error, 1)
-
 	wg.Add(1)
 	commonService.InitializeResourceStore(&wg, fatalErrors, common.ResourceTypeDnsRecord, tags, s.DNSRecordStore)
 	wg.Wait()
