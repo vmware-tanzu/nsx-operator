@@ -102,7 +102,8 @@ func (s *IPBlockUsageStorage) Get(_ context.Context, namespace, name string) (*e
 // List retrieves IP block usage for all IP blocks used by the VPCs associated with the namespace.
 // It resolves the VPC entries in the namespace and calls
 // /orgs/{org}/projects/{project}/vpcs/{vpc}/ip-blocks/usage for each unique VPC.
-// metadata.name per item uses the block ID (last path segment) regardless of scope.
+// Blocks with subnet_exclusive set to true are excluded after reading their details.
+// Infra blocks have a ":" prefix in metadata.name; project blocks use the block ID.
 func (s *IPBlockUsageStorage) List(_ context.Context, namespace string) (*easv1alpha1.IPBlockUsageList, error) {
 	log := logger.Log
 	vpcInfos := s.vpcService.ListVPCInfo(namespace)
@@ -143,18 +144,46 @@ func (s *IPBlockUsageStorage) List(_ context.Context, namespace string) (*easv1a
 		if err != nil {
 			return nil, HandleEASError(err, "ipblockusages", "", fmt.Errorf("failed to list IP block usage for VPC %s: %w", vpcID, err))
 		}
-		items := ConvertIpAddressBlockUsageList(&nsxList, pid, namespace)
-		log.Debug("Got VPC IP block usage", "vpcID", vpcID, "itemCount", len(items))
-		for _, item := range items {
-			if _, ok := seenBlocks[item.Name]; ok {
+		log.Debug("Got VPC IP block usage", "vpcID", vpcID, "itemCount", len(nsxList.Results))
+		for i, usage := range nsxList.Results {
+			path := DerefString(usage.IntentPath)
+			name := ipBlockUsageName(path, pid, i)
+			if _, ok := seenBlocks[name]; ok {
 				continue
 			}
-			seenBlocks[item.Name] = struct{}{}
-			list.Items = append(list.Items, item)
+			seenBlocks[name] = struct{}{}
+			exclusive, err := s.isSubnetExclusiveIPBlock(path)
+			if err != nil {
+				return nil, HandleEASError(err, "ipblockusages", name, fmt.Errorf("failed to get IP block details for %s: %w", path, err))
+			}
+			if exclusive {
+				continue
+			}
+			list.Items = append(list.Items, *ConvertIpAddressBlockUsage(&usage, name, namespace))
 		}
 	}
 
 	return list, nil
+}
+
+// isSubnetExclusiveIPBlock reads a block in the scope identified by its intent path.
+func (s *IPBlockUsageStorage) isSubnetExclusiveIPBlock(path string) (bool, error) {
+	parts := splitPolicyPath(path)
+	ignoreUsage := true
+	var block model.IpAddressBlock
+	var err error
+	switch {
+	case len(parts) == 3 && parts[0] == "infra" && parts[1] == "ip-blocks":
+		block, err = s.nsxClient.InfraIPBlockClient.Get(parts[2], &ignoreUsage)
+	case len(parts) == 7 && parts[0] == "orgs" && parts[2] == "projects" && parts[4] == "infra" && parts[5] == "ip-blocks":
+		block, err = s.nsxClient.IPBlockClient.Get(parts[1], parts[3], parts[6], &ignoreUsage)
+	default:
+		return false, fmt.Errorf("invalid IP block intent path %q", path)
+	}
+	if err != nil {
+		return false, err
+	}
+	return block.SubnetExclusive != nil && *block.SubnetExclusive, nil
 }
 
 // ConvertIpAddressBlockUsage converts a single NSX IpAddressBlockUsage to a K8s IPBlockUsage.

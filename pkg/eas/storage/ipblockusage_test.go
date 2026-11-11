@@ -10,7 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	projectinfra "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/infra"
 
 	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/eas"
@@ -300,6 +302,7 @@ func TestIPBlockUsageStorage_List_WithResults(t *testing.T) {
 	}
 	c := &nsx.Client{}
 	c.VPCIPBlockUsageClient = fakeClient
+	c.IPBlockClient = &fakeProjectIPBlocksClient{}
 	s := NewIPBlockUsageStorage(c, p)
 	list, err := s.List(context.Background(), "ns1")
 	require.NoError(t, err)
@@ -321,6 +324,7 @@ func TestIPBlockUsageStorage_List_DeduplicatesVPCs(t *testing.T) {
 	}
 	c := &nsx.Client{}
 	c.VPCIPBlockUsageClient = fakeClient
+	c.IPBlockClient = &fakeProjectIPBlocksClient{}
 	s := NewIPBlockUsageStorage(c, p)
 	list, err := s.List(context.Background(), "ns1")
 	require.NoError(t, err)
@@ -343,6 +347,7 @@ func TestIPBlockUsageStorage_List_MultipleVPCs(t *testing.T) {
 	}
 	c := &nsx.Client{}
 	c.VPCIPBlockUsageClient = fakeClient
+	c.IPBlockClient = &fakeProjectIPBlocksClient{}
 	s := NewIPBlockUsageStorage(c, p)
 	list, err := s.List(context.Background(), "ns1")
 	require.NoError(t, err)
@@ -364,10 +369,137 @@ func TestIPBlockUsageStorage_List_DeduplicatesSharedBlocksAcrossVPCs(t *testing.
 	}
 	c := &nsx.Client{}
 	c.VPCIPBlockUsageClient = fakeClient
+	c.IPBlockClient = &fakeProjectIPBlocksClient{}
 	s := NewIPBlockUsageStorage(c, p)
 	list, err := s.List(context.Background(), "ns1")
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 	assert.Equal(t, "block-shared", list.Items[0].Name)
 	assert.Equal(t, []string{"vpc1", "vpc2"}, fakeClient.calledVPCs)
+}
+
+// Embed SDK interfaces so these fakes implement only the read operation used here.
+type fakeProjectIPBlocksClient struct {
+	projectinfra.IpBlocksClient
+	blocks      map[string]model.IpAddressBlock
+	err         error
+	calls       []string
+	ignoreUsage []*bool
+}
+
+func (f *fakeProjectIPBlocksClient) Get(orgID, projectID, blockID string, ignoreUsage *bool) (model.IpAddressBlock, error) {
+	path := "/orgs/" + orgID + "/projects/" + projectID + "/infra/ip-blocks/" + blockID
+	f.calls = append(f.calls, path)
+	f.ignoreUsage = append(f.ignoreUsage, ignoreUsage)
+	return f.blocks[path], f.err
+}
+
+type fakeInfraIPBlocksClient struct {
+	infra.IpBlocksClient
+	blocks      map[string]model.IpAddressBlock
+	err         error
+	calls       []string
+	ignoreUsage []*bool
+}
+
+func (f *fakeInfraIPBlocksClient) Get(blockID string, ignoreUsage *bool) (model.IpAddressBlock, error) {
+	path := "/infra/ip-blocks/" + blockID
+	f.calls = append(f.calls, path)
+	f.ignoreUsage = append(f.ignoreUsage, ignoreUsage)
+	return f.blocks[path], f.err
+}
+
+func TestIPBlockUsageStorage_List_SubnetExclusive(t *testing.T) {
+	for _, scope := range []struct {
+		name, prefix, namePrefix string
+	}{
+		{"infra", "/infra/ip-blocks/", ":"},
+		{"project", "/orgs/block-org/projects/block-project/infra/ip-blocks/", ""},
+	} {
+		t.Run(scope.name, func(t *testing.T) {
+			exclusive, shared := true, false
+			blocks := map[string]model.IpAddressBlock{
+				scope.prefix + "exclusive": {SubnetExclusive: &exclusive},
+				scope.prefix + "shared":    {SubnetExclusive: &shared},
+				scope.prefix + "unset":     {},
+			}
+			projectClient := &fakeProjectIPBlocksClient{blocks: blocks}
+			infraClient := &fakeInfraIPBlocksClient{blocks: blocks}
+			usageClient := &fakeVPCIPBlockUsageClient{}
+			for _, id := range []string{"exclusive", "shared", "unset"} {
+				usageClient.listResult.Results = append(usageClient.listResult.Results, model.IpAddressBlockUsage{
+					IntentPath: strPtr(scope.prefix + id), UsedIpsCount: strPtr("16"),
+				})
+			}
+			// A block shared across two VPCs must be fetched and filtered only once.
+			provider := multiVPCProvider{entries: []eas.VPCEntry{
+				{Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}},
+				{Info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc2"}},
+			}}
+			store := NewIPBlockUsageStorage(&nsx.Client{
+				VPCIPBlockUsageClient: usageClient,
+				IPBlockClient:         projectClient,
+				InfraIPBlockClient:    infraClient,
+			}, provider)
+			result, err := store.List(context.Background(), "ns1")
+			require.NoError(t, err)
+			require.Len(t, result.Items, 2)
+			assert.Equal(t, scope.namePrefix+"shared", result.Items[0].Name)
+			assert.Equal(t, scope.namePrefix+"unset", result.Items[1].Name)
+			for _, item := range result.Items {
+				assert.Equal(t, "16", item.UsedIPsCount)
+				assert.Equal(t, "ns1", item.Namespace)
+			}
+			calls, ignoreUsage := projectClient.calls, projectClient.ignoreUsage
+			if scope.name == "infra" {
+				assert.Empty(t, projectClient.calls)
+				calls, ignoreUsage = infraClient.calls, infraClient.ignoreUsage
+			} else {
+				assert.Empty(t, infraClient.calls)
+			}
+			assert.Equal(t, []string{scope.prefix + "exclusive", scope.prefix + "shared", scope.prefix + "unset"}, calls)
+			for _, ignored := range ignoreUsage {
+				require.NotNil(t, ignored)
+				assert.True(t, *ignored)
+			}
+		})
+	}
+}
+
+func TestIPBlockUsageStorage_List_BlockDetailsError(t *testing.T) {
+	for _, path := range []string{
+		"/infra/ip-blocks/block-1",
+		"/orgs/o1/projects/p1/infra/ip-blocks/block-1",
+	} {
+		t.Run(path, func(t *testing.T) {
+			lookupErr := fmt.Errorf("NSX block lookup failed")
+			store := NewIPBlockUsageStorage(&nsx.Client{
+				VPCIPBlockUsageClient: &fakeVPCIPBlockUsageClient{listResult: model.IpAddressBlockUsageList{
+					Results: []model.IpAddressBlockUsage{{IntentPath: &path}},
+				}},
+				IPBlockClient:      &fakeProjectIPBlocksClient{err: lookupErr},
+				InfraIPBlockClient: &fakeInfraIPBlocksClient{err: lookupErr},
+			}, singleVPCProvider{info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}})
+			result, err := store.List(context.Background(), "ns1")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), lookupErr.Error())
+			assert.Nil(t, result)
+		})
+	}
+}
+
+func TestIPBlockUsageStorage_List_InvalidBlockPath(t *testing.T) {
+	for _, path := range []string{"", "/infra/ip-blocks", "/unsupported/ip-blocks/block-1"} {
+		t.Run(path, func(t *testing.T) {
+			store := NewIPBlockUsageStorage(&nsx.Client{
+				VPCIPBlockUsageClient: &fakeVPCIPBlockUsageClient{listResult: model.IpAddressBlockUsageList{
+					Results: []model.IpAddressBlockUsage{{IntentPath: &path}},
+				}},
+			}, singleVPCProvider{info: common.VPCResourceInfo{OrgID: "o1", ProjectID: "p1", VPCID: "vpc1"}})
+			result, err := store.List(context.Background(), "ns1")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid IP block intent path")
+			assert.Nil(t, result)
+		})
+	}
 }
