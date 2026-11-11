@@ -26,9 +26,11 @@ local REST configuration is still required. Enabled startup retains the existing
 API health check and loopback fallback. `--enable-network-migration` enables
 controller observation and the independent lease. This startup flag does not implement the vCenter FSS/HTTP
 authorization gate; a disabled reconciler does not return HTTP 403.
-The framework does not dispatch actions, update
-status, checkpoint execution, or enforce cross-resource dependencies. Those
-behaviors and their tests are isolated on `topic/xl018891/UBMWM-12405` for
+The registered framework controllers do not dispatch actions, update
+status, checkpoint execution, or enforce cross-resource dependencies. WBS 1.1.3
+adds explicit status-reporting and persistence helpers, but no controller or
+concrete handler invokes them in this branch. Action dispatch and dependency
+gates remain isolated on `topic/xl018891/UBMWM-12405` for
 [UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
 Startup does not load NSX configuration or contact NSX. Missing configuration or
 failed client initialization can be retried by future handlers. Migration startup
@@ -44,9 +46,56 @@ migration API; arrange a usable backup and recovery procedure before migration.
 Namespace rollback remains subject to dependency checks and the Commit boundary.
 Status fields define the contract for future execution and recovery, including
 `lastAction`, `actionState`, `actionGeneration`, and `irreversibleAction`. CRD
-validation remains part of the API definitions; no execution checkpoints are
-written by this branch. Namespace status defines `name`, `phase`, `reason`, and
+validation remains part of the API definitions. `RecordAction` can record an
+execution checkpoint when called by a handler; the observational controllers do
+not call it. Namespace status defines `name`, `phase`, `reason`, and
 `message`; milestones are batch conditions, and counters follow spec membership.
+
+## Status contract (WBS 1.1.3)
+
+The status foundation follows [WBS 1.1.3, version 77](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=3003298182)
+and the current status contract in detailed design version 187, Sections 4.1/4.2.
+`pkg/apis/migration/v1alpha1` exports phase and condition names for callers.
+`pkg/migration/status` supplies reporting and status-subresource persistence helpers:
+
+- `Observe` updates phase, a condition, and `observedGeneration`. It retains
+  the checkpointed action and unrelated milestone conditions. Repeating a
+  condition preserves its transition timestamp when its truth value is unchanged.
+- `RecordAction` records `lastAction`, `actionState`, and `actionGeneration`
+  together. Reporting a newer blocked request does not promote the older action
+  to success. Neither this helper nor per-namespace progress advances an action
+  or establishes the irreversible checkpoint. Callers must verify whole-batch
+  restoration and invalidate the previous plan before recording Rollback/Succeeded;
+  that checkpoint permits Evaluate-time input corrections in the namespace CRD.
+- `RecordWorkflow` records one exact workflow handle per VDN. Repeated reports
+  are idempotent; replacing an accepted handle requires a separately defined
+  recovery/reset flow.
+- `RecordNamespace` updates `name`, `phase`, `reason`, and `message` for one
+  member of the immutable batch. Other records and the CR-level phase survive.
+  Admission rejects namespace status records outside `spec.namespaces`.
+- `UpdateControlPlane` and `UpdateNamespace` patch only status from a persisted
+  snapshot. Resource-version preconditions protect concurrent progress and spec
+  changes. Callers must read again and recompute on conflict; mutations must
+  have no external side effects. No-op reports issue no patch. Writers reject
+  regressed generation checkpoints and CR-inappropriate actions: infrastructure
+  cannot accept or advance Rollback/Commit; namespaces cannot accept or advance
+  Finalize. Unchanged historical checkpoints remain available for diagnosis.
+  Shared rollback phase names describe namespace progress only.
+
+Clients call `NamespacePhaseCounts()` to derive counts from batch membership and
+per-namespace records. Missing records and empty phases count as `Pending`;
+future phase names retain separate buckets. `Completed`, `Committed`,
+`RolledBack`, and evaluation failures remain distinct. Counts describe recorded
+progress, and do not prove that the current action/generation succeeded. Check
+`lastAction`, `actionState`, `actionGeneration`, and the relevant conditions for
+that decision. No redundant counter fields or extra status CRs are introduced.
+
+The framework controllers remain observational. The orchestration workstream
+can use these helpers when reporting handler outcomes; this branch does not
+install concrete handlers. Status
+persistence tests exercise both CR kinds, conflicts and retries, retained
+workflow/condition history, and namespace counts. API tests validate the full
+1,000-namespace batch and the checked-in design output examples.
 
 ## NSX resource recovery contract
 
@@ -223,6 +272,56 @@ to accept and preserve the supplied IDs and display names. The published detaile
 the optional-override, topology-reuse and `status.optionalInputs` UI contract,
 including a validated two-VDN example with required DHCP data for only one VDN.
 Runtime integration and acceptance tests remain handler work.
+## Network inspection (WBS 1.4.2)
+
+`pkg/migration/inspection` implements the read-only network inspection shared
+service from WBS version 66 and detailed design version 158:
+
+- `KubernetesInventory` resolves namespaced Net Operator `Network` provider
+  references to cluster-scoped `VSphereDistributedNetwork` resources. Shared
+  VDNs are deduplicated. The reader uses the official `net-operator-api/v1alpha1`
+  Network, VDN, and IPPool Go types, registered in the manager scheme.
+  DHCP is determined from `spec.ipAssignmentMode`; absent
+  mode uses Net Operator's documented `staticpool` default, and unsupported
+  modes fail inspection. Static configuration comes from the VDN and its IPPools.
+- `VCenterTopology` uses a govmomi property collector to resolve the DVPG, DVS
+  identity/UUID, and attached clusters. Missing topology fails closed. Callers
+  provide the authenticated vCenter session and a direct Kubernetes API reader.
+- `Service.Inspect` validates administrator entries against discovered VDNs,
+  rejects duplicate/unknown entries and conflicting shared-DVPG configurations,
+  and returns normalized source addressing. Validation covers contiguous IPv4
+  masks, address families, ordered usable ranges, gateway membership and pool
+  overlap, deriving CIDR from range start and mask without a separate CIDR input. Source subnet inputs remain IPv4
+  under the current dotted-decimal mask contract; this does not change IPv6 LB
+  SNAT input support. Existing workload addresses may lie outside the DHCP pool
+  while remaining inside the subnet. No addresses are allocated or reserved.
+- `EvaluateControlPlane` and `EvaluateNamespaces` persist diagnostics through
+  the optimistic status writers. Missing DHCP fields produce `NeedsInput`, a
+  false `NetworkInputsValidated` condition, and one stable `requiredInputs`
+  entry per VDN naming the missing fields and the applicable
+  `spec.networkConfiguration` DHCP list. Keys are rooted at
+  `namespaceDHCPNetworks/` or `controlPlaneAndServiceDHCPNetworks/`, with a
+  bounded stable suffix for each VDN. Invalid supplied configuration takes
+  precedence and produces `EvaluationFailed`; unavailable discovery produces
+  `Blocked`/Unknown and returns the error for retry. Unrelated inputs and action
+  checkpoints are preserved. Success records only this inspection milestone,
+  leaving the phase `Evaluating` until the other Evaluate work completes.
+
+The control-plane handler must pass the authoritative CPVM/Supervisor Service
+VDN set obtained from WCP configuration; administrator inputs never determine
+inspection scope. Namespace discovery uses the selected namespaces' source
+Network resources. Re-run discovery after a status conflict and before later
+mutation; returned topology is an observation, not a lock or reservation.
+Cross-batch ownership, NSX fabric validation, and final reservation/consumer
+rechecks belong to the respective orchestration and coordination services.
+This package does not create a separate resolved-subnet status inventory.
+
+The framework controllers still only observe CRs. Wiring these service methods
+into Evaluate and supplying the WCP scope/vCenter session belongs to the stage
+handlers. RBAC includes source inventory reads and transition status patches,
+but no source-network writes. Tests cover the live govmomi simulator, Kubernetes
+inventory reads, validation failures, both CR status writers, stale snapshots,
+missing-input recovery, and preservation of unrelated status.
 
 ## Design contract
 

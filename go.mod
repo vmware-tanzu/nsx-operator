@@ -29,6 +29,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/vmware-tanzu/nsx-operator/pkg/apis v0.0.0-20241113082223-673d2e7ca974
 	github.com/vmware-tanzu/nsx-operator/pkg/client v0.0.0-20240102061654-537b080e159f
+	github.com/vmware-tanzu/net-operator-api v0.0.0-20260619161849-aeb1b9769d4b
 	github.com/vmware-tanzu/vm-operator/api v1.9.1-0.20260427183048-1a7a2f3398c7 // v1.8.x incompatible with controller-runtime v0.23.3 webhooks API
 	github.com/vmware/go-vmware-nsxt v0.0.0-20260605141659-71d9620e9c4e
 	github.com/vmware/govmomi v0.53.1

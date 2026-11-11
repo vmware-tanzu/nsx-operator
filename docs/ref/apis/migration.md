@@ -404,7 +404,7 @@ _Appears in:_
 | `nsxWorkflows` _[NSXWorkflowStatus](#nsxworkflowstatus) array_ | NSXWorkflows records the exact external workflow handle for each source VDN. |  | MaxItems: 1000 <br /> |
 | `requiredInputs` _[RequiredInput](#requiredinput) array_ | RequiredInputs describe administrator inputs required before proceeding. |  | MaxItems: 1000 <br /> |
 | `optionalInputs` _[OptionalInput](#optionalinput) array_ | OptionalInputs describe optional overrides the UI may offer during Evaluate.<br />Omitting these inputs uses defaults and does not block evaluation. Handlers<br />publish/clear them with RequiredInputs for ObservedGeneration, remove frozen<br />resource names, and revalidate live eligibility before accepting overrides.<br />This is advisory UI information, not a resource inventory or a review gate. |  | MaxItems: 5000 <br /> |
-| `namespaceStatuses` _[NamespaceStatus](#namespacestatus) array_ | NamespaceStatuses records progress without creating separate status resources.<br />Batch membership comes from spec.namespaces; missing status entries are pending. |  | MaxItems: 1000 <br /> |
+| `namespaceStatuses` _[NamespaceStatus](#namespacestatus) array_ | NamespaceStatuses records progress without creating separate status resources.<br />Entries must belong to spec.namespaces; missing entries and empty phases are Pending.<br />Clients derive aggregate counts with NamespacePhaseCounts; counters are not persisted. |  | MaxItems: 1000 <br /> |
 
 
 #### NamespaceResourceNaming
