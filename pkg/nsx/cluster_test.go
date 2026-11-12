@@ -247,7 +247,7 @@ func TestNsxVersion_DNSRecord(t *testing.T) {
 	}
 }
 
-func TestNsxVersion_SubnetPortSetting(t *testing.T) {
+func TestNsxVersion_92Features(t *testing.T) {
 	tests := []struct {
 		version   string
 		supported bool
@@ -268,6 +268,7 @@ func TestNsxVersion_SubnetPortSetting(t *testing.T) {
 		t.Run(tt.version, func(t *testing.T) {
 			version := &NsxVersion{ProductVersion: tt.version}
 			assert.Equal(t, tt.supported, version.featureSupported(SubnetPortSetting))
+			assert.Equal(t, tt.supported, version.featureSupported(VpcIngressEgressSeparation))
 		})
 	}
 }

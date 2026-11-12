@@ -85,7 +85,7 @@ func transitionSetupWithMoves(
 	service, _, api := createIPAddressAllocationService(t)
 	service.ipAddressAllocationStore = buildIPAddressAllocationStore()
 	scheme := transitionScheme(t)
-	spec := vpcapi.IPAddressAllocationSpec{UsedFor: vpcapi.UsedForLBFrontend, IPAddressBlockVisibility: vpcapi.IPAddressVisibilityExternal, AllocationSize: 1, IPAddressType: vpcapi.IPAllocationIPAddressTypeIPv4, IPBlockName: ":pool"}
+	spec := vpcapi.IPAddressAllocationSpec{UsedFor: []string{vpcapi.UsedForLBFrontend}, IPAddressBlockVisibility: vpcapi.IPAddressVisibilityExternal, AllocationSize: 1, IPAddressType: vpcapi.IPAllocationIPAddressTypeIPv4, IPBlockName: ":pool"}
 	source := &vpcapi.IPAddressAllocation{ObjectMeta: metav1.ObjectMeta{Name: "source", Namespace: "staging", UID: "source-uid"}, Spec: spec, Status: vpcapi.IPAddressAllocationStatus{AllocationIPs: "192.0.2.10"}}
 	target := &vpcapi.IPAddressAllocation{ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: "tenant", UID: "target-uid", Annotations: map[string]string{common.AnnotationTransitionTarget: "true"}}, Spec: spec}
 	moves := []migration.IPAddressAllocationMoveSpec{{Source: migration.NamespacedName{Namespace: "staging", Name: "source"}, Target: migration.NamespacedName{Namespace: "tenant", Name: "target"}}}
@@ -217,7 +217,7 @@ func TestTransitionMixedProgressUpdatesReady(t *testing.T) {
 	ctx := context.Background()
 	waiting := &vpcapi.IPAddressAllocation{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "staging", Name: "waiting", UID: "waiting-uid"},
-		Spec:       vpcapi.IPAddressAllocationSpec{UsedFor: vpcapi.UsedForLBFrontend, IPAddressBlockVisibility: vpcapi.IPAddressVisibilityExternal, AllocationSize: 1, IPAddressType: vpcapi.IPAllocationIPAddressTypeIPv4, IPBlockName: ":pool"},
+		Spec:       vpcapi.IPAddressAllocationSpec{UsedFor: []string{vpcapi.UsedForLBFrontend}, IPAddressBlockVisibility: vpcapi.IPAddressVisibilityExternal, AllocationSize: 1, IPAddressType: vpcapi.IPAllocationIPAddressTypeIPv4, IPBlockName: ":pool"},
 	}
 	require.NoError(t, f.kube.Create(ctx, waiting))
 	request := &migration.NetworkResourceTransition{}
