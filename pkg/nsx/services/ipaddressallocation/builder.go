@@ -2,6 +2,7 @@ package ipaddressallocation
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllerscommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -48,7 +50,15 @@ func (service *IPAddressAllocationService) isLBAllocation(o *v1alpha1.IPAddressA
 	if o == nil {
 		return false
 	}
-	return o.Spec.UsedFor == v1alpha1.UsedForLBFrontend
+	if slices.Contains(o.Spec.UsedFor, v1alpha1.UsedForLBFrontend) {
+		return true
+	}
+	for _, owner := range o.OwnerReferences {
+		if owner.APIVersion == "v1" && owner.Kind == "Service" {
+			return true
+		}
+	}
+	return false
 }
 
 func (service *IPAddressAllocationService) getVPCInfo(ns string, isLB bool) ([]common.VPCResourceInfo, error) {
@@ -108,7 +118,7 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 	switch o := obj.(type) {
 	case *v1alpha1.IPAddressAllocation:
 		ipAddressType = ipAddressTypeToNSX(o.Spec.IPAddressType)
-		if service.isLBAllocation(o) {
+		if service.isLBAllocation(o) && service.NSXClient.NSXCheckVersion(nsx.VpcIngressEgressSeparation) {
 			usedFor = []string{model.VpcIpAddressAllocation_USED_FOR_FRONTEND}
 		}
 		var err error

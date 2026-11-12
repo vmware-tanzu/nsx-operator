@@ -230,8 +230,15 @@ func (service *IPAddressAllocationService) Apply(nsxIPAddressAllocation *model.V
 		return errGet
 	}
 	if nsxIPAddressAllocationNew.AllocationIps == nil {
+		if errPatch != nil {
+			return errPatch
+		}
 		err := fmt.Errorf("cidr not realized yet")
 		return err
+	}
+	// A cached allocation must not hide a failed VIP allocation update.
+	if errPatch != nil && len(nsxIPAddressAllocation.UsedFor) > 0 {
+		return errPatch
 	}
 	err := service.ipAddressAllocationStore.Apply(&nsxIPAddressAllocationNew)
 	if err != nil {

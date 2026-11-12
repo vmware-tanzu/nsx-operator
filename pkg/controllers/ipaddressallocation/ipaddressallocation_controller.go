@@ -5,6 +5,7 @@ package ipaddressallocation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -147,13 +148,16 @@ func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v
 	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj, r.restoreMode)
 	if err != nil {
 		r.StatusUpdater.UpdateFail(ctx, obj, err, "", setReadyStatusFalse)
-		return resultRequeue, err
+		return resultRequeue, errors.Join(err, r.updateServiceAllocationStatus(ctx, obj, err))
 	}
 	if updated {
 		// If the IPAddressAllocation is updated, we clear the conditions to ensure the status is updated anyway
 		obj.Status.Conditions = nil
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, obj, setReadyStatusTrue)
+	if err := r.updateServiceAllocationStatus(ctx, obj, nil); err != nil {
+		return resultRequeue, err
+	}
 	return resultNormal, nil
 }
 

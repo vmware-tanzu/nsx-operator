@@ -118,9 +118,11 @@ spec:
                 description: |-
                   UsedFor specifies the intent/use case for the IP allocation.
                   Only LB_FRONTEND is supported. When set, IPs are allocated from LoadBalancerVPC if configured in VPCNetworkConfiguration, otherwise from the namespace's default VPC.
-                enum:
-                - LB_FRONTEND
-                type: string
+                items:
+                  enum:
+                  - LB_FRONTEND
+                  type: string
+                type: array
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf

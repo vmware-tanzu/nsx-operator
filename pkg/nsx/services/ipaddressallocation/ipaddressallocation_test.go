@@ -1081,6 +1081,14 @@ func TestIPAddressAllocationService_Apply_EdgeCases(t *testing.T) {
 		assert.EqualError(t, err, "get err")
 	})
 
+	t.Run("VIP patch error is not hidden by existing allocation", func(t *testing.T) {
+		vip := &model.VpcIpAddressAllocation{Id: String("vip"), UsedFor: []string{"LB_FRONTEND"}}
+		vpcInfo := []common.VPCResourceInfo{{OrgID: "o1", ProjectID: "p1", VPCID: "v1"}}
+		mockVPCClient.EXPECT().Patch("o1", "p1", "v1", "vip", *vip).Return(fmt.Errorf("frontend allocation rejected"))
+		mockVPCClient.EXPECT().Get("o1", "p1", "v1", "vip").Return(model.VpcIpAddressAllocation{AllocationIps: String("192.0.2.1")}, nil)
+		assert.EqualError(t, service.Apply(vip, vpcInfo), "frontend allocation rejected")
+	})
+
 	t.Run("Get returns AllocationIps nil", func(t *testing.T) {
 		vpcInfo := []common.VPCResourceInfo{{OrgID: "o1", ProjectID: "p1", VPCID: "v1"}}
 		mockVPCClient.EXPECT().Patch("o1", "p1", "v1", "a1", *alloc).Return(nil).Times(1)
