@@ -7,15 +7,16 @@ NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` reso
 ## Framework and services
 
 - `cmd_migration`: independent controller manager; no normal NSX controllers,
-  webhook servers, `electMaster` calls, or `nsx-operator-role` label changes.
+  `electMaster` calls, or `nsx-operator-role` label changes. A migration
+  admission server can be enabled independently of the transition controllers.
 - `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.network.vmware.com/v1alpha1.
-- `pkg/migration/controllers`: controller registration and observation of both
-  transition kinds. Reconciliation leaves spec, status, and external resources unchanged.
-- `pkg/migration.SetupWithManager`: registers both `TransitionReconciler` instances
+- `pkg/migration/controllers` and `pkg/migration/transition`: controller-runtime
+  reconcilers, shared action dispatch, status checkpoints, dependency gates, and
+  Commit/Finalize PONR recovery.
+- `pkg/migration.SetupWithManager`: registers both stages with one dispatcher
   when migration is enabled; no intermediate `Operator` owner is constructed.
-- `pkg/nsx/services/migration.Service`: lazy NSX connectivity available for future
-  handlers, reusing `pkg/config` and `nsx.GetClient`. The framework does not
-  construct or inject an unused service. Sessions and connection pools are
+- `pkg/nsx/services/migration.Service`: lazy NSX connectivity for handlers,
+  reusing the standard configuration and client initialization. Connections are
   process-local, not shared between containers.
 
 Migration observation defaults to disabled: no transition controllers, watches,
@@ -24,14 +25,19 @@ configuration without probing API-server health, so an API `/healthz` failure
 does not prevent the process health/readiness endpoints from starting. Valid
 local REST configuration is still required. Enabled startup retains the existing
 API health check and loopback fallback. `--enable-network-migration` enables
-controller observation and the independent lease. This startup flag does not implement the vCenter FSS/HTTP
-authorization gate; a disabled reconciler does not return HTTP 403.
-The framework does not dispatch actions, update
-status, checkpoint execution, or enforce cross-resource dependencies. Those
-behaviors and their tests are isolated on `topic/xl018891/UBMWM-12405` for
-[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
-Startup does not load NSX configuration or contact NSX. Missing configuration or
-failed client initialization can be retried by future handlers. Migration startup
+action dispatch and the independent lease. This startup flag does not implement
+the vCenter FSS/HTTP authorization gate; reconcilers do not return HTTP 403.
+The dispatcher persists accepted action/generation checkpoints before invoking
+handlers. Namespace Commit runs preflight, returns a checkpoint outcome, and
+waits for the controller to persist `status.irreversibleAction: Commit` before
+deleting the exact recorded workflow IDs. A partial delete failure retains the
+checkpoint and `Committing` phase; retries replay the same IDs, treating an
+already absent recorded workflow as success. The dispatcher enforces action
+scope, retry state and dependency gates. Other migration actions still report
+`ActionNotImplemented` until their concrete handlers are registered.
+Startup does not load NSX configuration or contact NSX. The workflow service
+loads NSX configuration lazily when Commit needs it; initialization failures
+remain retryable. Migration startup
 must not depend solely on `HasVPCNamespaces()`, because a VDS Supervisor may not
 have any VPC Namespaces before migration preparation.
 
@@ -42,17 +48,25 @@ actions retain checkpoints for diagnosis and forward retry. Infrastructure
 reversion uses the user-operated WCP backup-and-restore procedure outside the
 migration API; arrange a usable backup and recovery procedure before migration.
 Namespace rollback remains subject to dependency checks and the Commit boundary.
-Status fields define the contract for future execution and recovery, including
+Status fields define the execution and recovery contract, including
 `lastAction`, `actionState`, `actionGeneration`, and `irreversibleAction`. CRD
-validation remains part of the API definitions; no execution checkpoints are
-written by this branch. Namespace status defines `name`, `phase`, `reason`, and
-`message`; milestones are batch conditions, and counters follow spec membership.
+validation and the admission webhook both guard action changes. Namespace status
+defines `name`, `phase`, `reason`, and `message`; milestones are batch conditions,
+and counters follow spec membership.
+
+## Namespace Commit
+
+The handler validates completed per-Namespace progress and checks for workflow
+IDs shared by other Namespace transitions before requesting the irreversible
+checkpoint. It deletes only workflow IDs retained in `status.nsxWorkflows`; a
+partial failure leaves the checkpoint available for retry.
 
 ## NSX resource recovery contract
 
 `status.nsxWorkflows` retains the workflow ID for each source VDN. Conversion
-handlers query `GET /policy/api/v1/workflows/{workflow-id}/status` and use the
-workflow's per-resource paths, types and progress as the conversion inventory.
+handlers use the SDK workflow GET (`/policy/api/v1/workflows/{workflow-id}`)
+and read `workflow_state.migration_status` for per-resource paths, types and
+progress as the conversion inventory.
 The CRDs do not duplicate that inventory in `status.fabricResources` and do not
 expose per-resource consumer lists or creation/adoption provenance.
 
@@ -334,8 +348,64 @@ Evaluate-to-Plan freshness belongs to admission work WBS 1.1.4.1. For that actio
 change, require the old object's successful Evaluate checkpoint to have
 `status.actionGeneration == oldObject.metadata.generation`. `observedGeneration`
 alone is not proof of success; the new generation changes with the Plan request.
-This separately tracked admission integration remains pending. No
-`evaluatedSpecHash` field is added.
+The migration transition-validation webhook implements this edge for both transition kinds;
+the existing CRD rules continue to reject input changes in a Plan update. It is
+not active until the admission server and its ValidatingWebhookConfiguration
+are deployed. No `evaluatedSpecHash` field is added. Execute exclusivity,
+namespace/workload guards, and migration handlers remain separate work.
+
+For the Stage 2 happy path, namespace execution depends on completed Stage 1.
+Multiple namespace transitions may request Execute, but the dispatcher must
+start at most one Stage 2 Execute at a time; Evaluate and Plan for other
+namespaces need not be globally serialized. This policy is not implemented by
+the current admission webhook or the observational controllers. A mutex
+covering one reconcile invocation alone does not reserve an Execute across
+subsequent reconciles while that action is still in progress.
+
+TODO: Define whether concurrent namespace Execute and Rollback operations
+conflict, including shared topology and workflow dependencies. Recovery and
+leader-failover behavior for an interrupted Execute also remain to be defined;
+the happy-path policy does not establish those guarantees.
+
+The webhook also requires a new transition to start with Evaluate. An action
+change to Derive or Execute requires a successful current-generation Plan or
+Derive checkpoint respectively; Commit (namespace) and Finalize (control
+plane) require a successful current-generation Execute checkpoint. Namespace
+Rollback can be requested during or after a checkpointed action before the
+irreversible boundary, and Evaluate can resume after successful namespace
+Rollback. Unchanged actions remain retryable. A pending Plan cannot be reset to
+Evaluate to bypass the input freeze. The webhook denies deletion when its last
+Execute/Rollback checkpoint is running, failed, incomplete or inconsistent
+with its completed phase. An Execute/Rollback request without a matching
+current checkpoint is also retained because this guard cannot prove it was
+never started. It does not inspect child resources, verify actual
+recovery, protect workloads, or establish cross-transition exclusivity.
+
+### Deploying the transition-validation webhook
+
+The admission server is opt-in via `--enable-migration-admission`, independent
+of `--enable-network-migration` and leader election. It serves on port 9982
+and reads `tls.crt`/`tls.key` from `/etc/nsx-operator/migration-webhook-certs`
+by default; `--migration-admission-port` and `--migration-admission-cert-dir`
+override these settings. The server is available on every configured Pod,
+including non-leaders, and the readiness check waits for it to start.
+
+`build/yaml/migration/admission/` supplies a Service, a cert-manager Issuer and
+Certificate, and a CA-injected ValidatingWebhookConfiguration. Deployment
+configuration must enable the admission server and mount the certificate Secret
+on each Pod selected by the Service. Downstream packaging must use the actual Pod
+labels and provide equivalent certificate/CA injection if it does not use
+cert-manager. When changing the port or namespace, update the Service,
+certificate DNS names, webhook configuration, and mounted Secret in concert.
+
+Install the certificate and Service, then enable the server and mount the
+Secret on **every** selected Pod; wait for all selected Pods to be ready and
+verify the injected CA and endpoint connectivity. Only then install the
+ValidatingWebhookConfiguration. It is fail-closed for creates, updates and
+deletes of the two main
+transition resources; status subresources are not selected. Install this
+admission before enabling concrete migration action handlers. Remove or
+replace the webhook configuration before disabling its serving endpoint.
 
 VCFA Namespace onboarding and project selection belong to the VCFA client
 workstream: every Namespace must be imported before confirmation/Commit, using
@@ -429,3 +499,22 @@ The following source topologies are also outside the migration scope:
 - VDS networks with private VLAN type are not eligible for migration.
 - A Supervisor using VDS networks with SR-IOV cannot be migrated because NSX
   VPC does not support SR-IOV.
+
+## WBS 1.4.1: NSX workflow SDK client
+
+The migration service lazily calls `nsx.NewMigrationClient`, which registers the
+SDK `WorkflowsClient` and `Dvpg_validation_resultsClient` in `pkg/nsx/client.go`.
+Ordinary `nsx.NewClient` callers leave workflow clients unset. Disabled migration
+does not invoke migration handlers or initialize their NSX clients.
+
+Migration requests and responses use SDK models,
+including `DvpgToSubnetWorkflow` and `DvpgToSubnetConfig`, with SDK binding
+conversion. The NSXT module is pinned to dev commit `125769460d42`.
+
+NSX validates workflow IDs and request configuration. The migration wrapper adds
+response identity checks, validation-result pagination, and polling that checks the requested desired state, nested workflow status and
+resource completion in the expected VPC scope. Auto-commit stays disabled so the
+operator retains its Commit/Finalize boundary. SDK errors remain available to
+callers. Context cancellation stops polling; in-flight SDK requests use the
+shared NSX transport timeout. No separate JSON transport or workflow models are
+maintained by the operator.

@@ -4,6 +4,7 @@
 package migration
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,29 +14,55 @@ import (
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 )
 
 func TestRegisterMigrationControllers(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		scheme := runtime.NewScheme()
+		require.NoError(t, api.AddToScheme(scheme))
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+		reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+		engine := &transition.Engine{Enabled: enabled}
+		var registered []string
+		require.NoError(t, registerControllers(c, reader, engine, func(r *controllers.Reconciler) error {
+			require.Same(t, c, r.Client)
+			require.Same(t, reader, r.APIReader)
+			require.Same(t, engine, r.Engine)
+			require.Equal(t, enabled, r.Engine.Enabled)
+			switch r.Stage {
+			case transition.Infrastructure:
+				registered = append(registered, "controlplane")
+			case transition.Namespaces:
+				registered = append(registered, "namespace")
+			default:
+				t.Fatalf("unexpected stage: %s", r.Stage)
+			}
+			return nil
+		}))
+		require.Equal(t, []string{"controlplane", "namespace"}, registered)
+		failure := errors.New("controller registration failed")
+		calls := 0
+		err := registerControllers(c, reader, engine, func(*controllers.Reconciler) error { calls++; return failure })
+		require.ErrorIs(t, err, failure)
+		require.Equal(t, 1, calls, "do not continue after failed registration")
+	}
+}
+
+func TestNewEngineRegistersNamespaceCommitHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
-	var registered []string
-	require.NoError(t, registerControllers(c, func(r *controllers.TransitionReconciler) error {
-		require.Same(t, c, r.Client)
-		switch r.Object.(type) {
-		case *api.ControlPlaneNetworkTransition:
-			registered = append(registered, "controlplane")
-		case *api.NamespaceNetworkTransition:
-			registered = append(registered, "namespace")
-		default:
-			t.Fatalf("unexpected controller: %T", r.Object)
-		}
-		return nil
-	}))
-	require.Equal(t, []string{"controlplane", "namespace"}, registered)
-	failure := errors.New("controller registration failed")
-	calls := 0
-	err := registerControllers(c, func(*controllers.TransitionReconciler) error { calls++; return failure })
-	require.ErrorIs(t, err, failure)
-	require.Equal(t, 1, calls, "do not continue after failed registration")
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	deler := workflowDeleterForTest(func(context.Context, string) error { return nil })
+	engine := newEngine(reader, deler)
+	commit := engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionCommit}]
+	require.IsType(t, &transition.NamespaceCommitHandler{}, commit)
+	require.NotContains(t, engine.Handlers, transition.Key{Stage: transition.Infrastructure, Action: api.ActionFinalize})
+	require.NotContains(t, engine.Handlers, transition.Key{Stage: transition.Namespaces, Action: api.ActionRollback})
+}
+
+type workflowDeleterForTest func(context.Context, string) error
+
+func (f workflowDeleterForTest) DeleteWorkflow(ctx context.Context, id string) error {
+	return f(ctx, id)
 }

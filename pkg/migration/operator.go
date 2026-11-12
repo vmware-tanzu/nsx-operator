@@ -10,17 +10,31 @@ import (
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
+	nsxmigration "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/migration"
 )
 
-// SetupWithManager registers the two transition controllers. Disabled startup
-// must skip this function so it creates no transition watches or caches.
+// SetupWithManager registers both stages with a shared dispatcher. Disabled
+// startup skips registration entirely. Commit is wired to the lazy NSX workflow
+// client; the remaining migration actions require their service handlers.
 func SetupWithManager(mgr ctrl.Manager) error {
-	return registerControllers(mgr.GetClient(), func(r *controllers.TransitionReconciler) error { return r.SetupWithManager(mgr) })
+	reader := mgr.GetAPIReader()
+	engine := newEngine(reader, nsxmigration.NewService())
+	return registerControllers(mgr.GetClient(), reader, engine, func(r *controllers.Reconciler) error {
+		return r.SetupWithManager(mgr)
+	})
 }
 
-func registerControllers(c client.Client, register func(*controllers.TransitionReconciler) error) error {
-	for _, object := range []client.Object{&api.ControlPlaneNetworkTransition{}, &api.NamespaceNetworkTransition{}} {
-		if err := register(&controllers.TransitionReconciler{Client: c, Object: object}); err != nil {
+func newEngine(reader client.Reader, workflows transition.WorkflowDeleter) *transition.Engine {
+	return &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+		{Stage: transition.Namespaces, Action: api.ActionCommit}: &transition.NamespaceCommitHandler{Reader: reader, Workflows: workflows},
+	}}
+}
+
+func registerControllers(c client.Client, reader client.Reader, engine *transition.Engine, register func(*controllers.Reconciler) error) error {
+	for _, stage := range []transition.Stage{transition.Infrastructure, transition.Namespaces} {
+		r := &controllers.Reconciler{Client: c, APIReader: reader, Engine: engine, Stage: stage}
+		if err := register(r); err != nil {
 			return err
 		}
 	}

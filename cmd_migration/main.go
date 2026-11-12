@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
@@ -16,11 +17,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	webhookadmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration"
+	migrationadmission "github.com/vmware-tanzu/nsx-operator/pkg/migration/admission"
 	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -28,8 +32,11 @@ import (
 const migrationLeaseID = "supervisor-network-migration-operator.iaas.vmware.com"
 
 type options struct {
-	enabled   bool
-	namespace string
+	enabled          bool
+	namespace        string
+	admissionEnabled bool
+	admissionPort    int
+	admissionCertDir string
 }
 
 func registerFlags(flags *flag.FlagSet) (*options, error) {
@@ -45,8 +52,11 @@ func registerFlags(flags *flag.FlagSet) (*options, error) {
 		namespace = "vmware-system-nsx"
 	}
 	opts := &options{}
-	flags.BoolVar(&opts.enabled, "enable-network-migration", false, "Enable migration controller observation and leader election")
+	flags.BoolVar(&opts.enabled, "enable-network-migration", false, "Enable migration dispatch (no external migration handlers are implemented)")
 	flags.StringVar(&opts.namespace, "leader-election-namespace", namespace, "Namespace for the migration operator's independent lease")
+	flags.BoolVar(&opts.admissionEnabled, "enable-migration-admission", false, "Serve migration admission independently of transition controllers")
+	flags.IntVar(&opts.admissionPort, "migration-admission-port", 9982, "Port for the migration admission webhook")
+	flags.StringVar(&opts.admissionCertDir, "migration-admission-cert-dir", "/etc/nsx-operator/migration-webhook-certs", "Directory containing tls.crt and tls.key for the migration admission webhook")
 	return opts, nil
 }
 
@@ -99,7 +109,7 @@ func startManager(ctx context.Context, opts *options, deps managerDependencies) 
 	}
 	leaderConfig := rest.CopyConfig(cfg)
 	leaderConfig.Timeout = 5 * time.Second
-	mgr, err := deps.newManager(cfg, ctrl.Options{
+	managerOptions := ctrl.Options{
 		Scheme:                  scheme,
 		Metrics:                 metricsserver.Options{BindAddress: config.MetricsAddr},
 		HealthProbeBindAddress:  config.ProbeAddr,
@@ -107,12 +117,29 @@ func startManager(ctx context.Context, opts *options, deps managerDependencies) 
 		LeaderElectionID:        migrationLeaseID,
 		LeaderElectionNamespace: opts.namespace,
 		LeaderElectionConfig:    leaderConfig,
-	})
+	}
+	if opts.admissionEnabled {
+		if opts.admissionPort < 1 || opts.admissionPort > 65535 || opts.admissionCertDir == "" {
+			return fmt.Errorf("invalid migration admission configuration: port=%d (expected 1-65535), certDir=%q (must not be empty)", opts.admissionPort, opts.admissionCertDir)
+		}
+		managerOptions.WebhookServer = webhook.NewServer(webhook.Options{
+			Port: opts.admissionPort, CertDir: opts.admissionCertDir,
+			TLSOpts: []func(*tls.Config){func(c *tls.Config) { c.MinVersion = tls.VersionTLS13 }},
+		})
+	}
+	mgr, err := deps.newManager(cfg, managerOptions)
 	if err != nil {
 		return err
 	}
 	if opts.enabled {
 		if err := deps.setupControllers(mgr); err != nil {
+			return err
+		}
+	}
+	if opts.admissionEnabled {
+		server := mgr.GetWebhookServer()
+		server.Register(migrationadmission.TransitionValidationPath, &webhookadmission.Webhook{Handler: migrationadmission.TransitionValidator{}})
+		if err := mgr.AddReadyzCheck("migration-admission", server.StartedChecker()); err != nil {
 			return err
 		}
 	}
