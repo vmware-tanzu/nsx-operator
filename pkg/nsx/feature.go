@@ -5,13 +5,10 @@ package nsx
 
 import "github.com/vmware-tanzu/nsx-operator/pkg/config"
 
-// DNSRecordFeatureEnabled requires NSX 9.2+ and a temporary vpc_wcp_enhance opt-in.
+// DNSRecordFeatureEnabled requires NSX 9.2+ and is independent of feature flags.
 //
 //go:noinline
-func DNSRecordFeatureEnabled(client *Client, operatorConfig *config.NSXOperatorConfig) bool {
-	if operatorConfig == nil || operatorConfig.NsxConfig == nil || !operatorConfig.NsxConfig.VpcWcpEnhanceEnabled() {
-		return false
-	}
+func DNSRecordFeatureEnabled(client *Client, _ *config.NSXOperatorConfig) bool {
 	return client != nil && client.NSXCheckVersion(DNSRecord)
 }
 

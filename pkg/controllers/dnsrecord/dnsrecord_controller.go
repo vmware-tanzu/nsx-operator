@@ -219,7 +219,7 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		var validationErr *dns.DNSZoneValidationError
 		if errors.As(err, &validationErr) {
 			// Another owner may release the name without changing this DNSRecord.
-			// Keep retrying and preserve the previously published record meanwhile.
+			// Keep retrying; the service may already have cleaned up stale records.
 			reason = ReasonDNSRecordValidationFailed
 			message = "DNS record conflict or build validation failed"
 		}
@@ -227,7 +227,12 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultRequeue, errors.Join(err, statusErr)
 	}
 
-	return r.updateSuccessStatus(ctx, obj)
+	fqdn, err := r.Service.GetRecordFQDN(rows[0])
+	if err != nil {
+		statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordFailed, err, "Failed to read DNS record FQDN from NSX")
+		return ResultRequeue, errors.Join(err, statusErr)
+	}
+	return r.updateSuccessStatus(ctx, obj, fqdn)
 }
 
 func validateRecordValues(recordType v1alpha1.DNSRecordType, values []string) error {
@@ -298,13 +303,13 @@ func (r *DNSRecordReconciler) rejectInvalidRecord(ctx context.Context, obj *v1al
 		statusErr := r.updateFailureStatus(ctx, obj, ReasonDNSRecordFailed, err, "Failed to remove invalid DNS record from NSX")
 		return ResultRequeue, errors.Join(err, statusErr)
 	}
-	if err := r.updateFailureStatus(ctx, obj, ReasonDNSRecordValidationFailed, validationErr, message); err != nil {
+	if err := r.updateFailureStatus(ctx, obj, ReasonDNSRecordValidationFailed, validationErr, message, ""); err != nil {
 		return ResultRequeue, err
 	}
 	return ResultNormal, nil
 }
 
-func setDNSRecordReadyStatusTrue(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, transitionTime metav1.Time) error {
+func setDNSRecordReadyStatusTrue(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, transitionTime metav1.Time, fqdn ...string) error {
 	cond := metav1.Condition{
 		Type:               string(v1alpha1.Ready),
 		Status:             metav1.ConditionTrue,
@@ -313,10 +318,10 @@ func setDNSRecordReadyStatusTrue(k8sClient client.Client, ctx context.Context, r
 		ObservedGeneration: record.Generation,
 		LastTransitionTime: transitionTime,
 	}
-	return updateDNSRecordStatusConditions(k8sClient, ctx, record, cond)
+	return updateDNSRecordStatusConditions(k8sClient, ctx, record, cond, fqdn...)
 }
 
-func setDNSRecordReadyStatusFalse(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, transitionTime metav1.Time, reason string, err error) error {
+func setDNSRecordReadyStatusFalse(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, transitionTime metav1.Time, reason string, err error, fqdn ...string) error {
 	cond := metav1.Condition{
 		Type:               string(v1alpha1.Ready),
 		Status:             metav1.ConditionFalse,
@@ -325,28 +330,31 @@ func setDNSRecordReadyStatusFalse(k8sClient client.Client, ctx context.Context, 
 		ObservedGeneration: record.Generation,
 		LastTransitionTime: transitionTime,
 	}
-	return updateDNSRecordStatusConditions(k8sClient, ctx, record, cond)
+	return updateDNSRecordStatusConditions(k8sClient, ctx, record, cond, fqdn...)
 }
 
-func (r *DNSRecordReconciler) updateFailureStatus(ctx context.Context, obj *v1alpha1.DNSRecord, reason string, err error, message string) error {
+func (r *DNSRecordReconciler) updateFailureStatus(ctx context.Context, obj *v1alpha1.DNSRecord, reason string, err error, message string, fqdn ...string) error {
 	if reason == "" {
 		reason = ReasonDNSRecordFailed
 	}
 	r.StatusUpdater.UpdateFail(ctx, obj, err, message, nil)
-	return setDNSRecordReadyStatusFalse(r.Client, ctx, obj, metav1.Now(), reason, err)
+	return setDNSRecordReadyStatusFalse(r.Client, ctx, obj, metav1.Now(), reason, err, fqdn...)
 }
 
-func (r *DNSRecordReconciler) updateSuccessStatus(ctx context.Context, obj *v1alpha1.DNSRecord) (ctrl.Result, error) {
-	if err := setDNSRecordReadyStatusTrue(r.Client, ctx, obj, metav1.Now()); err != nil {
+func (r *DNSRecordReconciler) updateSuccessStatus(ctx context.Context, obj *v1alpha1.DNSRecord, fqdn string) (ctrl.Result, error) {
+	if err := setDNSRecordReadyStatusTrue(r.Client, ctx, obj, metav1.Now(), fqdn); err != nil {
 		return ResultRequeue, err
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, obj, nil)
 	return ResultNormal, nil
 }
 
-func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, cond metav1.Condition) error {
+// Omitted fqdn preserves the last observation; an explicit empty string clears it.
+func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Context, record *v1alpha1.DNSRecord, cond metav1.Condition, fqdn ...string) error {
 	updated := record.DeepCopy()
-	updated.Status.FQDN = calculateFQDN(updated.Spec.RecordName, updated.Spec.DomainName)
+	if len(fqdn) > 0 {
+		updated.Status.FQDN = fqdn[0]
+	}
 	fqdnChanged := updated.Status.FQDN != record.Status.FQDN
 	conditionChanged := meta.SetStatusCondition(&updated.Status.Conditions, cond)
 	if !fqdnChanged && !conditionChanged {

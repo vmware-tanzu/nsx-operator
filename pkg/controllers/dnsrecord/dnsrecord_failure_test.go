@@ -28,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	ctlcommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	pkgmock "github.com/vmware-tanzu/nsx-operator/pkg/mock"
+	dnsrecmocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnsrecordsclient"
 	dnszonemocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnszonesclient"
 	orgrootmocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/orgrootclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -35,6 +36,59 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
+
+func TestDNSRecordObservedFQDNOnNoOpAndReadFailure(t *testing.T) {
+	ctx := context.Background()
+	obj := &v1alpha1.DNSRecord{
+		ObjectMeta: metav1.ObjectMeta{Name: "observed", Namespace: "default", Generation: 1},
+		Spec:       v1alpha1.DNSRecordSpec{DomainName: "example.com", RecordName: "api", RecordType: v1alpha1.DNSRecordTypeA, RecordValues: []string{"192.0.2.1"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(setupScheme()).WithStatusSubresource(&v1alpha1.DNSRecord{}).
+		WithObjects(obj, defaultNamespaceForTest()).Build()
+	svc, store := setupTestDNSRecordService(t, c)
+	r := &DNSRecordReconciler{Client: c, Service: svc,
+		StatusUpdater: ctlcommon.NewStatusUpdater(c, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, record.NewFakeRecorder(100), ctlcommon.MetricResTypeDNSRecord, "DNSRecord", "DNSRecord")}
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
+	_, err := r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.NoError(t, c.Get(ctx, req.NamespacedName, obj))
+	require.Equal(t, "api.example.com", obj.Status.FQDN)
+	require.Len(t, store.ListDNSRecords(), 1)
+	live := *store.ListDNSRecords()[0]
+	backendFQDN := "api.example.com."
+	live.Fqdn = &backendFQDN
+	readErr := errors.New("NSX GET unavailable")
+	reader := dnsrecmocks.NewMockDnsRecordsClient(gomock.NewController(t))
+	gomock.InOrder(
+		reader.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(live, nil),
+		reader.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(model.DnsRecord{}, nil),
+		reader.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(model.DnsRecord{}, readErr),
+		reader.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any()).Return(live, nil),
+	)
+	svc.NSXClient.DnsRecordsClient = reader
+	for _, want := range []struct {
+		failed  bool
+		message string
+	}{{false, ""}, {true, "returned no FQDN"}, {true, "NSX GET unavailable"}, {false, ""}} {
+		result, err := r.Reconcile(ctx, req)
+		if want.failed {
+			require.ErrorContains(t, err, want.message)
+			require.Equal(t, ResultRequeue, result)
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, ResultNormal, result)
+		}
+		require.NoError(t, c.Get(ctx, req.NamespacedName, obj))
+		require.Equal(t, backendFQDN, obj.Status.FQDN)
+		condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
+		require.NotNil(t, condition)
+		if want.failed {
+			require.Equal(t, metav1.ConditionFalse, condition.Status)
+		} else {
+			require.Equal(t, metav1.ConditionTrue, condition.Status)
+		}
+	}
+}
 
 func TestDNSRecordChecksSupportBeforeReconciling(t *testing.T) {
 	ctx := context.Background()
@@ -199,7 +253,7 @@ func TestDNSRecordWildcardRemovesExistingRecord(t *testing.T) {
 	require.Equal(t, metav1.ConditionFalse, condition.Status)
 	require.Equal(t, ReasonDNSRecordValidationFailed, condition.Reason)
 	require.Contains(t, condition.Message, "wildcard DNS names are not supported")
-	require.Equal(t, "*.example.com", obj.Status.FQDN)
+	require.Empty(t, obj.Status.FQDN)
 	require.Empty(t, store.ListDNSRecords())
 }
 
@@ -545,7 +599,9 @@ func TestDNSRecordNameConflictRetriesAfterOwnerDeletion(t *testing.T) {
 	result, err := r.Reconcile(ctx, contenderReq)
 	require.ErrorContains(t, err, "already owned")
 	require.Equal(t, ResultRequeue, result)
-	require.Len(t, store.ListDNSRecords(), 2, "the old name must remain while the new name is occupied")
+	require.Len(t, store.ListDNSRecords(), 1, "the stale old name must be removed without changing the occupied name")
+	require.Equal(t, "taken", *store.ListDNSRecords()[0].RecordName)
+	require.Empty(t, store.GetByOwnerResourceNamespacedName(dns.ResourceKindDNSRecord, "default", contender.Name))
 	require.NoError(t, c.Get(ctx, contenderReq.NamespacedName, contender))
 	condition := meta.FindStatusCondition(contender.Status.Conditions, string(v1alpha1.Ready))
 	require.NotNil(t, condition)

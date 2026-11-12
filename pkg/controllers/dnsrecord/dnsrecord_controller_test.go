@@ -104,6 +104,11 @@ func newTestNSXClient(t *testing.T) *nsx.Client {
 			if rec := bodies[recordID]; rec != nil {
 				out := *rec
 				out.Path = &p
+				fqdn := "example.com"
+				if rec.RecordName != nil && *rec.RecordName != "@" && *rec.RecordName != "" {
+					fqdn = *rec.RecordName + ".example.com"
+				}
+				out.Fqdn = &fqdn
 				return out, nil
 			}
 			rid := recordID
