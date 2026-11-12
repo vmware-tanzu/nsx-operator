@@ -35,8 +35,8 @@ var (
 var dnsRecordPathRe = regexp.MustCompile(`^/orgs/([^/]+)/projects/([^/]+)/dns-records/([^/]+)$`)
 
 // recordAccessArbitrator ensures that concurrent goroutines cannot perform operations
-// on the same record ID within a zone simultaneously. It avoids the memory leaks associated with
-// storing a sync.Mutex per record ID indefinitely.
+// on the same logical record within a zone simultaneously. It avoids the memory leaks associated with
+// storing a sync.Mutex per record indefinitely.
 type recordAccessArbitrator struct {
 	mutex       sync.Mutex
 	cond        *sync.Cond
@@ -51,8 +51,17 @@ var recordArbitrator = func() *recordAccessArbitrator {
 	return a
 }()
 
-func getLockKey(zonePath, recordID, recType string) string {
-	return zonePath + "/" + recordID + "/" + recType
+func getLockKey(zonePath, recordName, recType string) string {
+	return "record/" + dnsRecordZonePathRecordNameIndexKey(zonePath, recordName, recType)
+}
+
+func addRecordLockKeys(keys map[string]struct{}, rec *model.DnsRecord) {
+	if rec.RecordName != nil && rec.ZonePath != nil && rec.RecordType != nil {
+		keys[getLockKey(*rec.ZonePath, *rec.RecordName, *rec.RecordType)] = struct{}{}
+	} else if rec.Path != nil && *rec.Path != "" {
+		// Incomplete restored records can only be locked by their physical path.
+		keys["record-path/"+*rec.Path] = struct{}{}
+	}
 }
 
 func (a *recordAccessArbitrator) lock(lockKey string) {
@@ -110,24 +119,23 @@ type DNSRecordService struct {
 	DNSRecordStore   *RecordStore
 	DNSZoneMap       *dnsZoneCache
 	DnsRecordBuilder *common.PolicyTreeBuilder[*model.DnsRecord]
+
+	disabled bool // startup feature gate; keep an empty service for existing callers
 }
 
-// getInvolvedRecordLockKeys returns the unique policy paths and lock keys for all records involved in this batch.
+// getInvolvedRecordLockKeys returns the logical lock keys for all records involved in this batch.
 // This includes the records the batch *wants* to manage, as well as the records the owner *currently* owns.
 func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoints) (lockKeys []string) {
 	involvedLockKeys := make(map[string]struct{})
 
 	if batch.Owner != nil {
 		for _, row := range batch.Rows {
-			recID, _, recType := getRecordIDAndPathAndType(row.nsxRecordName, row.RecordType, row.zonePath)
-			involvedLockKeys[getLockKey(row.zonePath, recID, recType)] = struct{}{}
+			involvedLockKeys[getLockKey(row.zonePath, row.nsxRecordName, getNSXDnsRecordType(row.RecordType))] = struct{}{}
 		}
 
 		_, ownedRecs := s.collectRecordsByOwner(batch.Owner.Kind, batch.Owner.GetNamespace(), batch.Owner.GetName())
 		for _, rec := range ownedRecs {
-			if rec.Id != nil && rec.ZonePath != nil && rec.RecordType != nil {
-				involvedLockKeys[getLockKey(*rec.ZonePath, *rec.Id, *rec.RecordType)] = struct{}{}
-			}
+			addRecordLockKeys(involvedLockKeys, rec)
 		}
 	}
 
@@ -139,25 +147,59 @@ func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoin
 	return lockKeys
 }
 
+// GetRecordFQDN reads the backend-computed name, including when an upsert was a no-op.
+func (s *DNSRecordService) GetRecordFQDN(row EndpointRow) (string, error) {
+	org, project, _, _, err := parseDnsZonePath(row.zonePath)
+	if err != nil {
+		return "", err
+	}
+	key := dnsRecordZonePathRecordNameIndexKey(row.zonePath, row.nsxRecordName, strings.ToLower(strings.TrimSpace(row.RecordType)))
+	var path string
+	for _, cached := range s.DNSRecordStore.GetByIndex(indexKeyDNSRecordZonePathRecordName, key) {
+		if cached.MarkedForDelete != nil && *cached.MarkedForDelete {
+			continue
+		}
+		if cached.Path == nil || path != "" {
+			return "", fmt.Errorf("DNS record has missing or ambiguous stored identity")
+		}
+		path = *cached.Path
+	}
+	pathOrg, pathProject, id, err := parseDnsRecordPolicyPath(path)
+	if err != nil || pathOrg != org || pathProject != project {
+		return "", fmt.Errorf("DNS record path %q does not match its zone project", path)
+	}
+	rec, err := s.NSXClient.DnsRecordsClient.Get(org, project, id)
+	if err != nil {
+		return "", nsxutil.TransNSXApiError(err)
+	}
+	if rec.Fqdn == nil || strings.TrimSpace(*rec.Fqdn) == "" {
+		return "", fmt.Errorf("NSX DNS record %s returned no FQDN", id)
+	}
+	return *rec.Fqdn, nil
+}
+
 // CreateOrUpdateRecords reconciles owner-scoped DNS rows. Stale-owner cleanup can
 // succeed even when desired rows conflict; the returned error still reports that conflict.
 func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *AggregatedDNSEndpoints) (bool, error) {
+	if s.disabled {
+		return false, nil
+	}
 	if batch.Owner != nil {
 		ownerKey := "owner/" + batch.Owner.Kind + "/" + batch.Owner.GetNamespace() + "/" + batch.Owner.GetName()
 		recordArbitrator.lock(ownerKey)
 		defer recordArbitrator.unlock(ownerKey)
 	}
 
-	sortedRecordIDs := s.getInvolvedRecordLockKeys(batch)
+	sortedRecordKeys := s.getInvolvedRecordLockKeys(batch)
 
 	// Acquire locks in a deterministic order to prevent deadlocks
-	for _, id := range sortedRecordIDs {
-		recordArbitrator.lock(id)
+	for _, key := range sortedRecordKeys {
+		recordArbitrator.lock(key)
 	}
 	defer func() {
 		// unlock in reverse order
-		for i := len(sortedRecordIDs) - 1; i >= 0; i-- {
-			recordArbitrator.unlock(sortedRecordIDs[i])
+		for i := len(sortedRecordKeys) - 1; i >= 0; i-- {
+			recordArbitrator.unlock(sortedRecordKeys[i])
 		}
 	}()
 
@@ -212,7 +254,6 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 			realizeErrs = append(realizeErrs, perr)
 			continue
 		}
-
 		var live model.DnsRecord
 		var gerr error
 		err := retry.OnError(util.NSXTRealizeRetry, func(err error) bool {
@@ -485,40 +526,50 @@ func (s *DNSRecordService) collectRecordsByOwner(ownerKind, ownerNamespace, owne
 }
 
 func (s *DNSRecordService) getInvolvedRecordLockKeysForOwner(kind, namespace, name string) []string {
-	recordIDsToLock := make(map[string]struct{})
+	recordKeysToLock := make(map[string]struct{})
 	_, ownedRecs := s.collectRecordsByOwner(kind, namespace, name)
 	for _, rec := range ownedRecs {
-		if rec.Id != nil && rec.ZonePath != nil && rec.RecordType != nil {
-			recordIDsToLock[getLockKey(*rec.ZonePath, *rec.Id, *rec.RecordType)] = struct{}{}
-		}
+		addRecordLockKeys(recordKeysToLock, rec)
 	}
 
-	var sortedRecordIDs []string
-	for id := range recordIDsToLock {
-		sortedRecordIDs = append(sortedRecordIDs, id)
+	var sortedRecordKeys []string
+	for key := range recordKeysToLock {
+		sortedRecordKeys = append(sortedRecordKeys, key)
 	}
-	slices.Sort(sortedRecordIDs)
+	slices.Sort(sortedRecordKeys)
 
-	return sortedRecordIDs
+	return sortedRecordKeys
 }
 
 // DeleteRecordByOwnerNN deletes or retags rows for kind/ns/name. Returns (storeMutated, err).
 func (s *DNSRecordService) DeleteRecordByOwnerNN(ctx context.Context, kind, namespace, name string) (bool, error) {
+	return s.DeleteRecordByOwnerNNIf(ctx, kind, namespace, name, nil)
+}
+
+// DeleteRecordByOwnerNNIf checks shouldDelete while holding the owner lock so
+// garbage collection cannot delete a record reconciled after an earlier CR list.
+func (s *DNSRecordService) DeleteRecordByOwnerNNIf(ctx context.Context, kind, namespace, name string, shouldDelete func(context.Context) (bool, error)) (bool, error) {
 	ownerKey := "owner/" + kind + "/" + namespace + "/" + name
 	recordArbitrator.lock(ownerKey)
 	defer recordArbitrator.unlock(ownerKey)
+	if shouldDelete != nil {
+		deleteRecord, err := shouldDelete(ctx)
+		if err != nil || !deleteRecord {
+			return false, err
+		}
+	}
 
-	// calculate distinct record IDs to lock to prevent overlapping calculations and patches
-	sortedRecordIDs := s.getInvolvedRecordLockKeysForOwner(kind, namespace, name)
+	// Lock each logical record to prevent overlapping calculations and patches.
+	sortedRecordKeys := s.getInvolvedRecordLockKeysForOwner(kind, namespace, name)
 
 	// Acquire locks in a deterministic order to prevent deadlocks
-	for _, id := range sortedRecordIDs {
-		recordArbitrator.lock(id)
+	for _, key := range sortedRecordKeys {
+		recordArbitrator.lock(key)
 	}
 	defer func() {
 		// unlock in reverse order
-		for i := len(sortedRecordIDs) - 1; i >= 0; i-- {
-			recordArbitrator.unlock(sortedRecordIDs[i])
+		for i := len(sortedRecordKeys) - 1; i >= 0; i-- {
+			recordArbitrator.unlock(sortedRecordKeys[i])
 		}
 	}()
 

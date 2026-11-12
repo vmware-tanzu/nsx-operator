@@ -65,10 +65,11 @@ const (
 	SubnetAssociation
 	NamespaceGroup
 	SubnetPortSetting
+	DNSRecord
 	AllFeatures
 )
 
-var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION", "STATEFULSET_POD", "IPV6", "SUBNET_ASSOCIATION", "NAMESPACE_GROUP", "SUBNET_PORT_SETTING"}
+var FeaturesName = [AllFeatures]string{"VPC", "SECURITY_POLICY", "NSX_SERVICE_ACCOUNT", "NSX_SERVICE_ACCOUNT_RESTORE", "NSX_SERVICE_ACCOUNT_CERT_ROTATION", "STATIC_ROUTE", "VPC_PREFERRED_DEFAULT_SNAT_IP", "SUBNET_IP_RESERVATION", "SUBNET_MINIMAL_SIZE_8", "VTEP_LESS_MODE", "RESTORE_VIF", "STATIC_IP_RESERVATION", "STATEFULSET_POD", "IPV6", "SUBNET_ASSOCIATION", "NAMESPACE_GROUP", "SUBNET_PORT_SETTING", "DNS_RECORD"}
 
 type Client struct {
 	NsxConfig     *config.NSXOperatorConfig
@@ -97,6 +98,7 @@ type Client struct {
 	VPCRuleClient     vpc_sp.RulesClient
 
 	OrgRootClient                     nsx_policy.OrgRootClient
+	OrgsClient                        nsx_policy.OrgsClient
 	ProjectInfraClient                projects.InfraClient
 	VPCClient                         projects.VpcsClient
 	VPCStateClient                    vpcs.StateClient
@@ -241,6 +243,7 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 	lbMonitorProfilesClient := infra.NewLbMonitorProfilesClient(connector)
 
 	orgRootClient := nsx_policy.NewOrgRootClient(connector)
+	orgsClient := nsx_policy.NewOrgsClient(connector)
 	projectInfraClient := projects.NewInfraClient(connector)
 	projectClient := orgs.NewProjectsClient(connector)
 	vpcClient := projects.NewVpcsClient(connector)
@@ -324,6 +327,7 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 		// Health clients are now using REST API directly
 
 		OrgRootClient:                     orgRootClient,
+		OrgsClient:                        orgsClient,
 		ProjectInfraClient:                projectInfraClient,
 		VPCClient:                         vpcClient,
 		VPCStateClient:                    vpcStateClient,

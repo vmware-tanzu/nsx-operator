@@ -226,6 +226,24 @@ func TestCluster_enableFeature(t *testing.T) {
 	assert.False(t, nsxVersion.featureSupported(feature))
 }
 
+func TestNsxVersion_DNSRecord(t *testing.T) {
+	for _, tc := range []struct {
+		version   string
+		supported bool
+	}{
+		{"9.1.2", false},
+		{"9.2.0", true},
+		{"9.2.0.25883044", true},
+		{"9.3.0", true},
+		{"10.0.0", true},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			version := &NsxVersion{ProductVersion: tc.version}
+			assert.Equal(t, tc.supported, version.featureSupported(DNSRecord))
+		})
+	}
+}
+
 func TestNsxVersion_SubnetPortSetting(t *testing.T) {
 	tests := []struct {
 		version   string

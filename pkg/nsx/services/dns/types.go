@@ -20,6 +20,7 @@ const (
 	ResourceKindGRPCRoute = "GRPCRoute"
 	ResourceKindTLSRoute  = "TLSRoute"
 	ResourceKindService   = "Service"
+	ResourceKindDNSRecord = "DNSRecord"
 	// DNSRecordPathSegment is the NSX Policy path segment for project-scoped DnsRecord (same as common.PathSegmentDnsRecords).
 	DNSRecordPathSegment = common.PathSegmentDnsRecords
 )

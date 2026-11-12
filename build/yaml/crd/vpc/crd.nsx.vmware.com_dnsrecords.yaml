@@ -91,10 +91,10 @@ spec:
                 default: 300
                 description: |-
                   TTL specifies the Time-To-Live in seconds for this DNS record.
-                  Overrides the zone's default TTL. Range: 0-86400 seconds. Default: 300 (5 minutes).
+                  Overrides the zone's default TTL. Range: 30-86400 seconds. Default: 300 (5 minutes).
                 format: int32
                 maximum: 86400
-                minimum: 0
+                minimum: 30
                 type: integer
             required:
             - domainName
@@ -164,8 +164,8 @@ spec:
                   type: object
                 type: array
               fqdn:
-                description: FQDN is the system-computed fully qualified domain name,
-                  formed by combining RecordName with DomainName.
+                description: FQDN is the fully qualified domain name
+                  returned by NSX after a successful sync.
                 type: string
             type: object
         type: object
