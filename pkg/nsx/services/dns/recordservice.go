@@ -139,7 +139,8 @@ func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoin
 	return lockKeys
 }
 
-// CreateOrUpdateRecords upserts batch rows into the store and NSX placeholder. Returns (storeMutated, err).
+// CreateOrUpdateRecords reconciles owner-scoped DNS rows. Stale-owner cleanup can
+// succeed even when desired rows conflict; the returned error still reports that conflict.
 func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *AggregatedDNSEndpoints) (bool, error) {
 	if batch.Owner != nil {
 		ownerKey := "owner/" + batch.Owner.Kind + "/" + batch.Owner.GetNamespace() + "/" + batch.Owner.GetName()
@@ -160,13 +161,9 @@ func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *Agg
 		}
 	}()
 
-	toUpsert, toRemove, err := s.applyDNSUpsertRows(batch)
-	if err != nil {
-		return false, err
-	}
-
+	toUpsert, toRemove, planErr := s.applyDNSUpsertRows(batch)
 	if len(toUpsert) == 0 && len(toRemove) == 0 {
-		return false, nil
+		return false, planErr
 	}
 
 	toApply, syncErr := s.syncDnsRecordsInNSX(ctx, toUpsert, toRemove)
@@ -175,10 +172,10 @@ func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *Agg
 	// partial realization failures; this prevents re-sending already-realized records next reconcile.
 	if len(toApply) > 0 {
 		if applyErr := s.DNSRecordStore.Apply(toApply); applyErr != nil {
-			return false, applyErr
+			return false, errors.Join(planErr, syncErr, applyErr)
 		}
 	}
-	return len(toApply) > 0, syncErr
+	return len(toApply) > 0, errors.Join(planErr, syncErr)
 }
 
 // syncDnsRecordsInNSX sends upserts then deletes via OrgRoot hierarchy patch. For each upsert it checks
@@ -416,10 +413,9 @@ func (s *DNSRecordService) classifyOwnerRemoval(rec *model.DnsRecord, deletedOwn
 	return nil
 }
 
-// applyDNSUpsertRows computes upserts and removals for a reconcile batch:
-//   - desired rows: build the target record, compare with store, enqueue update if changed.
-//   - stale rows: records once owned by batch.Owner that are no longer in the desired set
-//     are either deleted (sole owner) or re-tagged (promote/remove-contributor).
+// applyDNSUpsertRows computes desired upserts and stale-owner removals under the
+// record locks. On a desired-row error, it returns only the safe cleanup operations
+// alongside the error. Every input row remains desired, including conflicting rows.
 func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]*model.DnsRecord, []*model.DnsRecord, error) {
 	if batch.Owner == nil {
 		if len(batch.Rows) > 0 {
@@ -430,39 +426,49 @@ func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]
 	log.Debug("Computing DNS record diff", "kind", batch.Owner.Kind,
 		"namespace", batch.Owner.GetNamespace(), "name", batch.Owner.GetName(), "rows", len(batch.Rows))
 
+	// Determine desired identities before validating any row. Dropping a conflicting
+	// row from this set would incorrectly classify its existing record as stale.
+	desiredPaths := make(map[string]struct{}, len(batch.Rows))
+	for _, row := range batch.Rows {
+		_, path, _ := getRecordIDAndPathAndType(row.nsxRecordName, row.RecordType, row.zonePath)
+		desiredPaths[path] = struct{}{}
+	}
+	owner := batch.Owner
+	ownerNNKey, ownedRecs := s.collectRecordsByOwner(owner.Kind, owner.GetNamespace(), owner.GetName())
+	var retainedRecs, cleanupUpdates, toRemove []*model.DnsRecord
+	for _, rec := range ownedRecs {
+		if rec.Path == nil {
+			continue
+		}
+		if _, desired := desiredPaths[*rec.Path]; desired {
+			retainedRecs = append(retainedRecs, rec)
+			continue
+		}
+		if err := s.classifyOwnerRemoval(rec, ownerNNKey, &toRemove, &cleanupUpdates); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	desiredRecs := make([]*model.DnsRecord, 0, len(batch.Rows))
 	for _, row := range batch.Rows {
-		// Re-evaluate the row against the current store state while under the local lock
-		// to prevent overwriting existing shared records if the initial validation used a stale cache.
+		// Re-evaluate conflicts against the locked store to protect shared records.
 		freshRow, err := s.validateEndpointRowConflict(row.zonePath, row.Endpoint, row.nsxRecordName, batch.Owner)
 		if err != nil {
-			log.Error(err, "conflict detected during upsert, aborting batch", "fqdn", row.Endpoint.DNSName)
-			return nil, nil, &DNSZoneValidationError{Msg: "DNS endpoint validation failed for FQDN is taken by other resource", Cause: err}
+			log.Error(err, "conflict detected during upsert, applying only stale-owner cleanup", "fqdn", row.Endpoint.DNSName)
+			return cleanupUpdates, toRemove, &DNSZoneValidationError{Msg: "DNS endpoint validation failed for FQDN is taken by other resource", Cause: err}
 		}
 		rec, err := s.BuildDnsRecord(batch.Owner, *freshRow)
 		if err != nil {
-			log.Error(err, "failed to build DNS record, aborting batch", "fqdn", row.Endpoint.DNSName)
-			return nil, nil, &DNSZoneValidationError{Msg: "DNS endpoint validation failed during record build", Cause: err}
+			log.Error(err, "failed to build DNS record, applying only stale-owner cleanup", "fqdn", row.Endpoint.DNSName)
+			return cleanupUpdates, toRemove, &DNSZoneValidationError{Msg: "DNS endpoint validation failed during record build", Cause: err}
 		}
 		if rec != nil {
 			desiredRecs = append(desiredRecs, rec)
 		}
 	}
 
-	// Collect all records where batch.Owner is primary or contributing.
-	owner := batch.Owner
-	ownerNNKey, ownedRecs := s.collectRecordsByOwner(owner.Kind, owner.GetNamespace(), owner.GetName())
-
-	// compareRecords: new/content-changed records go to toUpsert; stale go to staleRecs.
-	toUpsert, staleRecs := compareRecords(desiredRecs, ownedRecs)
-
-	var toRemove []*model.DnsRecord
-	for _, rec := range staleRecs {
-		if err := s.classifyOwnerRemoval(rec, ownerNNKey, &toRemove, &toUpsert); err != nil {
-			return nil, nil, err
-		}
-	}
-
+	toUpsert, _ := compareRecords(desiredRecs, retainedRecs)
+	toUpsert = append(toUpsert, cleanupUpdates...)
 	log.Debug("DNS record diff ready", "owner", ownerNNKey, "toUpsert", len(toUpsert), "toRemove", len(toRemove))
 	return toUpsert, toRemove, nil
 }

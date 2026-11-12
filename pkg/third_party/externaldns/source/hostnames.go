@@ -157,21 +157,24 @@ const (
 	gatewayHostnameSourceDefinedHostsOnlyValue = "defined-hosts-only"
 )
 
-// RouteHostnameWildcardAllowed reports whether a route may emit a wildcard ("*.") DNS name,
-// which requires gateway-hostname-source="annotation-only" and a non-empty hostname annotation.
-func RouteHostnameWildcardAllowed(annotations map[string]string) bool {
-	if len(annotations) == 0 {
-		return false
-	}
+// RouteHostnameInferenceAllowed reports whether empty normalized hostname input
+// may fall back to parent listeners. Upstream distinguishes a missing hostname
+// annotation (no names) from an explicit empty token (match a listener's name).
+func RouteHostnameInferenceAllowed(annotations map[string]string) bool {
 	annos := extann.ResolveAnnotations(annotations)
-	raw, ok := annos[extann.GatewayHostnameSourceKey]
-	if !ok {
+	switch strings.ToLower(strings.TrimSpace(annos[extann.GatewayHostnameSourceKey])) {
+	case gatewayHostnameSourceAnnotationOnly:
+		for _, hostname := range extann.HostnamesFromAnnotations(annos) {
+			if hostname == "" {
+				return true
+			}
+		}
 		return false
-	}
-	if strings.ToLower(strings.TrimSpace(raw)) != gatewayHostnameSourceAnnotationOnly {
+	case gatewayHostnameSourceDefinedHostsOnlyValue:
 		return false
+	default:
+		return true
 	}
-	return routeHasExternalDNSHostnameAnnotation(annos)
 }
 
 // RouteHostnames resolves the desired hostnames for a route based on annotations and spec hostnames.
@@ -214,13 +217,4 @@ func RouteHostnames(meta *metav1.ObjectMeta, specHostnames []string, ignoreGatew
 		}
 		return normalizeHostnamesList(hostnames)
 	}
-}
-
-func routeHasExternalDNSHostnameAnnotation(annos map[string]string) bool {
-	for _, h := range extann.HostnamesFromAnnotations(annos) {
-		if strings.TrimSpace(h) != "" {
-			return true
-		}
-	}
-	return false
 }

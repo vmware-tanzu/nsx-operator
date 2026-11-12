@@ -286,7 +286,7 @@ func TestValidateEndpointsByZone_table(t *testing.T) {
 			wantN:    intPtr(1),
 		},
 		{
-			// and allowedZones must still be returned so the controller can clean up stale records.
+			// and allowedZones must still be returned alongside the validation error.
 			name:             "hostname_not_in_zone_is_DNSZoneValidationError_with_allowedZones",
 			nc:               testVPCNetworkConfiguration(), // zone = example.com
 			ns:               "tenant",
@@ -1392,8 +1392,7 @@ func TestApplyDNSUpsertRows_unsupportedOwnerKind(t *testing.T) {
 	batch := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{
 		{Endpoint: ep, zonePath: testDNSZonePathT, nsxRecordName: "a"},
 	})
-	// collectRecordsByOwner returns ("", nil) for unknown kind, so ownerNNKey="" → toUpsert is non-empty
-	// but syncDnsRecordsInNSX will be called. The important thing is no panic.
+	// An unknown owner kind must fail validation without producing DNS operations.
 	_, _, err := env.applyDNSUpsertRows(batch)
 	require.ErrorContains(t, err, "unsupported resource kind")
 }
@@ -1604,4 +1603,166 @@ func TestSyncDnsRecordsInNSX(t *testing.T) {
 	rec3 := &model.DnsRecord{Path: servicecommon.String("invalid-path"), Id: servicecommon.String("rec3")}
 	out, err = env.syncDnsRecordsInNSX(context.TODO(), []*model.DnsRecord{rec3}, nil)
 	t.Logf("err: %v, out: %v", err, out)
+}
+
+func TestCreateOrUpdateRecords_ConflictDoesNotBlockCleanup(t *testing.T) {
+	ctx := context.Background()
+	store := BuildDNSRecordStore()
+	env := newTestDNSRecordService(t, store)
+	owner := &ResourceRef{Kind: ResourceKindHTTPRoute, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "route"}}
+	other := &ResourceRef{Kind: ResourceKindHTTPRoute, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "other"}}
+	row := func(name, zone, gateway string) EndpointRow {
+		ep := extdns.NewEndpoint(name+".example.com", extdns.RecordTypeA, "192.0.2.1")
+		ep.WithLabel(EndpointLabelParentGateway, gateway)
+		return *NewEndpointRow(ep, zone, name)
+	}
+	old := row("old", testDNSZonePathOld, "ns/gw")
+	keep := row("keep", testDNSZonePathKeep, "ns/gw")
+	sharedPrimary := row("shared-primary", testDNSZonePathOld, "ns/gw")
+	sharedPrimary.contributingOwnerKeys = []string{ownerNNIndexKeyForResourceRef(other)}
+	sharedContributor := row("shared-contributor", testDNSZonePathOld, "ns/gw")
+	sharedContributor.contributingOwnerKeys = []string{ownerNNIndexKeyForResourceRef(owner)}
+	taken := row("taken", testDNSZonePathKeep, "ns/other-gw")
+	unrelated := row("unrelated", testDNSZonePathOld, "ns/other-gw")
+	// Seed primary and contributing ownership without requiring an adoption reconcile.
+	for _, fixture := range []struct {
+		owner *ResourceRef
+		rows  []EndpointRow
+	}{{owner, []EndpointRow{old, keep, sharedPrimary}}, {other, []EndpointRow{sharedContributor, taken, unrelated}}} {
+		for _, r := range fixture.rows {
+			rec, err := env.BuildDnsRecord(fixture.owner, r)
+			require.NoError(t, err)
+			require.NoError(t, store.Apply([]*model.DnsRecord{rec}))
+		}
+	}
+	// Register the owner promotion / contributor removal bodies returned by NSX.
+	var updates, deletes []*model.DnsRecord
+	for _, r := range []EndpointRow{sharedPrimary, sharedContributor} {
+		rec := store.GetByKey(recordStoreKey(r.zonePath, r.nsxRecordName, extdns.RecordTypeA))
+		require.NoError(t, env.classifyOwnerRemoval(rec, ownerNNIndexKeyForResourceRef(owner), &deletes, &updates))
+	}
+	for _, rec := range updates {
+		env.bodies[*rec.Id] = rec
+	}
+	conflict := row("taken", testDNSZonePathKeep, "ns/gw")
+	batch := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{keep, conflict})
+	for i := 0; i < 2; i++ {
+		changed, err := env.CreateOrUpdateRecords(ctx, batch)
+		require.Equal(t, i == 0, changed, "only the first attempt should mutate the stale records")
+		require.Error(t, err, "the conflicting record must still be rejected")
+		require.Nil(t, store.GetByKey(recordStoreKey(old.zonePath, old.nsxRecordName, extdns.RecordTypeA)))
+		for _, r := range []EndpointRow{keep, taken, unrelated, sharedPrimary, sharedContributor} {
+			rec := store.GetByKey(recordStoreKey(r.zonePath, r.nsxRecordName, extdns.RecordTypeA))
+			require.NotNil(t, rec, r.DNSName)
+			if r.zonePath == testDNSZonePathOld {
+				require.Equal(t, ownerNNIndexKeyForResourceRef(other), getDNSRecordOwnerNamespacedName(rec))
+				require.Empty(t, parseContributingOwnersFromRecord(rec))
+			}
+		}
+	}
+}
+
+func TestCreateOrUpdateRecords_RevokedRecordAfterHostnameRemoved(t *testing.T) {
+	ctx := context.Background()
+	store := BuildDNSRecordStore()
+	env := newTestDNSRecordService(t, store)
+	owner := &ResourceRef{Kind: ResourceKindHTTPRoute, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "route"}}
+	other := &ResourceRef{Kind: ResourceKindHTTPRoute, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "other"}}
+	old := *NewEndpointRow(extdns.NewEndpoint("old.revoked.test", "A", "192.0.2.1").WithLabel(EndpointLabelParentGateway, "ns/gw"), testDNSZonePathOld, "old")
+	taken := *NewEndpointRow(extdns.NewEndpoint("taken.example.com", "A", "192.0.2.2").WithLabel(EndpointLabelParentGateway, "ns/other-gw"), testDNSZonePathKeep, "taken")
+	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{old}))
+	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(other, []EndpointRow{taken}))
+	nc := testVPCNetworkConfiguration()
+	nc.Spec.DNSZones = []string{testDNSZonePathKeep}
+	vpc := &pkgmock.MockVPCServiceProvider{}
+	vpc.On("GetVPCNetworkConfigByNamespace", "ns").Return(nc, nil)
+	env.VPCService = vpc
+	env.DNSZoneMap = NewDNSZoneCacheFromMap(map[string]string{testDNSZonePathKeep: "example.com"})
+	requested := extdns.NewEndpoint("taken.example.com", "A", "192.0.2.1").WithLabel(EndpointLabelParentGateway, "ns/gw")
+	for i := 0; i < 2; i++ {
+		rows, _, validationErr := env.ValidateEndpointsByZone("ns", owner, []*extdns.Endpoint{requested})
+		require.NoError(t, validationErr, "the revoked hostname has been removed from the Route spec")
+		require.Len(t, rows, 1)
+		_, err := env.CreateOrUpdateRecords(ctx, NewOwnerScopedAggregatedRouteDNS(owner, rows))
+		require.Error(t, err)
+	}
+	t.Logf("revoked record retained=%v", store.GetByKey(recordStoreKey(testDNSZonePathOld, "old", "A")) != nil)
+	require.Nil(t, store.GetByKey(recordStoreKey(testDNSZonePathOld, "old", "A")), "revoked record must not survive a conflict in allowed zone")
+}
+
+func TestCreateOrUpdateRecords_DesiredErrorsPreserveRecordsAndCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		buildError bool
+		patchError bool
+	}{
+		{name: "owner Gateway conflict"},
+		{name: "record build failure", buildError: true},
+		{name: "cleanup failure retains both errors", patchError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := BuildDNSRecordStore()
+			env := newTestDNSRecordService(t, store)
+			owner := &ResourceRef{Kind: ResourceKindHTTPRoute, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "route"}}
+			other := &ResourceRef{Kind: ResourceKindHTTPRoute, Object: &metav1.ObjectMeta{Namespace: "ns", Name: "other"}}
+			row := func(name, gateway, ip string) EndpointRow {
+				ep := extdns.NewEndpoint(name+".example.com", extdns.RecordTypeA, ip).WithLabel(EndpointLabelParentGateway, gateway)
+				return *NewEndpointRow(ep, testDNSZonePathKeep, name)
+			}
+			old := row("old", "ns/gw", "192.0.2.1")
+			keep := row("keep", "ns/gw", "192.0.2.1")
+			if !tc.buildError {
+				keep.contributingOwnerKeys = []string{ownerNNIndexKeyForResourceRef(other)}
+			}
+			after := row("after", "ns/gw", "192.0.2.1")
+			for _, r := range []EndpointRow{old, keep, after} {
+				rec, err := env.BuildDnsRecord(owner, r)
+				require.NoError(t, err)
+				require.NoError(t, store.Apply([]*model.DnsRecord{rec}))
+			}
+			beforeKeep := store.GetByKey(recordStoreKey(keep.zonePath, "keep", extdns.RecordTypeA))
+			beforeAfter := store.GetByKey(recordStoreKey(after.zonePath, "after", extdns.RecordTypeA))
+			gateway := "ns/new-gateway"
+			if tc.buildError {
+				var gateways []string
+				for i := 0; i < 50; i++ {
+					gateways = append(gateways, fmt.Sprintf("namespace-%d/gateway-%d", i, i))
+				}
+				gateway = strings.Join(gateways, ",")
+			}
+			patchErr := errors.New("NSX cleanup patch failed")
+			if tc.patchError {
+				patcher := orgrootmocks.NewMockOrgRootClient(gomock.NewController(t))
+				patcher.EXPECT().Patch(gomock.Any(), gomock.Any()).Return(patchErr)
+				env.NSXClient.OrgRootClient = patcher
+			}
+			batch := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{
+				row("new", "ns/gw", "192.0.2.2"),
+				row("keep", gateway, "192.0.2.2"),
+				row("after", "ns/gw", "192.0.2.2"),
+			})
+			changed, err := env.CreateOrUpdateRecords(ctx, batch)
+			require.Error(t, err)
+			var validationErr *DNSZoneValidationError
+			require.ErrorAs(t, err, &validationErr)
+			if tc.buildError {
+				require.ErrorContains(t, err, "gateway index list exceeds maximum tag capacity")
+			} else {
+				require.ErrorContains(t, err, "parent gateway changed")
+			}
+			oldRecord := store.GetByKey(recordStoreKey(old.zonePath, "old", extdns.RecordTypeA))
+			if tc.patchError {
+				require.ErrorIs(t, err, patchErr)
+				require.False(t, changed)
+				require.NotNil(t, oldRecord, "failed NSX cleanup must not remove the local record")
+			} else {
+				require.True(t, changed)
+				require.Nil(t, oldRecord)
+			}
+			require.Equal(t, beforeKeep, store.GetByKey(recordStoreKey(keep.zonePath, "keep", extdns.RecordTypeA)), "the failing desired record must remain unchanged")
+			require.Equal(t, beforeAfter, store.GetByKey(recordStoreKey(after.zonePath, "after", extdns.RecordTypeA)), "rows after the failing row must remain desired")
+			require.Nil(t, store.GetByKey(recordStoreKey(testDNSZonePathKeep, "new", extdns.RecordTypeA)), "discard desired upserts when any desired row fails")
+		})
+	}
 }
