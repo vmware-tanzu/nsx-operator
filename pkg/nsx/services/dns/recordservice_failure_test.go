@@ -138,23 +138,23 @@ func TestDNSRecordIDDoesNotCollideAcrossNamesAndZones(t *testing.T) {
 	}
 }
 
-func TestCompareRecordsDetectsLegacyIDChange(t *testing.T) {
+func TestCompareRecordsDetectsIdentityChange(t *testing.T) {
 	_, newPath, _ := getRecordIDAndPathAndType("api", "A", testDNSZonePathT)
-	legacyPath := "/orgs/org1/projects/proj1/dns-records/api_zone-t_a"
+	_, existingPath, _ := getRecordIDAndPathAndType("web", "A", testDNSZonePathT)
 	record := func(path string) *model.DnsRecord {
 		return &model.DnsRecord{
 			Path: servicecommon.String(path), RecordName: servicecommon.String("api"),
 			RecordType: servicecommon.String("A"), ZonePath: servicecommon.String(testDNSZonePathT),
 		}
 	}
-	toUpsert, toRemove := compareRecords([]*model.DnsRecord{record(newPath)}, []*model.DnsRecord{record(legacyPath)})
+	toUpsert, toRemove := compareRecords([]*model.DnsRecord{record(newPath)}, []*model.DnsRecord{record(existingPath)})
 	require.Len(t, toUpsert, 1)
 	require.Len(t, toRemove, 1)
 	require.Equal(t, newPath, *toUpsert[0].Path)
-	require.Equal(t, legacyPath, *toRemove[0].Path)
+	require.Equal(t, existingPath, *toRemove[0].Path)
 }
 
-func TestSharedLegacyRecordKeepsIdentityAndOwners(t *testing.T) {
+func TestSharedRecordKeepsIdentityAndOwners(t *testing.T) {
 	for _, reconcileContributor := range []bool{false, true} {
 		for _, deletePrimaryFirst := range []bool{false, true} {
 			t.Run(fmt.Sprintf("contributor=%t/primaryDeletedFirst=%t", reconcileContributor, deletePrimaryFirst), func(t *testing.T) {
@@ -167,25 +167,22 @@ func TestSharedLegacyRecordKeepsIdentityAndOwners(t *testing.T) {
 				ep.WithLabel(EndpointLabelParentGateway, "ns/gateway")
 				row := NewEndpointRow(ep, testDNSZonePathT, "api")
 				row.contributingOwnerKeys = []string{ownerNNIndexKeyForResourceRef(contributor)}
-				legacy, err := env.BuildDnsRecord(primary, *row)
+				existing, err := env.BuildDnsRecord(primary, *row)
 				require.NoError(t, err)
-				legacyID := "api_zone-t_a"
-				legacyPath := "/orgs/org1/projects/proj1/dns-records/" + legacyID
-				legacy.Id = servicecommon.String(legacyID)
-				legacy.Path = servicecommon.String(legacyPath)
-				require.NoError(t, store.Apply([]*model.DnsRecord{legacy}))
+				existingID, existingPath := *existing.Id, *existing.Path
+				require.NoError(t, store.Apply([]*model.DnsRecord{existing}))
 
-				// Force an update so the mocked NSX GET returns the updated legacy record.
+				// Force an update so the mocked NSX GET returns the updated existing record.
 				ep.RecordTTL = extdns.TTL(600)
-				updated := *legacy
+				updated := *existing
 				updated.Ttl = servicecommon.Int64(600)
-				env.bodies[legacyID] = &updated
+				env.bodies[existingID] = &updated
 				owner := primary
 				if reconcileContributor {
 					owner = contributor
 				}
 				batch := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{*row})
-				// Updates and deletion of the legacy record must use the same logical lock.
+				// Updates and deletion of the existing record must use the same logical lock.
 				logicalKey := getLockKey(testDNSZonePathT, "api", "A")
 				require.Contains(t, env.getInvolvedRecordLockKeys(batch), logicalKey)
 				require.Contains(t, env.getInvolvedRecordLockKeysForOwner(owner.Kind, "ns", owner.GetName()), logicalKey)
@@ -194,7 +191,7 @@ func TestSharedLegacyRecordKeepsIdentityAndOwners(t *testing.T) {
 				require.True(t, changed)
 				records := store.ListDNSRecords()
 				require.Len(t, records, 1)
-				require.Equal(t, legacyPath, *records[0].Path)
+				require.Equal(t, existingPath, *records[0].Path)
 				require.Equal(t, ownerNNIndexKeyForResourceRef(primary), getDNSRecordOwnerNamespacedName(records[0]))
 				require.Equal(t, []string{ownerNNIndexKeyForResourceRef(contributor)}, parseContributingOwnersFromRecord(records[0]))
 
@@ -205,7 +202,7 @@ func TestSharedLegacyRecordKeepsIdentityAndOwners(t *testing.T) {
 				requireNoErrDeleteDNS(ctx, t, env, first.Kind, first.GetNamespace(), first.GetName())
 				records = store.ListDNSRecords()
 				require.Len(t, records, 1)
-				require.Equal(t, legacyPath, *records[0].Path)
+				require.Equal(t, existingPath, *records[0].Path)
 				require.Equal(t, ownerNNIndexKeyForResourceRef(last), getDNSRecordOwnerNamespacedName(records[0]))
 				require.Empty(t, parseContributingOwnersFromRecord(records[0]))
 				requireNoErrDeleteDNS(ctx, t, env, last.Kind, last.GetNamespace(), last.GetName())
@@ -215,7 +212,7 @@ func TestSharedLegacyRecordKeepsIdentityAndOwners(t *testing.T) {
 	}
 }
 
-func TestNewContributorReusesLegacyRecordIdentity(t *testing.T) {
+func TestNewContributorSharesRecordIdentity(t *testing.T) {
 	ctx := context.Background()
 	store := BuildDNSRecordStore()
 	env := newTestDNSRecordService(t, store)
@@ -224,22 +221,17 @@ func TestNewContributorReusesLegacyRecordIdentity(t *testing.T) {
 	ep := extdns.NewEndpoint("api.example.com", extdns.RecordTypeA, "192.0.2.1")
 	ep.WithLabel(EndpointLabelParentGateway, "ns/gateway")
 	row := NewEndpointRow(ep, testDNSZonePathT, "api")
-	legacy, err := env.BuildDnsRecord(primary, *row)
+	existing, err := env.BuildDnsRecord(primary, *row)
 	require.NoError(t, err)
-	legacyID := "api_zone-t_a"
-	legacyPath := "/orgs/org1/projects/proj1/dns-records/" + legacyID
-	legacy.Id = servicecommon.String(legacyID)
-	legacy.Path = servicecommon.String(legacyPath)
-	require.NoError(t, store.Apply([]*model.DnsRecord{legacy}))
+	existingID, existingPath := *existing.Id, *existing.Path
+	require.NoError(t, store.Apply([]*model.DnsRecord{existing}))
 
 	contribution := *row
 	contribution.effectiveOwner = primary
 	contribution.contributingOwnerKeys = []string{ownerNNIndexKeyForResourceRef(contributor)}
 	updated, err := env.BuildDnsRecord(contributor, contribution)
 	require.NoError(t, err)
-	updated.Id = servicecommon.String(legacyID)
-	updated.Path = servicecommon.String(legacyPath)
-	env.bodies[legacyID] = updated
+	env.bodies[existingID] = updated
 
 	batch := NewOwnerScopedAggregatedRouteDNS(contributor, []EndpointRow{*row})
 	logicalKey := getLockKey(testDNSZonePathT, "api", "A")
@@ -250,12 +242,12 @@ func TestNewContributorReusesLegacyRecordIdentity(t *testing.T) {
 	require.True(t, changed)
 	records := store.ListDNSRecords()
 	require.Len(t, records, 1)
-	require.Equal(t, legacyPath, *records[0].Path)
+	require.Equal(t, existingPath, *records[0].Path)
 	require.Equal(t, ownerNNIndexKeyForResourceRef(primary), getDNSRecordOwnerNamespacedName(records[0]))
 	require.Equal(t, []string{ownerNNIndexKeyForResourceRef(contributor)}, parseContributingOwnersFromRecord(records[0]))
 }
 
-func TestLegacyRecordPrimaryDeletionSerializesContributorReconcile(t *testing.T) {
+func TestPrimaryDeletionSerializesContributorReconcile(t *testing.T) {
 	ctx := context.Background()
 	store := BuildDNSRecordStore()
 	env := newTestDNSRecordService(t, store)
@@ -265,16 +257,13 @@ func TestLegacyRecordPrimaryDeletionSerializesContributorReconcile(t *testing.T)
 	ep.WithLabel(EndpointLabelParentGateway, "ns/gateway")
 	row := NewEndpointRow(ep, testDNSZonePathT, "api")
 	row.contributingOwnerKeys = []string{ownerNNIndexKeyForResourceRef(contributor)}
-	legacy, err := env.BuildDnsRecord(primary, *row)
+	existing, err := env.BuildDnsRecord(primary, *row)
 	require.NoError(t, err)
-	legacyID := "api_zone-t_a"
-	legacyPath := "/orgs/org1/projects/proj1/dns-records/" + legacyID
-	legacy.Id = servicecommon.String(legacyID)
-	legacy.Path = servicecommon.String(legacyPath)
-	require.NoError(t, store.Apply([]*model.DnsRecord{legacy}))
-	promoted, err := env.recordAfterPrimaryDeletePromotion(legacy, row.contributingOwnerKeys)
+	existingID, existingPath := *existing.Id, *existing.Path
+	require.NoError(t, store.Apply([]*model.DnsRecord{existing}))
+	promoted, err := env.recordAfterPrimaryDeletePromotion(existing, row.contributingOwnerKeys)
 	require.NoError(t, err)
-	env.bodies[legacyID] = promoted
+	env.bodies[existingID] = promoted
 
 	patchStarted := make(chan struct{})
 	releasePatch := make(chan struct{})
@@ -316,7 +305,7 @@ func TestLegacyRecordPrimaryDeletionSerializesContributorReconcile(t *testing.T)
 	require.NoError(t, <-reconcileDone)
 	records := store.ListDNSRecords()
 	require.Len(t, records, 1)
-	require.Equal(t, legacyPath, *records[0].Path)
+	require.Equal(t, existingPath, *records[0].Path)
 	require.Equal(t, ownerNNIndexKeyForResourceRef(contributor), getDNSRecordOwnerNamespacedName(records[0]))
 	require.Empty(t, parseContributingOwnersFromRecord(records[0]))
 }

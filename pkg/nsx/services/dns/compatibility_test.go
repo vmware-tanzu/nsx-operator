@@ -28,7 +28,8 @@ func TestDNSInitializationFeatureGate(t *testing.T) {
 		flag      *bool
 		searchErr error
 	}{
-		{name: "old NSX", flag: common.Bool(true)},
+		{name: "old NSX with enabled flag", flag: common.Bool(true)},
+		{name: "old NSX without flag"},
 		{name: "omitted flag", supported: true},
 		{name: "disabled flag", supported: true, flag: common.Bool(false)},
 		{name: "enabled", supported: true, flag: common.Bool(true)},
@@ -41,7 +42,7 @@ func TestDNSInitializationFeatureGate(t *testing.T) {
 			})
 			defer patches.Reset()
 			query := searchmocks.NewMockQueryClient(gomock.NewController(t))
-			enabled := tc.supported && tc.flag != nil && *tc.flag
+			enabled := tc.supported
 			if enabled {
 				query.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.SearchResponse{}, tc.searchErr)
 			}

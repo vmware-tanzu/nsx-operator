@@ -164,8 +164,8 @@ spec:
                   type: object
                 type: array
               fqdn:
-                description: FQDN is the system-computed fully qualified domain name,
-                  formed by combining RecordName with DomainName.
+                description: FQDN is the fully qualified domain name
+                  returned by NSX after a successful sync.
                 type: string
             type: object
         type: object

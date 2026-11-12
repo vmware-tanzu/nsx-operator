@@ -56,11 +56,11 @@ func getLockKey(zonePath, recordName, recType string) string {
 }
 
 func addRecordLockKeys(keys map[string]struct{}, rec *model.DnsRecord) {
-	if rec.Path != nil && *rec.Path != "" {
-		keys["record-path/"+*rec.Path] = struct{}{}
-	}
 	if rec.RecordName != nil && rec.ZonePath != nil && rec.RecordType != nil {
 		keys[getLockKey(*rec.ZonePath, *rec.RecordName, *rec.RecordType)] = struct{}{}
+	} else if rec.Path != nil && *rec.Path != "" {
+		// Incomplete restored records can only be locked by their physical path.
+		keys["record-path/"+*rec.Path] = struct{}{}
 	}
 }
 
@@ -131,8 +131,6 @@ func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoin
 	if batch.Owner != nil {
 		for _, row := range batch.Rows {
 			involvedLockKeys[getLockKey(row.zonePath, row.nsxRecordName, getNSXDnsRecordType(row.RecordType))] = struct{}{}
-			_, path, _ := getRecordIDAndPathAndType(row.nsxRecordName, row.RecordType, row.zonePath)
-			involvedLockKeys["record-path/"+path] = struct{}{}
 		}
 
 		_, ownedRecs := s.collectRecordsByOwner(batch.Owner.Kind, batch.Owner.GetNamespace(), batch.Owner.GetName())
@@ -147,6 +145,37 @@ func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoin
 	slices.Sort(lockKeys)
 
 	return lockKeys
+}
+
+// GetRecordFQDN reads the backend-computed name, including when an upsert was a no-op.
+func (s *DNSRecordService) GetRecordFQDN(row EndpointRow) (string, error) {
+	org, project, _, _, err := parseDnsZonePath(row.zonePath)
+	if err != nil {
+		return "", err
+	}
+	key := dnsRecordZonePathRecordNameIndexKey(row.zonePath, row.nsxRecordName, strings.ToLower(strings.TrimSpace(row.RecordType)))
+	var path string
+	for _, cached := range s.DNSRecordStore.GetByIndex(indexKeyDNSRecordZonePathRecordName, key) {
+		if cached.MarkedForDelete != nil && *cached.MarkedForDelete {
+			continue
+		}
+		if cached.Path == nil || path != "" {
+			return "", fmt.Errorf("DNS record has missing or ambiguous stored identity")
+		}
+		path = *cached.Path
+	}
+	pathOrg, pathProject, id, err := parseDnsRecordPolicyPath(path)
+	if err != nil || pathOrg != org || pathProject != project {
+		return "", fmt.Errorf("DNS record path %q does not match its zone project", path)
+	}
+	rec, err := s.NSXClient.DnsRecordsClient.Get(org, project, id)
+	if err != nil {
+		return "", nsxutil.TransNSXApiError(err)
+	}
+	if rec.Fqdn == nil || strings.TrimSpace(*rec.Fqdn) == "" {
+		return "", fmt.Errorf("NSX DNS record %s returned no FQDN", id)
+	}
+	return *rec.Fqdn, nil
 }
 
 // CreateOrUpdateRecords reconciles owner-scoped DNS rows. Stale-owner cleanup can
@@ -336,7 +365,6 @@ func (s *DNSRecordService) validateEndpointRowConflict(zonePath string, ep *extd
 	// Case 1: Reconciling resource is the primary owner of the existing record.
 	if getDNSRecordOwnerNamespacedName(rec) == currentNNKey {
 		row := NewEndpointRow(ep, zonePath, recordName)
-		row.existingRecord = rec
 		if isRecordSharableWithContributors(rec) {
 			existingContribs := parseContributingOwnersFromRecord(rec)
 			if len(existingContribs) > 0 {
@@ -390,7 +418,6 @@ func (s *DNSRecordService) validateEndpointRowConflict(zonePath string, ep *extd
 		"effectiveOwner", primaryNN, "currentOwner", currentNNKey)
 	row := NewEndpointRow(ep, zonePath, recordName)
 	row.effectiveOwner = effectiveOwner
-	row.existingRecord = rec
 	existingContributions := parseContributingOwnersFromRecord(rec)
 	row.contributingOwnerKeys = mergeContributingOwnerKeys(existingContributions, currentNNKey, primaryNN)
 	return row, nil
@@ -477,20 +504,6 @@ func (s *DNSRecordService) applyDNSUpsertRows(batch *AggregatedDNSEndpoints) ([]
 			return cleanupUpdates, toRemove, &DNSZoneValidationError{Msg: "DNS endpoint validation failed during record build", Cause: err}
 		}
 		if rec != nil {
-			if existing := freshRow.existingRecord; existing != nil {
-				if existing.Path == nil {
-					return nil, nil, &DNSZoneValidationError{Msg: "existing DNS record has no path"}
-				}
-				org, project, id, err := parseDnsRecordPolicyPath(*existing.Path)
-				zoneOrg, zoneProject, _, _, zoneErr := parseDnsZonePath(row.zonePath)
-				if err != nil || zoneErr != nil || org != zoneOrg || project != zoneProject || (existing.Id != nil && *existing.Id != id) {
-					return nil, nil, &DNSZoneValidationError{Msg: fmt.Sprintf("existing DNS record path %q does not match its ID or zone project", *existing.Path)}
-				}
-				// Reuse existing IDs, including those produced by older operator versions.
-				// Creating a new ID for the same record can split shared Route ownership.
-				rec.Id = common.String(id)
-				rec.Path = common.String(*existing.Path)
-			}
 			desiredRecs = append(desiredRecs, rec)
 		}
 	}

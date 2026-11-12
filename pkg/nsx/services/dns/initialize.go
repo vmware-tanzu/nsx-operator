@@ -17,7 +17,7 @@ import (
 // CheckDNSRecordSupport reports whether DNS was enabled during initialization.
 func (s *DNSRecordService) CheckDNSRecordSupport() error {
 	if s.disabled {
-		return fmt.Errorf("DNSRecord requires NSX 9.2.0 or later and vpc_wcp_enhance=true")
+		return fmt.Errorf("DNSRecord requires NSX 9.2.0 or later")
 	}
 	return nil
 }
@@ -37,7 +37,7 @@ func InitializeDNSRecordService(commonService common.Service, vpcService common.
 	}
 	if !nsx.DNSRecordFeatureEnabled(commonService.NSXClient, commonService.NSXConfig) {
 		s.disabled = true
-		log.Info("DNSRecord is disabled; requires NSX 9.2.0+ and vpc_wcp_enhance=true")
+		log.Info("DNSRecord is disabled; requires NSX 9.2.0+")
 		return s, nil
 	}
 
