@@ -6,7 +6,6 @@ package vpcendpoint
 import (
 	"context"
 	"fmt"
-	"os"
 	"reflect"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -142,6 +141,9 @@ func (r *VPCEndpointReconciler) handleDeletion(ctx context.Context, req ctrl.Req
 }
 
 func (r *VPCEndpointReconciler) setupWithManager(mgr ctrl.Manager) error {
+	if err := r.SetupFieldIndexers(mgr); err != nil {
+		return fmt.Errorf("failed to setup field indexers for the VPCEndpoint controller: %w", err)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.VPCEndpoint{}).
 		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
@@ -206,10 +208,6 @@ func NewVPCEndpointReconciler(mgr ctrl.Manager, vpcEndpointService *vpcendpoint.
 		Scheme:   mgr.GetScheme(),
 		Service:  vpcEndpointService,
 		Recorder: mgr.GetEventRecorderFor("vpcendpoint-controller"), //nolint:staticcheck // record.EventRecorder; StatusUpdater not on events.EventRecorder yet
-	}
-	if err := reconciler.SetupFieldIndexers(mgr); err != nil {
-		log.Error(err, "Failed to setup field indexers for the VPCEndpoint controller")
-		os.Exit(1)
 	}
 	reconciler.StatusUpdater = common.NewStatusUpdater(reconciler.Client, reconciler.Service.NSXConfig, reconciler.Recorder, common.MetricResTypeVPCEndpoint, "VPCEndpoint", "VPCEndpoint")
 	return reconciler
