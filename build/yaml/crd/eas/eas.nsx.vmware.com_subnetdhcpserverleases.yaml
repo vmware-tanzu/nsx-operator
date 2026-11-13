@@ -1,0 +1,103 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: subnetdhcpserverleases.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: SubnetDHCPServerLeases
+    listKind: SubnetDHCPServerLeasesList
+    plural: subnetdhcpserverleases
+    singular: subnetdhcpserverleases
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SubnetDHCPServerLeases is a sub-resource of Subnet that represents
+          the DHCP server leases of the Subnet.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          ipv6Leases:
+            description: IPv6Leases contains the IPv6 DHCP server leases.
+            items:
+              description: DHCPv6Lease represents an IPv6 DHCP server lease.
+              properties:
+                duid:
+                  description: DUID is the DHCP unique identifier of the client holding
+                    the lease.
+                  type: string
+                expireTime:
+                  description: ExpireTime is the time at which the lease expires.
+                  type: string
+                iaType:
+                  description: IAType is the identity association type of the lease,
+                    e.g. IA_NA or IA_PD.
+                  type: string
+                iaid:
+                  description: IAID is the identity association identifier of the
+                    lease.
+                  format: int64
+                  type: integer
+                ipAddresses:
+                  description: IPAddresses are the leased IPv6 addresses.
+                  items:
+                    type: string
+                  type: array
+                leaseTime:
+                  description: LeaseTime is the lease duration, in seconds.
+                  type: string
+                startTime:
+                  description: StartTime is the time at which the lease was issued.
+                  type: string
+              type: object
+            type: array
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          leases:
+            description: Leases contains the IPv4 DHCP server leases.
+            items:
+              description: DHCPLease represents an IPv4 DHCP server lease.
+              properties:
+                expireTime:
+                  description: ExpireTime is the time at which the lease expires.
+                  type: string
+                ipAddress:
+                  description: IPAddress is the leased IPv4 address.
+                  type: string
+                leaseTime:
+                  description: LeaseTime is the lease duration, in seconds.
+                  type: string
+                macAddress:
+                  description: MACAddress is the MAC address of the client holding
+                    the lease.
+                  type: string
+                startTime:
+                  description: StartTime is the time at which the lease was issued.
+                  type: string
+                subnet:
+                  description: Subnet is the network address of the CIDR the lease
+                    was allocated from, e.g. "192.168.10.0".
+                  type: string
+              type: object
+            type: array
+          metadata:
+            type: object
+        type: object
+    served: true
+    storage: true
