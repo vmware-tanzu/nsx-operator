@@ -73,6 +73,10 @@ func createService(t *testing.T) (*vpc.VPCService, *gomock.Controller, *mocks.Mo
 }
 
 func TestBuildIPAddressAllocation(t *testing.T) {
+	versionPatch := gomonkey.ApplyMethod(reflect.TypeOf(&nsx.Client{}), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+		return feature == nsx.VpcIngressEgressSeparation
+	})
+	defer versionPatch.Reset()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -495,7 +499,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				UID:       "uid-usedfor",
 			},
 			Spec: v1alpha1.IPAddressAllocationSpec{
-				UsedFor:                  v1alpha1.UsedForLBFrontend,
+				UsedFor:                  []string{v1alpha1.UsedForLBFrontend},
 				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
 				AllocationSize:           4,
 				IPBlockName:              "proj-1:custom-block",
@@ -544,7 +548,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 				UID:       "uid-no-lb-vpc",
 			},
 			Spec: v1alpha1.IPAddressAllocationSpec{
-				UsedFor:                  v1alpha1.UsedForLBFrontend,
+				UsedFor:                  []string{v1alpha1.UsedForLBFrontend},
 				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
 				AllocationSize:           4,
 				IPBlockName:              ":ipblock-192.168.0.0-netmask-16",
@@ -705,6 +709,48 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "/orgs/org1/projects/proj2/infra/ip-blocks/custom-block-id", *result.IpBlock)
 	})
+}
+
+func TestBuildVIPAllocationVersion(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		t.Run(map[bool]string{false: "before 9.2", true: "9.2 or later"}[supported], func(t *testing.T) {
+			vpcService, _, _ := createService(t)
+			service := &IPAddressAllocationService{
+				Service:    common.Service{NSXClient: &nsx.Client{}, NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{Cluster: "test"}}},
+				VPCService: vpcService, ipAddressAllocationStore: buildIPAddressAllocationStore(),
+			}
+			patch := gomonkey.ApplyMethod(reflect.TypeOf(&nsx.Client{}), "NSXCheckVersion", func(_ *nsx.Client, feature int) bool {
+				assert.Equal(t, nsx.VpcIngressEgressSeparation, feature)
+				return supported
+			})
+			defer patch.Reset()
+			patch.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfigByNamespace", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, error) {
+				return &v1alpha1.VPCNetworkConfiguration{}, nil
+			})
+			patch.ApplyMethod(reflect.TypeOf(vpcService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
+				return []common.VPCResourceInfo{{OrgID: "org", ProjectID: "project", VPCID: "vpc"}}
+			})
+			patch.ApplyMethod(reflect.TypeOf(&common.Service{}), "GetNamespaceUID", func(_ *common.Service, _ string) types.UID { return "namespace-uid" })
+			for _, explicitIntent := range []bool{false, true} {
+				allocation := &v1alpha1.IPAddressAllocation{
+					ObjectMeta: v1.ObjectMeta{Name: "vip", Namespace: "test"},
+					Spec:       v1alpha1.IPAddressAllocationSpec{AllocationSize: 1},
+				}
+				if explicitIntent {
+					allocation.Spec.UsedFor = []string{v1alpha1.UsedForLBFrontend}
+				} else {
+					allocation.OwnerReferences = []v1.OwnerReference{{APIVersion: "v1", Kind: "Service", Name: "lb", UID: "svc-uid"}}
+				}
+				result, _, err := service.BuildIPAddressAllocation(allocation, nil, false)
+				assert.NoError(t, err)
+				if supported {
+					assert.Equal(t, []string{"LB_FRONTEND"}, result.UsedFor)
+				} else {
+					assert.Nil(t, result.UsedFor)
+				}
+			}
+		})
+	}
 }
 
 func TestBuildIPBlockPath(t *testing.T) {

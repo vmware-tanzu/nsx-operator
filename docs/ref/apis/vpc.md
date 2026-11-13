@@ -345,14 +345,21 @@ _Appears in:_
 | `allocationIPs` _string_ | AllocationIPs specifies the Allocated IP addresses in CIDR or single IP Address format. |  |  |
 | `ipv6AllocationPrefixLength` _integer_ | IPv6AllocationPrefixLength specifies the prefix length of IPv6 addresses.<br />Defaults to 64 when ipAddressType is IPv6 and this field is not specified.<br />Supported starting with VCF 9.2.0. |  | Maximum: 128 <br />Minimum: 64 <br /> |
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
-| `usedFor` _string_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set, IPs are allocated from LoadBalancerVPC if configured in VPCNetworkConfiguration, otherwise from the namespace's default VPC. |  | Enum: [LB_FRONTEND] <br /> |
+| `usedFor` _string array_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set, IPs are allocated from LoadBalancerVPC if configured in VPCNetworkConfiguration, otherwise from the namespace's default VPC. |  | Items enum: [LB_FRONTEND] <br /> |
 | `ipBlockName` _string_ | IPBlockName specifies the name of the IPBlock to allocate IP addresses. |  |  |
 | `dnsHostName` _string_ | DNSHostName specifies the hostname used when auto-creating DNS record. |  |  |
 
 
+VIP allocations use `spec.usedFor: ["LB_FRONTEND"]`. The operator sends the NSX
+`used_for` field on NSX 9.2.0 and later. An allocation with a core `v1` Service
+owner reference is also treated as a VIP allocation. For an owning LoadBalancer
+Service, allocation errors are reported in `status.conditions` with type
+`LoadBalancerIPAllocated`, status `False`, and the error message. A successful
+retry sets this condition to `True`. The owner reference must include the current
+Service UID; allocations without a Service owner reference only report status on
+the IPAddressAllocation CR.
+
 #### IPAddressAllocationStatus
-
-
 
 IPAddressAllocationStatus defines the observed state of IPAddressAllocation.
 

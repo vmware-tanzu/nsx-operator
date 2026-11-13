@@ -14,7 +14,7 @@ var (
 	IPAddressVisibilityPrivateTGW IPAddressVisibility     = "PrivateTGW"
 	IPAllocationIPAddressTypeIPv4 IPAllocationAddressType = "IPv4"
 	IPAllocationIPAddressTypeIPv6 IPAllocationAddressType = "IPv6"
-	UsedForLBFrontend             string                  = "LB_FRONTEND"
+	UsedForLBFrontend                                     = "LB_FRONTEND"
 )
 
 // +genclient
@@ -85,10 +85,10 @@ type IPAddressAllocationSpec struct {
 	IPAddressType IPAllocationAddressType `json:"ipAddressType,omitempty"`
 	// UsedFor specifies the intent/use case for the IP allocation.
 	// Only LB_FRONTEND is supported. When set, IPs are allocated from LoadBalancerVPC if configured in VPCNetworkConfiguration, otherwise from the namespace's default VPC.
-	// +kubebuilder:validation:Enum=LB_FRONTEND
+	// +kubebuilder:validation:items:Enum=LB_FRONTEND
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
-	UsedFor string `json:"usedFor,omitempty"`
+	UsedFor []string `json:"usedFor,omitempty"`
 	// IPBlockName specifies the name of the IPBlock to allocate IP addresses.
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
