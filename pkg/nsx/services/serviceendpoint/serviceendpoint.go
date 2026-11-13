@@ -72,15 +72,14 @@ func (service *ServiceEndpointService) CreateOrUpdateServiceEndpoint(obj *v1alph
 	}
 
 	nsxServiceEndpoint := service.BuildServiceEndpoint(obj)
-	return service.Apply(nsxServiceEndpoint)
+	return service.Apply(obj.Namespace, nsxServiceEndpoint)
 }
 
 // Apply patches NSX and waits for realization.
-func (service *ServiceEndpointService) Apply(nsxServiceEndpoint *model.VpcServiceEndpoint) error {
-	ns := service.GetServiceEndpointNamespace(nsxServiceEndpoint)
-	vpcInfo := service.VPCService.ListVPCInfo(ns)
+func (service *ServiceEndpointService) Apply(namespace string, nsxServiceEndpoint *model.VpcServiceEndpoint) error {
+	vpcInfo := service.VPCService.ListVPCInfo(namespace)
 	if len(vpcInfo) == 0 {
-		return fmt.Errorf("no VPC found for ServiceEndpoint in namespace %s", ns)
+		return fmt.Errorf("no VPC found for ServiceEndpoint in namespace %s", namespace)
 	}
 	orgID, projectID, vpcID := vpcInfo[0].OrgID, vpcInfo[0].ProjectID, vpcInfo[0].ID
 
@@ -99,6 +98,10 @@ func (service *ServiceEndpointService) Apply(nsxServiceEndpoint *model.VpcServic
 	realizeService := realizestate.InitializeRealizeState(service.Service)
 	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxServiceEndpointNew.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check ServiceEndpoint realization state", "ID", *nsxServiceEndpoint.Id)
+		if deleteErr := service.DeleteServiceEndpointByNSXResource(&nsxServiceEndpointNew); deleteErr != nil {
+			log.Error(deleteErr, "Failed to delete ServiceEndpoint after realization check failure", "ID", *nsxServiceEndpoint.Id)
+			return fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
+		}
 		return err
 	}
 
@@ -162,15 +165,6 @@ func (service *ServiceEndpointService) DeleteServiceEndpointByNamespacedName(nam
 
 func (service *ServiceEndpointService) ListServiceEndpointID() sets.Set[string] {
 	return service.ServiceEndpointStore.ListIndexFuncValues(common.TagScopeServiceEndpointCRUID)
-}
-
-func (service *ServiceEndpointService) GetServiceEndpointNamespace(nsxServiceEndpoint *model.VpcServiceEndpoint) string {
-	for _, tag := range nsxServiceEndpoint.Tags {
-		if *tag.Scope == common.TagScopeNamespace {
-			return *tag.Tag
-		}
-	}
-	return ""
 }
 
 func (service *ServiceEndpointService) serviceEndpointIdExists(id string) bool {

@@ -171,7 +171,6 @@ func TestVPCEndpointReconciler_Reconcile(t *testing.T) {
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteVPCEndpoint", func(_ *vpcendpoint.VPCEndpointService, obj interface{}) error {
 		return errNSXDelete
 	})
-	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, errNSXDelete, retErr)
 	assert.Equal(t, resultRequeue, result)

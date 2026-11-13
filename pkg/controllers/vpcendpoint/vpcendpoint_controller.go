@@ -63,23 +63,6 @@ func setReadyStatusFalse(k8sClient client.Client, ctx context.Context, obj clien
 	}
 }
 
-func setDeleteFailedStatus(k8sClient client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error) {
-	ve := obj.(*v1alpha1.VPCEndpoint)
-	cond := metav1.Condition{
-		Type:               "DeleteFailure",
-		Status:             metav1.ConditionTrue,
-		ObservedGeneration: ve.Generation,
-		Reason:             "VPCEndpointInUse",
-		Message:            fmt.Sprintf("NSX rejected the delete: %v", err),
-		LastTransitionTime: transitionTime,
-	}
-	if apimeta.SetStatusCondition(&ve.Status.Conditions, cond) {
-		if updateErr := k8sClient.Status().Update(ctx, ve); updateErr != nil {
-			log.Error(updateErr, "Failed to update status", "Name", ve.Name, "Namespace", ve.Namespace)
-		}
-	}
-}
-
 func setReadyStatusTrue(k8sClient client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
 	ve := obj.(*v1alpha1.VPCEndpoint)
 	cond := metav1.Condition{
@@ -132,7 +115,6 @@ func (r *VPCEndpointReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.
 func (r *VPCEndpointReconciler) handleDeletion(ctx context.Context, req ctrl.Request, obj *v1alpha1.VPCEndpoint) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseDeleteTotal()
 	if err := r.Service.DeleteVPCEndpoint(obj); err != nil {
-		setDeleteFailedStatus(r.Client, ctx, obj, metav1.Now(), err)
 		r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 		return resultRequeue, err
 	}

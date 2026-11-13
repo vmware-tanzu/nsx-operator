@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -159,7 +158,7 @@ func TestServiceEndpointReconciler_Reconcile(t *testing.T) {
 	assert.Equal(t, resultNormal, result)
 	patch.Reset()
 
-	// found, deletion timestamp set, NSX delete fails: DeleteFailure status condition should be set
+	// found, deletion timestamp set, NSX delete fails
 	errNSXDelete := errors.New("nsx delete failed")
 	k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
 		se := obj.(*v1alpha1.ServiceEndpoint)
@@ -170,25 +169,10 @@ func TestServiceEndpointReconciler_Reconcile(t *testing.T) {
 	patch = gomonkey.ApplyMethod(reflect.TypeOf(service), "DeleteServiceEndpoint", func(_ *serviceendpoint.ServiceEndpointService, obj interface{}) error {
 		return errNSXDelete
 	})
-	k8sClient.EXPECT().Status().Times(1).Return(fakewriter)
 	result, retErr = r.Reconcile(ctx, req)
 	assert.Equal(t, errNSXDelete, retErr)
 	assert.Equal(t, resultRequeue, result)
 	patch.Reset()
-}
-
-func TestSetDeleteFailedStatus(t *testing.T) {
-	mockCtl := gomock.NewController(t)
-	defer mockCtl.Finish()
-	k8sClient := mock_client.NewMockClient(mockCtl)
-	k8sClient.EXPECT().Status().Return(fakeStatusWriter{}).AnyTimes()
-
-	se := &v1alpha1.ServiceEndpoint{}
-	setDeleteFailedStatus(k8sClient, context.TODO(), se, metav1.Now(), errors.New("boom"))
-	cond := apimeta.FindStatusCondition(se.Status.Conditions, "DeleteFailure")
-	assert.NotNil(t, cond)
-	assert.Equal(t, metav1.ConditionTrue, cond.Status)
-	assert.Equal(t, "ServiceEndpointInUse", cond.Reason)
 }
 
 func TestServiceEndpointReconciler_CollectGarbage(t *testing.T) {

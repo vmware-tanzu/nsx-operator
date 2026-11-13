@@ -61,23 +61,6 @@ func setReadyStatusFalse(k8sClient client.Client, ctx context.Context, obj clien
 	}
 }
 
-func setDeleteFailedStatus(k8sClient client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, err error) {
-	se := obj.(*v1alpha1.ServiceEndpoint)
-	cond := metav1.Condition{
-		Type:               "DeleteFailure",
-		Status:             metav1.ConditionTrue,
-		ObservedGeneration: se.Generation,
-		Reason:             "ServiceEndpointInUse",
-		Message:            fmt.Sprintf("NSX rejected the delete: %v", err),
-		LastTransitionTime: transitionTime,
-	}
-	if apimeta.SetStatusCondition(&se.Status.Conditions, cond) {
-		if updateErr := k8sClient.Status().Update(ctx, se); updateErr != nil {
-			log.Error(updateErr, "Failed to update status", "Name", se.Name, "Namespace", se.Namespace)
-		}
-	}
-}
-
 func setReadyStatusTrue(k8sClient client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ ...interface{}) {
 	se := obj.(*v1alpha1.ServiceEndpoint)
 	cond := metav1.Condition{
@@ -130,7 +113,6 @@ func (r *ServiceEndpointReconciler) handleUpdate(ctx context.Context, obj *v1alp
 func (r *ServiceEndpointReconciler) handleDeletion(ctx context.Context, req ctrl.Request, obj *v1alpha1.ServiceEndpoint) (ctrl.Result, error) {
 	r.StatusUpdater.IncreaseDeleteTotal()
 	if err := r.Service.DeleteServiceEndpoint(obj); err != nil {
-		setDeleteFailedStatus(r.Client, ctx, obj, metav1.Now(), err)
 		r.StatusUpdater.DeleteFail(req.NamespacedName, obj, err)
 		return resultRequeue, err
 	}
