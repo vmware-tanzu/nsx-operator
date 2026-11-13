@@ -12,8 +12,6 @@ import (
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
-	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	nsxcommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
@@ -33,58 +31,21 @@ func NewSubnetDHCPStatsStorage(nsxClient *nsx.Client, k8sClient k8sclient.Client
 	}
 }
 
-// Get retrieves DHCP server config stats for the DHCP_SERVER subnet identified by name.
-// name must be the K8s Subnet CR name.  The Subnet CR's spec.vpcName is read to
-// determine the NSX VPC (format: "projectID:vpcID" for project-scoped, "vpcID" for
-// infra-scoped).  NSX subnets in that VPC are listed and the one whose
-// nsx-op/subnet_name tag (or ID as fallback) matches name is selected.
-// The returned object always has metadata.name equal to the input name.
+// Get retrieves SubnetDHCPServerStats for the namespaced Subnet CR identified by name.
+// The NSX subnet must match both the CR UID and its namespace ownership tag.
 func (s *SubnetDHCPStatsStorage) Get(ctx context.Context, namespace, name string) (*easv1alpha1.SubnetDHCPServerStats, error) {
-	log := logger.Log
-
-	// Resolve VPC info from the Subnet CR's spec.vpcName.
-	subnetCR := &vpcv1alpha1.Subnet{}
-	if err := s.k8sClient.Get(ctx, k8sclient.ObjectKey{Namespace: namespace, Name: name}, subnetCR); err != nil {
-		return nil, HandleEASError(err, "subnetdhcpserverstats", name, fmt.Errorf("subnet CR %s/%s not found: %w", namespace, name, err))
-	}
-	if subnetCR.Spec.VPCName == "" {
-		return nil, fmt.Errorf("subnet CR %s/%s has empty spec.vpcName", namespace, name)
-	}
-
-	orgID, projectID, vpcID := parseSubnetVPCName(subnetCR.Spec.VPCName)
-	log.Debug("Fetching DHCP stats by name", "namespace", namespace, "name", name,
-		"projectID", projectID, "vpcID", vpcID)
-
-	subnets, err := s.nsxClient.SubnetsClient.List(orgID, projectID, vpcID,
-		nil, nil, nil, nil, nil, nil, nil)
+	subnet, info, err := resolveSubnet(ctx, s.k8sClient, s.nsxClient, namespace, name, "subnetdhcpserverstats")
 	if err != nil {
-		return nil, HandleEASError(err, "subnetdhcpserverstats", name, fmt.Errorf("failed to list subnets from NSX: %w", err))
+		return nil, err
 	}
-
-	for _, subnet := range subnets.Results {
-		if subnet.Id == nil {
-			continue
+	if subnet.SubnetDhcpConfig == nil || subnet.SubnetDhcpConfig.Mode == nil || *subnet.SubnetDhcpConfig.Mode != "DHCP_SERVER" {
+		mode := "unknown"
+		if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
+			mode = *subnet.SubnetDhcpConfig.Mode
 		}
-		crName := nsxTagValue(subnet.Tags, nsxcommon.TagScopeSubnetCRName)
-		if crName == "" {
-			crName = *subnet.Id
-		}
-		if crName != name {
-			continue
-		}
-		// Subnet matched by name — check DHCP mode.
-		if subnet.SubnetDhcpConfig == nil || subnet.SubnetDhcpConfig.Mode == nil || *subnet.SubnetDhcpConfig.Mode != "DHCP_SERVER" {
-			mode := "unknown"
-			if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil {
-				mode = *subnet.SubnetDhcpConfig.Mode
-			}
-			return nil, fmt.Errorf("SubnetDHCPServerStats %s/%s: subnet DHCP mode is %s, not DHCP_SERVER", namespace, name, mode)
-		}
-		info := nsxcommon.VPCResourceInfo{OrgID: orgID, ProjectID: projectID, VPCID: vpcID}
-		return s.fetchStats(namespace, *subnet.Id, name, info)
+		return nil, fmt.Errorf("SubnetDHCPServerStats %s/%s: subnet DHCP mode is %s, not DHCP_SERVER", namespace, name, mode)
 	}
-
-	return nil, fmt.Errorf("SubnetDHCPServerStats %s/%s not found", namespace, name)
+	return s.fetchStats(namespace, *subnet.Id, name, info)
 }
 
 // fetchStats calls NSX for DHCP stats of a specific NSX subnet and returns the result
@@ -97,16 +58,6 @@ func (s *SubnetDHCPStatsStorage) fetchStats(namespace, nsxSubnetID, name string,
 		return nil, HandleEASError(err, "subnetdhcpserverstats", name, fmt.Errorf("failed to get DHCP server config stats from NSX: %w", err))
 	}
 	return ConvertDhcpServerStatistics(&nsxStats, name, namespace), nil
-}
-
-// nsxTagValue returns the tag value for the given scope from an NSX tags slice.
-func nsxTagValue(tags []model.Tag, scope string) string {
-	for _, t := range tags {
-		if t.Scope != nil && *t.Scope == scope && t.Tag != nil {
-			return *t.Tag
-		}
-	}
-	return ""
 }
 
 // ConvertDhcpServerStatistics converts NSX DhcpServerStatistics to K8s SubnetDHCPServerStats

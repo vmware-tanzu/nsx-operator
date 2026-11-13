@@ -16,7 +16,6 @@ import (
 
 	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestConvertDhcpServerStatistics_Nil(t *testing.T) {
@@ -50,7 +49,7 @@ func TestSubnetDHCPStatsStorage_Get_SubnetCRNotFound(t *testing.T) {
 func TestSubnetDHCPStatsStorage_Get_EmptyVPCName(t *testing.T) {
 	// Subnet CR exists but spec.vpcName is empty → error.
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		// VPCName intentionally empty
 	}
 	s := NewSubnetDHCPStatsStorage(&nsx.Client{}, newFakeK8sClient(subnetCR))
@@ -66,7 +65,7 @@ func TestSubnetDHCPStatsStorage_Get_SubnetNotFound(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
@@ -77,13 +76,12 @@ func TestSubnetDHCPStatsStorage_Get_SubnetNotFound(t *testing.T) {
 func TestSubnetDHCPStatsStorage_Get_OK(t *testing.T) {
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	dhcpMode := "DHCP_SERVER"
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
 			{
 				Id:               &subnetID,
-				Tags:             []model.Tag{{Scope: &scope, Tag: &crName}},
+				Tags:             subnetOwnershipTags(crName, "sub1-uid", "ns1"),
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: &dhcpMode},
 			},
 		},
@@ -92,7 +90,7 @@ func TestSubnetDHCPStatsStorage_Get_OK(t *testing.T) {
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	c.DhcpServerConfigStatsClient = &fakeDHCPStatsClient{}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
@@ -103,13 +101,12 @@ func TestSubnetDHCPStatsStorage_Get_OK(t *testing.T) {
 func TestSubnetDHCPStatsStorage_Get_FetchStatsError(t *testing.T) {
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	dhcpMode := "DHCP_SERVER"
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
 			{
 				Id:               &subnetID,
-				Tags:             []model.Tag{{Scope: &scope, Tag: &crName}},
+				Tags:             subnetOwnershipTags(crName, "sub1-uid", "ns1"),
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: &dhcpMode},
 			},
 		},
@@ -118,7 +115,7 @@ func TestSubnetDHCPStatsStorage_Get_FetchStatsError(t *testing.T) {
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	c.DhcpServerConfigStatsClient = &fakeDHCPStatsClient{err: fmt.Errorf("dhcp error")}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
@@ -129,15 +126,15 @@ func TestSubnetDHCPStatsStorage_Get_SubnetsError(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{err: fmt.Errorf("list subnets error")}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
 	_, err := s.Get(context.Background(), "ns1", "sub1")
 	require.Error(t, err)
 }
-func TestSubnetDHCPStatsStorage_Get_WithIDFallback(t *testing.T) {
-	// NSX subnet has no nsx-op/subnet_name tag → matched by NSX subnet ID directly.
+func TestSubnetDHCPStatsStorage_Get_RejectsIDFallback(t *testing.T) {
+	// An NSX ID equal to the CR name must not bypass ownership checks.
 	subnetID := "dhcp-subnet-id"
 	dhcpMode := "DHCP_SERVER"
 	subnets := model.VpcSubnetListResult{
@@ -145,7 +142,7 @@ func TestSubnetDHCPStatsStorage_Get_WithIDFallback(t *testing.T) {
 			{
 				Id:               &subnetID,
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: &dhcpMode},
-				// No tags → falls back to subnet ID as name
+				// No ownership tags.
 			},
 		},
 	}
@@ -153,13 +150,13 @@ func TestSubnetDHCPStatsStorage_Get_WithIDFallback(t *testing.T) {
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	c.DhcpServerConfigStatsClient = &fakeDHCPStatsClient{}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: subnetID, Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: subnetID, Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
-	result, err := s.Get(context.Background(), "ns1", subnetID)
-	require.NoError(t, err)
-	assert.Equal(t, subnetID, result.Name)
+	_, err := s.Get(context.Background(), "ns1", subnetID)
+	require.Error(t, err)
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestSubnetDHCPStatsStorage_Get_SubnetNilID(t *testing.T) {
 	subnets := model.VpcSubnetListResult{
@@ -168,7 +165,7 @@ func TestSubnetDHCPStatsStorage_Get_SubnetNilID(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "anything", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "anything", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
@@ -177,16 +174,15 @@ func TestSubnetDHCPStatsStorage_Get_SubnetNilID(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 func TestSubnetDHCPStatsStorage_Get_WrongDHCPMode(t *testing.T) {
-	// Subnet is found by name but its DHCP mode is not DHCP_SERVER.
+	// Subnet ownership matches but its DHCP mode is not DHCP_SERVER.
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	dhcpMode := "DHCP_DEACTIVATED"
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
 			{
 				Id:               &subnetID,
-				Tags:             []model.Tag{{Scope: &scope, Tag: &crName}},
+				Tags:             subnetOwnershipTags(crName, "sub1-uid", "ns1"),
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: &dhcpMode},
 			},
 		},
@@ -194,7 +190,7 @@ func TestSubnetDHCPStatsStorage_Get_WrongDHCPMode(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
@@ -204,15 +200,14 @@ func TestSubnetDHCPStatsStorage_Get_WrongDHCPMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "not DHCP_SERVER")
 }
 func TestSubnetDHCPStatsStorage_Get_NilDHCPConfig(t *testing.T) {
-	// Subnet is found by name but SubnetDhcpConfig is nil (no DHCP mode set).
+	// Subnet ownership matches but SubnetDhcpConfig is nil (no DHCP mode set).
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
 			{
 				Id:               &subnetID,
-				Tags:             []model.Tag{{Scope: &scope, Tag: &crName}},
+				Tags:             subnetOwnershipTags(crName, "sub1-uid", "ns1"),
 				SubnetDhcpConfig: nil, // nil config → mode "unknown"
 			},
 		},
@@ -220,7 +215,7 @@ func TestSubnetDHCPStatsStorage_Get_NilDHCPConfig(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))

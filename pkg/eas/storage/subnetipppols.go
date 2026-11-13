@@ -12,7 +12,6 @@ import (
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
-	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	nsxcommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -33,54 +32,17 @@ func NewSubnetIPPoolsStorage(nsxClient *nsx.Client, k8sClient k8sclient.Client) 
 	}
 }
 
-// Get retrieves IP pool details for the non-DHCP_SERVER subnet identified by name.
-// name must be the K8s Subnet CR name.  The Subnet CR's spec.vpcName is read to
-// determine the NSX VPC (format: "projectID:vpcID" for project-scoped, "vpcID" for
-// infra-scoped).  NSX subnets in that VPC are listed and matched by the
-// nsx-op/subnet_name tag (or by ID as fallback) to find the NSX subnet ID.
-// The returned object always has metadata.name equal to the input name.
+// Get retrieves SubnetIPPools for the namespaced Subnet CR identified by name.
+// The NSX subnet must match both the CR UID and its namespace ownership tag.
 func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) (*easv1alpha1.SubnetIPPools, error) {
-	log := logger.Log
-
-	// Resolve VPC info from the Subnet CR's spec.vpcName.
-	subnetCR := &vpcv1alpha1.Subnet{}
-	if err := s.k8sClient.Get(ctx, k8sclient.ObjectKey{Namespace: namespace, Name: name}, subnetCR); err != nil {
-		return nil, HandleEASError(err, "subnetippools", name, fmt.Errorf("subnet CR %s/%s not found: %w", namespace, name, err))
-	}
-	if subnetCR.Spec.VPCName == "" {
-		return nil, fmt.Errorf("subnet CR %s/%s has empty spec.vpcName", namespace, name)
-	}
-
-	orgID, projectID, vpcID := parseSubnetVPCName(subnetCR.Spec.VPCName)
-	log.Debug("Fetching subnet IP pools by name", "namespace", namespace, "name", name,
-		"projectID", projectID, "vpcID", vpcID)
-
-	subnets, err := s.nsxClient.SubnetsClient.List(orgID, projectID, vpcID,
-		nil, nil, nil, nil, nil, nil, nil)
+	subnet, info, err := resolveSubnet(ctx, s.k8sClient, s.nsxClient, namespace, name, "subnetippools")
 	if err != nil {
-		return nil, HandleEASError(err, "subnetippools", name, fmt.Errorf("failed to list subnets from NSX: %w", err))
+		return nil, err
 	}
-
-	for _, subnet := range subnets.Results {
-		if subnet.Id == nil {
-			continue
-		}
-		crName := nsxTagValue(subnet.Tags, nsxcommon.TagScopeSubnetCRName)
-		if crName == "" {
-			crName = *subnet.Id
-		}
-		if crName != name {
-			continue
-		}
-		// Subnet matched by name — check it is not DHCP_SERVER (IP pools are for non-DHCP subnets).
-		if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil && *subnet.SubnetDhcpConfig.Mode == "DHCP_SERVER" {
-			return nil, fmt.Errorf("SubnetIPPools %s/%s: subnet DHCP mode is DHCP_SERVER, use SubnetDHCPServerStats instead", namespace, name)
-		}
-		info := nsxcommon.VPCResourceInfo{OrgID: orgID, ProjectID: projectID, VPCID: vpcID}
-		return s.fetchIPPools(namespace, *subnet.Id, name, info)
+	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil && *subnet.SubnetDhcpConfig.Mode == "DHCP_SERVER" {
+		return nil, fmt.Errorf("SubnetIPPools %s/%s: subnet DHCP mode is DHCP_SERVER, use SubnetDHCPServerStats instead", namespace, name)
 	}
-
-	return nil, fmt.Errorf("SubnetIPPools %s/%s not found", namespace, name)
+	return s.fetchIPPools(namespace, *subnet.Id, name, info)
 }
 
 // fetchIPPools calls NSX for the IP pools of a specific NSX subnet and returns the result

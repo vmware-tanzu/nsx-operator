@@ -33,13 +33,17 @@ func (p singleVPCProvider) ListAllVPCNamespaces() []string { return nil }
 type fakeSubnetsClient struct {
 	results model.VpcSubnetListResult
 	err     error
+	list    func(orgID, projectID, vpcID string, cursor *string) (model.VpcSubnetListResult, error)
 }
 
 func (f *fakeSubnetsClient) Delete(string, string, string, string) error { return nil }
 func (f *fakeSubnetsClient) Get(string, string, string, string) (model.VpcSubnet, error) {
 	return model.VpcSubnet{}, nil
 }
-func (f *fakeSubnetsClient) List(_, _, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
+func (f *fakeSubnetsClient) List(orgID, projectID, vpcID string, cursor *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {
+	if f.list != nil {
+		return f.list(orgID, projectID, vpcID, cursor)
+	}
 	return f.results, f.err
 }
 func (f *fakeSubnetsClient) Patch(string, string, string, string, model.VpcSubnet) error { return nil }
@@ -48,23 +52,27 @@ func (f *fakeSubnetsClient) Update(string, string, string, string, model.VpcSubn
 }
 
 type fakeDHCPStatsClient struct {
-	result model.DhcpServerStatistics
-	err    error
+	result    model.DhcpServerStatistics
+	err       error
+	subnetIDs []string
 }
 
-func (f *fakeDHCPStatsClient) Get(_, _, _, _ string, _ *string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
+func (f *fakeDHCPStatsClient) Get(_, _, _ string, subnetID string, _ *string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.DhcpServerStatistics, error) {
+	f.subnetIDs = append(f.subnetIDs, subnetID)
 	return f.result, f.err
 }
 
 type fakeIPPoolClient struct {
-	result model.IpAddressPoolListResult
-	err    error
+	result    model.IpAddressPoolListResult
+	err       error
+	subnetIDs []string
 }
 
 func (f *fakeIPPoolClient) Get(string, string, string, string, string) (model.IpAddressPool, error) {
 	return model.IpAddressPool{}, nil
 }
-func (f *fakeIPPoolClient) List(_, _, _, _ string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressPoolListResult, error) {
+func (f *fakeIPPoolClient) List(_, _, _ string, subnetID string, _ *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.IpAddressPoolListResult, error) {
+	f.subnetIDs = append(f.subnetIDs, subnetID)
 	return f.result, f.err
 }
 
