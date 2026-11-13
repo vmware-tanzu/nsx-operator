@@ -24,6 +24,13 @@ func (sp *SubnetPort) Value() data.DataValue {
 		Tags:                   sp.Tags,
 		Attachment:             sp.Attachment,
 		StaticIpAllocationType: sp.StaticIpAllocationType,
+		PortSettingPath:        sp.PortSettingPath,
+	}
+	// NSX returns the subnet's default setting when the request omits it.
+	// Normalize only the comparable copy, preserving the request and cached response.
+	if sp.ParentPath != nil && *sp.ParentPath != "" && s.PortSettingPath != nil &&
+		*s.PortSettingPath == *sp.ParentPath+"/port-settings/default" {
+		s.PortSettingPath = nil
 	}
 	if sp.Attachment != nil {
 		// Ignoring the fields BmsInterfaceConfig, ContextType, EvpnVlans, HyperbusMode

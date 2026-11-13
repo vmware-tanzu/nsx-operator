@@ -65,8 +65,13 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 	var addressBindings []model.PortAddressBindingEntry
 	var hasMacSpecified bool
 	var staticIpAllocationType string
+	var portSettingPath *string
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
+		portSettingPath, err = service.buildPortSettingPath(o, nsxSubnet)
+		if err != nil {
+			return nil, err
+		}
 		externalAddressBinding, err = service.buildExternalAddressBinding(o, nsxSubnet, restoreMode)
 		if err != nil {
 			return nil, err
@@ -245,6 +250,7 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		Path:                   &nsxSubnetPortPath,
 		ParentPath:             nsxSubnet.Path,
 		ExternalAddressBinding: externalAddressBinding,
+		PortSettingPath:        portSettingPath,
 	}
 	// For backward compatibility, only set StaticIpAllocationType for 9.2+
 	if service.NSXClient.NSXCheckVersion(nsx.IPv6) {
@@ -260,6 +266,41 @@ func (service *SubnetPortService) buildSubnetPort(obj interface{}, nsxSubnet *mo
 		nsxSubnetPort.AddressBindings = addressBindings
 	}
 	return nsxSubnetPort, nil
+}
+
+func (service *SubnetPortService) buildPortSettingPath(sp *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) (*string, error) {
+	if sp.Spec.PortSettingName == "" {
+		return nil, nil
+	}
+	key := types.NamespacedName{Namespace: sp.Namespace, Name: sp.Spec.PortSettingName}
+	setting := &v1alpha1.SubnetPortSetting{}
+	if err := service.Client.Get(context.Background(), key, setting); err != nil {
+		return nil, fmt.Errorf("failed to get SubnetPortSetting %s: %w", key, err)
+	}
+	if sp.Spec.Subnet == "" || setting.Spec.SubnetName != sp.Spec.Subnet {
+		return nil, fmt.Errorf("SubnetPortSetting %s belongs to Subnet %q, not selected Subnet %q", key, setting.Spec.SubnetName, sp.Spec.Subnet)
+	}
+	if !setting.DeletionTimestamp.IsZero() {
+		return nil, fmt.Errorf("SubnetPortSetting %s is being deleted", key)
+	}
+	if nsxSubnet == nil || nsxSubnet.Path == nil {
+		return nil, fmt.Errorf("cannot resolve SubnetPortSetting %s without a realized Subnet path", key)
+	}
+	sourceSubnet, err := common.ConvertSubnetPathToAssociatedResource(*nsxSubnet.Path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot resolve SubnetPortSetting %s: %w", key, err)
+	}
+	// The mirror name may be generated or hashed. Its annotation retains the
+	// source Subnet identity and the original NSX port setting ID.
+	source := setting.Annotations[common.AnnotationAssociatedResource]
+	portSettingID, matchesSubnet := strings.CutPrefix(source, sourceSubnet+":")
+	if !matchesSubnet || portSettingID == "" {
+		return nil, fmt.Errorf("SubnetPortSetting %s has no source identity for selected Subnet %s", key, *nsxSubnet.Path)
+	}
+	if strings.Contains(portSettingID, "/") || portSettingID == "." || portSettingID == ".." {
+		return nil, fmt.Errorf("SubnetPortSetting %s has invalid source port setting ID %q", key, portSettingID)
+	}
+	return common.String(fmt.Sprintf("%s/port-settings/%s", *nsxSubnet.Path, portSettingID)), nil
 }
 
 // GetPodRestoreStatus translates the network state persisted on a realized Pod.
