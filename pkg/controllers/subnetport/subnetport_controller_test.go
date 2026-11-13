@@ -2006,10 +2006,73 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 		raErr               error
 		expectRADeactivated bool
 		expectReconcileErr  bool
+		vmOwner             bool
+		imageFetcher        bool
+		interfaceIPType     v1alpha1.IPAddressType
+		oldAttachmentID     string
+		clearOldResolverIPs bool
+		dnsResolverIPs      []string
+		wantDNSResolverIPs  []string
 	}{
 		{name: "RA deactivated", raDeactivated: true, expectRADeactivated: true},
 		{name: "RA not deactivated", raDeactivated: false, expectRADeactivated: false},
 		{name: "RA lookup error fails reconcile", raErr: errors.New("lookup failed"), expectReconcileErr: true},
+		{
+			name:                "VM owner status includes matching IPv4 resolver",
+			raDeactivated:       true,
+			expectRADeactivated: true,
+			vmOwner:             true,
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			dnsResolverIPs:      []string{"192.0.2.53", "2001:db8::53"},
+			wantDNSResolverIPs:  []string{"192.0.2.53"},
+		},
+		{
+			name:                "VM owner status includes matching IPv6 resolver",
+			raDeactivated:       true,
+			expectRADeactivated: true,
+			vmOwner:             true,
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv6,
+			dnsResolverIPs:      []string{"192.0.2.53", "2001:db8::53"},
+			wantDNSResolverIPs:  []string{"2001:db8::53"},
+		},
+		{
+			name:                "VM owner dual-stack status includes both resolvers",
+			raDeactivated:       true,
+			expectRADeactivated: true,
+			vmOwner:             true,
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4IPv6,
+			dnsResolverIPs:      []string{"192.0.2.53", "2001:db8::53"},
+			wantDNSResolverIPs:  []string{"192.0.2.53", "2001:db8::53"},
+		},
+		{
+			name:                "existing VM attachment preserves resolver status",
+			raDeactivated:       true,
+			expectRADeactivated: true,
+			vmOwner:             true,
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			oldAttachmentID:     "attachment-id",
+			dnsResolverIPs:      []string{"192.0.2.53", "2001:db8::53"},
+			wantDNSResolverIPs:  []string{"198.51.100.53"},
+		},
+		{
+			name:                "existing VM attachment does not backfill resolver status",
+			raDeactivated:       true,
+			expectRADeactivated: true,
+			vmOwner:             true,
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			oldAttachmentID:     "attachment-id",
+			clearOldResolverIPs: true,
+			dnsResolverIPs:      []string{"192.0.2.53", "2001:db8::53"},
+		},
+		{
+			name:                "image fetcher VM status omits resolver IPs",
+			raDeactivated:       true,
+			expectRADeactivated: true,
+			vmOwner:             true,
+			imageFetcher:        true,
+			interfaceIPType:     v1alpha1.IPAddressTypeIPv4,
+			dnsResolverIPs:      []string{"192.0.2.53", "2001:db8::53"},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			mockCtl := gomock.NewController(t)
@@ -2030,7 +2093,7 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 			subnetService := &mock.MockSubnetServiceProvider{}
 			ipAllocationService := &mock.MockIPAddressAllocationProvider{}
 			vpcService := &mock.MockVPCServiceProvider{}
-			vpcService.On("IsRADeactivatedByVPCPath", testifymock.Anything).Return(tt.raDeactivated, tt.raErr)
+			vpcService.On("GetSubnetPortVPCConfigByVPCPath", testifymock.Anything).Return(tt.raDeactivated, tt.dnsResolverIPs, tt.raErr)
 
 			r := &SubnetPortReconciler{
 				Client:                     k8sClient,
@@ -2048,16 +2111,49 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 
 			// 1st Get: Reconciler fetching the CR. 2nd Get: updateSubnetPortStatusConditions
 			// re-fetching the latest CR before persisting the merged status.
-			k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.Any()).Return(nil).Do(
+			k8sClient.EXPECT().Get(ctx, gomock.Any(), gomock.AssignableToTypeOf(&v1alpha1.SubnetPort{})).Return(nil).Do(
 				func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
 					v1sp := obj.(*v1alpha1.SubnetPort)
+					v1sp.Namespace = "dummy"
 					v1sp.Spec.Subnet = "subnet1"
+					v1sp.Spec.InterfaceIPType = tt.interfaceIPType
+					v1sp.Spec.StaticIPAllocationType = v1alpha1.StaticIPAllocationTypeNone
+					v1sp.Status.Attachment.ID = tt.oldAttachmentID
+					if !tt.clearOldResolverIPs {
+						v1sp.Status.NetworkInterfaceConfig.DNSResolverIPs = []string{"198.51.100.53"}
+					}
+					if tt.vmOwner {
+						v1sp.OwnerReferences = []metav1.OwnerReference{{
+							APIVersion: vmv1alpha1.GroupVersion.String(),
+							Kind:       servicecommon.ResourceTypeVirtualMachine,
+							Name:       "vm-1",
+							UID:        "vm-uid",
+						}}
+						v1sp.Annotations = map[string]string{servicecommon.AnnotationAttachmentRef: "VirtualMachine/vm-1/eth0"}
+					}
+					if tt.imageFetcher {
+						v1sp.Labels = map[string]string{servicecommon.LabelImageFetcher: "true"}
+					}
 					return nil
 				}).Times(2)
+			if tt.vmOwner {
+				k8sClient.EXPECT().Get(ctx, types.NamespacedName{Namespace: "dummy", Name: "vm-1"}, gomock.AssignableToTypeOf(&vmv1alpha1.VirtualMachine{})).Return(nil).Do(
+					func(_ context.Context, _ client.ObjectKey, obj client.Object, option ...client.GetOption) error {
+						vm := obj.(*vmv1alpha1.VirtualMachine)
+						vm.Name = "vm-1"
+						vm.Namespace = "dummy"
+						vm.Labels = map[string]string{"vm-label": "value"}
+						return nil
+					})
+			}
 
 			patchesCheckAndGetSubnetPathForSubnetPort := gomonkey.ApplyFunc((*SubnetPortReconciler).CheckAndGetSubnetPathForSubnetPort,
 				func(r *SubnetPortReconciler, ctx context.Context, subnetPort *v1alpha1.SubnetPort) (bool, bool, string, *types.UID, *sync.RWMutex, v1alpha1.IPAddressType, v1alpha1.StaticIPAllocationType, error) {
-					return true, false, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet-1", nil, nil, v1alpha1.IPAddressTypeIPv4, "", nil
+					interfaceIPType := tt.interfaceIPType
+					if interfaceIPType == "" {
+						interfaceIPType = v1alpha1.IPAddressTypeIPv4
+					}
+					return true, false, "/orgs/default/projects/default/vpcs/vpc1/subnets/subnet-1", nil, nil, interfaceIPType, "", nil
 				})
 			defer patchesCheckAndGetSubnetPathForSubnetPort.Reset()
 
@@ -2096,7 +2192,10 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 			})
 			defer patchesIPAllocDelete.Reset()
 
-			attachmentID := "attachment-id"
+			attachmentID := tt.oldAttachmentID
+			if attachmentID == "" {
+				attachmentID = "attachment-id"
+			}
 			portState := &model.SegmentPortState{
 				RealizedBindings: []model.AddressBindingEntry{},
 				Attachment: &model.SegmentPortAttachmentState{
@@ -2131,6 +2230,7 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 			assert.NoError(t, err)
 			if assert.NotNil(t, statusWriter.captured) {
 				assert.Equal(t, tt.expectRADeactivated, statusWriter.captured.Status.NetworkInterfaceConfig.RADeactivated)
+				assert.Equal(t, tt.wantDNSResolverIPs, statusWriter.captured.Status.NetworkInterfaceConfig.DNSResolverIPs)
 			}
 		})
 	}

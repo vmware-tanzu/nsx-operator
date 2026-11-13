@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -24,15 +25,18 @@ import (
 
 const vmOperatorAPIGroup = "vmoperator.vmware.com"
 
-// subnetPortSupportsDNSAutoRecord limits automatic records to VM-owned ports.
-// Image fetcher and Pod networking do not participate in this feature.
-func subnetPortSupportsDNSAutoRecord(port *v1alpha1.SubnetPort) bool {
+// subnetPortSupportsDNS limits DNS settings to VM-owned ports. Image fetcher
+// and Pod networking do not participate in DNS auto-record or resolver status.
+func subnetPortSupportsDNS(port *v1alpha1.SubnetPort) bool {
 	if port == nil || port.Labels[servicecommon.LabelImageFetcher] == "true" {
 		return false
 	}
 	for _, owner := range port.OwnerReferences {
-		if owner.Kind == servicecommon.ResourceTypeVirtualMachine && strings.HasPrefix(owner.APIVersion, vmOperatorAPIGroup+"/") {
-			return true
+		if owner.Kind == servicecommon.ResourceTypeVirtualMachine {
+			groupVersion, err := schema.ParseGroupVersion(owner.APIVersion)
+			if err == nil && groupVersion.Group == vmOperatorAPIGroup {
+				return true
+			}
 		}
 	}
 	return false
@@ -87,7 +91,7 @@ func (r *SubnetPortReconciler) syncSubnetPortDNSStatus(ctx context.Context) erro
 			return err
 		}
 		port := &ports.Items[i]
-		if !port.DeletionTimestamp.IsZero() || !subnetPortSupportsDNSAutoRecord(port) {
+		if !port.DeletionTimestamp.IsZero() || !subnetPortSupportsDNS(port) {
 			continue
 		}
 		nsxPort, err := service.SubnetPortStore.GetVpcSubnetPortByUID(port.UID)
@@ -157,7 +161,7 @@ func (r *SubnetPortReconciler) syncSubnetPortDNSStatus(ctx context.Context) erro
 
 // populateSubnetPortFQDNs prepares FQDNs for the controller's normal status update.
 func (r *SubnetPortReconciler) populateSubnetPortFQDNs(port *v1alpha1.SubnetPort, subnet *model.VpcSubnet) error {
-	if !subnetPortSupportsDNSAutoRecord(port) || !nsx.DNSAutoRecordFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
+	if !subnetPortSupportsDNS(port) || !nsx.DNSAutoRecordFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) {
 		return nil
 	}
 	nsxPort, err := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(port.UID)

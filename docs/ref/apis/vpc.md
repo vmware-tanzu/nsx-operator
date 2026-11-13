@@ -347,7 +347,7 @@ _Appears in:_
 | `ipAddressType` _[IPAllocationAddressType](#ipallocationaddresstype)_ | IPAddressType specifies the IP address type of the IPAddressAllocation.<br />Supported starting with VCF 9.2.0. | IPv4 | Enum: [IPv4 IPv6] <br /> |
 | `usedFor` _string_ | UsedFor specifies the intent/use case for the IP allocation.<br />Only LB_FRONTEND is supported. When set, IPs are allocated from LoadBalancerVPC if configured in VPCNetworkConfiguration, otherwise from the namespace's default VPC. |  | Enum: [LB_FRONTEND] <br /> |
 | `ipBlockName` _string_ | IPBlockName specifies the name of the IPBlock to allocate IP addresses. |  |  |
-| `dnsHostName` _string_ | DNSHostName specifies the DNS name used when auto-creating DNS records.<br />It must be a valid DNS label or domain, with labels up to 63 characters and a total length of at most 253 characters.<br />The operator normalizes it to lowercase before sending it to NSX. |  | MaxLength: 253 <br />Pattern: `^[A-Za-z0-9]([-A-Za-z0-9]\{0,61\}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]\{0,61\}[A-Za-z0-9])?)*$` <br /> |
+| `dnsHostName` _string_ | DNSHostName specifies the DNS host name used when auto-creating DNS records.<br />It must be a valid DNS label or domain, with labels up to 63 characters and a total length of at most 253 characters. |  | MaxLength: 253 <br />Pattern: `^[A-Za-z0-9]([-A-Za-z0-9]\{0,61\}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]\{0,61\}[A-Za-z0-9])?)*$` <br /> |
 
 
 #### IPAddressAllocationStatus

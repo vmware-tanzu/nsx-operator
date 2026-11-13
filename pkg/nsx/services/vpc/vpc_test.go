@@ -460,6 +460,107 @@ func TestIsRADeactivatedByVPCPath(t *testing.T) {
 	}
 }
 
+func TestGetSubnetPortVPCConfigByVPCPathReturnsDNSResolverIPsWithRAEnabled(t *testing.T) {
+	vpcPath := "/orgs/default/projects/p1/vpcs/vpc1"
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				VPCClient:               &fakeVpcsClientForRA{},
+				VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+				Ipv6NdraProfileClient:   &fakeIpv6NdraProfilesClient{},
+			},
+		},
+	}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.VpcServiceProfile{
+			Ipv6ProfilePaths: []string{"/infra/ipv6-ndra-profiles/ra1"},
+			DnsConfig: &model.VpcProfileDnsConfig{
+				Ipv4ResolverIp: common.String("192.0.2.53"),
+				Ipv6ResolverIp: common.String("2001:db8::53"),
+			},
+		}, nil},
+		Times: 1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.Ipv6NdraProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Ipv6NdraProfile{RaMode: common.String(model.Ipv6NdraProfile_RA_MODE_SLAAC_DNS_THROUGH_RA)}, nil},
+		Times:  1,
+	}})
+	defer patches.Reset()
+
+	raDeactivated, resolverIPs, err := vpcService.GetSubnetPortVPCConfigByVPCPath(vpcPath)
+	assert.NoError(t, err)
+	assert.False(t, raDeactivated)
+	assert.Equal(t, []string{"192.0.2.53", "2001:db8::53"}, resolverIPs)
+}
+
+func TestGetDNSResolverIPsUsesOnlyConfiguredValues(t *testing.T) {
+	ipv4 := "192.0.2.53"
+	ipv6 := "2001:db8::53"
+	assert.Equal(t, []string{ipv4, ipv6}, getDNSResolverIPs(&model.VpcServiceProfile{DnsConfig: &model.VpcProfileDnsConfig{
+		Ipv4ResolverIp: &ipv4,
+		Ipv6ResolverIp: &ipv6,
+	}}))
+	assert.Equal(t, []string{ipv4}, getDNSResolverIPs(&model.VpcServiceProfile{DnsConfig: &model.VpcProfileDnsConfig{
+		Ipv4ResolverIp: &ipv4,
+	}}))
+	assert.Nil(t, getDNSResolverIPs(&model.VpcServiceProfile{DnsConfig: &model.VpcProfileDnsConfig{}}))
+	assert.Nil(t, getDNSResolverIPs(&model.VpcServiceProfile{}))
+}
+
+func TestGetSubnetPortVPCConfigByVPCPathWithoutServiceProfile(t *testing.T) {
+	vpcPath := "/orgs/default/projects/p1/vpcs/vpc1"
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				VPCClient:               &fakeVpcsClientForRA{},
+				VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+			},
+		},
+	}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Vpc{}, nil},
+		Times:  1,
+	}})
+	defer patches.Reset()
+
+	raDeactivated, resolverIPs, err := vpcService.GetSubnetPortVPCConfigByVPCPath(vpcPath)
+	require.NoError(t, err)
+	require.True(t, raDeactivated)
+	require.Nil(t, resolverIPs)
+}
+
+func TestGetSubnetPortVPCConfigByVPCPathWhenServiceProfileGetFails(t *testing.T) {
+	vpcPath := "/orgs/default/projects/p1/vpcs/vpc1"
+	profilePath := "/orgs/default/projects/p1/vpc-service-profiles/default"
+	expectedErr := errors.New("service profile lookup failed")
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				VPCClient:               &fakeVpcsClientForRA{},
+				VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+			},
+		},
+	}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String(profilePath)}, nil},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.VpcServiceProfile{}, expectedErr},
+		Times:  1,
+	}})
+	defer patches.Reset()
+
+	raDeactivated, resolverIPs, err := vpcService.GetSubnetPortVPCConfigByVPCPath(vpcPath)
+	require.ErrorIs(t, err, expectedErr)
+	require.False(t, raDeactivated)
+	require.Nil(t, resolverIPs)
+}
+
 // TestIsRADeactivatedByVPCPath_NoStaleCaching guards against a regression found during manual
 // testing: an earlier version of IsRADeactivatedByVPCPath cached its result forever, so an admin
 // enabling/disabling RA on a live VPC had no effect on already-cached SubnetPorts until the
