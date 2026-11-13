@@ -16,7 +16,6 @@ import (
 
 	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestSubnetIPPoolsStorage_Get_SubnetCRNotFound(t *testing.T) {
@@ -29,7 +28,7 @@ func TestSubnetIPPoolsStorage_Get_SubnetCRNotFound(t *testing.T) {
 func TestSubnetIPPoolsStorage_Get_EmptyVPCName(t *testing.T) {
 	// Subnet CR exists but spec.vpcName is empty → error.
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		// VPCName intentionally empty
 	}
 	s := NewSubnetIPPoolsStorage(&nsx.Client{}, newFakeK8sClient(subnetCR))
@@ -45,7 +44,7 @@ func TestSubnetIPPoolsStorage_Get_SubnetNotFound(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
@@ -56,17 +55,16 @@ func TestSubnetIPPoolsStorage_Get_SubnetNotFound(t *testing.T) {
 func TestSubnetIPPoolsStorage_Get_OK(t *testing.T) {
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
-			{Id: &subnetID, Tags: []model.Tag{{Scope: &scope, Tag: &crName}}},
+			{Id: &subnetID, Tags: subnetOwnershipTags(crName, "sub1-uid", "ns1")},
 		},
 	}
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	c.IPPoolClient = &fakeIPPoolClient{}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
@@ -77,10 +75,9 @@ func TestSubnetIPPoolsStorage_Get_OK(t *testing.T) {
 func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
-			{Id: &subnetID, Tags: []model.Tag{{Scope: &scope, Tag: &crName}}},
+			{Id: &subnetID, Tags: subnetOwnershipTags(crName, "sub1-uid", "ns1")},
 		},
 	}
 	ipType := "IPv4"
@@ -105,7 +102,7 @@ func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	c.IPPoolClient = &fakeIPPoolClient{result: pools}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
@@ -121,17 +118,16 @@ func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 func TestSubnetIPPoolsStorage_Get_FetchPoolError(t *testing.T) {
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
-			{Id: &subnetID, Tags: []model.Tag{{Scope: &scope, Tag: &crName}}},
+			{Id: &subnetID, Tags: subnetOwnershipTags(crName, "sub1-uid", "ns1")},
 		},
 	}
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	c.IPPoolClient = &fakeIPPoolClient{err: fmt.Errorf("pool error")}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
@@ -142,15 +138,15 @@ func TestSubnetIPPoolsStorage_Get_SubnetsError(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{err: fmt.Errorf("list subnets error")}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
 	_, err := s.Get(context.Background(), "ns1", "sub1")
 	require.Error(t, err)
 }
-func TestSubnetIPPoolsStorage_Get_WithIDFallback(t *testing.T) {
-	// NSX subnet has no nsx-op/subnet_name tag → matched by NSX subnet ID directly.
+func TestSubnetIPPoolsStorage_Get_RejectsIDFallback(t *testing.T) {
+	// An NSX ID equal to the CR name must not bypass ownership checks.
 	subnetID := "pool-subnet-id"
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
@@ -161,25 +157,24 @@ func TestSubnetIPPoolsStorage_Get_WithIDFallback(t *testing.T) {
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	c.IPPoolClient = &fakeIPPoolClient{}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: subnetID, Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: subnetID, Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
-	result, err := s.Get(context.Background(), "ns1", subnetID)
-	require.NoError(t, err)
-	assert.Equal(t, subnetID, result.Name)
+	_, err := s.Get(context.Background(), "ns1", subnetID)
+	require.Error(t, err)
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestSubnetIPPoolsStorage_Get_DHCPServerMode(t *testing.T) {
-	// Subnet is found by name but mode is DHCP_SERVER → use SubnetDHCPServerStats instead.
+	// Subnet ownership matches but mode is DHCP_SERVER → use SubnetDHCPServerStats instead.
 	subnetID := "subnet-1"
 	crName := "sub1"
-	scope := common.TagScopeSubnetCRName
 	dhcpMode := "DHCP_SERVER"
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
 			{
 				Id:               &subnetID,
-				Tags:             []model.Tag{{Scope: &scope, Tag: &crName}},
+				Tags:             subnetOwnershipTags(crName, "sub1-uid", "ns1"),
 				SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: &dhcpMode},
 			},
 		},
@@ -187,7 +182,7 @@ func TestSubnetIPPoolsStorage_Get_DHCPServerMode(t *testing.T) {
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
 	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
 	}
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
