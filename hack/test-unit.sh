@@ -136,13 +136,25 @@ done
 echo -e "\r${GREEN}  ${ROCKET} Test environment ready! Let's go!${NC}\n"
 
 export GOARCH=amd64
-export KUBEBUILDER_ASSETS="${KUBEBUILDER_ASSETS:-bin/k8s/1.28.0-darwin-arm64/}"  # darwin is used to test on M1 Macs
+
+# Resolve envtest assets for the host OS/architecture unless the caller
+# supplied a path. This works for Linux CI and local macOS development.
+ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-1.33.0}"
+if [[ -z "${KUBEBUILDER_ASSETS:-}" ]]; then
+    if [[ -x "bin/setup-envtest" ]]; then
+        KUBEBUILDER_ASSETS="$(bin/setup-envtest use "${ENVTEST_K8S_VERSION}" -p path)"
+    else
+        echo "setup-envtest is unavailable; the envtest API-server test will skip"
+        KUBEBUILDER_ASSETS=""
+    fi
+    export KUBEBUILDER_ASSETS
+fi
 
 # Enable clean test mode to suppress verbose logging
 export NSX_TEST_CLEAN_MODE=true
 
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${NERD} Configuration: GOARCH=amd64, KUBEBUILDER_ASSETS=$KUBEBUILDER_ASSETS"
+echo -e "${NERD} Configuration: GOARCH=amd64, KUBEBUILDER_ASSETS=${KUBEBUILDER_ASSETS:-unset}"
 echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 # Create coverage directory if it doesn't exist

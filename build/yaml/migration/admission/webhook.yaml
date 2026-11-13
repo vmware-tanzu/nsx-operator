@@ -1,0 +1,27 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: supervisor-network-migration-transition-validation
+  annotations:
+    cert-manager.io/inject-ca-from: vmware-system-nsx/supervisor-network-migration-admission
+webhooks:
+  - name: transition-validation.migration.network.vmware.com
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    timeoutSeconds: 5
+    clientConfig:
+      service:
+        namespace: vmware-system-nsx
+        name: supervisor-network-migration-admission
+        path: /validate-migration-transition
+        port: 443
+    rules:
+      - apiGroups: [migration.network.vmware.com]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [controlplanenetworktransitions, namespacenetworktransitions]
+        scope: Cluster
