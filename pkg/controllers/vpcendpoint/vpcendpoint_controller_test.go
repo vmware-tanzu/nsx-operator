@@ -276,3 +276,17 @@ func TestVPCEndpointReconciler_SetupFieldIndexers(t *testing.T) {
 	r := &VPCEndpointReconciler{}
 	assert.NoError(t, r.SetupFieldIndexers(mgr))
 }
+
+func TestVPCEndpointReconciler_setupWithManager_IndexerError(t *testing.T) {
+	ctrlMock := gomock.NewController(t)
+	defer ctrlMock.Finish()
+
+	mgr := mockmanager.NewMockManager(ctrlMock)
+	fieldIndexer := mock_client.NewMockFieldIndexer(ctrlMock)
+	mgr.EXPECT().GetFieldIndexer().Return(fieldIndexer)
+	fieldIndexer.EXPECT().IndexField(gomock.Any(), &v1alpha1.VPCEndpoint{}, pkgUtil.VPCEndpointIPAllocationNameIndexKey, gomock.Any()).Return(errors.New("index error"))
+
+	r := &VPCEndpointReconciler{}
+	err := r.setupWithManager(mgr)
+	assert.ErrorContains(t, err, "index error")
+}
