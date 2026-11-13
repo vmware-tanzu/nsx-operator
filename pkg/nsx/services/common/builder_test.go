@@ -335,3 +335,52 @@ func TestConvertSubnetPathToAssociatedResource(t *testing.T) {
 		})
 	}
 }
+
+func TestGetVpcServiceEndpointPathFromCCIName(t *testing.T) {
+	tests := []struct {
+		name                string
+		serviceEndpointName string
+		expectedPath        string
+		expectedErrString   string
+	}{
+		{
+			name:                "Valid composite name",
+			serviceEndpointName: "proj-1:vpc-1:se-1",
+			expectedPath:        "/orgs/default/projects/proj-1/vpcs/vpc-1/vpc-service-endpoints/se-1",
+		},
+		{
+			name:                "Too few segments",
+			serviceEndpointName: "proj-1:vpc-1",
+			expectedErrString:   "invalid serviceEndpointName",
+		},
+		{
+			name:                "Too many segments",
+			serviceEndpointName: "proj-1:vpc-1:se-1:extra",
+			expectedErrString:   "invalid serviceEndpointName",
+		},
+		{
+			name:                "Empty segment",
+			serviceEndpointName: "proj-1::se-1",
+			expectedErrString:   "invalid serviceEndpointName",
+		},
+		{
+			name:                "Empty string",
+			serviceEndpointName: "",
+			expectedErrString:   "invalid serviceEndpointName",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, err := GetVpcServiceEndpointPathFromCCIName(tt.serviceEndpointName)
+
+			if tt.expectedErrString != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErrString)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.expectedPath, path)
+			}
+		})
+	}
+}

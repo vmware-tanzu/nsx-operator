@@ -125,6 +125,17 @@ func GetSubnetPathFromAssociatedResource(associatedResource string) (string, err
 	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", orgId, parts[0], parts[1], parts[2]), nil
 }
 
+// GetVpcServiceEndpointPathFromCCIName builds an NSX path from a CCI
+// "projectID:vpcID:serviceEndpointID" name.
+func GetVpcServiceEndpointPathFromCCIName(serviceEndpointName string) (string, error) {
+	parts := strings.Split(serviceEndpointName, ":")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", fmt.Errorf("invalid serviceEndpointName %q, expected format projectID:vpcID:serviceEndpointID", serviceEndpointName)
+	}
+	projectID, vpcID, serviceEndpointID := parts[0], parts[1], parts[2]
+	return fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/vpc-service-endpoints/%s", orgId, projectID, vpcID, serviceEndpointID), nil
+}
+
 // ExtractSubnetPath extracts the org id, project id, VPC id, and subnet id from a subnet path
 func ExtractSubnetPath(sharedSubnetPath string) (orgID, projectID, vpcID, subnetID string, err error) {
 	// Format: /orgs/default/projects/proj-1/vpcs/vpc-1/subnets/subnet-1

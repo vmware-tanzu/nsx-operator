@@ -11,6 +11,7 @@ import (
 type ServiceEndpointSpec struct {
 	// ServiceEndpointIP is the IP address of the VPC service endpoint.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	ServiceEndpointIP string `json:"serviceEndpointIP"`
 }
 
