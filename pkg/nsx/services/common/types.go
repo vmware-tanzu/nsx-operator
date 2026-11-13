@@ -113,6 +113,10 @@ const (
 	TagScopePodUID                     string = "nsx-op/pod_uid"
 	TagScopeStatefulSetName            string = "nsx-op/sts_name"
 	TagScopeStatefulSetUID             string = "nsx-op/sts_uid"
+	TagScopeVPCServiceEndpointCRName   string = "nsx-op/serviceendpoint_name"
+	TagScopeServiceEndpointCRUID       string = "nsx-op/serviceendpoint_uid"
+	TagScopeVPCEndpointCRUID           string = "nsx-op/vpcendpoint_uid"
+	TagScopeVPCEndpointCRName          string = "nsx-op/vpcendpoint_name"
 
 	// Tags and annotations for DNS record use case.
 	TagScopeDNSRecordFor                          string = "nsx-op/dns_for" // value: gateway, service, xxroutes

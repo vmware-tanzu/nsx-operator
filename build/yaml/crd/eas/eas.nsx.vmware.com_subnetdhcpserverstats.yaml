@@ -34,21 +34,47 @@ spec:
               description: DHCPIPPoolUsage represents DHCP IP pool usage statistics.
               properties:
                 allocatedNumber:
-                  description: Allocated number.
+                  description: AllocatedNumber is the number of allocated IPs. For
+                    reference only; value may not be exact.
                   format: int64
                   type: integer
                 allocatedPercentage:
-                  description: Allocated percentage.
+                  description: AllocatedPercentage is the percentage of allocated
+                    IPs. For reference only; value may not be exact.
                   format: int64
                   type: integer
                 consumedNumber:
-                  description: Total number of IP addresses consumed by DHCP clients.
+                  description: ConsumedNumber is the total number of IPs consumed
+                    by DHCP clients.
                   format: int64
                   type: integer
                 poolSize:
-                  description: Pool size.
+                  description: PoolSize is the total size of the IP pool.
                   format: int64
                   type: integer
+              type: object
+            type: array
+            x-kubernetes-list-type: atomic
+          ipv6PoolStats:
+            description: DHCP IPv6 pool usage statistics.
+            items:
+              description: |-
+                DHCPIPv6IPPoolUsage represents DHCP IPv6 pool usage statistics.
+                Counters are decimal strings because IPv6 pools can exceed the int64 range.
+              properties:
+                allocatedNumber:
+                  description: Number of allocated IP addresses, as a decimal string.
+                  type: string
+                allocatedPercentage:
+                  description: Allocated percentage, including fractional values.
+                  type: number
+                consumedNumber:
+                  description: Number of IP addresses consumed by DHCP clients, as
+                    a decimal string.
+                  type: string
+                poolSize:
+                  description: Pool size, as a decimal string.
+                  type: string
               required:
               - allocatedNumber
               - allocatedPercentage

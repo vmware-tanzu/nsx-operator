@@ -5,6 +5,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	easv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1"
 	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -34,11 +36,71 @@ func TestConvertDhcpServerStatistics_WithPools(t *testing.T) {
 				PoolSize:            int64Ptr(100),
 			},
 		},
+		DhcpIpv6: &model.DhcpIpv6Statistics{
+			IpPoolStats: []model.DhcpIpv6IpPoolUsage{
+				{
+					AllocatedPercentage: float64Ptr(20.5),
+					PoolSize:            common.String("200"),
+					AllocatedNumber:     common.String("40"),
+					ConsumedNumber:      common.String("50"),
+				},
+			},
+		},
 	}
 	out := ConvertDhcpServerStatistics(nsx, "sub1", "ns1")
 	require.Len(t, out.IPPoolStats, 1)
 	assert.Equal(t, int64(10), out.IPPoolStats[0].AllocatedPercentage)
 	assert.Equal(t, int64(100), out.IPPoolStats[0].PoolSize)
+
+	require.Len(t, out.IPv6PoolStats, 1)
+	assert.Equal(t, 20.5, out.IPv6PoolStats[0].AllocatedPercentage)
+	assert.Equal(t, "200", out.IPv6PoolStats[0].PoolSize)
+	assert.Equal(t, "40", out.IPv6PoolStats[0].AllocatedNumber)
+	assert.Equal(t, "50", out.IPv6PoolStats[0].ConsumedNumber)
+}
+
+func TestConvertDhcpServerStatistics_IPv6PreservesValues(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pool model.DhcpIpv6IpPoolUsage
+		want easv1alpha1.DHCPIPv6IPPoolUsage
+	}{
+		{
+			name: "counters exceed int64 and uint64",
+			pool: model.DhcpIpv6IpPoolUsage{
+				AllocatedNumber:     common.String("9223372036854775808"),
+				ConsumedNumber:      common.String("18446744073709551615"),
+				PoolSize:            common.String("18446744073709551616"),
+				AllocatedPercentage: float64Ptr(12.5),
+			},
+			want: easv1alpha1.DHCPIPv6IPPoolUsage{
+				AllocatedNumber:     "9223372036854775808",
+				ConsumedNumber:      "18446744073709551615",
+				PoolSize:            "18446744073709551616",
+				AllocatedPercentage: 12.5,
+			},
+		},
+		{name: "unset counters and percentage"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := ConvertDhcpServerStatistics(&model.DhcpServerStatistics{
+				DhcpIpv6: &model.DhcpIpv6Statistics{IpPoolStats: []model.DhcpIpv6IpPoolUsage{tc.pool}},
+			}, "sub1", "ns1")
+			require.Len(t, out.IPv6PoolStats, 1)
+			assert.Equal(t, tc.want, out.IPv6PoolStats[0])
+
+			// Verify that API serialization preserves string counters and decimal percentages.
+			encoded, err := json.Marshal(out)
+			require.NoError(t, err)
+			var decoded easv1alpha1.SubnetDHCPServerStats
+			require.NoError(t, json.Unmarshal(encoded, &decoded))
+			assert.Equal(t, tc.want, decoded.IPv6PoolStats[0])
+		})
+	}
+}
+
+func float64Ptr(f float64) *float64 {
+	return &f
 }
 func TestSubnetDHCPStatsStorage_Get_SubnetCRNotFound(t *testing.T) {
 	// No Subnet CR in k8s → error about missing CR.
@@ -72,7 +134,7 @@ func TestSubnetDHCPStatsStorage_Get_SubnetNotFound(t *testing.T) {
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
 	_, err := s.Get(context.Background(), "ns1", "sub1")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestSubnetDHCPStatsStorage_Get_OK(t *testing.T) {
 	subnetID := "subnet-1"
@@ -174,7 +236,7 @@ func TestSubnetDHCPStatsStorage_Get_SubnetNilID(t *testing.T) {
 	s := NewSubnetDHCPStatsStorage(c, newFakeK8sClient(subnetCR))
 	_, err := s.Get(context.Background(), "ns1", "anything")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestSubnetDHCPStatsStorage_Get_WrongDHCPMode(t *testing.T) {
 	// Subnet is found by name but its DHCP mode is not DHCP_SERVER.
