@@ -113,6 +113,9 @@ const (
 	TagScopePodUID                     string = "nsx-op/pod_uid"
 	TagScopeStatefulSetName            string = "nsx-op/sts_name"
 	TagScopeStatefulSetUID             string = "nsx-op/sts_uid"
+	// AnnotationTransitionTarget pauses target reconciliation until NSX tag
+	// adoption and allocation status updates have completed.
+	AnnotationTransitionTarget string = "migration.nsx.vmware.com/transition-target"
 
 	// Tags and annotations for DNS record use case.
 	TagScopeDNSRecordFor                          string = "nsx-op/dns_for" // value: gateway, service, xxroutes
@@ -151,10 +154,11 @@ const (
 	TagValueUserSpecifiedIP   = "__DEFAULT--VPC_SERVICE_IP__"
 	TagValueUserSpecifiedIPV6 = "__DEFAULT--VPC_SERVICE_IP__"
 
-	NSXServiceAccountFinalizerName = "nsxserviceaccount.nsx.vmware.com/finalizer"
-	T1SecurityPolicyFinalizerName  = "securitypolicy.nsx.vmware.com/finalizer"
-	SubnetFinalizerName            = "subnet.nsx.vmware.com/finalizer"
-	SubnetSetFinalizerName         = "subnetset.nsx.vmware.com/finalizer"
+	NSXServiceAccountFinalizerName         = "nsxserviceaccount.nsx.vmware.com/finalizer"
+	T1SecurityPolicyFinalizerName          = "securitypolicy.nsx.vmware.com/finalizer"
+	SubnetFinalizerName                    = "subnet.nsx.vmware.com/finalizer"
+	SubnetSetFinalizerName                 = "subnetset.nsx.vmware.com/finalizer"
+	NetworkResourceTransitionFinalizerName = "migration.network.vmware.com/finalizer"
 
 	IndexKeySubnetPath          = "IndexKeySubnetPath"
 	IndexKeyNodeName            = "IndexKeyNodeName"
@@ -315,3 +319,11 @@ type GatewayPrefixInfo struct {
 	Gateway string
 	Prefix  int
 }
+
+type LBProvider string
+
+const (
+	NSXLB  LBProvider = "nsx-lb"
+	AVILB  LBProvider = "avi"
+	NoneLB LBProvider = "none"
+)
