@@ -144,6 +144,10 @@ func (service *VPCEndpointService) Apply(namespace string, nsxVPCEndpoint *model
 	realizeService := realizestate.InitializeRealizeState(service.Service)
 	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxVPCEndpointNew.Path, []string{}); err != nil {
 		log.Error(err, "Failed to check VPCEndpoint realization state", "ID", *nsxVPCEndpoint.Id)
+		if deleteErr := service.DeleteVPCEndpointByNSXResource(&nsxVPCEndpointNew); deleteErr != nil {
+			log.Error(deleteErr, "Failed to delete VPCEndpoint after realization check failure", "ID", *nsxVPCEndpoint.Id)
+			return fmt.Errorf("realization check failed: %v; deletion failed: %v", err, deleteErr)
+		}
 		return err
 	}
 
