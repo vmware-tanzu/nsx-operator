@@ -14,7 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -23,7 +22,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	subnetservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
-	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 var ticker = time.NewTicker(subnetservice.SharedSubnetRefreshInterval)
@@ -276,16 +274,10 @@ func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associate
 		return
 	}
 
-	portSettingIDs, err := r.SubnetService.GetPortSettingIDsFromCacheOrAPI(associatedResource, true)
+	portSettings, err := r.SubnetService.GetPortSettingsFromCacheOrAPI(associatedResource, true)
 	if err != nil {
 		log.Warn("Failed to list PortConfigs for shared Subnet during polling", "AssociatedResource", associatedResource, "err", err)
 		return
-	}
-
-	nsxPortSettingIDs := sets.New(portSettingIDs...)
-	portSettings := make([]model.VpcSubnetPortSetting, len(portSettingIDs))
-	for i := range portSettingIDs {
-		portSettings[i].Id = &portSettingIDs[i]
 	}
 
 	for namespacedName := range namespacedNames {
@@ -298,18 +290,10 @@ func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associate
 			continue
 		}
 
-		if err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource); err != nil {
+		if err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, associatedResource); err != nil {
 			log.Error(err, "Failed to sync PortConfigs for Subnet", "Subnet", namespacedName)
 		}
 	}
-}
-
-// generateValidPortSettingName creates a valid Kubernetes name from portSetting ID
-func generateValidPortSettingName(psID string) string {
-	if len(validation.IsDNS1123Subdomain(psID)) == 0 {
-		return psID
-	}
-	return "port-setting-" + util.TruncateUIDHash(psID)
 }
 
 // getPortSettingIDFromCR extracts the original portSetting ID from SubnetPortSetting CR.
@@ -403,9 +387,8 @@ func (r *SubnetReconciler) markPortConfigsNotReady(ctx context.Context, subnetCR
 }
 
 // createPortConfig reuses an existing mirror on a concurrent create or stale read.
-// A name occupied by another source or parent identity requires a generated name.
-func (r *SubnetReconciler) createPortConfig(ctx context.Context, subnetCR *v1alpha1.Subnet, psID, associatedResource string) (*v1alpha1.SubnetPortSetting, error) {
-	targetName := generateValidPortSettingName(psID)
+// A name occupied by another source or parent identity is a conflict.
+func (r *SubnetReconciler) createPortConfig(ctx context.Context, subnetCR *v1alpha1.Subnet, psID, associatedResource, targetName string) (*v1alpha1.SubnetPortSetting, error) {
 	annotation := associatedResource + ":" + psID
 	newCR := &v1alpha1.SubnetPortSetting{
 		ObjectMeta: metav1.ObjectMeta{
@@ -430,9 +413,7 @@ func (r *SubnetReconciler) createPortConfig(ctx context.Context, subnetCR *v1alp
 			}
 			return existing, nil
 		}
-		newCR.Name = ""
-		newCR.GenerateName = targetName + "-"
-		err = r.Client.Create(ctx, newCR)
+		return nil, fmt.Errorf("SubnetPortSetting %s/%s conflicts with source %q or parent identity", subnetCR.Namespace, targetName, existing.Annotations[servicecommon.AnnotationAssociatedResource])
 	}
 	if err != nil {
 		return nil, err
@@ -442,15 +423,42 @@ func (r *SubnetReconciler) createPortConfig(ctx context.Context, subnetCR *v1alp
 
 // syncPortConfigsForNamespaceSubnet reconciles a complete NSX snapshot for one shared Subnet.
 // Callers serialize this with parent Subnet queries for the same associated resource.
-func (r *SubnetReconciler) syncPortConfigsForNamespaceSubnet(ctx context.Context, subnetCR *v1alpha1.Subnet, portSettings []model.VpcSubnetPortSetting, nsxPortSettingIDs sets.Set[string], associatedResource string) error {
+func (r *SubnetReconciler) syncPortConfigsForNamespaceSubnet(ctx context.Context, subnetCR *v1alpha1.Subnet, portSettings []model.VpcSubnetPortSetting, associatedResource string) error {
 	if associatedResource == "" {
 		associatedResource = subnetCR.Annotations[servicecommon.AnnotationAssociatedResource]
+	}
+	// Derive existence and naming from the same complete snapshot. A missing ID
+	// or contradictory duplicate makes absence unsafe to use for orphan cleanup.
+	type identity struct {
+		uniqueID  string
+		isDefault bool
+	}
+	identities := make(map[string]identity)
+	nsxPortSettingIDs := sets.New[string]()
+	for _, ps := range portSettings {
+		isDefault := ps.IsDefault != nil && *ps.IsDefault
+		if ps.Id == nil || *ps.Id == "" {
+			if isDefault {
+				continue
+			}
+			return fmt.Errorf("incomplete PortSettings snapshot for %s: missing NSX ID", associatedResource)
+		}
+		current := identity{isDefault: isDefault}
+		if ps.UniqueId != nil {
+			current.uniqueID = *ps.UniqueId
+		}
+		if previous, exists := identities[*ps.Id]; exists && previous != current {
+			return fmt.Errorf("inconsistent PortSettings snapshot for %s: conflicting identity for %q", associatedResource, *ps.Id)
+		}
+		identities[*ps.Id] = current
+		if !isDefault {
+			nsxPortSettingIDs.Insert(*ps.Id)
+		}
 	}
 	settings, err := r.listPortConfigs(ctx, subnetCR, associatedResource)
 	if err != nil {
 		return err
 	}
-	// Keep every mirror owned by this Subnet so duplicates also receive status updates and orphan cleanup.
 	existingCRsByPsID := make(map[string][]*v1alpha1.SubnetPortSetting)
 	for i := range settings {
 		item := &settings[i]
@@ -458,25 +466,56 @@ func (r *SubnetReconciler) syncPortConfigsForNamespaceSubnet(ctx context.Context
 		existingCRsByPsID[psID] = append(existingCRsByPsID[psID], item)
 	}
 	var errs []error
+	var deleteCandidates []*v1alpha1.SubnetPortSetting
+	processed := sets.New[string]()
+	protectedNames := sets.New[string]()
 	for _, ps := range portSettings {
-		if ps.Id == nil || *ps.Id == "" {
+		if ps.IsDefault != nil && *ps.IsDefault {
 			continue
 		}
 		psID := *ps.Id
+		if processed.Has(psID) {
+			continue
+		}
+		processed.Insert(psID)
 		mirrors := existingCRsByPsID[psID]
-		if len(mirrors) == 0 {
-			created, err := r.createPortConfig(ctx, subnetCR, psID, associatedResource)
+		targetName, err := r.portSettingName(ctx, subnetCR.Namespace, associatedResource, ps)
+		if err != nil {
+			errs = append(errs, err)
+			for _, cr := range mirrors {
+				if statusErr := r.updatePortConfigReady(ctx, cr, corev1.ConditionFalse, "PortSettingIdentityError", err.Error()); statusErr != nil {
+					errs = append(errs, statusErr)
+				}
+			}
+			continue
+		}
+		var desired *v1alpha1.SubnetPortSetting
+		for _, cr := range mirrors {
+			if cr.Name == targetName {
+				desired = cr
+				break
+			}
+		}
+		if desired == nil {
+			desired, err = r.createPortConfig(ctx, subnetCR, psID, associatedResource, targetName)
 			if err != nil {
 				errs = append(errs, err)
+				// Never use cleanup to free a name whose creation failed. The
+				// conflicting object may belong to another backing in this snapshot.
+				protectedNames.Insert(targetName)
 				continue
 			}
-			mirrors = []*v1alpha1.SubnetPortSetting{created}
-			existingCRsByPsID[psID] = mirrors
 		}
+		if err := r.updatePortConfigReady(ctx, desired, corev1.ConditionTrue, "PortSettingRealized",
+			fmt.Sprintf("PortSetting %s is realized on NSX", psID)); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		// Only retire legacy hash/generated names after the desired mirror exists
+		// and is Ready. Conflicts and failed writes preserve the old inventory.
 		for _, cr := range mirrors {
-			if err := r.updatePortConfigReady(ctx, cr, corev1.ConditionTrue, "PortSettingRealized",
-				fmt.Sprintf("PortSetting %s is realized on NSX", psID)); err != nil {
-				errs = append(errs, err)
+			if cr.Name != desired.Name {
+				deleteCandidates = append(deleteCandidates, cr)
 			}
 		}
 	}
@@ -484,11 +523,17 @@ func (r *SubnetReconciler) syncPortConfigsForNamespaceSubnet(ctx context.Context
 		if nsxPortSettingIDs.Has(psID) {
 			continue
 		}
-		for _, cr := range mirrors {
-			preconditions := client.Preconditions{UID: &cr.UID, ResourceVersion: &cr.ResourceVersion}
-			if err := r.Client.Delete(ctx, cr, preconditions); client.IgnoreNotFound(err) != nil {
-				errs = append(errs, err)
-			}
+		deleteCandidates = append(deleteCandidates, mirrors...)
+	}
+	// Defer all retirement until every desired name has been checked. Otherwise
+	// enumeration order could remove a conflicting legacy name before noticing it.
+	for _, cr := range deleteCandidates {
+		if protectedNames.Has(cr.Name) {
+			continue
+		}
+		preconditions := client.Preconditions{UID: &cr.UID, ResourceVersion: &cr.ResourceVersion}
+		if err := r.Client.Delete(ctx, cr, preconditions); client.IgnoreNotFound(err) != nil {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)

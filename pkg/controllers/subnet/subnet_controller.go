@@ -60,6 +60,8 @@ type SubnetReconciler struct {
 	queue             workqueue.TypedRateLimitingInterface[reconcile.Request]
 	// Each active source maps to a channel closed when its synchronization completes.
 	sharedSubnetSyncs sync.Map
+	// No association source is installed by default. Inventory naming does not infer Networks.
+	NetworkAssociations NetworkPortSettingAssociationSource
 }
 
 func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -725,14 +727,9 @@ func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR
 		return nil
 	}
 
-	portSettingIDs, err := r.SubnetService.GetPortSettingIDsFromCacheOrAPI(associatedResource, false)
+	portSettings, err := r.SubnetService.GetPortSettingsFromCacheOrAPI(associatedResource, false)
 	if err != nil {
 		return err
 	}
-	nsxPortSettingIDs := sets.New(portSettingIDs...)
-	portSettings := make([]model.VpcSubnetPortSetting, len(portSettingIDs))
-	for i := range portSettingIDs {
-		portSettings[i].Id = &portSettingIDs[i]
-	}
-	return r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxPortSettingIDs, associatedResource)
+	return r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, associatedResource)
 }

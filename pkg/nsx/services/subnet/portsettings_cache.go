@@ -2,8 +2,10 @@ package subnet
 
 import (
 	"errors"
-	"slices"
 	"time"
+
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	"k8s.io/utils/ptr"
 )
 
 // SharedSubnetRefreshInterval bounds the lifetime of shared subnet snapshots and the periodic refresh interval.
@@ -11,22 +13,39 @@ const SharedSubnetRefreshInterval = 10 * time.Minute
 
 var errPortSettingsCacheInvalidated = errors.New("PortSettings cache invalidated during fetch")
 
-// portSettingsCacheEntry holds a complete enumeration of non-empty PortSettings IDs,
-// not the full SDK objects. A zero fetchedAt marks an in-flight fetch token.
+// portSettingsCacheEntry holds the identity and default flag from every enumerated
+// PortSetting, not its configuration. A zero fetchedAt marks an in-flight fetch token.
 type portSettingsCacheEntry struct {
-	ids       []string
+	settings  []model.VpcSubnetPortSetting
 	fetchedAt time.Time
 }
 
-// GetPortSettingIDsFromCacheOrAPI returns a complete PortSettings ID snapshot.
-// Empty snapshots are valid cache entries. Callers receive their own slice.
-func (service *SubnetService) GetPortSettingIDsFromCacheOrAPI(associatedResource string, forceAPI bool) ([]string, error) {
+// clonePortSettingIdentities detaches both the slice and SDK pointers from callers.
+func clonePortSettingIdentities(settings []model.VpcSubnetPortSetting) []model.VpcSubnetPortSetting {
+	result := make([]model.VpcSubnetPortSetting, len(settings))
+	for i, ps := range settings {
+		if ps.Id != nil {
+			result[i].Id = ptr.To(*ps.Id)
+		}
+		if ps.UniqueId != nil {
+			result[i].UniqueId = ptr.To(*ps.UniqueId)
+		}
+		if ps.IsDefault != nil {
+			result[i].IsDefault = ptr.To(*ps.IsDefault)
+		}
+	}
+	return result
+}
+
+// GetPortSettingsFromCacheOrAPI returns a complete PortSettings identity snapshot.
+// Empty snapshots are valid cache entries. Callers own the slice and its pointers.
+func (service *SubnetService) GetPortSettingsFromCacheOrAPI(associatedResource string, forceAPI bool) ([]model.VpcSubnetPortSetting, error) {
 	service.nsxSubnetCacheMutex.Lock()
 	if !forceAPI {
 		if entry := service.portSettingsCache[associatedResource]; entry != nil && !entry.fetchedAt.IsZero() && time.Since(entry.fetchedAt) < SharedSubnetRefreshInterval {
-			ids := slices.Clone(entry.ids)
+			settings := clonePortSettingIdentities(entry.settings)
 			service.nsxSubnetCacheMutex.Unlock()
-			return ids, nil
+			return settings, nil
 		}
 	}
 	if service.portSettingsCache == nil {
@@ -46,12 +65,7 @@ func (service *SubnetService) GetPortSettingIDsFromCacheOrAPI(associatedResource
 		service.nsxSubnetCacheMutex.Unlock()
 		return nil, err
 	}
-	ids := make([]string, 0, len(portSettings))
-	for _, portSetting := range portSettings {
-		if portSetting.Id != nil && *portSetting.Id != "" {
-			ids = append(ids, *portSetting.Id)
-		}
-	}
+	settings := clonePortSettingIdentities(portSettings)
 
 	service.nsxSubnetCacheMutex.Lock()
 	defer service.nsxSubnetCacheMutex.Unlock()
@@ -59,12 +73,12 @@ func (service *SubnetService) GetPortSettingIDsFromCacheOrAPI(associatedResource
 		// The caller must not publish a snapshot invalidated while NSX I/O was in progress.
 		return nil, errPortSettingsCacheInvalidated
 	}
-	token.ids = ids
+	token.settings = settings
 	token.fetchedAt = time.Now()
-	return slices.Clone(ids), nil
+	return clonePortSettingIdentities(settings), nil
 }
 
-// InvalidatePortSettingsCache discards the ID snapshot and invalidates any in-flight fetch for this source.
+// InvalidatePortSettingsCache discards the identity snapshot and invalidates any in-flight fetch for this source.
 func (service *SubnetService) InvalidatePortSettingsCache(associatedResource string) {
 	service.nsxSubnetCacheMutex.Lock()
 	defer service.nsxSubnetCacheMutex.Unlock()

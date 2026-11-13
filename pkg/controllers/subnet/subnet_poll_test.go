@@ -1063,9 +1063,8 @@ func TestSyncPortConfigsForNamespaceSubnet(t *testing.T) {
 		{Id: &ps1ID},
 		{Id: &ps2ID},
 	}
-	nsxIDs := sets.New[string](ps1ID, ps2ID)
 
-	err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, nsxIDs, assocRes)
+	err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, assocRes)
 	assert.NoError(t, err)
 
 	// Verify ps-1 exists and condition updated to Ready
@@ -1093,7 +1092,7 @@ func TestSyncPortConfigsForNamespaceSubnet(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestSyncPortConfigs_NameConflict_FallbackGenerateName(t *testing.T) {
+func TestSyncPortConfigs_NameConflict(t *testing.T) {
 	ctx := context.Background()
 	psID := "default"
 	assocRes := "proj-1:vpc-1:subnet-2"
@@ -1129,39 +1128,15 @@ func TestSyncPortConfigs_NameConflict_FallbackGenerateName(t *testing.T) {
 	portSettings := []model.VpcSubnetPortSetting{
 		{Id: &psID},
 	}
-	nsxIDs := sets.New[string](psID)
 
-	err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR2, portSettings, nsxIDs, assocRes)
-	assert.NoError(t, err)
-
-	// Verify list of SubnetPortSettings in ns-test
+	err := r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR2, portSettings, assocRes)
+	require.ErrorContains(t, err, "conflicts")
 	list := &v1alpha1.SubnetPortSettingList{}
-	err = r.Client.List(ctx, list, client.InNamespace("ns-test"))
-	assert.NoError(t, err)
-	assert.Equal(t, 2, len(list.Items))
-
-	var subnet2CR *v1alpha1.SubnetPortSetting
-	for i := range list.Items {
-		if list.Items[i].Spec.SubnetName == "shared-subnet-2" {
-			subnet2CR = &list.Items[i]
-			break
-		}
-	}
-	assert.NotNil(t, subnet2CR)
-	assert.True(t, strings.HasPrefix(subnet2CR.Name, "default-"))
-	assert.Equal(t, fmt.Sprintf("%s:%s", assocRes, psID), subnet2CR.Annotations[common.AnnotationAssociatedResource])
-}
-
-func TestGenerateValidPortSettingName(t *testing.T) {
-	// Valid DNS-1123 name
-	validName := "valid-port-setting-1"
-	assert.Equal(t, validName, generateValidPortSettingName(validName))
-
-	// Invalid name with underscore or uppercase
-	invalidName := "Invalid_Port_Setting_1"
-	generated := generateValidPortSettingName(invalidName)
-	assert.NotEqual(t, invalidName, generated)
-	assert.True(t, strings.HasPrefix(generated, "port-setting-"))
+	require.NoError(t, r.Client.List(ctx, list, client.InNamespace("ns-test")))
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "shared-subnet-1", list.Items[0].Spec.SubnetName)
+	assert.Equal(t, "proj-1:vpc-1:subnet-1:default", list.Items[0].Annotations[common.AnnotationAssociatedResource])
+	assert.Empty(t, list.Items[0].Status.Conditions)
 }
 
 func TestPollAndSyncPortConfigs(t *testing.T) {
@@ -1231,7 +1206,7 @@ func TestSyncPortConfigs_StaleCache(t *testing.T) {
 			Annotations: map[string]string{common.AnnotationAssociatedResource: "proj:vpc:subnet"}},
 	}
 	foreign := &v1alpha1.SubnetPortSetting{
-		ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: subnetCR.Namespace,
+		ObjectMeta: metav1.ObjectMeta{Name: "foreign", Namespace: subnetCR.Namespace,
 			Annotations: map[string]string{common.AnnotationAssociatedResource: "proj:vpc:other:default"}},
 		Spec: v1alpha1.SubnetPortSettingSpec{SubnetName: "other"},
 	}
@@ -1239,11 +1214,11 @@ func TestSyncPortConfigs_StaleCache(t *testing.T) {
 	r.Client = &stalePortConfigClient{Client: r.Client}
 	settings := []model.VpcSubnetPortSetting{{Id: common.String("default")}}
 	for range 3 {
-		require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, sets.New("default"), "proj:vpc:subnet"))
+		require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, "proj:vpc:subnet"))
 	}
 	list := &v1alpha1.SubnetPortSettingList{}
 	require.NoError(t, r.APIReader.List(ctx, list, client.InNamespace(subnetCR.Namespace)))
-	require.Len(t, list.Items, 2, "a stale informer must not create more generated-name mirrors")
+	require.Len(t, list.Items, 2, "a stale informer must not create duplicate mirrors")
 	for _, setting := range list.Items {
 		if setting.Spec.SubnetName == subnetCR.Name {
 			require.Len(t, setting.OwnerReferences, 1)
@@ -1258,9 +1233,9 @@ func TestCreatePortConfig_AlreadyExistsSameSource(t *testing.T) {
 	ctx := context.Background()
 	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns-test", UID: "subnet-uid"}}
 	r := createFakeSubnetReconciler([]client.Object{subnetCR})
-	first, err := r.createPortConfig(ctx, subnetCR, "default", "proj:vpc:subnet")
+	first, err := r.createPortConfig(ctx, subnetCR, "default", "proj:vpc:subnet", "default")
 	require.NoError(t, err)
-	second, err := r.createPortConfig(ctx, subnetCR, "default", "proj:vpc:subnet")
+	second, err := r.createPortConfig(ctx, subnetCR, "default", "proj:vpc:subnet", "default")
 	require.NoError(t, err)
 	assert.Equal(t, first.UID, second.UID)
 	assert.Equal(t, first.Name, second.Name)
@@ -1289,14 +1264,15 @@ func TestSyncPortConfigs_AllMirrorsAndSourceIdentity(t *testing.T) {
 	}
 	r := createFakeSubnetReconciler(objects)
 	settings := []model.VpcSubnetPortSetting{{Id: common.String("default")}}
-	require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, sets.New("default"), assoc))
+	require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, assoc))
 	for _, name := range []string{"first", "duplicate"} {
 		cr := &v1alpha1.SubnetPortSetting{}
-		require.NoError(t, r.Client.Get(ctx, client.ObjectKey{Namespace: subnetCR.Namespace, Name: name}, cr))
-		require.Len(t, cr.Status.Conditions, 1)
-		assert.Equal(t, corev1.ConditionTrue, cr.Status.Conditions[0].Status)
+		assert.True(t, apierrors.IsNotFound(r.Client.Get(ctx, client.ObjectKey{Namespace: subnetCR.Namespace, Name: name}, cr)))
 	}
-	require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, nil, sets.New[string](), assoc))
+	canonical := &v1alpha1.SubnetPortSetting{}
+	require.NoError(t, r.Client.Get(ctx, client.ObjectKey{Namespace: subnetCR.Namespace, Name: "default"}, canonical))
+	assert.Equal(t, corev1.ConditionTrue, canonical.Status.Conditions[0].Status)
+	require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, nil, assoc))
 	list := &v1alpha1.SubnetPortSettingList{}
 	require.NoError(t, r.APIReader.List(ctx, list))
 	require.Len(t, list.Items, 1, "all orphan mirrors must be removed without touching a foreign source")
@@ -1351,7 +1327,7 @@ func TestSharedSubnetFailureInvalidatesPortConfigs(t *testing.T) {
 				assert.Contains(t, retained.Status.Conditions[0].Message, sourceErr.Error())
 				assert.Equal(t, setting.Status.Conditions[1], retained.Status.Conditions[1])
 				settings := []model.VpcSubnetPortSetting{{Id: common.String("default")}}
-				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, sets.New("default"), assoc))
+				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, assoc))
 				require.NoError(t, r.Client.Get(ctx, client.ObjectKeyFromObject(setting), retained))
 				assert.Equal(t, corev1.ConditionTrue, retained.Status.Conditions[0].Status)
 				assert.Equal(t, "PortSettingRealized", retained.Status.Conditions[0].Reason)
@@ -1586,19 +1562,12 @@ func TestSyncPortConfigsPreservesUnrelatedCRs(t *testing.T) {
 			before := &v1alpha1.SubnetPortSetting{}
 			require.NoError(t, r.Client.Get(ctx, key, before))
 			settings := []model.VpcSubnetPortSetting{{Id: common.String("default")}}
-			require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, sets.New("default"), assoc))
+			require.ErrorContains(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, settings, assoc), "conflicts")
 			list := &v1alpha1.SubnetPortSettingList{}
 			require.NoError(t, r.APIReader.List(ctx, list))
-			require.Len(t, list.Items, 2, "an unrelated name conflict must get a separate mirror")
-			for _, item := range list.Items {
-				if item.Name != unrelated.Name {
-					assert.Equal(t, assoc+":default", item.Annotations[common.AnnotationAssociatedResource])
-					require.Len(t, item.Status.Conditions, 1)
-					assert.Equal(t, corev1.ConditionTrue, item.Status.Conditions[0].Status)
-				}
-			}
+			require.Len(t, list.Items, 1, "an unrelated name conflict must not create a generated-name mirror")
 			require.NoError(t, r.markPortConfigsNotReady(ctx, subnetCR, context.DeadlineExceeded))
-			require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, nil, sets.New[string](), assoc))
+			require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, nil, assoc))
 			require.NoError(t, r.APIReader.List(ctx, list))
 			require.Len(t, list.Items, 1, "orphan cleanup must retain the unrelated CR")
 			after := &v1alpha1.SubnetPortSetting{}
@@ -1739,7 +1708,7 @@ func TestPortConfigSyncFeatureGate(t *testing.T) {
 				} else {
 					if !featureEnabled {
 						patches.ApplyPrivateMethod(reflect.TypeOf(r), "syncPortConfigsForNamespaceSubnet",
-							func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ []model.VpcSubnetPortSetting, _ sets.Set[string], _ string) error {
+							func(_ *SubnetReconciler, _ context.Context, _ *v1alpha1.Subnet, _ []model.VpcSubnetPortSetting, _ string) error {
 								t.Error("disabled feature must skip PortConfig synchronization")
 								return nil
 							})
@@ -2066,39 +2035,19 @@ func TestPortConfigSyncPreservesOtherParentIdentities(t *testing.T) {
 				before := &v1alpha1.SubnetPortSettingList{}
 				require.NoError(t, r.APIReader.List(ctx, before))
 				if alreadyExists {
-					// Call create directly so rejection cannot be supplied by the List filter.
-					created, err := r.createPortConfig(ctx, parent, "default", assoc)
-					require.NoError(t, err)
-					assert.NotEqual(t, foreign.Name, created.Name)
-					assert.Equal(t, "default-", created.GenerateName)
+					created, err := r.createPortConfig(ctx, parent, "default", assoc, "default")
+					require.ErrorContains(t, err, "conflicts")
+					assert.Nil(t, created)
 				}
 				settings := []model.VpcSubnetPortSetting{{Id: common.String("default")}}
-				var mirrorBefore *v1alpha1.SubnetPortSetting
 				for range 3 {
-					require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, settings, sets.New("default"), assoc))
+					require.ErrorContains(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, settings, assoc), "conflicts")
 					list := &v1alpha1.SubnetPortSettingList{}
 					require.NoError(t, r.APIReader.List(ctx, list))
-					require.Len(t, list.Items, 3, "repeated sync must retain exactly one current-parent mirror")
-					for i := range list.Items {
-						setting := &list.Items[i]
-						if setting.Name == foreign.Name || setting.Name == orphan.Name {
-							continue
-						}
-						assert.Equal(t, "default-", setting.GenerateName)
-						assert.Equal(t, portConfigTestOwnerReferences(parent), setting.OwnerReferences)
-						assert.Equal(t, assoc+":default", setting.Annotations[common.AnnotationAssociatedResource])
-						assert.Equal(t, parent.Name, setting.Spec.SubnetName)
-						require.Len(t, setting.Status.Conditions, 1)
-						assert.Equal(t, corev1.ConditionTrue, setting.Status.Conditions[0].Status)
-						if mirrorBefore != nil {
-							assert.Equal(t, mirrorBefore, setting, "a realized mirror must remain unchanged on repeated sync")
-						}
-						mirrorBefore = setting.DeepCopy()
-					}
+					assert.Equal(t, before.Items, list.Items)
 				}
-				require.NotNil(t, mirrorBefore)
 				require.NoError(t, r.markPortConfigsNotReady(ctx, parent, context.DeadlineExceeded))
-				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, sets.New[string](), assoc))
+				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, assoc))
 				after := &v1alpha1.SubnetPortSettingList{}
 				require.NoError(t, r.APIReader.List(ctx, after))
 				assert.Equal(t, before.Items, after.Items, "Ready, NotReady and orphan cleanup must preserve foreign identities verbatim")
@@ -2120,9 +2069,9 @@ func TestListPortConfigsRejectsEmptyParentUID(t *testing.T) {
 	listed, err := r.listPortConfigs(ctx, parent, "proj:vpc:subnet")
 	require.NoError(t, err)
 	assert.Empty(t, listed, "empty owner and parent UIDs cannot establish ownership")
-	created, err := r.createPortConfig(ctx, parent, "default", "proj:vpc:subnet")
-	require.NoError(t, err)
-	assert.NotEqual(t, setting.Name, created.Name, "AlreadyExists must also reject empty identity")
+	created, err := r.createPortConfig(ctx, parent, "default", "proj:vpc:subnet", "default")
+	require.ErrorContains(t, err, "conflicts")
+	assert.Nil(t, created, "AlreadyExists must also reject empty identity")
 }
 
 // portConfigDeleteRaceClient supplies the UID precondition check missing from the
@@ -2202,7 +2151,7 @@ func TestPortConfigOrphanDeletionPreconditions(t *testing.T) {
 						require.NoError(t, baseClient.Delete(ctx, observed.DeepCopy()))
 					}
 				}}
-			err := r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, sets.New[string](), assoc)
+			err := r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, assoc)
 			assert.Equal(t, 1, deletes, "only the observed orphan should be offered for deletion")
 			stored := &v1alpha1.SubnetPortSetting{}
 			if survivor != nil {
@@ -2210,7 +2159,7 @@ func TestPortConfigOrphanDeletionPreconditions(t *testing.T) {
 				assert.True(t, apierrors.IsConflict(err), "stale deletion conflict must propagate: %v", err)
 				require.NoError(t, baseClient.Get(ctx, key, stored))
 				assert.Equal(t, survivor, stored, "the changed object must survive stale orphan cleanup")
-				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, sets.New[string](), assoc))
+				require.NoError(t, r.syncPortConfigsForNamespaceSubnet(ctx, parent, nil, assoc))
 				assert.Equal(t, 1, deletes, "retry must observe the foreign source and skip its deletion")
 				require.NoError(t, baseClient.Get(ctx, key, stored))
 				assert.Equal(t, survivor, stored, "retry must preserve the object from another source")
