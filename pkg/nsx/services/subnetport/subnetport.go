@@ -45,6 +45,8 @@ type SubnetPortService struct {
 	VPCService                 servicecommon.VPCServiceProvider
 	IpAddressAllocationService servicecommon.IPAddressAllocationServiceProvider
 	builder                    *servicecommon.PolicyTreeBuilder[*model.VpcSubnetPort]
+	dnsDomainCacheOnce         sync.Once
+	dnsDomainCache             *dnsDomainCache
 }
 
 // InitializeSubnetPort sync NSX resources.
@@ -171,7 +173,8 @@ func (service *SubnetPortService) portAlreadyRealized(obj interface{}, nsxSubnet
 	return false
 }
 
-func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+//go:noinline
+func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, dnsHostname string) (*model.SegmentPortState, error) {
 	var uid string
 	var attachmentID string
 	switch o := obj.(type) {
@@ -191,6 +194,14 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 		return nil, err
 	}
 	existingSubnetPort := service.SubnetPortStore.GetByKey(*nsxSubnetPort.Id)
+	if _, ok := obj.(*v1alpha1.SubnetPort); ok {
+		if dnsHostname != "" {
+			nsxSubnetPort.DnsHostname = &dnsHostname
+		} else if existingSubnetPort != nil {
+			nsxSubnetPort.DnsHostname = existingSubnetPort.DnsHostname
+		}
+	}
+
 	isChanged := true
 	if existingSubnetPort != nil {
 		// The existing port's attachment ID should not be changed in any case.
@@ -295,6 +306,7 @@ func (service *SubnetPortService) CreateOrUpdateSubnetPort(obj interface{}, nsxS
 	if err != nil {
 		return nil, err
 	}
+
 	if isChanged {
 		log.Info("Successfully created or updated subnetport", "nsxSubnetPort.Id", *nsxSubnetPort.Id, "nsxSubnetPortState", nsxSubnetPortState)
 	} else {

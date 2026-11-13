@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
@@ -88,6 +89,25 @@ func TestIPAddressAllocationStore_GetByUID(t *testing.T) {
 	if got != nil {
 		t.Errorf("got != nil")
 	}
+}
+
+func TestIPAddressAllocationStore_GetByVPCPath(t *testing.T) {
+	store := buildIPAddressAllocationStore()
+	allocation := &model.VpcIpAddressAllocation{
+		Id:         String("allocation-1"),
+		ParentPath: String("/orgs/org1/projects/project1/vpcs/vpc1"),
+	}
+	require.NoError(t, store.Add(allocation))
+
+	got, err := store.GetByVPCPath("/orgs/org1/projects/project1/vpcs/vpc1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, allocation, got[0])
+
+	store.DeleteMultipleObjects(got)
+	got, err = store.GetByVPCPath("/orgs/org1/projects/project1/vpcs/vpc1")
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
 
 func Test_indexFunc(t *testing.T) {

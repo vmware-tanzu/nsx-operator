@@ -785,7 +785,6 @@ func TestBuildSubnetPort(t *testing.T) {
 			expectedError: nil,
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Passed tt.interfaceIPType explicitly into the updated method signature

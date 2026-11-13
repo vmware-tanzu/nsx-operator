@@ -53,6 +53,12 @@ func TestCompareIPAddressAllocationUsedFor(t *testing.T) {
 	}
 }
 
+func TestCompareIPAddressAllocationDNSHostname(t *testing.T) {
+	existing := &model.VpcIpAddressAllocation{Id: String("allocation"), DnsHostname: String("old-host")}
+	desired := &model.VpcIpAddressAllocation{Id: String("allocation"), DnsHostname: String("new-host")}
+	assert.True(t, common.CompareResource(IpAddressAllocationToComparable(existing), IpAddressAllocationToComparable(desired)))
+}
+
 func TestIpAddressAllocationToComparable(t *testing.T) {
 	id := "test-id"
 	displayName := "test-display-name"
@@ -74,4 +80,21 @@ func TestComparableToIpAddressAllocation(t *testing.T) {
 	assert.Equal(t, id, *vpcIap.Id)
 	assert.Equal(t, displayName, *vpcIap.DisplayName)
 	assert.Equal(t, tags, vpcIap.Tags)
+}
+
+func TestDNSHostnameComparisonNormalization(t *testing.T) {
+	for _, tc := range []struct {
+		existing, desired *string
+		changed           bool
+	}{
+		{String(" My-Host "), String("my-host"), false},
+		{String("old"), String("new"), true},
+		{nil, String("new"), true},
+		{nil, nil, false},
+	} {
+		existing := &model.VpcIpAddressAllocation{Id: String("id"), DnsHostname: tc.existing}
+		desired := &model.VpcIpAddressAllocation{Id: String("id"), DnsHostname: tc.desired}
+		assert.Equal(t, tc.changed, common.CompareResource(IpAddressAllocationToComparable(existing), IpAddressAllocationToComparable(desired)))
+		assert.Equal(t, tc.existing, existing.DnsHostname)
+	}
 }

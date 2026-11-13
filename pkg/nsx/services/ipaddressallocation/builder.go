@@ -195,6 +195,10 @@ func (service *IPAddressAllocationService) BuildIPAddressAllocation(obj metav1.O
 		IpBlock:                    ipBlock,
 		UsedFor:                    usedFor,
 	}
+	if allocation, ok := obj.(*v1alpha1.IPAddressAllocation); ok && allocation.Spec.DNSHostName != "" {
+		dnsHostName := strings.ToLower(strings.TrimSpace(allocation.Spec.DNSHostName))
+		vpcIpAddressAllocation.DnsHostname = String(dnsHostName)
+	}
 	if ipAddressType != model.VpcIpAddressAllocation_IP_ADDRESS_TYPE_IPV6 {
 		vpcIpAddressAllocation.IpAddressBlockVisibility = &ipAddressBlockVisibilityStr
 	}
