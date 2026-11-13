@@ -42,7 +42,7 @@ type SharedSubnetData struct {
 		Subnet     *model.VpcSubnet
 		StatusList []model.VpcSubnetStatus
 	}
-	// portSettingsCache holds complete PortSettings ID snapshots and in-flight fetch tokens.
+	// portSettingsCache holds complete PortSettings identity snapshots and in-flight fetch tokens.
 	portSettingsCache map[string]*portSettingsCacheEntry
 	// mutex to protect NSXSubnetCache and portSettingsCache
 	nsxSubnetCacheMutex sync.RWMutex
