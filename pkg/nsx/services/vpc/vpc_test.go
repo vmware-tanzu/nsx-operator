@@ -460,6 +460,49 @@ func TestIsRADeactivatedByVPCPath(t *testing.T) {
 	}
 }
 
+func TestGetSubnetPortVPCConfigByVPCPathReturnsDNSResolverIPs(t *testing.T) {
+	vpcPath := "/orgs/default/projects/p1/vpcs/vpc1"
+	vpcService := &VPCService{
+		Service: common.Service{
+			NSXClient: &nsx.Client{
+				VPCClient:               &fakeVpcsClientForRA{},
+				VpcServiceProfileClient: &fakeVpcServiceProfilesClient{},
+			},
+		},
+	}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VPCClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.Vpc{VpcServiceProfile: common.String("/orgs/default/projects/p1/vpc-service-profiles/default")}, nil},
+		Times:  1,
+	}})
+	patches.ApplyMethodSeq(reflect.TypeOf(vpcService.NSXClient.VpcServiceProfileClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.VpcServiceProfile{DnsConfig: &model.VpcProfileDnsConfig{
+			Ipv4ResolverIp: common.String("192.0.2.53"),
+			Ipv6ResolverIp: common.String("2001:db8::53"),
+		}}, nil},
+		Times: 1,
+	}})
+	defer patches.Reset()
+
+	raDeactivated, resolverIPs, err := vpcService.GetSubnetPortVPCConfigByVPCPath(vpcPath)
+	assert.NoError(t, err)
+	assert.True(t, raDeactivated)
+	assert.Equal(t, []string{"192.0.2.53", "2001:db8::53"}, resolverIPs)
+}
+
+func TestGetDNSResolverIPsUsesOnlyConfiguredValues(t *testing.T) {
+	ipv4 := "192.0.2.53"
+	ipv6 := "2001:db8::53"
+	assert.Equal(t, []string{ipv4, ipv6}, getDNSResolverIPs(&model.VpcServiceProfile{DnsConfig: &model.VpcProfileDnsConfig{
+		Ipv4ResolverIp: &ipv4,
+		Ipv6ResolverIp: &ipv6,
+	}}))
+	assert.Equal(t, []string{ipv4}, getDNSResolverIPs(&model.VpcServiceProfile{DnsConfig: &model.VpcProfileDnsConfig{
+		Ipv4ResolverIp: &ipv4,
+	}}))
+	assert.Nil(t, getDNSResolverIPs(&model.VpcServiceProfile{DnsConfig: &model.VpcProfileDnsConfig{}}))
+	assert.Nil(t, getDNSResolverIPs(&model.VpcServiceProfile{}))
+}
+
 // TestIsRADeactivatedByVPCPath_NoStaleCaching guards against a regression found during manual
 // testing: an earlier version of IsRADeactivatedByVPCPath cached its result forever, so an admin
 // enabling/disabling RA on a live VPC had no effect on already-cached SubnetPorts until the

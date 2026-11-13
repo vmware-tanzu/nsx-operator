@@ -75,6 +75,11 @@ func (m *MockVPCServiceProvider) IsRADeactivatedByVPCPath(vpcPath string) (bool,
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockVPCServiceProvider) GetSubnetPortVPCConfigByVPCPath(vpcPath string) (bool, []string, error) {
+	raDeactivated, err := m.IsRADeactivatedByVPCPath(vpcPath)
+	return raDeactivated, nil, err
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }

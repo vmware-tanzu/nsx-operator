@@ -1241,49 +1241,76 @@ func (s *VPCService) GetVPCFromNSXByPath(vpcPath string) (*model.Vpc, error) {
 // explicit ra_mode of DISABLED. Not cached: an admin can change VPC RA config at any time, and a
 // stale positive would silently mislead every SubnetPort in the VPC until the operator restarts.
 func (s *VPCService) IsRADeactivatedByVPCPath(vpcPath string) (bool, error) {
+	raDeactivated, _, err := s.GetSubnetPortVPCConfigByVPCPath(vpcPath)
+	return raDeactivated, err
+}
+
+// GetSubnetPortVPCConfigByVPCPath reads the VPC service profile once and returns
+// the RA behavior and DNS resolver IPs used for a SubnetPort's network status.
+func (s *VPCService) GetSubnetPortVPCConfigByVPCPath(vpcPath string) (bool, []string, error) {
 	vpcResInfo, err := common.ParseVPCResourcePath(vpcPath)
 	if err != nil {
 		log.Error(err, "Failed to parse VPCResourceInfo from the given VPC path", "VPC", vpcPath)
-		return false, err
+		return false, nil, err
 	}
-	return s.resolveRADeactivated(vpcResInfo)
+	return s.resolveSubnetPortVPCConfig(vpcResInfo)
 }
 
-func (s *VPCService) resolveRADeactivated(vpcResInfo common.VPCResourceInfo) (bool, error) {
+// resolveSubnetPortVPCConfig fetches the current profile instead of caching it:
+// an administrator can update DNS resolver IPs and RA settings at any time.
+func (s *VPCService) resolveSubnetPortVPCConfig(vpcResInfo common.VPCResourceInfo) (bool, []string, error) {
 	vpc, err := s.NSXClient.VPCClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, vpcResInfo.VPCID)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read VPC object from NSX", "VPC", vpcResInfo.GetVPCPath())
-		return false, err
+		return false, nil, err
 	}
 	if vpc.VpcServiceProfile == nil || *vpc.VpcServiceProfile == "" {
 		log.Info("No VpcServiceProfile configured on VPC, treating RA as deactivated", "VPC", vpcResInfo.GetVPCPath())
-		return true, nil
+		return true, nil, nil
 	}
 
 	profile, err := s.NSXClient.VpcServiceProfileClient.Get(vpcResInfo.OrgID, vpcResInfo.ProjectID, path.Base(*vpc.VpcServiceProfile))
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read VpcServiceProfile from NSX", "VpcServiceProfile", *vpc.VpcServiceProfile)
-		return false, err
+		return false, nil, err
 	}
+	dnsResolverIPs := getDNSResolverIPs(&profile)
 
 	ndraProfilePath := findIpv6NdraProfilePath(profile.Ipv6ProfilePaths)
 	if ndraProfilePath == "" {
 		log.Debug("No Ipv6NdraProfile referenced by VpcServiceProfile, treating RA as deactivated", "VpcServiceProfile", *vpc.VpcServiceProfile)
-		return true, nil
+		return true, dnsResolverIPs, nil
 	}
 
 	ndraProfile, err := s.getIpv6NdraProfile(vpcResInfo, ndraProfilePath)
 	err = nsxutil.TransNSXApiError(err)
 	if err != nil {
 		log.Error(err, "Failed to read Ipv6NdraProfile from NSX", "Ipv6NdraProfile", ndraProfilePath)
-		return false, err
+		return false, nil, err
 	}
 
 	raDeactivated := ndraProfile.RaMode == nil || *ndraProfile.RaMode == model.Ipv6NdraProfile_RA_MODE_DISABLED
 	log.Debug("Resolved RA mode for VPC", "VPC", vpcResInfo.GetVPCPath(), "Ipv6NdraProfile", ndraProfilePath, "RaMode", ndraProfile.RaMode, "RADeactivated", raDeactivated)
-	return raDeactivated, nil
+	return raDeactivated, dnsResolverIPs, nil
+}
+
+func getDNSResolverIPs(profile *model.VpcServiceProfile) []string {
+	if profile == nil || profile.DnsConfig == nil {
+		return nil
+	}
+	resolverIPs := make([]string, 0, 2)
+	if profile.DnsConfig.Ipv4ResolverIp != nil && *profile.DnsConfig.Ipv4ResolverIp != "" {
+		resolverIPs = append(resolverIPs, *profile.DnsConfig.Ipv4ResolverIp)
+	}
+	if profile.DnsConfig.Ipv6ResolverIp != nil && *profile.DnsConfig.Ipv6ResolverIp != "" {
+		resolverIPs = append(resolverIPs, *profile.DnsConfig.Ipv6ResolverIp)
+	}
+	if len(resolverIPs) == 0 {
+		return nil
+	}
+	return resolverIPs
 }
 
 // getIpv6NdraProfile reads the Ipv6NdraProfile at the given path, which may either be an infra-level

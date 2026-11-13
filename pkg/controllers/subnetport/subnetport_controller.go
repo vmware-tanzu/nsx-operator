@@ -363,11 +363,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// newly recreated CR. Keep the original network data for the NSX restore.
 			subnetPort.Status = *old_status.DeepCopy()
 		}
-		raDeactivated, err := r.VPCService.IsRADeactivatedByVPCPath(nsxSubnetPath)
+		raDeactivated, dnsResolverIPs, err := r.VPCService.GetSubnetPortVPCConfigByVPCPath(nsxSubnetPath)
 		if err != nil {
 			log.Error(err, "Failed to determine RA mode for SubnetPort's VPC", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to determine RA mode for SubnetPort's VPC", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			return common.ResultNormal, err
+		}
+		if !shouldSetDNSResolverIPs(subnetPort, vm) {
+			dnsResolverIPs = nil
 		}
 
 		var ab *v1alpha1.AddressBinding
@@ -428,6 +431,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
 				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
 				RADeactivated:             raDeactivated,
+				DNSResolverIPs:            dnsResolverIPs,
 			}
 			if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
@@ -2052,6 +2056,26 @@ func realizedBindingsCoverStaticFamilies(realizedBindings []model.AddressBinding
 	default:
 		return false
 	}
+}
+
+func shouldSetDNSResolverIPs(subnetPort *v1alpha1.SubnetPort, vm *vmv1alpha1.VirtualMachine) bool {
+	if subnetPort == nil || vm == nil {
+		return false
+	}
+	hasVMOwner := false
+	for _, owner := range subnetPort.OwnerReferences {
+		if owner.Kind == servicecommon.ResourceTypeVirtualMachine && strings.HasPrefix(owner.APIVersion, vmv1alpha1.GroupName+"/") {
+			hasVMOwner = true
+			break
+		}
+	}
+	if !hasVMOwner {
+		return false
+	}
+	if vm.Labels[servicecommon.LabelImageFetcher] == "true" {
+		return false
+	}
+	return subnetPort.Labels[servicecommon.LabelImageFetcher] != "true"
 }
 
 // networkInterfaceIPAddressesFromRealizedBindings builds one status entry per
