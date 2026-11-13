@@ -17,7 +17,6 @@ import (
 	"time"
 
 	vmv1alpha1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
-	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -322,23 +321,9 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		nsxSubnet, err := r.SubnetService.GetSubnetByPath(nsxSubnetPath, inSharedSubnet)
 		if err != nil {
-			if isSubnetNotFound(err, inSharedSubnet) {
-				vpcSubnetPort, searchErr := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.GetUID())
-				if searchErr != nil {
-					log.Error(searchErr, "failed to use the SubnetPort CR to search VpcSubnetPort", "CR UID", subnetPort.GetUID())
-					err = errors.Join(err, searchErr)
-				} else if vpcSubnetPort != nil {
-					log.Info("Previous NSX Subnet is not found, deleting the stale SubnetPort", "subnetPort.UID", subnetPort.UID, "nsxSubnetPath", nsxSubnetPath)
-					if e := r.SubnetPortService.DeleteSubnetPort(vpcSubnetPort); e != nil {
-						log.Error(e, "Failed to delete the stale SubnetPort", "subnetPort.UID", subnetPort.UID)
-						err = errors.Join(err, e)
-					}
-				}
-			} else {
-				log.Warn("Failed to get Subnet by path due to an error other than not found, skipping deleting SubnetPort", "path", nsxSubnetPath, "err", err)
-			}
+			log.Error(err, "Failed to get Subnet by path", "path", nsxSubnetPath)
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, fmt.Sprintf("Failed to get Subnet by path: %s", nsxSubnetPath), setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, false)
-			return common.ResultRequeue, err
+			return common.ResultNormal, err
 		}
 		isPublicSubnet := nsxSubnet != nil && nsxSubnet.AccessMode != nil && strings.EqualFold(*nsxSubnet.AccessMode, model.VpcSubnet_ACCESS_MODE_PUBLIC)
 		// If SubnetPort is created before VM creation, VM Operator will update the SubnetPort for owner references
@@ -700,19 +685,6 @@ func validateStaticIPSubsetOfInterface(staticType v1alpha1.StaticIPAllocationTyp
 		return fmt.Errorf("unknown StaticIPAllocationType %s", staticType)
 	}
 	return nil
-}
-
-func isSubnetNotFound(err error, inSharedSubnet bool) bool {
-	if err == nil {
-		return false
-	}
-	if inSharedSubnet {
-		if nsxErr, ok := err.(*nsxutil.NSXApiError); ok {
-			return nsxErr.Type() == stderrors.ErrorType_NOT_FOUND
-		}
-		return false
-	}
-	return errors.Is(err, subnet.ErrSubnetNotFoundInStore)
 }
 
 func (r *SubnetPortReconciler) getSubnetCR(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (*v1alpha1.Subnet, bool, error) {
