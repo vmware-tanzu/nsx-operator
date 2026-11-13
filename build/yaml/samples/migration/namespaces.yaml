@@ -9,7 +9,7 @@ spec:
   namespaces: ["ns1", "ns2", "ns3"]
   sourceMode: "VSPHERE_VDS"
   targetMode: "NSX_VPC"
-  action: "Evaluate"                       # Evaluate | Plan | Derive | Execute | Rollback | Commit
+  action: "Evaluate"                       # Evaluate | Execute | Rollback | Commit
   networkConfiguration:
     # Optional naming overrides for new topology; omitted names are generated.
     # Existing valid VDNSubnetLink mappings are reused without naming inputs.

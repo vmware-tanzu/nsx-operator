@@ -17,11 +17,11 @@ import (
 func TestObservationPreservesActionAndMilestones(t *testing.T) {
 	oldTime := metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	s := &api.TransitionStatus{Conditions: []metav1.Condition{{Type: api.ConditionSubnetsDerived, Status: metav1.ConditionTrue, Reason: "Derived", LastTransitionTime: oldTime, ObservedGeneration: 2}}}
-	require.NoError(t, RecordAction(s, api.ActionDerive, api.ActionStateSucceeded, 2))
+	require.NoError(t, RecordAction(s, api.ActionExecute, api.ActionStateSucceeded, 2))
 	require.NoError(t, Observe(s, 3, api.PhaseBlocked, metav1.Condition{Type: api.ConditionReady, Status: metav1.ConditionFalse, Reason: "DependencyNotReady", Message: "Waiting for infrastructure", LastTransitionTime: oldTime}))
 	require.Equal(t, int64(3), s.ObservedGeneration)
 	require.Equal(t, int64(2), s.ActionGeneration)
-	require.Equal(t, api.ActionDerive, s.LastAction)
+	require.Equal(t, api.ActionExecute, s.LastAction)
 	require.Equal(t, api.ActionStateSucceeded, s.ActionState)
 	before := s.DeepCopy()
 	require.NoError(t, Observe(s, 3, api.PhaseBlocked, metav1.Condition{Type: api.ConditionReady, Status: metav1.ConditionFalse, Reason: "DependencyNotReady", Message: "Waiting for infrastructure"}))
@@ -46,7 +46,7 @@ func TestCheckpointAndWorkflowRecovery(t *testing.T) {
 	require.NoError(t, RecordWorkflow(s, first))
 	require.Equal(t, []api.NSXWorkflowStatus{first, second}, s.NSXWorkflows)
 	require.Error(t, RecordWorkflow(s, api.NSXWorkflowStatus{VDNName: "vdn-a", WorkflowID: "replacement"}))
-	for i, action := range []api.Action{api.ActionEvaluate, api.ActionPlan, api.ActionDerive, api.ActionExecute, api.ActionRollback} {
+	for i, action := range []api.Action{api.ActionEvaluate, api.ActionExecute, api.ActionRollback} {
 		require.NoError(t, RecordAction(s, action, api.ActionStateRunning, int64(i+1)))
 		require.NoError(t, RecordAction(s, action, api.ActionStateFailed, int64(i+1)))
 		restored := s.DeepCopy()

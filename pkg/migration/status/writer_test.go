@@ -92,9 +92,9 @@ func TestStatusPersistence(t *testing.T) {
 			desired := retried.DeepCopyObject().(client.Object)
 			switch o := desired.(type) {
 			case *api.ControlPlaneNetworkTransition:
-				o.Spec.Action = api.ActionPlan
+				o.Spec.Action = api.ActionExecute
 			case *api.NamespaceNetworkTransition:
-				o.Spec.Action = api.ActionPlan
+				o.Spec.Action = api.ActionExecute
 			}
 			desired.SetGeneration(2)
 			require.NoError(t, c.Update(ctx, desired))
@@ -238,7 +238,7 @@ func TestStatusWriterActionScope(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))
 	for _, infrastructure := range []bool{true, false} {
-		for _, action := range []api.Action{api.ActionEvaluate, api.ActionPlan, api.ActionDerive, api.ActionExecute, api.ActionRollback, api.ActionCommit, api.ActionFinalize} {
+		for _, action := range []api.Action{api.ActionEvaluate, api.ActionExecute, api.ActionRollback, api.ActionCommit, api.ActionFinalize} {
 			t.Run(fmt.Sprintf("infrastructure=%t/%s", infrastructure, action), func(t *testing.T) {
 				var obj client.Object
 				var update func(client.Client, client.Object, func(*api.TransitionStatus) error) (client.Object, error)
