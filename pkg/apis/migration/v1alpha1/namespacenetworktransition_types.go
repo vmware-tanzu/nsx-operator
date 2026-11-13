@@ -21,9 +21,9 @@ type NamespaceNetworkTransitionSpec struct {
 	Namespaces []string `json:"namespaces,omitempty"`
 	// NetworkConfiguration supplies administrator-provided migration parameters.
 	// Values may be added, corrected, or removed while the requested action is
-	// Evaluate and no planning checkpoint has been recorded, or after a successful
-	// Rollback with no irreversible checkpoint. Plan otherwise freezes the configuration.
-	// Rollback success must mean restoration is verified and the previous plan is invalidated.
+	// Evaluate and no execution checkpoint has been recorded, or after a successful
+	// Rollback with no irreversible checkpoint. Execute otherwise freezes the configuration.
+	// Rollback success requires verified restoration; a new Evaluate is required before another Execute.
 	// +optional
 	NetworkConfiguration *NamespaceNetworkConfiguration `json:"networkConfiguration,omitempty"`
 }
@@ -102,7 +102,7 @@ type NamespaceNetworkTransitionStatus struct {
 // NamespaceNetworkTransition requests Stage 2 migration of an explicit Namespace batch.
 // +kubebuilder:validation:XValidation:rule="!has(self.status) || !has(self.status.namespaceStatuses) || [self.spec.namespaces.transformMapEntry(i, name, {name: true})].all(names, self.status.namespaceStatuses.all(ns, ns.name in names))",message="namespaceStatuses entries must belong to spec.namespaces"
 // +kubebuilder:validation:XValidation:rule="self.spec.action == 'Evaluate' || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration may only change with Evaluate"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Plan', 'Derive', 'Execute', 'Rollback', 'Commit', 'Finalize']) || (self.spec.action == 'Evaluate' && oldSelf.status.lastAction == 'Rollback' && has(oldSelf.status.actionState) && oldSelf.status.actionState == 'Succeeded' && !has(oldSelf.status.irreversibleAction)) || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration cannot change after planning starts unless Evaluate follows a successful Rollback without an irreversible checkpoint"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Execute', 'Rollback', 'Commit', 'Finalize']) || (self.spec.action == 'Evaluate' && oldSelf.status.lastAction == 'Rollback' && has(oldSelf.status.actionState) && oldSelf.status.actionState == 'Succeeded' && !has(oldSelf.status.irreversibleAction)) || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration cannot change after execution starts unless Evaluate follows a successful Rollback without an irreversible checkpoint"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.irreversibleAction) || (has(self.status) && has(self.status.irreversibleAction) && self.status.irreversibleAction == oldSelf.status.irreversibleAction && self.spec.action == oldSelf.status.irreversibleAction)",message="an irreversible checkpoint cannot change or be cleared; only its action may be resumed"
 // +kubebuilder:validation:XValidation:rule="!has(self.status) || !has(self.status.irreversibleAction) || self.spec.action == self.status.irreversibleAction",message="an irreversible checkpoint requires the corresponding spec.action"
 // +kubebuilder:object:root=true
