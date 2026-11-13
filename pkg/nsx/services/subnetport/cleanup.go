@@ -34,3 +34,18 @@ func (service *SubnetPortService) CleanupBeforeVPCDeletion(ctx context.Context) 
 	log.Info("Successfully cleaned up VpcSubnetPorts", "count", len(ports), "status", "success")
 	return nil
 }
+
+func (service *SubnetPortService) CleanupInfraResources(ctx context.Context) error {
+	objs := service.SegmentPortStore.List()
+	log.Info("Cleaning up SegmentPorts", "Count", len(objs), "status", "attempting")
+	for _, obj := range objs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := service.DeleteSegmentPort(obj.(*model.SegmentPort)); err != nil {
+			return err
+		}
+	}
+	log.Info("Successfully cleaned up SegmentPorts", "count", len(objs), "status", "success")
+	return nil
+}

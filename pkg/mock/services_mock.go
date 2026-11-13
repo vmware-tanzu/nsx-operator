@@ -166,6 +166,11 @@ func (m *MockSubnetPortServiceProvider) GetSubnetPathForSubnetPortFromStore(crUi
 	return args.String(0)
 }
 
+func (m *MockSubnetPortServiceProvider) GetSegmentPathForSubnetPortFromStore(crUid types.UID) string {
+	args := m.Called(crUid)
+	return args.String(0)
+}
+
 func (m *MockSubnetPortServiceProvider) ResetSubnetTotalIP(path string) {
 }
 
