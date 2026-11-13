@@ -1807,6 +1807,37 @@ func TestSubnetPortService_AllocatePortFromSubnet(t *testing.T) {
 			expectedValue: true,
 		},
 		{
+			name:                   "Allocate SubnetPort when static IPv6 pool usage is unavailable",
+			subnet:                 staticIPv6Subnet,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(_, _, _, _, _ string) (model.IpAddressPool, error) {
+						return model.IpAddressPool{}, nil
+					},
+				}
+				return nil
+			},
+			expectedValue: true,
+		},
+		{
+			name:                   "Allocate shared SubnetPort when static IPv6 pool usage is unavailable",
+			subnet:                 staticIPv6Subnet,
+			sharedSubnet:           true,
+			interfaceIPType:        v1alpha1.IPAddressTypeIPv6,
+			staticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv6,
+			prepareFunc: func(service *SubnetPortService) *gomonkey.Patches {
+				service.NSXClient.IPPoolClient = &mockFuncIPPoolClient{
+					getFunc: func(_, _, _, _, _ string) (model.IpAddressPool, error) {
+						return model.IpAddressPool{}, nil
+					},
+				}
+				return nil
+			},
+			expectedValue: true,
+		},
+		{
 			name:                   "Allocate Dual-Stack SubnetPort failed due to IPv4 starvation",
 			subnet:                 dualStackStaticSubnet,
 			interfaceIPType:        v1alpha1.IPAddressTypeIPv4IPv6,

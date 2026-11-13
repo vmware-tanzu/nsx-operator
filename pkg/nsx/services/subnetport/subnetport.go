@@ -1140,10 +1140,20 @@ func (service *SubnetPortService) checkIPv6Capacity(subnet *model.VpcSubnet, sha
 			log.Error(err, "Failed to get Subnet static IP Pool static-ipv6-default", "Subnet", *subnet.Path)
 			return false, err
 		}
-		if staticIPPoolIPv6.PoolUsage != nil && staticIPPoolIPv6.PoolUsage.TotalIps != nil {
+		// TODO: NSX may omit IPv6 pool usage during its API transition.
+		// Allow allocation until usage statistics are available again.
+		if staticIPPoolIPv6.PoolUsage == nil {
+			// Missing usage stats do not override a recent IP allocation failure.
+			if time.Since(info.exhaustedCheckTime) < IPReleaseTime {
+				return false, nil
+			}
+			log.Info("Subnet static IPv6 pool usage unavailable; allowing allocation", "Subnet", *subnet.Path)
+			return true, nil
+		}
+		if staticIPPoolIPv6.PoolUsage.TotalIps != nil {
 			info.totalStaticIPv6 = int(*staticIPPoolIPv6.PoolUsage.TotalIps)
 		}
-		if sharedSubnet && staticIPPoolIPv6.PoolUsage != nil && staticIPPoolIPv6.PoolUsage.RequestedIpAllocations != nil {
+		if sharedSubnet && staticIPPoolIPv6.PoolUsage.RequestedIpAllocations != nil {
 			allocatedIPNumberIPv6 = int(*staticIPPoolIPv6.PoolUsage.RequestedIpAllocations)
 		}
 	}
