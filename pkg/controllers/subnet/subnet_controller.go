@@ -84,6 +84,16 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ResultRequeue, err
 	}
 
+	if subnetCR.DeletionTimestamp.IsZero() {
+		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetCR)
+		if err != nil {
+			return ResultRequeue, err
+		}
+		if !allowed {
+			return ResultNormal, nil
+		}
+	}
+
 	bindingCRs := r.getSubnetBindingCRsBySubnet(ctx, subnetCR)
 	if len(bindingCRs) > 0 {
 		if !controllerutil.ContainsFinalizer(subnetCR, servicecommon.SubnetFinalizerName) {
@@ -635,7 +645,7 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Subnet{}).
-		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
+		WithEventFilter(common.SubnetResourceNamespacePredicate(r.Client)).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
