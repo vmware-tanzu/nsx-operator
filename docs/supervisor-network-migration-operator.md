@@ -37,7 +37,7 @@ failed client initialization can be retried by future handlers. Migration startu
 must not depend solely on `HasVPCNamespaces()`, because a VDS Supervisor may not
 have any VPC Namespaces before migration preparation.
 
-Both CRDs accept `Evaluate`, `Plan`, `Derive`, and `Execute`. Namespace batches
+Both CRDs accept `Evaluate` and `Execute`. Namespace batches
 additionally support `Rollback` and `Commit`; infrastructure supports `Finalize`.
 The infrastructure CRD rejects `Rollback` at every phase. Failed infrastructure
 actions retain checkpoints for diagnosis and forward retry. Infrastructure
@@ -65,7 +65,7 @@ and the current status contract in detailed design version 187, Sections 4.1/4.2
   together. Reporting a newer blocked request does not promote the older action
   to success. Neither this helper nor per-namespace progress advances an action
   or establishes the irreversible checkpoint. Callers must verify whole-batch
-  restoration and invalidate the previous plan before recording Rollback/Succeeded;
+  restoration before recording Rollback/Succeeded; require a new Evaluate before Execute;
   that checkpoint permits Evaluate-time input corrections in the namespace CRD.
 - `RecordWorkflow` records one exact workflow handle per VDN. Repeated reports
   are idempotent; replacing an accepted handle requires a separately defined
@@ -244,10 +244,9 @@ Handlers revalidate topology, sharing, action/input-edit guards and creation sta
 before accepting values; a status hint is advisory, not an authorization to rename
 resources. An absent list is not proof that discovery is complete.
 
-Optional diagnostics do not pause automatic preparation. Missing DHCP data gives
-the user an opportunity to submit optional names before creation. If required
-inputs are already complete, Evaluate may continue using generated names; users
-can also provide overrides in the initial spec. Runtime diagnostic publication,
+Evaluate reports optional naming diagnostics without creating target resources. Users
+can provide overrides during Evaluate or in the initial spec; Execute uses generated
+names where overrides are omitted. Runtime diagnostic publication,
 default generation and eligibility checks remain handler work; the observational
 framework defines the schema only.
 
@@ -258,7 +257,7 @@ name collisions and ownership before mutation. Resolve and freeze the identity
 before creation, including requests with unknown outcomes. Generated names must
 remain stable across retries, process restarts and batches sharing topology; do not
 regenerate a different identity after a lost reply. Names cannot rename
-retained resources when returning to Evaluate. Existing Plan/input-edit guards
+retained resources when returning to Evaluate. Existing Execute/input-edit guards
 continue to apply; successful Namespace rollback can reopen creation naming only
 for resources proven removed and no longer shared.
 
@@ -279,7 +278,7 @@ The reviewed API uses `migration.network.vmware.com/v1alpha1` and
 `spec.networkConfiguration`. DHCP inputs are `namespaceDHCPNetworks` or
 `controlPlaneAndServiceDHCPNetworks`, both lists of `DHCPNetworkConfiguration`
 keyed by `vdnName`. Workflow records also use `vdnName`. Action values use PascalCase
-(`Evaluate`, `Plan`, `Derive`, `Execute`, `Rollback`, `Commit`, `Finalize`).
+(`Evaluate`, `Execute`, `Rollback`, `Commit`, `Finalize`).
 These are breaking changes to the pre-release API. Clients and dependent branches
 must adopt them together; no aliases or conversion webhook are provided.
 
@@ -316,11 +315,11 @@ then validates the range end and gateway against that subnet; no separate CIDR
 input is exposed. Both network lists use `DHCPNetworkConfiguration` to describe
 existing source networks, not to request new DHCP configuration.
 
-While the requested action is `Evaluate` and no planning checkpoint exists,
+While the requested action is `Evaluate` and no execution checkpoint exists,
 network configuration may be added, corrected, or removed, including individual
 addressing values, network entries, or the whole configuration. Syntax validation
 still applies. Edits change the CR generation and require fresh evaluation. Configuration cannot change in the same update
-that requests Plan, or while Plan is pending and `status.lastAction` still
+that requests Execute, or while Execute is pending and `status.lastAction` still
 records Evaluate. The same request-time guard applies
 to control-plane project/provider selection. The existing checkpoint-based
 freeze remains, with one Namespace-only exception: `networkConfiguration` may
@@ -329,7 +328,7 @@ change with requested action `Evaluate` when the stored `status.lastAction` is
 checkpoint exists. The action and inputs may change together or in separate
 updates. Running, failed, or incomplete rollback checkpoints do not reopen edits.
 Syntax validation and the requirement for fresh evaluation still apply; edits
-cannot accompany a request for Plan. Infrastructure has no rollback exception.
+cannot accompany a request for Execute. Infrastructure has no rollback exception.
 Discovery-dependent checks, including subnet membership, ordered DHCP
 bounds, unknown VDNs and conflicts between batches, belong to the concrete
 handlers, which have not shipped.
@@ -345,13 +344,25 @@ examples. Apply the samples under `build/yaml/samples/migration` to begin with
 
 Supervisor networks backed by VDS are IPv4-only. For an NSX_LB target,
 `networkConfiguration.lbSNATIPs` is an array that currently accepts at most one
-plain IPv4 backend fallback address when the IPv4 VIP pool cannot provide a
-reservation during Evaluate. The array shape is retained so a future release can
+plain IPv4 backend address when the backend is separate from the VIP and workload
+networks. During Evaluate, the service selects the source address as follows:
+
+1. When the backend is the VIP network or a workload network, allocate from that
+   managed Network using Net Operator IPAddressAllocation.
+2. For a separate backend with a user-supplied address, validate backend membership
+   and check conflicts where authoritative information is available. If exclusive
+   ownership cannot be verified, record the administrator's responsibility.
+3. For a separate backend without a user-supplied address, allocate from the VIP
+   pool and report a warning to verify backend routing and reachability. Allocation
+   failure is reported without selecting an unallocated address.
+
+Identify networks by their resolved identity and backing, not VLAN or CIDR alone.
+The array shape is retained so a future release can
 add IPv6 support if Supervisor VDS supports it. The input may be added, corrected,
 or removed during Evaluate until its allocation is accepted. Once
 `status.lbSNATIPAllocations` records an accepted allocation,
 `spec.networkConfiguration.lbSNATIPs` cannot be added, changed, or removed
-during Evaluate. Requesting Plan freezes all inputs even before its checkpoint
+during Evaluate. Requesting Execute freezes all inputs even before its checkpoint
 is recorded. DHCP range bounds and gateways for VDS-backed source networks are
 also IPv4-only. See
 `build/yaml/samples/migration/controlplane-nsx-lb.yaml`.
@@ -364,11 +375,11 @@ supplied backend address that has no source allocation. The accepted checkpoint
 uses the existing `NamespacedName` API type when a source allocation exists and
 prevents changes to `spec.networkConfiguration.lbSNATIPs`,
 `spec.targetLBProvider`, and `spec.nsxProjectID`. The status allocation cannot be
-replaced or removed. These records do not allocate addresses; post-planning
+replaced or removed. These records do not allocate addresses; post-execution
 revision/reset handling remains separate service work. Infrastructure has no
 rollback-based reset path.
 
-The design explicitly marks post-planning input revisions/reset, SNAT fallback confirmation,
+The design explicitly marks post-execution input revisions/reset, SNAT fallback confirmation,
 resolved inventories, fabric provenance, rollback domains, cutover protection,
 operation checkpoints and detailed commit/approval recovery records as proposed
 extensions requiring finalized schemas and concrete handlers. This API alignment
@@ -376,13 +387,13 @@ does not implement those execution paths or remove the irreversible checkpoint
 guards. The Namespace CRD now permits corrected inputs during Evaluate after a
 stored successful rollback. Before recording that success, the concrete rollback
 handler must verify restoration of the whole batch and invalidate the previous
-plan and derived results. That handler work remains separate; the schema
+evaluation and any prepared target state. That handler work remains separate; the schema
 exception does not perform rollback or verify external state.
 
-Evaluate-to-Plan freshness belongs to admission work WBS 1.1.4.1. For that action
+Evaluate-to-Execute freshness belongs to admission work WBS 1.1.4.1. For that action
 change, require the old object's successful Evaluate checkpoint to have
 `status.actionGeneration == oldObject.metadata.generation`. `observedGeneration`
-alone is not proof of success; the new generation changes with the Plan request.
+alone is not proof of success; the new generation changes with the Execute request.
 This separately tracked admission integration remains pending. No
 `evaluatedSpecHash` field is added.
 
@@ -443,12 +454,10 @@ removing the old Carvel package must not delete the CRDs or their instances.
 The old tera bootstrapper/build wiring is removed as part of that coordinated
 packaging change, not by this repository alone.
 
-Concrete handlers still need a durable fenced mutation lock, finalizers and
-admission protection, current NSX ownership/consumer checks, reviewed plan and
-resource provenance records, and approval/onboarding checks. UBMWM-12405 owns action dispatch, persisted execution checkpoints, dependency
-gates, and commit/finalize guards. Its follow-on branch must adopt the new
-Namespace-only Rollback contract before integration. Concrete handlers must recheck dependencies
-under the durable lock.
+Concrete handlers need admission protection, current NSX ownership/consumer checks,
+and approval/onboarding checks. Reconciliation must recover progress from existing
+Kubernetes resources and NSX workflow state. UBMWM-12405 owns action dispatch, persisted execution checkpoints, dependency
+gates, and commit/finalize guards. Concrete handlers must recheck dependencies before external mutations.
 Never duplicate normal NSX controllers or delete active VPC/LB/SNAT resources.
 `NetworkResourceTransition` support is a prerequisite for real cutover handlers;
 it is not implemented by this scaffold. Container co-location does not replace

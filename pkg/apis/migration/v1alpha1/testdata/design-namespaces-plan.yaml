@@ -4,7 +4,7 @@ metadata:
   generation: 5
   name: batch-finance-prod
 spec:
-  action: Plan
+  action: Evaluate
   namespaces:
   - finance-prod
   sourceMode: VSPHERE_VDS
@@ -35,26 +35,22 @@ status:
     status: 'True'
     type: WorkloadCompatibilityEvaluated
   - lastTransitionTime: '2026-10-09T15:21:00Z'
-    message: NSX Policy Plan phase completed successfully. Blueprint available in the NSX workflow conversion payload.
+    message: Source compatibility checks completed; target-specific validation may be pending.
     observedGeneration: 5
-    reason: PlanGeneratedSuccessfully
+    reason: EvaluationCompleted
     status: 'True'
-    type: MigrationPlanSynthesized
+    type: MigrationPreviewAvailable
   - lastTransitionTime: '2026-10-19T00:00:00Z'
     message: Illustrative migration status; concrete milestones require service handlers.
     observedGeneration: 5
     reason: ActionCompleted
     status: 'True'
     type: Ready
-  lastAction: Plan
+  lastAction: Evaluate
   namespaceStatuses:
-  - message: 'Migration blueprint synthesized: 1 subnet, 24 workloads, 2 VIPs ready
-      for conversion.'
+  - message: 'Source inspection completed for 24 workloads and 2 VIPs.'
     name: finance-prod
-    phase: PlanReady
+    phase: Evaluated
     reason: MigrationInProgress
-  nsxWorkflows:
-  - workflowID: wf-batch-finance-01
-    vdnName: vdn-source-1
   observedGeneration: 5
-  phase: PlanReady
+  phase: Evaluated

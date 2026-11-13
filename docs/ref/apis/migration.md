@@ -24,7 +24,7 @@ _Underlying type:_ _string_
 Action selects an explicit migration operation.
 
 _Validation:_
-- Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize]
+- Enum: [Evaluate Execute Rollback Commit Finalize]
 
 _Appears in:_
 - [ControlPlaneNetworkTransitionSpec](#controlplanenetworktransitionspec)
@@ -36,10 +36,8 @@ _Appears in:_
 
 | Field | Description |
 | --- | --- |
-| `Evaluate` | ActionEvaluate discovers prerequisites and missing inputs.<br /> |
-| `Plan` | ActionPlan generates a blueprint without changing the dataplane.<br /> |
-| `Derive` | ActionDerive provisions the approved network topology.<br /> |
-| `Execute` | ActionExecute migrates workloads to the target network.<br /> |
+| `Evaluate` | ActionEvaluate discovers and validates source configuration, identifies inputs and reserves the source LB SNAT address when required.<br /> |
+| `Execute` | ActionExecute prepares target resources and migrates workloads to the target network.<br /> |
 | `Rollback` | ActionRollback restores an eligible Namespace batch before its Commit checkpoint.<br />Infrastructure transitions do not support Rollback.<br /> |
 | `Commit` | ActionCommit commits a verified Namespace batch and closes its rollback window.<br /> |
 | `Finalize` | ActionFinalize commits remaining infrastructure workflows and retires legacy resources.<br /> |
@@ -80,7 +78,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `resourceNaming` _[ControlPlaneResourceNaming](#controlplaneresourcenaming)_ | ResourceNaming supplies optional IDs for NSX resources created for migration.<br />Omitted names use deterministic generated names. Naming inputs never rename<br />or implicitly adopt existing resources and are not requiredInputs. |  |  |
-| `lbSNATIPs` _string array_ | LBSNATIPs optionally supplies a backend IPv4 address for the shared NSX LB<br />service when the IPv4 VIP pool cannot provide a reservation during Evaluate.<br />Supervisor VDS source networks are IPv4-only in this release. Keep this as a<br />slice so a later release can add IPv6 without changing the field shape.<br />The migration service validates availability and reserves the supplied address<br />before use. After status.lbSNATIPAllocations records an accepted allocation,<br />this list cannot be added, changed, or removed, including during Evaluate.<br />Requesting Plan prevents changes to the entire NetworkConfiguration. |  | MaxItems: 1 <br /> |
+| `lbSNATIPs` _string array_ | LBSNATIPs optionally supplies a backend IPv4 address for the shared NSX LB<br />service when the backend network is separate from VIP and workload networks.<br />Supervisor VDS source networks are IPv4-only in this release. Keep this as a<br />slice so a later release can add IPv6 without changing the field shape.<br />The migration service validates backend membership and checks for conflicts<br />where possible. The administrator is responsible for address availability<br />when exclusive ownership cannot be verified. After status.lbSNATIPAllocations<br />records an accepted address,<br />this list cannot be added, changed, or removed, including during Evaluate.<br />Requesting Execute prevents changes to the entire NetworkConfiguration. |  | MaxItems: 1 <br /> |
 | `controlPlaneAndServiceDHCPNetworks` _[DHCPNetworkConfiguration](#dhcpnetworkconfiguration) array_ | ControlPlaneAndServiceDHCPNetworks describes existing DHCP-backed networks used by<br />control-plane VMs and Supervisor Services. |  | MaxItems: 1000 <br /> |
 
 
@@ -120,10 +118,10 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `sourceMode` _string_ | SourceMode is the source network stack. |  | Enum: [VSPHERE_VDS] <br />MinLength: 1 <br /> |
 | `targetMode` _string_ | TargetMode is the target network stack. |  | Enum: [NSX_VPC] <br />MinLength: 1 <br /> |
-| `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize] <br /> |
-| `targetLBProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | TargetLBProvider selects the desired target load balancer provider.<br />In 9.2, only NSX_LB is supported as the target for FLB sources.<br />If omitted, evaluation resolves an unambiguous supported/configured target.<br />The resolved selection is bound to the reviewed plan and cannot change after planning starts. |  | Enum: [NSX_LB] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
-| `nsxProjectID` _string_ | NSXProjectID selects a pre-existing NSX project; omission selects the default project.<br />Once supplied, the ID cannot be changed or removed. Omission is fixed when planning starts. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
-| `networkConfiguration` _[ControlPlaneNetworkConfiguration](#controlplanenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed during Evaluate before planning.<br />After status.lbSNATIPAllocations records an accepted allocation, LBSNATIPs<br />cannot be added, changed, or removed, including during Evaluate.<br />Changes require requested action Evaluate; requesting Plan freezes inputs,<br />and a recorded planning checkpoint prevents reopening them. |  |  |
+| `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
+| `targetLBProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | TargetLBProvider selects the desired target load balancer provider.<br />In 9.2, only NSX_LB is supported as the target for FLB sources.<br />If omitted, evaluation resolves an unambiguous supported/configured target.<br />Evaluation resolves the target provider; the selection cannot change after execution starts. |  | Enum: [NSX_LB] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
+| `nsxProjectID` _string_ | NSXProjectID selects a pre-existing NSX project; omission selects the default project.<br />Once supplied, the ID cannot be changed or removed. Omission is fixed when execution starts. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
+| `networkConfiguration` _[ControlPlaneNetworkConfiguration](#controlplanenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed during Evaluate before execution.<br />After status.lbSNATIPAllocations records an accepted allocation, LBSNATIPs<br />cannot be added, changed, or removed, including during Evaluate.<br />Changes require requested action Evaluate; requesting Execute freezes inputs,<br />and a recorded execution checkpoint prevents reopening them. |  |  |
 
 
 #### ControlPlaneNetworkTransitionStatus
@@ -142,7 +140,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions report the current operation's readiness and failures. |  | MaxItems: 32 <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration is the desired-state generation last inspected, even if its action was blocked.<br />It indicates status freshness and does not mean the action ran or succeeded. |  | Minimum: 1 <br /> |
 | `phase` _string_ | Phase describes current progress; Blocked means prerequisites or handlers are unavailable. |  | MaxLength: 64 <br />MinLength: 1 <br /> |
-| `lastAction` _[Action](#action)_ | LastAction identifies the most recently checkpointed operation, regardless of outcome. |  | Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize] <br /> |
+| `lastAction` _[Action](#action)_ | LastAction identifies the most recently checkpointed operation, regardless of outcome. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
 | `actionState` _[ActionState](#actionstate)_ | ActionState reports whether lastAction is running, succeeded, or failed. |  | Enum: [Running Succeeded Failed] <br /> |
 | `actionGeneration` _integer_ | ActionGeneration is the desired-state generation checkpointed for lastAction.<br />It stays unchanged when a newer request is blocked, so previous success cannot satisfy that request. |  | Minimum: 1 <br /> |
 | `irreversibleAction` _string_ | IrreversibleAction identifies the action whose point of no return has been persisted.<br />It is set only after prerequisite checks and before irreversible external changes.<br />Once set, only that action may be resumed and this checkpoint cannot be cleared. |  | Enum: [Commit Finalize] <br /> |
@@ -183,7 +181,7 @@ _Appears in:_
 
 DHCPNetworkConfiguration describes existing addressing for a DHCP-backed source VDN.
 It does not request a new DHCP network. Values may be corrected during Evaluate;
-the parent transition freezes configuration when planning starts.
+the parent transition freezes configuration when execution starts.
 
 
 
@@ -376,9 +374,9 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `sourceMode` _string_ | SourceMode is the source network stack. |  | Enum: [VSPHERE_VDS] <br />MinLength: 1 <br /> |
 | `targetMode` _string_ | TargetMode is the target network stack. |  | Enum: [NSX_VPC] <br />MinLength: 1 <br /> |
-| `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize] <br /> |
+| `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
 | `namespaces` _string array_ | Namespaces identifies the immutable set of target Namespaces. |  | MaxItems: 1000 <br />MinItems: 1 <br /> |
-| `networkConfiguration` _[NamespaceNetworkConfiguration](#namespacenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed while the requested action is<br />Evaluate and no planning checkpoint has been recorded, or after a successful<br />Rollback with no irreversible checkpoint. Plan otherwise freezes the configuration.<br />Rollback success must mean restoration is verified and the previous plan is invalidated. |  |  |
+| `networkConfiguration` _[NamespaceNetworkConfiguration](#namespacenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed while the requested action is<br />Evaluate and no execution checkpoint has been recorded, or after a successful<br />Rollback with no irreversible checkpoint. Execute otherwise freezes the configuration.<br />Rollback success requires verified restoration; a new Evaluate is required before another Execute. |  |  |
 
 
 #### NamespaceNetworkTransitionStatus
@@ -397,7 +395,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions report the current operation's readiness and failures. |  | MaxItems: 32 <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration is the desired-state generation last inspected, even if its action was blocked.<br />It indicates status freshness and does not mean the action ran or succeeded. |  | Minimum: 1 <br /> |
 | `phase` _string_ | Phase describes current progress; Blocked means prerequisites or handlers are unavailable. |  | MaxLength: 64 <br />MinLength: 1 <br /> |
-| `lastAction` _[Action](#action)_ | LastAction identifies the most recently checkpointed operation, regardless of outcome. |  | Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize] <br /> |
+| `lastAction` _[Action](#action)_ | LastAction identifies the most recently checkpointed operation, regardless of outcome. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
 | `actionState` _[ActionState](#actionstate)_ | ActionState reports whether lastAction is running, succeeded, or failed. |  | Enum: [Running Succeeded Failed] <br /> |
 | `actionGeneration` _integer_ | ActionGeneration is the desired-state generation checkpointed for lastAction.<br />It stays unchanged when a newer request is blocked, so previous success cannot satisfy that request. |  | Minimum: 1 <br /> |
 | `irreversibleAction` _string_ | IrreversibleAction identifies the action whose point of no return has been persisted.<br />It is set only after prerequisite checks and before irreversible external changes.<br />Once set, only that action may be resumed and this checkpoint cannot be cleared. |  | Enum: [Commit Finalize] <br /> |
@@ -690,7 +688,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `sourceMode` _string_ | SourceMode is the source network stack. |  | Enum: [VSPHERE_VDS] <br />MinLength: 1 <br /> |
 | `targetMode` _string_ | TargetMode is the target network stack. |  | Enum: [NSX_VPC] <br />MinLength: 1 <br /> |
-| `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize] <br /> |
+| `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
 
 
 #### TransitionStatus
@@ -710,7 +708,7 @@ _Appears in:_
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#condition-v1-meta) array_ | Conditions report the current operation's readiness and failures. |  | MaxItems: 32 <br /> |
 | `observedGeneration` _integer_ | ObservedGeneration is the desired-state generation last inspected, even if its action was blocked.<br />It indicates status freshness and does not mean the action ran or succeeded. |  | Minimum: 1 <br /> |
 | `phase` _string_ | Phase describes current progress; Blocked means prerequisites or handlers are unavailable. |  | MaxLength: 64 <br />MinLength: 1 <br /> |
-| `lastAction` _[Action](#action)_ | LastAction identifies the most recently checkpointed operation, regardless of outcome. |  | Enum: [Evaluate Plan Derive Execute Rollback Commit Finalize] <br /> |
+| `lastAction` _[Action](#action)_ | LastAction identifies the most recently checkpointed operation, regardless of outcome. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
 | `actionState` _[ActionState](#actionstate)_ | ActionState reports whether lastAction is running, succeeded, or failed. |  | Enum: [Running Succeeded Failed] <br /> |
 | `actionGeneration` _integer_ | ActionGeneration is the desired-state generation checkpointed for lastAction.<br />It stays unchanged when a newer request is blocked, so previous success cannot satisfy that request. |  | Minimum: 1 <br /> |
 | `irreversibleAction` _string_ | IrreversibleAction identifies the action whose point of no return has been persisted.<br />It is set only after prerequisite checks and before irreversible external changes.<br />Once set, only that action may be resumed and this checkpoint cannot be cleared. |  | Enum: [Commit Finalize] <br /> |
