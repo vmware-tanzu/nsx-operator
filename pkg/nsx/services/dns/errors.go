@@ -29,3 +29,22 @@ func (e *DNSZoneValidationError) Unwrap() error {
 	}
 	return e.Cause
 }
+
+// DNSZoneMismatchError identifies zones that require a forced refresh.
+type DNSZoneMismatchError struct{ ZonePaths []string }
+
+func (e *DNSZoneMismatchError) Error() string {
+	return fmt.Sprintf("NSX DNS record FQDN does not match the desired FQDN; refresh zones %v", e.ZonePaths)
+}
+
+// DNSZoneNotFoundError reports a zone that NSX explicitly says does not exist.
+type DNSZoneNotFoundError struct {
+	Path string
+	Err  error
+}
+
+func (e *DNSZoneNotFoundError) Error() string {
+	return fmt.Sprintf("NSX DNS zone %s not found: %v", e.Path, e.Err)
+}
+
+func (e *DNSZoneNotFoundError) Unwrap() error { return e.Err }

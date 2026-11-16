@@ -5,11 +5,13 @@ package networkinfo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
@@ -18,6 +20,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -28,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -37,6 +41,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	_ "github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 	commonservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	dnsservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/ipblocksinfo"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/vpc"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -44,7 +49,8 @@ import (
 )
 
 const (
-	preVPCSyncInterval = time.Minute * 10
+	preVPCSyncInterval  = time.Minute * 10
+	dnsZoneSyncInterval = time.Minute * 10
 )
 
 var (
@@ -107,6 +113,8 @@ func (m *nsUnreadyMessage) getNSNetworkCondition(options ...interface{}) *corev1
 
 // dnsZoneSyncer is the minimal DNS interface needed by NetworkInfoReconciler for VPC DNS zone lookups.
 type dnsZoneSyncer interface {
+	RefreshDNSZone(path string, bypassStore bool) (string, error)
+	SetDNSZoneChangeHandler(func(string))
 	SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VPCNetworkConfiguration) (map[string]string, error)
 }
 
@@ -120,8 +128,11 @@ type NetworkInfoReconciler struct {
 	IPBlocksInfoService *ipblocksinfo.IPBlocksInfoService
 	Recorder            record.EventRecorder
 	queue               workqueue.TypedRateLimitingInterface[reconcile.Request]
-	StatusUpdater       common.StatusUpdater
-	restoreMode         bool
+	dnsZoneRefreshQueue workqueue.TypedRateLimitingInterface[string]
+	// Serializes DNS snapshots and NetworkInfo writes across reconciles, polls and callbacks.
+	dnsZoneSyncMu sync.Mutex
+	StatusUpdater common.StatusUpdater
+	restoreMode   bool
 }
 
 func (r *NetworkInfoReconciler) GetVpcConnectivityProfilePathByVpcPath(vpcPath string) (string, error) {
@@ -559,19 +570,32 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		NetworkStack:            networkStack,
 	}
 
+	syncDNSZones := r.DNSRecordService != nil && len(nc.Spec.DNSZones) > 0
 	var allowedDNSRecordDomains []string
-	if r.DNSRecordService != nil && len(nc.Spec.DNSZones) > 0 {
+	if syncDNSZones {
+		// Serialize the DNS snapshot with its NetworkInfo status update below.
+		r.dnsZoneSyncMu.Lock()
+		defer r.dnsZoneSyncMu.Unlock()
 		zoneMap, zoneSyncErr := r.DNSRecordService.SyncDNSZonesByVpcNetworkConfig(nc)
 		if zoneSyncErr != nil {
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, zoneSyncErr, "Failed to sync DNS zones for VPC network configuration", setNetworkInfoVPCStatusWithError, state)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCDNSZonesSyncError.getNSNetworkCondition(zoneSyncErr))
 			return common.ResultRequeueAfter10sec, zoneSyncErr
 		}
-		for _, domainName := range slices.Sorted(maps.Values(zoneMap)) {
-			if domainName == "" {
-				continue
+		var missingDNSZones []string
+		for path := range sets.New(nc.Spec.DNSZones...) {
+			domain, found := zoneMap[path]
+			if !found || strings.TrimSpace(domain) == "" {
+				missingDNSZones = append(missingDNSZones, path)
 			}
-			allowedDNSRecordDomains = append(allowedDNSRecordDomains, domainName)
+		}
+		if err := r.updateDNSZonesCondition(ctx, nc, missingDNSZones); err != nil {
+			return common.ResultRequeueAfter10sec, err
+		}
+		for _, domainName := range slices.Sorted(maps.Values(zoneMap)) {
+			if domainName != "" {
+				allowedDNSRecordDomains = append(allowedDNSRecordDomains, domainName)
+			}
 		}
 	}
 
@@ -674,7 +698,237 @@ func (r *NetworkInfoReconciler) Start(mgr ctrl.Manager) error {
 	// Start a goroutine to periodically sync the pre-created VPC's private IPs to NetworkInfo CR if used.
 	go wait.UntilWithContext(context.Background(), r.syncPreCreatedVpcs, preVPCSyncInterval)
 
+	if r.DNSRecordService != nil {
+		r.dnsZoneRefreshQueue = workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
+		r.DNSRecordService.SetDNSZoneChangeHandler(r.dnsZoneRefreshQueue.Add)
+		if err := mgr.Add(manager.RunnableFunc(r.runDNSZoneRefreshQueue)); err != nil {
+			return err
+		}
+		if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+			wait.UntilWithContext(ctx, func(ctx context.Context) {
+				if err := r.syncDNSZones(ctx); err != nil {
+					log.Error(err, "Periodic DNS zone synchronization failed")
+				}
+			}, dnsZoneSyncInterval)
+			return nil
+		})); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// syncDNSZones refreshes each zone once per round and patches only the DNS domains.
+func (r *NetworkInfoReconciler) syncDNSZones(ctx context.Context) error {
+	r.dnsZoneSyncMu.Lock()
+	defer r.dnsZoneSyncMu.Unlock()
+	return r.syncDNSZonesForPathLocked(ctx, "", nil)
+}
+
+type dnsZoneResult struct {
+	domain  string
+	err     error
+	unknown bool
+}
+
+// syncDNSZonesForPathLocked requires dnsZoneSyncMu for the complete snapshot and write.
+func (r *NetworkInfoReconciler) syncDNSZonesForPathLocked(ctx context.Context, onlyPath string, initial *dnsZoneResult) error {
+	if r.DNSRecordService == nil {
+		return nil
+	}
+	networkInfos := &v1alpha1.NetworkInfoList{}
+	if err := r.Client.List(ctx, networkInfos); err != nil {
+		log.Error(err, "Failed to list NetworkInfos for DNS zone synchronization")
+		return err
+	}
+	zonesByPath := make(map[string]dnsZoneResult)
+	if initial != nil && onlyPath != "" {
+		zonesByPath[onlyPath] = *initial
+	}
+	resolveZone := func(path string) dnsZoneResult {
+		if result, found := zonesByPath[path]; found {
+			return result
+		}
+		var result dnsZoneResult
+		result.domain, result.err = r.DNSRecordService.RefreshDNSZone(path, true)
+		if result.err != nil {
+			if !isDNSZoneNotFound(result.err) {
+				result.unknown = true
+				if result.domain != "" {
+					log.Error(result.err, "Failed to refresh DNS zone; retaining cached domain", "DNSZone", path)
+					result.err = nil
+				}
+			}
+		}
+		zonesByPath[path] = result
+		return result
+	}
+	var syncErrors []error
+	for _, info := range networkInfos.Items {
+		if !info.DeletionTimestamp.IsZero() {
+			continue
+		}
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			current := &v1alpha1.NetworkInfo{}
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(&info), current); err != nil {
+				return client.IgnoreNotFound(err)
+			}
+			if !current.DeletionTimestamp.IsZero() || current.UID != info.UID {
+				return nil
+			}
+			nc, err := r.getNetworkConfig(ctx, current)
+			if err != nil {
+				return err
+			}
+			if onlyPath != "" && !slices.Contains(nc.Spec.DNSZones, onlyPath) {
+				return nil
+			}
+			var domains []string
+			var queryErr error
+			seenZones := sets.New[string]()
+			for _, path := range nc.Spec.DNSZones {
+				if seenZones.Has(path) {
+					continue
+				}
+				seenZones.Insert(path)
+				result := resolveZone(path)
+				if result.err != nil {
+					if !isDNSZoneNotFound(result.err) {
+						queryErr = errors.Join(queryErr, result.err)
+					}
+					continue
+				}
+				if result.domain != "" {
+					domains = append(domains, result.domain)
+				}
+			}
+			slices.Sort(domains)
+			domains = slices.Compact(domains)
+			// The NSX read can outlive a configuration or namespace binding change.
+			latest, err := r.getNetworkConfig(ctx, current)
+			if err != nil {
+				return err
+			}
+			if !sameDNSConfigSnapshot(nc, latest) {
+				return apierrors.NewConflict(schema.GroupResource{Group: "crd.nsx.vmware.com", Resource: "vpcnetworkconfigurations"}, nc.Name, fmt.Errorf("DNS configuration changed during refresh"))
+			}
+			if queryErr != nil {
+				return queryErr
+			}
+			if slices.Equal(current.AllowedDNSRecordDomains, domains) {
+				return nil
+			}
+			base := current.DeepCopy()
+			current.AllowedDNSRecordDomains = domains
+			err = r.Client.Patch(ctx, current, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+			if apierrors.IsConflict(err) {
+				// A concurrent writer may have fresher domains. Re-read the zones on retry.
+				for _, path := range nc.Spec.DNSZones {
+					delete(zonesByPath, path)
+				}
+			}
+			return err
+		})
+		if err != nil {
+			log.Error(err, "Failed to update allowed DNS record domains", "NetworkInfo", client.ObjectKeyFromObject(&info))
+			syncErrors = append(syncErrors, err)
+		}
+	}
+	// A configuration can temporarily have no NetworkInfo. Its condition still
+	// needs to report a missing zone and recover when the zone returns.
+	configs := &v1alpha1.VPCNetworkConfigurationList{}
+	if err := r.Client.List(ctx, configs); err != nil {
+		return errors.Join(append(syncErrors, err)...)
+	}
+	for i := range configs.Items {
+		nc := &configs.Items[i]
+		if !nc.DeletionTimestamp.IsZero() || onlyPath != "" && !slices.Contains(nc.Spec.DNSZones, onlyPath) {
+			continue
+		}
+		var missing []string
+		unknown := false
+		for path := range sets.New(nc.Spec.DNSZones...) {
+			result := resolveZone(path)
+			if isDNSZoneNotFound(result.err) {
+				missing = append(missing, path)
+			} else if result.err != nil {
+				unknown = true
+				syncErrors = append(syncErrors, result.err)
+			}
+			unknown = unknown || result.unknown
+		}
+		if len(missing) > 0 || !unknown {
+			if err := r.updateDNSZonesCondition(ctx, nc, missing); err != nil {
+				syncErrors = append(syncErrors, err)
+			}
+		}
+	}
+	return errors.Join(syncErrors...)
+}
+
+func (r *NetworkInfoReconciler) runDNSZoneRefreshQueue(ctx context.Context) error {
+	go func() { <-ctx.Done(); r.dnsZoneRefreshQueue.ShutDown() }()
+	for {
+		path, shutdown := r.dnsZoneRefreshQueue.Get()
+		if shutdown {
+			return nil
+		}
+		err := r.handleDNSZoneChange(ctx, path)
+		if err != nil && ctx.Err() == nil {
+			log.Error(err, "Failed to refresh changed DNS zone", "DNSZone", path)
+			r.dnsZoneRefreshQueue.AddRateLimited(path)
+		} else {
+			r.dnsZoneRefreshQueue.Forget(path)
+		}
+		r.dnsZoneRefreshQueue.Done(path)
+	}
+}
+
+// handleDNSZoneChange publishes a forced refresh before another DNS
+// synchronization can use an earlier snapshot.
+func (r *NetworkInfoReconciler) handleDNSZoneChange(ctx context.Context, path string) error {
+	r.dnsZoneSyncMu.Lock()
+	defer r.dnsZoneSyncMu.Unlock()
+	domain, err := r.DNSRecordService.RefreshDNSZone(path, true)
+	if err != nil && !isDNSZoneNotFound(err) {
+		return err
+	}
+	return r.syncDNSZonesForPathLocked(ctx, path, &dnsZoneResult{domain: domain, err: err})
+}
+
+func (r *NetworkInfoReconciler) updateDNSZonesCondition(ctx context.Context, snapshot *v1alpha1.VPCNetworkConfiguration, missing []string) error {
+	if len(missing) == 0 && len(snapshot.Spec.DNSZones) == 0 && getExistingConditionOfType(v1alpha1.DNSZonesReady, snapshot.Status.Conditions) == nil {
+		return nil
+	}
+	slices.Sort(missing)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &v1alpha1.VPCNetworkConfiguration{}
+		if err := r.Client.Get(ctx, client.ObjectKey{Name: snapshot.Name}, current); err != nil {
+			return err
+		}
+		if current.UID != snapshot.UID || current.Generation != snapshot.Generation || !slices.Equal(current.Spec.DNSZones, snapshot.Spec.DNSZones) {
+			return apierrors.NewConflict(v1alpha1.Resource("vpcnetworkconfigurations"), snapshot.Name, fmt.Errorf("DNS configuration changed during refresh"))
+		}
+		condition := v1alpha1.Condition{Type: v1alpha1.DNSZonesReady, Status: corev1.ConditionTrue, Reason: "DNSZonesAvailable"}
+		if len(missing) > 0 {
+			condition.Status = corev1.ConditionFalse
+			condition.Reason = "DNSZoneNotFound"
+			condition.Message = fmt.Sprintf("NSX DNS zones not found: %s", strings.Join(missing, ", "))
+		}
+		if !mergeStatusCondition(&current.Status.Conditions, &condition) {
+			return nil
+		}
+		return r.Client.Status().Update(ctx, current)
+	})
+}
+
+func sameDNSConfigSnapshot(a, b *v1alpha1.VPCNetworkConfiguration) bool {
+	return a.Name == b.Name && a.UID == b.UID && slices.Equal(a.Spec.DNSZones, b.Spec.DNSZones)
+}
+
+func isDNSZoneNotFound(err error) bool {
+	var missing *dnsservice.DNSZoneNotFoundError
+	return errors.As(err, &missing)
 }
 
 func (r *NetworkInfoReconciler) listNamespaceCRsNameIDSet(ctx context.Context) (sets.Set[string], sets.Set[string], error) {

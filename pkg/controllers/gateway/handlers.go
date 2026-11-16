@@ -353,16 +353,10 @@ func predicateNetworkInfoAllowedDNSRecordDomainsChanged() predicate.Predicate {
 	}
 }
 
-// networkInfoToGatewayDNSRequests enqueues managed Gateways with usable IPs and hostname annotations in the NetworkInfo namespace.
-func (r *GatewayReconciler) networkInfoToGatewayDNSRequests(ctx context.Context, obj client.Object) []reconcile.Request {
-	ni, ok := obj.(*v1alpha1.NetworkInfo)
-	if !ok || ni == nil {
-		return nil
-	}
+func (r *GatewayReconciler) listGatewayDNSRequests(ctx context.Context, namespace string) ([]reconcile.Request, error) {
 	gwList := &gatewayv1.GatewayList{}
-	if err := r.Client.List(ctx, gwList, client.InNamespace(ni.Namespace)); err != nil {
-		log.Error(err, "Failed to list Gateways for NetworkInfo DNS domain change", "Namespace", ni.Namespace)
-		return nil
+	if err := r.Client.List(ctx, gwList, client.InNamespace(namespace)); err != nil {
+		return nil, err
 	}
 	var reqs []reconcile.Request
 	for i := range gwList.Items {
@@ -375,28 +369,13 @@ func (r *GatewayReconciler) networkInfoToGatewayDNSRequests(ctx context.Context,
 		}
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(gw)})
 	}
-	return reqs
+	return reqs, nil
 }
 
-// networkInfoToRouteDNSRequests lists all Routes of routeKind in the NetworkInfo namespace (same List pattern as resyncRouteDNS).
-func networkInfoToRouteDNSRequests[Item any, PT Object[Item]](
-	ctx context.Context,
-	c client.Client,
-	obj client.Object,
-	routeKind string,
-	list client.ObjectList,
-) []reconcile.Request {
-	ni, ok := obj.(*v1alpha1.NetworkInfo)
-	if !ok || ni == nil {
-		return nil
-	}
+func listRouteDNSRequests[Item any, PT Object[Item]](ctx context.Context, c client.Client, namespace string, list client.ObjectList) ([]reconcile.Request, error) {
 	var reqs []reconcile.Request
 	err := loopObjectList[Item, PT](ctx, c, list, func(o PT) {
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(o)})
-	}, client.InNamespace(ni.Namespace))
-	if err != nil {
-		log.Error(err, "Failed to list Routes for NetworkInfo DNS domain change", "Namespace", ni.Namespace, "routeKind", routeKind)
-		return nil
-	}
-	return reqs
+	}, client.InNamespace(namespace))
+	return reqs, err
 }

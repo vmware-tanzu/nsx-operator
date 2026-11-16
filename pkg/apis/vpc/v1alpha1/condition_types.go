@@ -18,6 +18,7 @@ const (
 	DeleteFailure              ConditionType = "DeletionFailed"
 	UpdateFailure              ConditionType = "UpdateFailed"
 	DNSRecordReady             ConditionType = "DNSRecordReady"
+	DNSZonesReady              ConditionType = "DNSZonesReady"
 )
 
 // Condition defines condition of custom resource.

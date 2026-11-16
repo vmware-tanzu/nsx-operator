@@ -672,13 +672,13 @@ func (r *genericRouteReconciler[PT, T, PI]) registerWatcher(mgr ctrl.Manager, op
 			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		)
 	}
-	b.Watches(
-		&v1alpha1.NetworkInfo{},
-		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-			return networkInfoToRouteDNSRequests[T, PI](ctx, r.client, obj, r.kind, r.newList())
-		}),
-		builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged()),
-	)
+	dnsWatch, err := common.NewRetryingNamespaceHandler(mgr, func(ctx context.Context, namespace string) ([]reconcile.Request, error) {
+		return listRouteDNSRequests[T, PI](ctx, r.client, namespace, r.newList())
+	})
+	if err != nil {
+		return err
+	}
+	b.Watches(&v1alpha1.NetworkInfo{}, dnsWatch, builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged()))
 
 	return b.Complete(r)
 }

@@ -164,15 +164,12 @@ func TestNetworkInfoToGatewayDNSRequests(t *testing.T) {
 		return nil
 	})
 
-	ni := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1"}}
-	reqs := r.networkInfoToGatewayDNSRequests(ctx, ni)
+	reqs, err := r.listGatewayDNSRequests(ctx, "ns1")
+	assert.NoError(t, err)
 	if assert.Len(t, reqs, 2) {
 		assert.Equal(t, types.NamespacedName{Namespace: "ns1", Name: "gw1"}, reqs[0].NamespacedName)
 		assert.Equal(t, types.NamespacedName{Namespace: "ns1", Name: "gw2"}, reqs[1].NamespacedName)
 	}
-
-	reqs2 := r.networkInfoToGatewayDNSRequests(ctx, &corev1.Pod{})
-	assert.Empty(t, reqs2)
 }
 
 func TestNetworkInfoToRouteDNSRequests(t *testing.T) {
@@ -190,15 +187,11 @@ func TestNetworkInfoToRouteDNSRequests(t *testing.T) {
 		return nil
 	})
 
-	ni := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1"}}
-
-	reqs := networkInfoToRouteDNSRequests[gatewayv1.HTTPRoute, *gatewayv1.HTTPRoute](ctx, c, ni, "HTTPRoute", &gatewayv1.HTTPRouteList{})
+	reqs, err := listRouteDNSRequests[gatewayv1.HTTPRoute, *gatewayv1.HTTPRoute](ctx, c, "ns1", &gatewayv1.HTTPRouteList{})
+	assert.NoError(t, err)
 	if assert.Len(t, reqs, 1) {
 		assert.Equal(t, types.NamespacedName{Namespace: "ns1", Name: "r1"}, reqs[0].NamespacedName)
 	}
-
-	reqs2 := networkInfoToRouteDNSRequests[gatewayv1.HTTPRoute, *gatewayv1.HTTPRoute](ctx, c, &corev1.Pod{}, "HTTPRoute", &gatewayv1.HTTPRouteList{})
-	assert.Empty(t, reqs2)
 }
 
 func TestGatewayNamespacedNameFromListenerParentRef(t *testing.T) {

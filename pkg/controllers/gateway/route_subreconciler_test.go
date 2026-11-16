@@ -997,7 +997,7 @@ func TestGenericRouteReconciler_DNSPolicyConditions(t *testing.T) {
 			d := mockdns.NewMockDNSRecordProvider(ctrlMock)
 			if !tc.skipValidation {
 				// Exercise zone authorization and apex handling with real validation logic.
-				const zonePath = "/orgs/default/projects/project/dns-services/service/zones/zone"
+				const zonePath = "/orgs/default/projects/project-quality/dns-services/default-dns-service/zones/test-zone"
 				nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{zonePath}}}
 				if tc.noZones {
 					nc.Spec.DNSZones = nil

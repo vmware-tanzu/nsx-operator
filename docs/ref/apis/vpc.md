@@ -150,6 +150,7 @@ _Appears in:_
 | `DeletionFailed` |  |
 | `UpdateFailed` |  |
 | `DNSRecordReady` |  |
+| `DNSZonesReady` |  |
 
 
 #### ConnectivityState

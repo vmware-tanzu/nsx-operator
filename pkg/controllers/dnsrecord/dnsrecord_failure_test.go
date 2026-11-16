@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -34,7 +33,6 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/dns"
-	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 func TestDNSRecordObservedFQDNOnNoOpAndReadFailure(t *testing.T) {
@@ -129,18 +127,15 @@ func TestDNSRecordZoneReadFailurePreservesRecordsAndRetries(t *testing.T) {
 	svc.DNSZoneMap = dns.NewDNSZoneCacheFromMap(nil)
 	zones := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
 	svc.NSXClient.DnsZoneClient = zones
-	unsupported := nsxutil.NewNSXApiError(&model.ApiError{
-		ErrorCode:    servicecommon.Int64(258),
-		ErrorMessage: servicecommon.String("The requested URI: /orgs/org1/projects/proj1/dns-services/ds1/zones/zone-1 could not be found."),
-	}, apierrors.ErrorType_NOT_FOUND)
+	readErr := errors.New("temporary NSX DNS zone read failure")
 	gomock.InOrder(
-		zones.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.DnsZone{}, unsupported),
+		zones.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.DnsZone{}, readErr),
 		zones.EXPECT().Get(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(model.DnsZone{DnsDomainName: servicecommon.String("example.com")}, nil),
 	)
 	result, err := r.Reconcile(ctx, req)
-	require.ErrorIs(t, err, unsupported)
+	require.ErrorIs(t, err, readErr)
 	require.Equal(t, ResultRequeue, result)
-	require.Len(t, store.ListDNSRecords(), 1, "unsupported APIs must not trigger validation cleanup")
+	require.Len(t, store.ListDNSRecords(), 1, "transient zone read failures must not trigger validation cleanup")
 	require.NoError(t, c.Get(ctx, req.NamespacedName, obj))
 	condition := meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready))
 	require.NotNil(t, condition)
@@ -149,6 +144,7 @@ func TestDNSRecordZoneReadFailurePreservesRecordsAndRetries(t *testing.T) {
 	result, err = r.Reconcile(ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, ResultNormal, result)
+	require.Len(t, store.ListDNSRecords(), 1)
 	require.NoError(t, c.Get(ctx, req.NamespacedName, obj))
 	require.Equal(t, metav1.ConditionTrue, meta.FindStatusCondition(obj.Status.Conditions, string(v1alpha1.Ready)).Status)
 }

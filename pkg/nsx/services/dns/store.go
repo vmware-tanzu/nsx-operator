@@ -313,6 +313,18 @@ func (s *RecordStore) GetByOwnerResourceNamespacedName(kind, namespace, name str
 	return s.GetByIndex(indexKeyDNSRecordOwnerTypeNN, key)
 }
 
+// HasActiveRecordsForZone reports whether the zone is referenced by a live cached record.
+// Records marked for deletion do not prevent NSX from changing the zone domain.
+func (s *RecordStore) HasActiveRecordsForZone(zonePath string) bool {
+	for _, obj := range s.ResourceStore.GetByIndex(indexKeyDNSRecordZonePath, zonePath) {
+		rec := obj.(*model.DnsRecord)
+		if rec.MarkedForDelete == nil || !*rec.MarkedForDelete {
+			return true
+		}
+	}
+	return false
+}
+
 // ListZonePaths returns all distinct zone paths present across stored DNS records.
 func (s *RecordStore) ListZonePaths() sets.Set[string] {
 	vals := s.ListIndexFuncValues(indexKeyDNSRecordZonePath)

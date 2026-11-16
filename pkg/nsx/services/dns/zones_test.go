@@ -4,17 +4,24 @@
 package dns
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"go.uber.org/mock/gomock"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	dnszonemocks "github.com/vmware-tanzu/nsx-operator/pkg/mock/dnszonesclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	common "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
+	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
 
 func TestZonePathForHostnameFromMap_table(t *testing.T) {
@@ -218,6 +225,160 @@ func TestParseDnsZonePath_table(t *testing.T) {
 			require.Equal(t, tc.wantProj, proj)
 			require.Equal(t, tc.wantDNSSvc, dnsSvc)
 			require.Equal(t, tc.wantZone, zone)
+		})
+	}
+}
+
+func TestRefreshDNSZoneNotFoundInvalidatesCache(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		err         error
+		wantMissing bool
+	}{
+		{name: "NSX not found", err: nsxutil.NewNSXApiError(nil, apierrors.ErrorType_NOT_FOUND), wantMissing: true},
+		{name: "index not ready", err: nsxutil.NewNSXApiError(&model.ApiError{ErrorCode: common.Int64(500090)}, apierrors.ErrorType_NOT_FOUND)},
+		{name: "NSX unavailable", err: fmt.Errorf("NSX unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestDNSRecordService(t, BuildDNSRecordStore())
+			env.DNSZoneMap = newDNSZoneCache()
+			env.DNSZoneMap.set(testDNSZonePathZ, "old.example")
+			zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
+			env.NSXClient.DnsZoneClient = zc
+			zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{}, tc.err)
+			_, err := env.RefreshDNSZone(testDNSZonePathZ, false)
+			var missing *DNSZoneNotFoundError
+			require.Equal(t, tc.wantMissing, errors.As(err, &missing))
+			cached, ok := env.DNSZoneMap.get(testDNSZonePathZ)
+			require.Equal(t, !tc.wantMissing, ok)
+			if ok {
+				require.Equal(t, "old.example", cached)
+			}
+		})
+	}
+}
+
+func TestRefreshDNSZoneBypassesStore(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	env.DNSZoneMap = NewDNSZoneCacheFromMap(map[string]string{testDNSZonePathZ: "old.example"})
+	require.NoError(t, env.DNSRecordStore.Add(&model.DnsRecord{
+		Path: common.String("/orgs/org1/projects/proj1/dns-records/record"), ZonePath: common.String(testDNSZonePathZ),
+	}))
+	zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
+	env.NSXClient.DnsZoneClient = zc
+	gomock.InOrder(
+		zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{DnsDomainName: common.String("new.example")}, nil),
+		zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{}, errors.New("NSX unavailable")),
+	)
+	domain, err := env.RefreshDNSZone(testDNSZonePathZ, false)
+	require.NoError(t, err)
+	require.Equal(t, "old.example", domain)
+	domain, err = env.RefreshDNSZone(testDNSZonePathZ, true)
+	require.NoError(t, err)
+	require.Equal(t, "new.example", domain)
+	domain, err = env.RefreshDNSZone(testDNSZonePathZ, true)
+	require.Error(t, err)
+	require.Empty(t, domain, "forced refresh must not report a cached domain")
+	cached, ok := env.DNSZoneMap.get(testDNSZonePathZ)
+	require.True(t, ok)
+	require.Equal(t, "new.example", cached)
+}
+
+func TestSyncDNSZonesSkipsMissingZoneAndNotifies(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	env.DNSZoneMap = newDNSZoneCache()
+	zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
+	env.NSXClient.DnsZoneClient = zc
+	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{}, nsxutil.NewNSXApiError(nil, apierrors.ErrorType_NOT_FOUND))
+	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: common.String("healthy.example")}, nil)
+	notifications := make(chan string, 1)
+	env.SetDNSZoneChangeHandler(func(path string) { notifications <- path })
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{testDNSZonePathZ, testDNSZonePathT}}}
+	domains, err := env.SyncDNSZonesByVpcNetworkConfig(nc)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{testDNSZonePathT: "healthy.example"}, domains)
+	require.Equal(t, testDNSZonePathZ, <-notifications)
+}
+
+func TestZoneRefreshSerializesNSXResponses(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	env.DNSZoneMap = newDNSZoneCache()
+	zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
+	env.NSXClient.DnsZoneClient = zc
+	started, release, secondQuery := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	first := zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").DoAndReturn(func(_, _, _, _ string) (model.DnsZone, error) {
+		close(started)
+		<-release
+		return model.DnsZone{DnsDomainName: common.String("old.example")}, nil
+	})
+	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").After(first).DoAndReturn(func(_, _, _, _ string) (model.DnsZone, error) {
+		close(secondQuery)
+		return model.DnsZone{DnsDomainName: common.String("new.example")}, nil
+	})
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{testDNSZonePathZ}}}
+	done := make(chan error, 2)
+	go func() { _, err := env.SyncDNSZonesByVpcNetworkConfig(nc); done <- err }()
+	<-started
+	go func() { _, err := env.RefreshDNSZone(testDNSZonePathZ, false); done <- err }()
+	select {
+	case <-secondQuery:
+		close(release)
+		t.Fatal("second NSX GET overlapped an unpublished response")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-done)
+	require.NoError(t, <-done)
+	cached, ok := env.DNSZoneMap.get(testDNSZonePathZ)
+	require.True(t, ok)
+	require.Equal(t, "new.example", cached)
+}
+
+func TestZoneRefreshCoordinatesRecordWrites(t *testing.T) {
+	for _, operation := range []string{"create", "GC delete"} {
+		t.Run(operation, func(t *testing.T) {
+			env := newTestDNSRecordService(t, BuildDNSRecordStore())
+			owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+			row := EndpointRow{Endpoint: extdns.NewEndpoint("host.example.com", extdns.RecordTypeA, "192.0.2.1"), zonePath: testDNSZonePathZ, nsxRecordName: "host"}
+			batch := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row})
+			registerBodiesForBatch(t, env, batch)
+			if operation != "create" {
+				requireNoErrCreateDNS(context.Background(), t, env, batch)
+			}
+			// A cache miss must fetch even for a populated zone.
+			env.DNSZoneMap = newDNSZoneCache()
+			zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
+			env.NSXClient.DnsZoneClient = zc
+			started, release := make(chan struct{}), make(chan struct{})
+			zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").DoAndReturn(func(_, _, _, _ string) (model.DnsZone, error) {
+				close(started)
+				<-release
+				return model.DnsZone{DnsDomainName: common.String("example.com")}, nil
+			})
+			readDone, writeDone := make(chan error, 1), make(chan error, 1)
+			go func() { _, err := env.RefreshDNSZone(testDNSZonePathZ, false); readDone <- err }()
+			<-started
+			go func() {
+				var err error
+				switch operation {
+				case "create":
+					_, err = env.CreateOrUpdateRecords(context.Background(), batch)
+				case "GC delete":
+					_, err = env.DeleteRecordByOwnerNN(context.Background(), owner.Kind, owner.GetNamespace(), owner.GetName())
+				}
+				writeDone <- err
+			}()
+			select {
+			case err := <-writeDone:
+				close(release)
+				<-readDone
+				t.Fatalf("record write completed during zone GET: %v", err)
+			case <-time.After(50 * time.Millisecond):
+			}
+			close(release)
+			require.NoError(t, <-readDone)
+			require.NoError(t, <-writeDone)
+			require.Equal(t, operation == "create", env.DNSRecordStore.HasActiveRecordsForZone(testDNSZonePathZ))
 		})
 	}
 }

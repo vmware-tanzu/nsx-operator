@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -500,6 +501,11 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				got, found := svc.DNSZoneMap.get(testDNSZonePathT)
 				require.True(t, found, "zone path must be in DNSZoneMap after successful warm-up")
 				require.Equal(t, "example.com", got)
+				// After restart, a populated store and successful warm-up avoid another NSX GET.
+				domain, err := svc.RefreshDNSZone(testDNSZonePathT, false)
+				require.NoError(t, err)
+				require.Equal(t, "example.com", domain)
+
 			},
 		},
 		{
@@ -511,12 +517,19 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 				qc.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(model.SearchResponse{Results: []*data.StructValue{sv}, Cursor: nil, ResultCount: &rc}, nil).Times(1)
 				zc := dnszonemocks.NewMockZonesClient(ctrl)
-				zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{}, errors.New("nsx zone unavailable")).Times(1)
+				gomock.InOrder(
+					zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{}, errors.New("nsx zone unavailable")),
+					zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: servicecommon.String("example.com")}, nil),
+				)
 				return &nsx.Client{QueryClient: qc, DnsZoneClient: zc, NsxConfig: cfg}
 			},
 			checkSvc: func(t *testing.T, svc *DNSRecordService) {
 				_, found := svc.DNSZoneMap.get(testDNSZonePathT)
 				require.False(t, found, "zone map must not be populated when zone fetch errors")
+				// The restored record must not suppress retry when warm-up left no cached domain.
+				domain, err := svc.RefreshDNSZone(testDNSZonePathT, false)
+				require.NoError(t, err)
+				require.Equal(t, "example.com", domain)
 			},
 		},
 		{
@@ -534,6 +547,34 @@ func TestInitializeDNSRecordService_table(t *testing.T) {
 			checkSvc: func(t *testing.T, svc *DNSRecordService) {
 				_, found := svc.DNSZoneMap.get(testDNSZonePathT)
 				require.False(t, found, "zone map must not be populated when DnsDomainName is nil")
+			},
+		},
+		{
+			name: "warmup_empty_domain_not_cached_and_retried",
+			setupMock: func(t *testing.T, ctrl *gomock.Controller) *nsx.Client {
+				sv := dnsRecordStructValue(t, recWithZone)
+				rc := int64(1)
+				qc := searchmocks.NewMockQueryClient(ctrl)
+				qc.EXPECT().List(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+					Return(model.SearchResponse{Results: []*data.StructValue{sv}, ResultCount: &rc}, nil)
+				zc := dnszonemocks.NewMockZonesClient(ctrl)
+				gomock.InOrder(
+					zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: servicecommon.String("  ")}, nil),
+					zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: servicecommon.String("  ")}, nil),
+					zc.EXPECT().Get("org1", "proj1", "ds1", "zone-t").Return(model.DnsZone{DnsDomainName: servicecommon.String("example.com")}, nil),
+				)
+				return &nsx.Client{QueryClient: qc, DnsZoneClient: zc, NsxConfig: cfg}
+			},
+			checkSvc: func(t *testing.T, svc *DNSRecordService) {
+				_, found := svc.DNSZoneMap.get(testDNSZonePathT)
+				require.False(t, found)
+				_, err := svc.RefreshDNSZone(testDNSZonePathT, false)
+				require.Error(t, err)
+				_, found = svc.DNSZoneMap.get(testDNSZonePathT)
+				require.False(t, found)
+				domain, err := svc.RefreshDNSZone(testDNSZonePathT, false)
+				require.NoError(t, err)
+				require.Equal(t, "example.com", domain)
 			},
 		},
 		{
@@ -1453,6 +1494,15 @@ func TestSyncDNSZonesByVpcNetworkConfig_table(t *testing.T) {
 	m, err = svc.SyncDNSZonesByVpcNetworkConfig(vpc)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{zp: domain}, m)
+	updatedDomain := "updated.example"
+	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{DnsDomainName: &updatedDomain}, nil)
+	refreshed, err := svc.RefreshDNSZone(zp, false)
+	require.NoError(t, err)
+	require.Equal(t, updatedDomain, refreshed)
+	got, ok = svc.DNSZoneMap.get(zp)
+	require.True(t, ok)
+	require.Equal(t, updatedDomain, got)
+
 }
 
 func TestRouteRecordWithGatewayAndContributions(t *testing.T) {
@@ -1613,6 +1663,83 @@ func TestSyncDnsRecordsInNSX(t *testing.T) {
 	t.Logf("err: %v, out: %v", err, out)
 }
 
+func TestRefreshDNSZone_RecordLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cache     bool
+		records   int
+		remove    int
+		cleanup   bool
+		marked    bool
+		queryErr  bool
+		wantQuery bool
+	}{
+		{name: "populated zone uses cache", cache: true, records: 1},
+		{name: "empty zone refreshes stale cache", cache: true, wantQuery: true},
+		{name: "restart with empty store", wantQuery: true},
+		{name: "restart warmup failed with populated store", records: 1, wantQuery: true},
+		{name: "GC removes one of two records", cache: true, records: 2, remove: 1},
+		{name: "GC removes last record", cache: true, records: 1, remove: 1, wantQuery: true},
+		{name: "cleanup removes last record", cache: true, records: 1, remove: 1, cleanup: true, wantQuery: true},
+		{name: "marked record does not pin cache", cache: true, records: 1, marked: true, wantQuery: true},
+		{name: "failed refresh preserves cache", cache: true, wantQuery: true, queryErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			zc := dnszonemocks.NewMockZonesClient(ctrl)
+			svc := &DNSRecordService{
+				Service:        servicecommon.Service{NSXClient: &nsx.Client{DnsZoneClient: zc}},
+				DNSRecordStore: BuildDNSRecordStore(), DNSZoneMap: newDNSZoneCache(),
+			}
+			if tc.cache {
+				svc.DNSZoneMap.set(testDNSZonePathZ, "old.example")
+			}
+			var records []*model.DnsRecord
+			for i := 0; i < tc.records; i++ {
+				rec := &model.DnsRecord{Path: servicecommon.String(fmt.Sprintf("/orgs/org1/projects/proj1/dns-records/rec-%d", i)), ZonePath: servicecommon.String(testDNSZonePathZ)}
+				if tc.marked {
+					rec.MarkedForDelete = servicecommon.Bool(true)
+				}
+				// Add directly also exercises marked records which Apply would remove.
+				require.NoError(t, svc.DNSRecordStore.Add(rec))
+				records = append(records, rec)
+			}
+			for _, rec := range records[:tc.remove] {
+				if tc.cleanup {
+					svc.DNSRecordStore.DeleteMultipleObjects([]*model.DnsRecord{rec})
+				} else {
+					deleted := *rec
+					deleted.MarkedForDelete = servicecommon.Bool(true)
+					require.NoError(t, svc.DNSRecordStore.Apply([]*model.DnsRecord{&deleted}))
+				}
+			}
+			want := "old.example"
+			if tc.wantQuery {
+				want = "new.example"
+				if tc.queryErr {
+					zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{}, errors.New("NSX unavailable"))
+				} else {
+					zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").Return(model.DnsZone{DnsDomainName: &want}, nil)
+				}
+			}
+			domain, err := svc.RefreshDNSZone(testDNSZonePathZ, false)
+			if tc.queryErr {
+				require.Error(t, err)
+				require.Equal(t, "old.example", domain)
+				cached, ok := svc.DNSZoneMap.get(testDNSZonePathZ)
+				require.True(t, ok)
+				require.Equal(t, "old.example", cached)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, want, domain)
+			cached, ok := svc.DNSZoneMap.get(testDNSZonePathZ)
+			require.True(t, ok)
+			require.Equal(t, want, cached)
+		})
+	}
+}
+
 func TestCreateOrUpdateRecords_ConflictDoesNotBlockCleanup(t *testing.T) {
 	ctx := context.Background()
 	store := BuildDNSRecordStore()
@@ -1771,6 +1898,244 @@ func TestCreateOrUpdateRecords_DesiredErrorsPreserveRecordsAndCleanup(t *testing
 			require.Equal(t, beforeKeep, store.GetByKey(recordStoreKey(keep.zonePath, "keep", extdns.RecordTypeA)), "the failing desired record must remain unchanged")
 			require.Equal(t, beforeAfter, store.GetByKey(recordStoreKey(after.zonePath, "after", extdns.RecordTypeA)), "rows after the failing row must remain desired")
 			require.Nil(t, store.GetByKey(recordStoreKey(testDNSZonePathKeep, "new", extdns.RecordTypeA)), "discard desired upserts when any desired row fails")
+		})
+	}
+}
+
+func TestMixedBatchChecksUnchangedRecordFQDN(t *testing.T) {
+	ctx := context.Background()
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+	rowA := *NewEndpointRow(extdns.NewEndpoint("a.old.example", extdns.RecordTypeA, "192.0.2.1"), testDNSZonePathZ, "a")
+	first := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{rowA})
+	registerBodiesForBatch(t, env, first)
+	idA, pathA, _ := getRecordIDAndPathAndType("a", extdns.RecordTypeA, testDNSZonePathZ)
+	env.bodies[idA].Fqdn = servicecommon.String("a.new.example")
+	notifications := make(chan string, 2)
+	env.SetDNSZoneChangeHandler(func(zone string) { notifications <- zone })
+	changed, err := env.CreateOrUpdateRecords(ctx, first)
+	var mismatch *DNSZoneMismatchError
+	require.True(t, changed)
+	require.ErrorAs(t, err, &mismatch)
+	require.Equal(t, testDNSZonePathZ, <-notifications)
+
+	rowB := *NewEndpointRow(extdns.NewEndpoint("b.stable.example", extdns.RecordTypeA, "192.0.2.2"), testDNSZonePathT, "b")
+	next := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{rowA, rowB})
+	registerBodiesForBatch(t, env, next)
+	// No writes should occur until the mismatch in the unchanged record is handled.
+	env.NSXClient.OrgRootClient = orgrootmocks.NewMockOrgRootClient(gomock.NewController(t))
+	changed, err = env.CreateOrUpdateRecords(ctx, next)
+	require.False(t, changed)
+	require.ErrorAs(t, err, &mismatch)
+	require.Equal(t, testDNSZonePathZ, <-notifications)
+	require.Equal(t, "a.new.example", *env.DNSRecordStore.GetByKey(pathA).Fqdn)
+	_, pathB, _ := getRecordIDAndPathAndType("b", extdns.RecordTypeA, testDNSZonePathT)
+	require.Nil(t, env.DNSRecordStore.GetByKey(pathB))
+}
+
+func TestCreateRecordsRechecksValidatedDomains(t *testing.T) {
+	for _, scenario := range []string{"unchanged", "changed", "missing"} {
+		t.Run(scenario, func(t *testing.T) {
+			env := newTestDNSRecordService(t, BuildDNSRecordStore())
+			env.DNSZoneMap = NewDNSZoneCacheFromMap(map[string]string{testDNSZonePathZ: "old.example", testDNSZonePathT: "other.example"})
+			nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{testDNSZonePathZ, testDNSZonePathT}}}
+			vpc := &pkgmock.MockVPCServiceProvider{}
+			vpc.On("GetVPCNetworkConfigByNamespace", "ns").Return(nc, nil)
+			env.VPCService = vpc
+			owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+			rows, _, err := env.ValidateEndpointsByZone("ns", owner, []*extdns.Endpoint{
+				extdns.NewEndpoint("host.old.example", extdns.RecordTypeA, "192.0.2.1"),
+				extdns.NewEndpoint("host.other.example", extdns.RecordTypeA, "192.0.2.2"),
+			})
+			require.NoError(t, err)
+			require.Len(t, rows, 2)
+			require.Equal(t, "old.example", rows[0].validatedZoneDomain)
+			require.Equal(t, "other.example", rows[1].validatedZoneDomain)
+			batch := NewOwnerScopedAggregatedRouteDNS(owner, rows)
+			registerBodiesForBatch(t, env, batch)
+			if scenario != "unchanged" {
+				// Neither the valid first row nor any deletes may reach NSX if a later row is stale.
+				env.NSXClient.OrgRootClient = orgrootmocks.NewMockOrgRootClient(gomock.NewController(t))
+				if scenario == "changed" {
+					env.DNSZoneMap.set(testDNSZonePathT, "new.example")
+				} else {
+					env.DNSZoneMap.mu.Lock()
+					delete(env.DNSZoneMap.m, testDNSZonePathT)
+					env.DNSZoneMap.mu.Unlock()
+				}
+			}
+			changed, err := env.CreateOrUpdateRecords(context.Background(), batch)
+			if scenario == "unchanged" {
+				require.NoError(t, err)
+				require.True(t, changed)
+				require.Len(t, env.DNSRecordStore.ListDNSRecords(), 2)
+			} else {
+				require.ErrorContains(t, err, "retry validation")
+				var validationErr *DNSZoneValidationError
+				require.NotErrorAs(t, err, &validationErr, "stale batches must be retried rather than treated as terminal policy errors")
+				require.False(t, changed)
+				require.Empty(t, env.DNSRecordStore.ListDNSRecords())
+			}
+		})
+	}
+}
+
+func TestStaleBatchWaitingForZoneRefresh(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	env.DNSZoneMap = NewDNSZoneCacheFromMap(map[string]string{testDNSZonePathZ: "old.example"})
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{testDNSZonePathZ}}}
+	vpc := &pkgmock.MockVPCServiceProvider{}
+	vpc.On("GetVPCNetworkConfigByNamespace", "ns").Return(nc, nil)
+	env.VPCService = vpc
+	owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+	rows, _, err := env.ValidateEndpointsByZone("ns", owner, []*extdns.Endpoint{extdns.NewEndpoint("host.old.example", extdns.RecordTypeA, "192.0.2.1")})
+	require.NoError(t, err)
+	env.NSXClient.OrgRootClient = orgrootmocks.NewMockOrgRootClient(gomock.NewController(t))
+	zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
+	env.NSXClient.DnsZoneClient = zc
+	started, release := make(chan struct{}), make(chan struct{})
+	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").DoAndReturn(func(_, _, _, _ string) (model.DnsZone, error) {
+		close(started)
+		<-release
+		return model.DnsZone{DnsDomainName: servicecommon.String("new.example")}, nil
+	})
+	refreshDone, writeDone := make(chan error, 1), make(chan error, 1)
+	go func() { _, err := env.RefreshDNSZone(testDNSZonePathZ, false); refreshDone <- err }()
+	<-started
+	go func() {
+		_, err := env.CreateOrUpdateRecords(context.Background(), NewOwnerScopedAggregatedRouteDNS(owner, rows))
+		writeDone <- err
+	}()
+	select {
+	case err := <-writeDone:
+		close(release)
+		<-refreshDone
+		t.Fatalf("batch did not wait for zone refresh: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-refreshDone)
+	require.ErrorContains(t, <-writeDone, "changed after endpoint validation")
+	require.Empty(t, env.DNSRecordStore.ListDNSRecords())
+}
+
+func TestFQDNMismatchPreservesRecordAndNotifiesAfterUnlock(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+	ep := extdns.NewEndpoint("host.old.example", extdns.RecordTypeA, "192.0.2.1")
+	row := *NewEndpointRow(ep, testDNSZonePathZ, "host")
+	batch := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row})
+	registerBodiesForBatch(t, env, batch)
+	id, path, _ := getRecordIDAndPathAndType("host", extdns.RecordTypeA, testDNSZonePathZ)
+	env.bodies[id].Fqdn = servicecommon.String("host.new.example")
+	notifications := make(chan string, 2)
+	env.SetDNSZoneChangeHandler(func(zone string) {
+		// Taking this lock would deadlock if the callback were invoked before unlock.
+		recordArbitrator.lock(dnsZoneLockKey(zone))
+		recordArbitrator.unlock(dnsZoneLockKey(zone))
+		notifications <- zone
+	})
+	done := make(chan error, 1)
+	go func() { _, err := env.CreateOrUpdateRecords(context.Background(), batch); done <- err }()
+	select {
+	case err := <-done:
+		var mismatch *DNSZoneMismatchError
+		require.ErrorAs(t, err, &mismatch)
+		require.Equal(t, []string{testDNSZonePathZ}, mismatch.ZonePaths)
+	case <-time.After(5 * time.Second):
+		t.Fatal("notification blocked while acquiring the zone lock")
+	}
+	require.Equal(t, testDNSZonePathZ, <-notifications)
+	got := env.DNSRecordStore.GetByKey(path)
+	require.NotNil(t, got)
+	require.Equal(t, "host.new.example", *got.Fqdn)
+	// An otherwise unchanged record must not be incorrectly reported as successful on retry.
+	_, err := env.CreateOrUpdateRecords(context.Background(), batch)
+	var mismatch *DNSZoneMismatchError
+	require.ErrorAs(t, err, &mismatch)
+	require.Equal(t, testDNSZonePathZ, <-notifications)
+	require.NotNil(t, env.DNSRecordStore.GetByKey(path))
+}
+
+func TestEqualFQDN(t *testing.T) {
+	require.True(t, equalFQDN("example.com", "example.com"))
+	require.True(t, equalFQDN("EXAMPLE.com.", "example.COM"))
+	require.True(t, equalFQDN("xn--bcher-kva.example", "bücher.example."))
+	require.False(t, equalFQDN("old.example", "new.example"))
+}
+
+func TestMismatchDoesNotDeleteSharedRecord(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	ctx := context.Background()
+	owner1 := &ResourceRef{Kind: ResourceKindHTTPRoute, Object: &metav1.ObjectMeta{Name: "route1", Namespace: "ns"}}
+	owner2 := &ResourceRef{Kind: ResourceKindGRPCRoute, Object: &metav1.ObjectMeta{Name: "route2", Namespace: "ns"}}
+	ep := extdns.NewEndpoint("host.old.example", extdns.RecordTypeA, "192.0.2.1")
+	ep.WithLabel(EndpointLabelParentGateway, "ns/gw")
+	row := *NewEndpointRow(ep, testDNSZonePathZ, "host")
+	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner1, []EndpointRow{row}))
+	adopted, err := env.validateEndpointRowConflict(testDNSZonePathZ, ep, "host", owner2)
+	require.NoError(t, err)
+	requireNoErrCreateDNS(ctx, t, env, NewOwnerScopedAggregatedRouteDNS(owner2, []EndpointRow{*adopted}))
+	id, path, _ := getRecordIDAndPathAndType("host", extdns.RecordTypeA, testDNSZonePathZ)
+	current := env.DNSRecordStore.GetByKey(path)
+	require.NotNil(t, current)
+	// Simulate NSX returning the changed zone domain after an owner updates targets.
+	live := *current
+	live.Fqdn = servicecommon.String("host.new.example")
+	live.RecordValues = []string{"192.0.2.2"}
+	env.bodies[id] = &live
+	changedEP := extdns.NewEndpoint("host.old.example", extdns.RecordTypeA, "192.0.2.2")
+	changedEP.WithLabel(EndpointLabelParentGateway, "ns/gw")
+	changedRow := *NewEndpointRow(changedEP, testDNSZonePathZ, "host")
+	_, err = env.CreateOrUpdateRecords(ctx, NewOwnerScopedAggregatedRouteDNS(owner2, []EndpointRow{changedRow}))
+	var mismatch *DNSZoneMismatchError
+	require.ErrorAs(t, err, &mismatch)
+	require.Equal(t, "host.new.example", *env.DNSRecordStore.GetByKey(path).Fqdn)
+	requireNoErrDeleteDNS(ctx, t, env, ResourceKindGRPCRoute, "ns", "route2")
+	remaining := env.DNSRecordStore.GetByKey(path)
+	require.NotNil(t, remaining)
+	require.Len(t, env.DNSRecordStore.GetByOwnerResourceNamespacedName(ResourceKindHTTPRoute, "ns", "route1"), 1)
+}
+
+func TestCreateOrUpdateRecordsFailsForStoredRecordWithoutFQDN(t *testing.T) {
+	env := newTestDNSRecordService(t, BuildDNSRecordStore())
+	owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+	ep := extdns.NewEndpoint("host.example.com", extdns.RecordTypeA, "192.0.2.1")
+	row := *NewEndpointRow(ep, testDNSZonePathZ, "host")
+	rec, err := env.BuildDnsRecord(owner, row)
+	require.NoError(t, err)
+	rec.Fqdn = nil
+	require.NoError(t, env.DNSRecordStore.Apply([]*model.DnsRecord{rec}))
+
+	// A missing FQDN in the store is an invariant violation; reconciliation must not re-fetch it.
+	env.NSXClient.DnsRecordsClient = dnsrecmocks.NewMockDnsRecordsClient(gomock.NewController(t))
+	changed, err := env.CreateOrUpdateRecords(context.Background(), NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row}))
+	require.False(t, changed)
+	require.ErrorContains(t, err, "in store has no FQDN")
+	require.Nil(t, env.DNSRecordStore.GetByKey(*rec.Path).Fqdn)
+}
+
+func TestNSXRecordWithoutFQDNIsNotStored(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fqdn *string
+	}{
+		{name: "nil FQDN"},
+		{name: "empty FQDN", fqdn: servicecommon.String("")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestDNSRecordService(t, BuildDNSRecordStore())
+			owner := &ResourceRef{Kind: ResourceKindGateway, Object: &metav1.ObjectMeta{Name: "gw", Namespace: "ns"}}
+			row := *NewEndpointRow(extdns.NewEndpoint("host.example.com", extdns.RecordTypeA, "192.0.2.1"), testDNSZonePathZ, "host")
+			batch := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{row})
+			registerBodiesForBatch(t, env, batch)
+			id, path, _ := getRecordIDAndPathAndType("host", extdns.RecordTypeA, testDNSZonePathZ)
+			env.bodies[id].Fqdn = tc.fqdn
+
+			changed, err := env.CreateOrUpdateRecords(context.Background(), batch)
+			require.False(t, changed)
+			require.ErrorContains(t, err, "returned no FQDN")
+			require.Nil(t, env.DNSRecordStore.GetByKey(path))
 		})
 	}
 }
