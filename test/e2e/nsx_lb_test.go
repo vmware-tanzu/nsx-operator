@@ -46,7 +46,7 @@ func TestLoadBalancer(t *testing.T) {
 	podNs := NsLoadBalancerPod
 
 	// Clean up namespaces when test completes to release resources early
-	t.Cleanup(func() { CleanupVCNamespaces(lbNs, podNs) })
+	t.Cleanup(func() { CleanupVCNamespaces(t, lbNs, podNs) })
 	StartParallel(t)
 
 	// Note: Don't create a shared source pod here - each subtest creates its own
@@ -143,13 +143,11 @@ func createPodAndWaitingRunning(t *testing.T, podName string, ns string) {
 	if err != nil {
 		t.Fatalf("Failed to create source pod: %v", err)
 	}
-	_, err = testData.podWaitFor(resourceReadyTime, podName, ns, func(pod *corev1.Pod) (bool, error) {
-		return pod.Status.Phase == corev1.PodRunning, nil
-	})
-	if err != nil {
-		log.Error(err, "create pod", "pod", podName, "namespace", ns)
-		t.Fatalf("Failed to create pod: %v", err)
-	}
+	_, err = testData.podWaitForIPs(podStartupTimeout, podName, ns)
+	require.NoError(t, err, "wait for Pod %s/%s to be running with an IP", ns, podName)
+	// A running container may still be starting its HTTP server. Check the
+	// local endpoint before using this Pod in Service or Ingress assertions.
+	require.NoError(t, waitForHTTPEndpointReady(ns, podName, containerName, "127.0.0.1", port, defaultTimeout), "HTTP endpoint in Pod %s/%s should be ready", ns, podName)
 }
 
 // GetNthIPFromCIDR parses an IPv4 CIDR (e.g., "192.168.0.32/27") and returns the nth IP address (0-based index).

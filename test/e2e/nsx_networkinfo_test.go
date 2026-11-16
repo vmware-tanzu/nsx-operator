@@ -45,9 +45,9 @@ func TestNetworkInfo(t *testing.T) {
 			if err != nil {
 				log.Error(err, "Delete VPCNetworkConfigurations", "name", testCustomizedNetworkConfigName)
 			}
-			teardownTest(t, e2eNetworkInfoNamespace, defaultTimeout)
-			teardownTest(t, e2eNetworkInfoNamespaceShare0, defaultTimeout)
-			teardownTest(t, e2eNetworkInfoNamespaceShare1, defaultTimeout)
+			teardownTest(t, e2eNetworkInfoNamespace, namespaceCleanupTimeout)
+			teardownTest(t, e2eNetworkInfoNamespaceShare0, namespaceCleanupTimeout)
+			teardownTest(t, e2eNetworkInfoNamespaceShare1, namespaceCleanupTimeout)
 		})
 
 	// ParallelTests: These tests use independent resources and can run concurrently
@@ -133,7 +133,7 @@ func testCustomizedNetworkInfo(t *testing.T) {
 
 	// Delete namespace and wait for VPC to be cleaned up from VPCNetworkConfiguration status
 	// This is important because the next test (testSharedNSXVPC) uses the same VPCNetworkConfiguration
-	require.NoError(t, testData.deleteNamespace(ns, defaultTimeout))
+	require.NoError(t, testData.deleteNamespace(ns, namespaceCleanupTimeout))
 	assureNetworkInfoDeleted(t, ns)
 	assureNamespaceDeleted(t, ns)
 	// Wait for VPC to be deleted from NSX and VPCNetworkConfiguration status to be cleared
@@ -163,7 +163,7 @@ func testDefaultNetworkInfo(t *testing.T) {
 	// If no annotation on namespace, then NetworkInfo will use default network config to create vpc under each ns
 	ns := fmt.Sprintf("networkinfo-default-%s", getRandomString())
 	setupTest(t, ns)
-	defer teardownTest(t, ns, defaultTimeout)
+	defer teardownTest(t, ns, namespaceCleanupTimeout)
 
 	// Check namespace cr existence
 	assureNamespace(t, ns)
@@ -183,7 +183,7 @@ func testDefaultNetworkInfo(t *testing.T) {
 	// normally, when deleting ns, if using shared vpc, then no vpc will be deleted
 	// if using normal vpc, in ns deletion, the networkconfig CR will also be deleted, so there is no
 	// need to check vpcPath deletion on network config CR anymore
-	require.NoError(t, testData.deleteNamespace(ns, defaultTimeout))
+	require.NoError(t, testData.deleteNamespace(ns, namespaceCleanupTimeout))
 	assureNetworkInfoDeleted(t, ns)
 	assureNamespaceDeleted(t, ns)
 }
@@ -234,7 +234,7 @@ func testSharedNSXVPC(t *testing.T) {
 	vpcPath := getVPCPathFromVPCNetworkConfiguration(t, testCustomizedNetworkConfigName)
 
 	// delete ns1 and check vpc not deleted
-	require.NoError(t, testData.deleteNamespace(ns1, defaultTimeout))
+	require.NoError(t, testData.deleteNamespace(ns1, namespaceCleanupTimeout))
 	assureNetworkInfoDeleted(t, ns1)
 	assureNamespaceDeleted(t, ns1)
 	require.NoError(t, testData.waitForResourceExistByPath(vpcPath, true))
