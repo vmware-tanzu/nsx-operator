@@ -95,8 +95,9 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			// not realized. No type, gateway or Ready status is filled by the test.
 			sr := &setcontroller.SubnetSetReconciler{Client: r.Client, SubnetService: r.SubnetService, StatusUpdater: r.SubnetStatusUpdater}
 			setRequest := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(set)}
-			_, err = sr.Reconcile(ctx, setRequest)
-			require.ErrorContains(t, err, "not realized")
+			waiting, err := sr.Reconcile(ctx, setRequest)
+			require.NoError(t, err)
+			require.Equal(t, controllercommon.ResultRequeueAfter10sec, waiting)
 			member := &v1alpha1.Subnet{}
 			require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: child.Name, Name: "new"}, member))
 			require.True(t, controllercommon.SubnetResourceNamespacePredicate(r.Client).Create(event.CreateEvent{Object: member}))
@@ -239,6 +240,14 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			require.True(t, sharedOwnerPredicate.Create(creation))
 			ownerHandler.Create(ctx, creation, ownerQueue)
 			drainOwner(false)
+			if !explicit {
+				// The SubnetSet may reconcile before its member has recovered.
+				// It must schedule a short retry rather than inherit owner outage
+				// backoff while waiting for the Subnet controller.
+				waiting, err = sr.Reconcile(ctx, setRequest)
+				require.NoError(t, err)
+				require.Equal(t, controllercommon.ResultRequeueAfter10sec, waiting)
+			}
 			_, err = subr.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(member)})
 			require.NoError(t, err)
 			_, err = sr.Reconcile(ctx, setRequest)
