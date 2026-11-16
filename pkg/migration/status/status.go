@@ -41,14 +41,14 @@ func Observe(status *api.TransitionStatus, generation int64, phase string, condi
 // It does not select an action, advance a phase, or establish an irreversible
 // checkpoint. It is shared across CR kinds; typed status writers enforce action scope.
 // Rollback is namespace-only. Callers must verify restoration and invalidate the
-// previous plan before recording Rollback/Succeeded, which reopens input editing.
+// previous evaluation before recording Rollback/Succeeded, which reopens input editing.
 // Callers must persist Running before executing a newly accepted action.
 func RecordAction(status *api.TransitionStatus, action api.Action, state api.ActionState, generation int64) error {
 	if status == nil {
 		return fmt.Errorf("transition status is required")
 	}
 	switch action {
-	case api.ActionEvaluate, api.ActionPlan, api.ActionDerive, api.ActionExecute, api.ActionRollback, api.ActionCommit, api.ActionFinalize:
+	case api.ActionEvaluate, api.ActionExecute, api.ActionRollback, api.ActionCommit, api.ActionFinalize:
 	default:
 		return fmt.Errorf("invalid action %q", action)
 	}

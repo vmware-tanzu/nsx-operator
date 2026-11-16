@@ -13,7 +13,7 @@ spec:
   targetLBProvider: "NSX_LB"
   nsxProjectID: "proj-vcfa-org-01"         # Optional: pre-created VCFA Org project; defaults to 'default'
   # Infrastructure has no Rollback; arrange WCP backup-and-restore recovery before migration.
-  action: "Evaluate"                      # Evaluate | Plan | Derive | Execute | Finalize
+  action: "Evaluate"                      # Evaluate | Execute | Finalize
   networkConfiguration:
     resourceNaming:
       networks:

@@ -6,17 +6,13 @@ package v1alpha1
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 // Action selects an explicit migration operation.
-// +kubebuilder:validation:Enum=Evaluate;Plan;Derive;Execute;Rollback;Commit;Finalize
+// +kubebuilder:validation:Enum=Evaluate;Execute;Rollback;Commit;Finalize
 type Action string
 
 const (
-	// ActionEvaluate discovers prerequisites and missing inputs.
+	// ActionEvaluate discovers and validates source configuration, identifies inputs and reserves the source LB SNAT address when required.
 	ActionEvaluate Action = "Evaluate"
-	// ActionPlan generates a blueprint without changing the dataplane.
-	ActionPlan Action = "Plan"
-	// ActionDerive provisions the approved network topology.
-	ActionDerive Action = "Derive"
-	// ActionExecute migrates workloads to the target network.
+	// ActionExecute prepares target resources and migrates workloads to the target network.
 	ActionExecute Action = "Execute"
 	// ActionRollback restores an eligible Namespace batch before its Commit checkpoint.
 	// Infrastructure transitions do not support Rollback.
@@ -59,7 +55,7 @@ type TransitionSpec struct {
 
 // DHCPNetworkConfiguration describes existing addressing for a DHCP-backed source VDN.
 // It does not request a new DHCP network. Values may be corrected during Evaluate;
-// the parent transition freezes configuration when planning starts.
+// the parent transition freezes configuration when execution starts.
 type DHCPNetworkConfiguration struct {
 	// VDNName identifies a discovered source VSphereDistributedNetwork within the Supervisor.
 	// +required

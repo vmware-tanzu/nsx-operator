@@ -266,8 +266,8 @@ func TestInputAdmission(t *testing.T) {
 			check("correct subnet name during Evaluate", subnetNamed, func(o map[string]any) {
 				namingEntry(o, map[string]any{"vdnName": sourceVDN, "dvcName": "source-dvc", "subnetName": "corrected-subnet"})
 			}, true)
-			check("cannot change subnet name when requesting Plan", subnetNamed, func(o map[string]any) {
-				spec(o)["action"] = "Plan"
+			check("cannot change subnet name when requesting Execute", subnetNamed, func(o map[string]any) {
+				spec(o)["action"] = "Execute"
 				namingEntry(o, map[string]any{"vdnName": sourceVDN, "dvcName": "source-dvc", "subnetName": "changed-subnet"})
 			}, false)
 			if stage == "controlplane" {
@@ -283,10 +283,10 @@ func TestInputAdmission(t *testing.T) {
 			naming(named, "first-name")
 			check("correct resource naming during Evaluate", named, func(o map[string]any) { naming(o, "corrected-name") }, true)
 			check("remove resource naming during Evaluate", named, func(o map[string]any) { delete(inputs(o), "resourceNaming") }, true)
-			check("cannot change naming when requesting Plan", named, func(o map[string]any) { spec(o)["action"] = "Plan"; naming(o, "changed-name") }, false)
-			check("retain naming when requesting Plan", named, func(o map[string]any) { spec(o)["action"] = "Plan" }, true)
-			named["status"] = map[string]any{"lastAction": "Plan", "actionState": "Succeeded", "actionGeneration": int64(1)}
-			check("cannot reopen naming after Plan", named, func(o map[string]any) { naming(o, "changed-name") }, false)
+			check("cannot change naming when requesting Execute", named, func(o map[string]any) { spec(o)["action"] = "Execute"; naming(o, "changed-name") }, false)
+			check("retain naming when requesting Execute", named, func(o map[string]any) { spec(o)["action"] = "Execute" }, true)
+			named["status"] = map[string]any{"lastAction": "Execute", "actionState": "Succeeded", "actionGeneration": int64(1)}
+			check("cannot reopen naming after Execute", named, func(o map[string]any) { naming(o, "changed-name") }, false)
 			check("unchanged", example, func(map[string]any) {}, true)
 
 			check("creation", nil, func(map[string]any) {}, true)
@@ -333,11 +333,14 @@ func TestInputAdmission(t *testing.T) {
 			for _, legacyAction := range []string{"EVALUATE", "PLAN", "DERIVE", "EXECUTE", "ROLLBACK", "COMMIT", "FINALIZE"} {
 				check("reject legacy uppercase action "+legacyAction, nil, func(o map[string]any) { spec(o)["action"] = legacyAction }, false)
 			}
+			for _, removed := range []string{"Plan", "Derive"} {
+				check("reject removed action "+removed, nil, func(o map[string]any) { spec(o)["action"] = removed }, false)
+			}
 			check("commit action scope", nil, func(o map[string]any) { spec(o)["action"] = "Commit" }, stage == "namespaces")
 			check("finalize action scope", nil, func(o map[string]any) { spec(o)["action"] = "Finalize" }, stage == "controlplane")
 			// Infrastructure rollback is rejected before and after every checkpoint;
 			// namespace rollback remains admitted before its irreversible Commit.
-			for _, action := range []Action{ActionEvaluate, ActionPlan, ActionDerive, ActionExecute} {
+			for _, action := range []Action{ActionEvaluate, ActionExecute} {
 				for _, state := range []ActionState{ActionStateRunning, ActionStateFailed, ActionStateSucceeded} {
 					previous := runtime.DeepCopyJSON(example)
 					spec(previous)["action"] = string(action)
@@ -372,12 +375,12 @@ func TestInputAdmission(t *testing.T) {
 				preflight := runtime.DeepCopyJSON(checkpointed)
 				delete(preflight["status"].(map[string]any), "irreversibleAction")
 				check(string(state)+" cancel before PONR", preflight, func(o map[string]any) { spec(o)["action"] = "Rollback" }, stage == "namespaces")
-				for _, action := range []Action{ActionEvaluate, ActionPlan, ActionDerive, ActionExecute, ActionRollback} {
+				for _, action := range []Action{ActionEvaluate, ActionExecute, ActionRollback} {
 					check(string(state)+" reject reset to "+string(action), checkpointed, func(o map[string]any) { spec(o)["action"] = string(action) }, false)
 				}
 			}
 			// Corrections and removals are permitted throughout evaluation. The
-			// same mutations must be rejected once Plan is requested or checkpointed.
+			// same mutations must be rejected once Execute is requested or checkpointed.
 			corrections := []struct {
 				name  string
 				apply func(map[string]any)
@@ -407,51 +410,54 @@ func TestInputAdmission(t *testing.T) {
 				}
 				check("Evaluate/"+string(state)+" rejects invalid correction", evaluating, func(o map[string]any) { subnet(o)["gatewayAddress"] = "invalid" }, false)
 			}
-			// Requested actions freeze inputs before the controller checkpoints Plan.
+			// Requested actions freeze inputs before the controller checkpoints Execute.
 			for _, pending := range []bool{false, true} {
 				for _, withStatus := range []bool{false, true} {
 					base := runtime.DeepCopyJSON(example)
 					spec(base)["action"] = "Evaluate"
 					if pending {
-						spec(base)["action"] = "Plan"
+						spec(base)["action"] = "Execute"
 					}
 					if withStatus {
 						base["status"] = map[string]any{"lastAction": "Evaluate", "actionState": "Succeeded"}
 					}
 					label := fmt.Sprintf("request freeze pending=%t status=%t", pending, withStatus)
 					for _, correction := range corrections {
-						check(label+"/"+correction.name, base, func(o map[string]any) { spec(o)["action"] = "Plan"; correction.apply(o) }, false)
+						check(label+"/"+correction.name, base, func(o map[string]any) { spec(o)["action"] = "Execute"; correction.apply(o) }, false)
 					}
-					check(label+" unchanged Plan", base, func(o map[string]any) { spec(o)["action"] = "Plan" }, true)
+					check(label+" unchanged Execute", base, func(o map[string]any) { spec(o)["action"] = "Execute" }, true)
 					check(label+" append subnet", base, func(o map[string]any) {
-						spec(o)["action"] = "Plan"
+						spec(o)["action"] = "Execute"
 						inputs(o)[key] = append(inputs(o)[key].([]any), map[string]any{"vdnName": "new"})
 					}, false)
 					partial := runtime.DeepCopyJSON(base)
 					delete(subnet(partial), "gatewayAddress")
-					check(label+" fill subnet", partial, func(o map[string]any) { spec(o)["action"] = "Plan"; subnet(o)["gatewayAddress"] = "10.2.1.1" }, false)
+					check(label+" fill subnet", partial, func(o map[string]any) { spec(o)["action"] = "Execute"; subnet(o)["gatewayAddress"] = "10.2.1.1" }, false)
 					empty := runtime.DeepCopyJSON(base)
 					delete(spec(empty), "networkConfiguration")
-					check(label+" initial inputs", empty, func(o map[string]any) { spec(o)["action"] = "Plan"; spec(o)["networkConfiguration"] = inputs(example) }, false)
+					check(label+" initial inputs", empty, func(o map[string]any) {
+						spec(o)["action"] = "Execute"
+						spec(o)["networkConfiguration"] = inputs(example)
+					}, false)
 					if stage == "controlplane" {
 						for _, selection := range []struct{ field, value string }{{"targetLBProvider", "NSX_LB"}, {"nsxProjectID", "different-project"}} {
 							omitted := runtime.DeepCopyJSON(base)
 							delete(spec(omitted), selection.field)
-							check(label+" select "+selection.field, omitted, func(o map[string]any) { spec(o)["action"] = "Plan"; spec(o)[selection.field] = selection.value }, false)
+							check(label+" select "+selection.field, omitted, func(o map[string]any) { spec(o)["action"] = "Execute"; spec(o)[selection.field] = selection.value }, false)
 							check(label+" evaluate "+selection.field, omitted, func(o map[string]any) { spec(o)["action"] = "Evaluate"; spec(o)[selection.field] = selection.value }, true)
 						}
-						check(label+" remove provider", base, func(o map[string]any) { spec(o)["action"] = "Plan"; delete(spec(o), "targetLBProvider") }, false)
+						check(label+" remove provider", base, func(o map[string]any) { spec(o)["action"] = "Execute"; delete(spec(o), "targetLBProvider") }, false)
 					}
 				}
 			}
 			lockedInputs := runtime.DeepCopyJSON(example)
-			lockedInputs["status"] = map[string]any{"lastAction": "Plan", "actionState": "Succeeded"}
+			lockedInputs["status"] = map[string]any{"lastAction": "Execute", "actionState": "Succeeded"}
 			delete(subnet(lockedInputs), "gatewayAddress")
 			check("returning to Evaluate does not unlock inputs", lockedInputs, func(o map[string]any) { spec(o)["action"] = "Evaluate"; subnet(o)["gatewayAddress"] = "10.2.1.1" }, false)
 
-			// Once Plan starts, inputs stay fixed except when Evaluate follows a
+			// Once Execute starts, inputs stay fixed except when Evaluate follows a
 			// successfully completed namespace rollback.
-			for _, action := range []Action{ActionPlan, ActionDerive, ActionExecute, ActionRollback, ActionCommit, ActionFinalize} {
+			for _, action := range []Action{ActionExecute, ActionRollback, ActionCommit, ActionFinalize} {
 				if (stage == "namespaces" && action == ActionFinalize) || (stage == "controlplane" && (action == ActionCommit || action == ActionRollback)) {
 					continue
 				}
@@ -508,8 +514,8 @@ func TestInputAdmission(t *testing.T) {
 						check(label+" already requested Evaluate/"+correction.name, rolledBack, correction.apply, state == ActionStateSucceeded)
 					}
 					check(label+" invalid correction", rolledBack, func(o map[string]any) { subnet(o)["gatewayAddress"] = "invalid" }, false)
-					check(label+" cannot edit while requesting Plan", rolledBack, func(o map[string]any) {
-						spec(o)["action"] = "Plan"
+					check(label+" cannot edit while requesting Execute", rolledBack, func(o map[string]any) {
+						spec(o)["action"] = "Execute"
 						subnet(o)["gatewayAddress"] = "10.2.1.254"
 					}, false)
 					delete(spec(rolledBack), "networkConfiguration")
@@ -554,7 +560,7 @@ func TestInputAdmission(t *testing.T) {
 				list[i] = map[string]any{identityKey: fmt.Sprintf("vdn-%d", i), "gatewayAddress": "10.2.1.1"}
 			}
 			inputs(large)[key] = list
-			large["status"] = map[string]any{"lastAction": "Plan", "actionState": "Succeeded"}
+			large["status"] = map[string]any{"lastAction": "Execute", "actionState": "Succeeded"}
 			check("maximum list unchanged", large, func(map[string]any) {}, true)
 			check("maximum list reordered", large, func(o map[string]any) {
 				l := inputs(o)[key].([]any)
@@ -588,7 +594,7 @@ func TestInputAdmission(t *testing.T) {
 				fallback := runtime.DeepCopyJSON(example)
 				spec(fallback)["targetLBProvider"] = "NSX_LB"
 				check("add IPv4 LB SNAT fallback during evaluation", fallback, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, true)
-				for _, action := range []string{"Plan", "Derive", "Execute"} {
+				for _, action := range []string{"Execute"} {
 					check("cannot add LB SNAT fallback with "+action, fallback, func(o map[string]any) {
 						spec(o)["action"] = action
 						inputs(o)["lbSNATIPs"] = []any{ipv4}
@@ -629,8 +635,9 @@ func TestInputAdmission(t *testing.T) {
 				check("accepted allocation cannot select provider", unresolved, func(o map[string]any) { spec(o)["targetLBProvider"] = "NSX_LB" }, false)
 				planned := runtime.DeepCopyJSON(fallback)
 				delete(inputs(planned), "lbSNATIPs")
-				planned["status"] = map[string]any{"lastAction": "Plan", "actionState": "Succeeded"}
-				check("cannot add LB SNAT input after Plan", planned, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, false)
+				planned["status"] = map[string]any{"lastAction": "Execute", "actionState": "Succeeded"}
+				check("cannot add LB SNAT input after Execute", planned, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, false)
+
 				reservationData, err := os.ReadFile("testdata/controlplane-nsx-lb-reserved.yaml")
 				require.NoError(t, err)
 				var reserved map[string]any

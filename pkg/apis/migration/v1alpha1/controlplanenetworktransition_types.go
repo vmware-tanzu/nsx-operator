@@ -19,22 +19,22 @@ type ControlPlaneNetworkTransitionSpec struct {
 	// TargetLBProvider selects the desired target load balancer provider.
 	// In 9.2, only NSX_LB is supported as the target for FLB sources.
 	// If omitted, evaluation resolves an unambiguous supported/configured target.
-	// The resolved selection is bound to the reviewed plan and cannot change after planning starts.
+	// Evaluation resolves the target provider; the selection cannot change after execution starts.
 	// +optional
 	// +kubebuilder:validation:Enum=NSX_LB
 	TargetLBProvider LoadBalancerProvider `json:"targetLBProvider,omitempty"`
 	// NSXProjectID selects a pre-existing NSX project; omission selects the default project.
-	// Once supplied, the ID cannot be changed or removed. Omission is fixed when planning starts.
+	// Once supplied, the ID cannot be changed or removed. Omission is fixed when execution starts.
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:MinLength=1
 	NSXProjectID string `json:"nsxProjectID,omitempty"`
 	// NetworkConfiguration supplies administrator-provided migration parameters.
-	// Values may be added, corrected, or removed during Evaluate before planning.
+	// Values may be added, corrected, or removed during Evaluate before execution.
 	// After status.lbSNATIPAllocations records an accepted allocation, LBSNATIPs
 	// cannot be added, changed, or removed, including during Evaluate.
-	// Changes require requested action Evaluate; requesting Plan freezes inputs,
-	// and a recorded planning checkpoint prevents reopening them.
+	// Changes require requested action Evaluate; requesting Execute freezes inputs,
+	// and a recorded execution checkpoint prevents reopening them.
 	// +optional
 	NetworkConfiguration *ControlPlaneNetworkConfiguration `json:"networkConfiguration,omitempty"`
 }
@@ -48,13 +48,15 @@ type ControlPlaneNetworkConfiguration struct {
 	ResourceNaming *ControlPlaneResourceNaming `json:"resourceNaming,omitempty"`
 
 	// LBSNATIPs optionally supplies a backend IPv4 address for the shared NSX LB
-	// service when the IPv4 VIP pool cannot provide a reservation during Evaluate.
+	// service when the backend network is separate from VIP and workload networks.
 	// Supervisor VDS source networks are IPv4-only in this release. Keep this as a
 	// slice so a later release can add IPv6 without changing the field shape.
-	// The migration service validates availability and reserves the supplied address
-	// before use. After status.lbSNATIPAllocations records an accepted allocation,
+	// The migration service validates backend membership and checks for conflicts
+	// where possible. The administrator is responsible for address availability
+	// when exclusive ownership cannot be verified. After status.lbSNATIPAllocations
+	// records an accepted address,
 	// this list cannot be added, changed, or removed, including during Evaluate.
-	// Requesting Plan prevents changes to the entire NetworkConfiguration.
+	// Requesting Execute prevents changes to the entire NetworkConfiguration.
 	// +optional
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=1
@@ -158,9 +160,9 @@ type ControlPlaneNetworkTransitionStatus struct {
 // +kubebuilder:validation:XValidation:rule="self.spec.action == 'Evaluate' || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration may only change with Evaluate"
 // +kubebuilder:validation:XValidation:rule="self.spec.action == 'Evaluate' || (has(self.spec.targetLBProvider) == has(oldSelf.spec.targetLBProvider) && (!has(oldSelf.spec.targetLBProvider) || self.spec.targetLBProvider == oldSelf.spec.targetLBProvider))",message="targetLBProvider may only change with Evaluate"
 // +kubebuilder:validation:XValidation:rule="self.spec.action == 'Evaluate' || (has(self.spec.nsxProjectID) == has(oldSelf.spec.nsxProjectID) && (!has(oldSelf.spec.nsxProjectID) || self.spec.nsxProjectID == oldSelf.spec.nsxProjectID))",message="nsxProjectID may only change with Evaluate"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Plan', 'Derive', 'Execute', 'Rollback', 'Finalize']) || (has(self.spec.targetLBProvider) == has(oldSelf.spec.targetLBProvider) && (!has(oldSelf.spec.targetLBProvider) || self.spec.targetLBProvider == oldSelf.spec.targetLBProvider))",message="targetLBProvider cannot change after planning starts"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Plan', 'Derive', 'Execute', 'Rollback', 'Finalize']) || (has(self.spec.nsxProjectID) == has(oldSelf.spec.nsxProjectID) && (!has(oldSelf.spec.nsxProjectID) || self.spec.nsxProjectID == oldSelf.spec.nsxProjectID))",message="nsxProjectID cannot change after planning starts"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Plan', 'Derive', 'Execute', 'Rollback', 'Finalize']) || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration cannot change after planning starts"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Execute', 'Rollback', 'Finalize']) || (has(self.spec.targetLBProvider) == has(oldSelf.spec.targetLBProvider) && (!has(oldSelf.spec.targetLBProvider) || self.spec.targetLBProvider == oldSelf.spec.targetLBProvider))",message="targetLBProvider cannot change after execution starts"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Execute', 'Rollback', 'Finalize']) || (has(self.spec.nsxProjectID) == has(oldSelf.spec.nsxProjectID) && (!has(oldSelf.spec.nsxProjectID) || self.spec.nsxProjectID == oldSelf.spec.nsxProjectID))",message="nsxProjectID cannot change after execution starts"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Execute', 'Rollback', 'Finalize']) || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration cannot change after execution starts"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.irreversibleAction) || (has(self.status) && has(self.status.irreversibleAction) && self.status.irreversibleAction == oldSelf.status.irreversibleAction && self.spec.action == oldSelf.status.irreversibleAction)",message="an irreversible checkpoint cannot change or be cleared; only its action may be resumed"
 // +kubebuilder:validation:XValidation:rule="!has(self.status) || !has(self.status.irreversibleAction) || self.spec.action == self.status.irreversibleAction",message="an irreversible checkpoint requires the corresponding spec.action"
 // +kubebuilder:object:root=true

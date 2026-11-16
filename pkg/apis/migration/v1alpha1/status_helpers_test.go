@@ -19,7 +19,7 @@ func TestNamespaceCountsFromDesignExamples(t *testing.T) {
 		{"design-namespaces-success", map[string]int32{PhaseCompleted: 3}},
 		{"design-namespaces-failure", map[string]int32{PhaseCompleted: 2, PhaseFailed: 1}},
 		{"design-namespaces-incompatible", map[string]int32{PhaseEvaluationPassed: 1, PhaseEvaluationFailed: 1}},
-		{"design-namespaces-plan", map[string]int32{PhasePlanReady: 1}},
+		{"design-namespaces-plan", map[string]int32{PhaseEvaluated: 1}},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			data, err := os.ReadFile("testdata/" + tc.file + ".yaml")
