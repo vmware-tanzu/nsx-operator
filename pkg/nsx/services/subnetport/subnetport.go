@@ -121,6 +121,12 @@ func allIPAddressesRealized(ipAddresses []v1alpha1.NetworkInterfaceIPAddress, ex
 func (service *SubnetPortService) portAlreadyRealized(obj interface{}, nsxSubnetPort *model.VpcSubnetPort) bool {
 	switch o := obj.(type) {
 	case *v1alpha1.SubnetPort:
+		if controllercommon.GetPodNameForSubnetPort(o) != "" &&
+			(nsxSubnetPort.Attachment == nil || nsxSubnetPort.Attachment.Id == nil || o.Status.Attachment.ID != *nsxSubnetPort.Attachment.Id) {
+			// A prior Ready condition must not authorize handoff of a different
+			// attachment without checking the target port's realization.
+			return false
+		}
 		// expectedIPCount is driven by StaticIPAllocationType, not InterfaceIPType: on a
 		// mixed-mode Subnet a dual-stack port (InterfaceIPType IPv4IPv6) may statically
 		// allocate only one family (e.g. StaticIPAllocationType IPv4), in which case only

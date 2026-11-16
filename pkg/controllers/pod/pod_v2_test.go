@@ -135,10 +135,14 @@ func TestPodV2RequestsStaticIPAllocation(t *testing.T) {
 				require.Len(t, ports.Items, 1)
 				sp := ports.Items[0]
 				require.Equal(t, tt.interfaceIPType, sp.Spec.InterfaceIPType)
-				require.Equal(t, tt.staticIPAllocationType, sp.Spec.StaticIPAllocationType)
+				if precreated {
+					require.Empty(t, sp.Spec.StaticIPAllocationType, "resolve allocation on the selected backing Subnet")
+				} else {
+					require.Equal(t, tt.staticIPAllocationType, sp.Spec.StaticIPAllocationType)
+				}
 
 				// Explicit Pod allocation must override the mixed-mode Subnet's DHCP default.
-				actual := common.ResolveEffectiveStaticIPAllocationType(sp.Spec.StaticIPAllocationType, mixedSubnet, sp.Spec.InterfaceIPType)
+				actual := common.ResolveEffectiveStaticIPAllocationType(sp.Spec.StaticIPAllocationType, mixedSubnet, sp.Spec.InterfaceIPType, true)
 				require.Equal(t, tt.staticIPAllocationType, actual)
 			})
 		}
