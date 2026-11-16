@@ -353,8 +353,6 @@ func testMain(m *testing.M) int {
 	if cleanupErr != nil {
 		log.Error(cleanupErr, "Namespace cleanup failed")
 		ret = 1
-	}
-	if cleanupErr != nil {
 		cleanupErr = fmt.Errorf("Namespace cleanup failed: %w", cleanupErr)
 	}
 	testResultTracker.PrintSummary(cleanupErr)
