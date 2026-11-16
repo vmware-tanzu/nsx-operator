@@ -44,7 +44,6 @@ type IPAddressAllocationList struct {
 }
 
 // IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
-// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="spec is immutable"
 // +kubebuilder:validation:XValidation:rule="!has(self.allocationSize) || !has(self.allocationIPs)", message="Only one of allocationSize or allocationIPs can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipv6AllocationPrefixLength) || !has(self.allocationIPs)", message="Only one of ipv6AllocationPrefixLength or allocationIPs can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.allocationSize) || has(self.allocationSize)", message="allocationSize is required once set"
