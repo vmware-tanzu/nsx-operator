@@ -33,6 +33,9 @@ func sharedOwnerRequests(_ context.Context, obj client.Object) []reconcile.Reque
 var sharedOwnerPredicate = predicate.Funcs{
 	CreateFunc: func(event.CreateEvent) bool { return true },
 	UpdateFunc: func(e event.UpdateEvent) bool {
+		if e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero() {
+			return true
+		}
 		before, after := e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()
 		for _, key := range []string{config.VPCNetworkConfigAnnotation, servicecommon.AnnotationSharedVPCNamespace,
 			config.T1DefaultConfigAnnotation, config.T1VmwareSystemSharedAnnotation, config.T1NsxNetworkConfigAnnotation} {
@@ -44,7 +47,7 @@ var sharedOwnerPredicate = predicate.Funcs{
 		}
 		return false
 	},
-	DeleteFunc:  func(event.DeleteEvent) bool { return false },
+	DeleteFunc:  func(event.DeleteEvent) bool { return true },
 	GenericFunc: func(event.GenericEvent) bool { return false },
 }
 

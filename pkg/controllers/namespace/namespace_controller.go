@@ -273,6 +273,12 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
 		allowed, err := common.IsVPCNamespaceOrShared(ctx, r.Client, obj)
 		if err != nil {
+			var unavailable *common.SharedVPCOwnerUnavailableError
+			if errors.As(err, &unavailable) {
+				if statusErr := r.updateSharedOwnerResourceStatus(ctx, ns, true); statusErr != nil {
+					return common.ResultRequeueAfter10sec, errors.Join(err, statusErr)
+				}
+			}
 			return common.ResultRequeueAfter10sec, err
 		}
 		if !allowed {
@@ -330,6 +336,9 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// for deleted shared subnets, delete Subnet CRs
 		if err := r.syncSharedSubnets(ctx, ns, nc); err != nil {
 			log.Error(err, "Failed to sync shared Subnets", "Namespace", ns)
+			return common.ResultRequeue, err
+		}
+		if err := r.updateSharedOwnerResourceStatus(ctx, ns, false); err != nil {
 			return common.ResultRequeue, err
 		}
 

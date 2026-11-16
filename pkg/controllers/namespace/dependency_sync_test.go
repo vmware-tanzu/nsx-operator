@@ -39,6 +39,12 @@ func (c *namespaceFailureClient) Get(ctx context.Context, key client.ObjectKey, 
 func TestSharedOwnerAnnotationEvents(t *testing.T) {
 	owner := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "owner", Annotations: map[string]string{config.VPCNetworkConfigAnnotation: "a"}}}
 	require.True(t, sharedOwnerPredicate.Create(event.CreateEvent{Object: owner}), "owner creation must wake waiting inheritors")
+	require.True(t, sharedOwnerPredicate.Delete(event.DeleteEvent{Object: owner}), "owner deletion must wake inheritors")
+	terminating := owner.DeepCopy()
+	now := metav1.Now()
+	terminating.DeletionTimestamp = &now
+	require.True(t, sharedOwnerPredicate.Update(event.UpdateEvent{ObjectOld: owner, ObjectNew: terminating}))
+	require.False(t, sharedOwnerPredicate.Update(event.UpdateEvent{ObjectOld: terminating, ObjectNew: terminating.DeepCopy()}))
 	for _, tc := range []struct {
 		name, key, value string
 		changed          bool

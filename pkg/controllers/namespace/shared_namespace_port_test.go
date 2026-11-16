@@ -157,6 +157,96 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 				}
 			}
 			require.Equal(t, 8, allocations, "default/named, inferred/explicit IPv4 and single/multiple addresses must reach allocation")
+			// A transient read error must leave live resources and allocations intact.
+			existingPort := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "existing", Namespace: child.Name}, Spec: v1alpha1.SubnetPortSpec{SubnetSet: set.Name, AddressBindings: []v1alpha1.PortAddressBinding{{IPAddress: "192.0.2.10"}}}}
+			require.NoError(t, r.Client.Create(ctx, existingPort))
+			liveClient := r.Client
+			if !explicit {
+				r.Client = &namespaceFailureClient{Client: liveClient, ownerFailures: 1}
+				_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(child)})
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+				r.Client = liveClient
+				require.NoError(t, liveClient.Get(ctx, client.ObjectKeyFromObject(set), set))
+				require.True(t, controllercommon.IsObjectReady(set.Status.Conditions))
+			}
+			// Dispatch real owner lifecycle events through the dependency queue.
+			ownerQueue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer ownerQueue.ShutDown()
+			ownerHandler := handler.EnqueueRequestsFromMapFunc(sharedOwnerRequests)
+			drainOwner := func(unavailable bool) {
+				require.Equal(t, 1, ownerQueue.Len())
+				dep, _ := ownerQueue.Get()
+				_, err := r.Reconcile(ctx, dep)
+				ownerQueue.Done(dep)
+				require.NoError(t, err)
+				if explicit {
+					require.Empty(t, r.namespaceEvents)
+				} else {
+					require.Len(t, r.namespaceEvents, 1)
+					(&handler.EnqueueRequestForObject{}).Generic(ctx, <-r.namespaceEvents, ownerQueue)
+					req, _ := ownerQueue.Get()
+					result, err := r.Reconcile(ctx, req)
+					ownerQueue.Done(req)
+					if unavailable {
+						var ownerErr *controllercommon.SharedVPCOwnerUnavailableError
+						require.ErrorAs(t, err, &ownerErr)
+						require.Positive(t, result.RequeueAfter)
+					} else {
+						require.NoError(t, err)
+					}
+				}
+				require.NoError(t, liveClient.Get(ctx, client.ObjectKeyFromObject(set), set))
+				require.NoError(t, liveClient.Get(ctx, client.ObjectKeyFromObject(member), member))
+				require.Equal(t, []string{"new"}, *set.Spec.SubnetNames, "live references must be retained")
+				gotPort := &v1alpha1.SubnetPort{}
+				require.NoError(t, liveClient.Get(ctx, client.ObjectKeyFromObject(existingPort), gotPort))
+				require.Equal(t, existingPort.Spec, gotPort.Spec)
+				if explicit {
+					require.True(t, controllercommon.IsObjectReady(set.Status.Conditions))
+					require.True(t, controllercommon.IsObjectReady(member.Status.Conditions))
+				} else {
+					require.False(t, controllercommon.IsObjectReady(set.Status.Conditions))
+					require.False(t, controllercommon.IsObjectReady(member.Status.Conditions))
+				}
+			}
+			require.NoError(t, liveClient.Get(ctx, client.ObjectKeyFromObject(owner), owner))
+			owner.Finalizers = []string{"test-owner-lifecycle"}
+			require.NoError(t, liveClient.Update(ctx, owner))
+			require.NoError(t, liveClient.Delete(ctx, owner))
+			terminating := &corev1.Namespace{}
+			require.NoError(t, liveClient.Get(ctx, client.ObjectKeyFromObject(owner), terminating))
+			termination := event.UpdateEvent{ObjectOld: owner, ObjectNew: terminating}
+			require.True(t, sharedOwnerPredicate.Update(termination))
+			ownerHandler.Update(ctx, termination, ownerQueue)
+			drainOwner(true)
+			if !explicit {
+				_, err = subr.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(member)})
+				require.ErrorContains(t, err, "terminating")
+				_, err = sr.Reconcile(ctx, setRequest)
+				require.ErrorContains(t, err, "terminating")
+			}
+			terminating.Finalizers = nil
+			require.NoError(t, liveClient.Update(ctx, terminating))
+			deletion := event.DeleteEvent{Object: terminating}
+			require.True(t, sharedOwnerPredicate.Delete(deletion))
+			ownerHandler.Delete(ctx, deletion, ownerQueue)
+			drainOwner(true)
+			// Recreating a valid owner wakes resources; readiness must be established
+			// by the real resource controllers, not asserted by Namespace sync.
+			owner = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: owner.Name, Annotations: owner.Annotations}}
+			require.NoError(t, liveClient.Create(ctx, owner))
+			creation := event.CreateEvent{Object: owner}
+			require.True(t, sharedOwnerPredicate.Create(creation))
+			ownerHandler.Create(ctx, creation, ownerQueue)
+			drainOwner(false)
+			_, err = subr.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(member)})
+			require.NoError(t, err)
+			_, err = sr.Reconcile(ctx, setRequest)
+			require.NoError(t, err)
+			require.NoError(t, liveClient.Get(ctx, client.ObjectKeyFromObject(set), set))
+			require.True(t, controllercommon.IsObjectReady(set.Status.Conditions))
+			require.Equal(t, 8, allocations, "owner lifecycle must not change port reservations")
+			require.NoError(t, liveClient.Delete(ctx, existingPort))
 			// Change only the owner's config annotation. No config/SubnetSet
 			// update event may be used to wake the child in this phase.
 			before := &corev1.Namespace{}

@@ -5,6 +5,7 @@ package common
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,6 +18,19 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
+
+// SharedVPCOwnerUnavailableError distinguishes a missing/terminating owner from
+// a transient lookup failure. Callers must not delete resources on either error.
+type SharedVPCOwnerUnavailableError struct {
+	Name string
+	Err  error
+}
+
+func (e *SharedVPCOwnerUnavailableError) Error() string {
+	return fmt.Sprintf("shared VPC owner %q is unavailable: %v", e.Name, e.Err)
+}
+
+func (e *SharedVPCOwnerUnavailableError) Unwrap() error { return e.Err }
 
 // isVPCNamespaceByName fetches the Namespace by name and calls config.IsVPCNamespace.
 // Returns true when the namespace cannot be fetched (transient error or already
@@ -58,7 +72,13 @@ func IsVPCNamespaceOrShared(ctx context.Context, c client.Reader, namespace *cor
 	}
 	owner := &corev1.Namespace{}
 	if err := c.Get(ctx, types.NamespacedName{Name: shared}, owner); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, &SharedVPCOwnerUnavailableError{Name: shared, Err: err}
+		}
 		return false, err
+	}
+	if !owner.DeletionTimestamp.IsZero() {
+		return false, &SharedVPCOwnerUnavailableError{Name: shared, Err: fmt.Errorf("namespace is terminating")}
 	}
 	if !config.IsVPCNamespace(owner) {
 		return false, nil
