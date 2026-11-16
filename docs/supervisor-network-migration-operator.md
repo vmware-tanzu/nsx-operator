@@ -95,7 +95,7 @@ and the current status contract in detailed design version 187, Sections 4.1/4.2
   together. Reporting a newer blocked request does not promote the older action
   to success. Neither this helper nor per-namespace progress advances an action
   or establishes the irreversible checkpoint. Callers must verify whole-batch
-  restoration and invalidate the previous plan before recording Rollback/Succeeded;
+  restoration before recording Rollback/Succeeded; require a new Evaluate before Execute;
   that checkpoint permits Evaluate-time input corrections in the namespace CRD.
 - `RecordWorkflow` records one exact workflow handle per VDN. Repeated reports
   are idempotent; replacing an accepted handle requires a separately defined
@@ -410,7 +410,9 @@ revision/reset handling remains separate service work. Infrastructure has no
 rollback-based reset path.
 
 The design explicitly marks post-execution input revisions/reset, SNAT fallback confirmation,
-reviewed plan snapshots, cutover protection and commit/approval contracts as proposed
+reviewed plan snapshots, resolved inventories, fabric provenance, rollback domains,
+cutover protection, operation checkpoints and detailed commit/approval recovery
+contracts as proposed
 extensions requiring finalized schemas and concrete handlers. This API alignment
 does not implement those execution paths or remove the irreversible checkpoint
 guards. The Namespace CRD now permits corrected inputs during Evaluate after a
@@ -546,10 +548,14 @@ The old tera bootstrapper/build wiring is removed as part of that coordinated
 packaging change, not by this repository alone.
 
 The WBS 1.4.9 runtime supplies action dispatch, checkpoints and dependency gates,
-and processes requests validated by separately implemented admission webhooks. It stores no ConfigMap coordination or recovery records.
-Concrete handlers need live ownership/consumer checks, reviewed plan verification,
-approval/onboarding checks and idempotent reconciliation. Admission webhooks remain
-separate WBS 1.1.4 work; concrete handlers repeat live checks before each effect.
+and processes requests validated by separately implemented admission webhooks. It
+stores no ConfigMap coordination or recovery records. Concrete handlers need live
+NSX ownership and consumer checks, reviewed plan verification, approval/onboarding
+checks and idempotent reconciliation. Admission webhooks remain separate WBS 1.1.4
+work; concrete handlers repeat dependency and live-state checks before each external
+mutation. Reconciliation recovers progress from existing Kubernetes resources and
+NSX workflow state. UBMWM-12405 owns persisted execution checkpoints and
+commit/finalize guards.
 Never duplicate normal NSX controllers or delete active VPC/LB/SNAT resources.
 `NetworkResourceTransition` support is a prerequisite for real cutover handlers;
 it is not implemented by this scaffold. Container co-location does not replace
