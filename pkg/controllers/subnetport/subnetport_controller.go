@@ -1893,6 +1893,23 @@ func (r *SubnetPortReconciler) getSubnetBySubnetPort(subnetPort *v1alpha1.Subnet
 	return "", fmt.Errorf("SubnetPort %s/%s has no persisted IP or gateway to locate its original Subnet", subnetPort.Namespace, subnetPort.Name)
 }
 
+// A shared namespace may create ports on shared resources, but that does not
+// authorize allocating from managed parents rejected by their own controllers.
+func (r *SubnetPortReconciler) validateSubnetParent(ctx context.Context, parent client.Object) error {
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	allowed, err := common.CanReconcileSubnetResource(ctx, reader, parent, r.SubnetPortService.NSXConfig.NetworkMigrationEnabled())
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return fmt.Errorf("SubnetPort parent %s is not eligible for the namespace network provider", client.ObjectKeyFromObject(parent))
+	}
+	return nil
+}
+
 func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Context, subnetPort *v1alpha1.SubnetPort) (existing bool, isStale bool, subnetPath string, subnetSetUID *types.UID, subnetSetLock *sync.RWMutex, interfaceType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, err error) {
 	var subnetCR *v1alpha1.Subnet
 	subnetCR, isStale, err = r.getSubnetCR(ctx, subnetPort)
@@ -1970,6 +1987,9 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("failed to get Subnet CR %s/%s", subnetPort.Namespace, subnetPort.Spec.Subnet)
 			return
 		}
+		if err = r.validateSubnetParent(ctx, subnetCR); err != nil {
+			return
+		}
 		var nsxSubnet *model.VpcSubnet
 		nsxSubnet, err = r.SubnetService.GetSubnetByCR(subnetCR)
 		if err != nil {
@@ -2006,6 +2026,9 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("subnetset %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return
 		}
+		if err = r.validateSubnetParent(ctx, subnetSet); err != nil {
+			return
+		}
 		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {
 			err = fmt.Errorf("waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
 			return
@@ -2029,6 +2052,9 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		if subnetSet != nil && !subnetSet.DeletionTimestamp.IsZero() {
 			isStale = true
 			err = fmt.Errorf("default subnetset %s is being deleted, cannot operate subnetport %s", subnetSet.Name, subnetPort.Name)
+			return
+		}
+		if err = r.validateSubnetParent(ctx, subnetSet); err != nil {
 			return
 		}
 		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {

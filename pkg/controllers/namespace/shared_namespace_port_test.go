@@ -43,14 +43,15 @@ import (
 // shared Subnet/default SubnetSet, then dispatch the SubnetSet event through its
 // real predicate and exercise the real SubnetPort selection path.
 func TestFreshSharedNamespacePortUsable(t *testing.T) {
-	for _, explicit := range []bool{false, true} {
-		name := "inherited_only"
-		if explicit {
-			name = "explicit_local_control"
-		}
+	for _, name := range []string{"inherited_only", "explicit_local_control", "inherited_supervisor_service"} {
+		explicit := name == "explicit_local_control"
+		service := name == "inherited_supervisor_service"
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			child := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "vmware-system-net-staging", Annotations: map[string]string{servicecommon.AnnotationSharedVPCNamespace: "kube-system"}}}
+			if service {
+				child.Labels = map[string]string{controllercommon.SupervisorServiceIDLabel: "test-service", "managedBy": controllercommon.VsphereAppPlatformLabel}
+			}
 			if explicit {
 				child.Annotations[servicecommon.AnnotationVPCNetworkConfig] = "shared-config"
 			}
@@ -72,7 +73,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			defer patches.Reset()
 			path := "/orgs/default/projects/default/vpcs/vpc/subnets/new"
 			backend := &model.VpcSubnet{Id: servicecommon.String("new"), Path: &path, IpAddresses: []string{"192.0.2.0/24"}}
-			nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "shared-config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{Subnets: []v1alpha1.SharedSubnet{{Path: path, VMDefault: true}}}}
+			nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "shared-config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{Subnets: []v1alpha1.SharedSubnet{{Path: path, VMDefault: !service, PodDefault: service}}}}
 			patches.ApplyMethod(svc, "GetVPCNetworkConfig", func(_ *vpc.VPCService, name string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
 				require.Equal(t, nc.Name, name)
 				return nc, true, nil
@@ -85,10 +86,17 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			patches.ApplyMethod(r.SubnetService, "GetNSXSubnetFromCacheOrAPI", func(_ *subnet.SubnetService, _ string, _ bool) (*model.VpcSubnet, error) { return backend, nil })
 			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: child.Name}})
 			require.NoError(t, err)
-			set, err := controllercommon.ListDefaultSubnetSet(ctx, r.Client, child.Name, servicecommon.DefaultVMNetwork)
+			defaultNetwork := servicecommon.DefaultVMNetwork
+			if service {
+				defaultNetwork = servicecommon.DefaultPodNetwork
+			}
+			set, err := controllercommon.ListDefaultSubnetSet(ctx, r.Client, child.Name, defaultNetwork)
 			require.NoError(t, err)
 			require.NotNil(t, set)
+			require.NotNil(t, set.Spec.SubnetNames)
 			require.Equal(t, []string{"new"}, *set.Spec.SubnetNames)
+			_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(child)})
+			require.NoError(t, err, "repeated initialization must not create a competing managed default")
 			initialType := set.Spec.IPAddressType
 			admitted := controllercommon.SubnetResourceNamespacePredicate(r.Client, true).Create(event.CreateEvent{Object: set})
 			require.True(t, admitted)
@@ -135,7 +143,8 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 				for _, multi := range []bool{false, true} {
 					for _, ipType := range []v1alpha1.IPAddressType{"", v1alpha1.IPAddressTypeIPv4} {
 						sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "requested", Namespace: child.Name, UID: "requested-port"}, Spec: v1alpha1.SubnetPortSpec{InterfaceIPType: ipType, StaticIPAllocationType: v1alpha1.StaticIPAllocationTypeIPv4, AddressBindings: []v1alpha1.PortAddressBinding{{IPAddress: "192.0.2.10"}}}}
-						if named {
+						if named || service {
+							// Pod reconciliation resolves the Pod-default set into Spec.SubnetSet.
 							sp.Spec.SubnetSet = set.Name
 						}
 						if multi {
@@ -297,7 +306,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			// Reuse the real resource controllers for the new subnet in the same VPC.
 			path = "/orgs/default/projects/default/vpcs/vpc/subnets/next"
 			backend = &model.VpcSubnet{Id: servicecommon.String("next"), Path: &path, IpAddresses: []string{"198.51.100.0/24"}}
-			nc = &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config-b"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{Subnets: []v1alpha1.SharedSubnet{{Path: path, VMDefault: true}}}}
+			nc = &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config-b"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{Subnets: []v1alpha1.SharedSubnet{{Path: path, VMDefault: !service, PodDefault: service}}}}
 			_, err = r.Reconcile(ctx, request)
 			require.NoError(t, err)
 			require.NoError(t, r.Client.Get(ctx, client.ObjectKeyFromObject(set), set))
@@ -311,6 +320,9 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			_, err = sr.Reconcile(ctx, setRequest)
 			require.NoError(t, err)
 			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "after-switch", Namespace: child.Name, UID: "after-switch"}, Spec: v1alpha1.SubnetPortSpec{AddressBindings: []v1alpha1.PortAddressBinding{{IPAddress: "198.51.100.10"}}}}
+			if service {
+				sp.Spec.SubnetSet = set.Name
+			}
 			_, _, selected, uid, lock, _, _, err := pr.CheckAndGetSubnetPathForSubnetPort(ctx, sp)
 			if lock != nil {
 				controllercommon.RUnlockSubnetSet(*uid, lock)

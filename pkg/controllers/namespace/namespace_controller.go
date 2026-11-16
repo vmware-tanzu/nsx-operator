@@ -326,9 +326,14 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		namespaceType := common.GetNamespaceType(obj, nc)
 
-		// create default SubnetSet for system Namespace or SVService Namespace
-		if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack); err != nil {
-			return common.ResultNormal, err
+		// Namespaces admitted only through their shared owner cannot manage
+		// Subnets. Let shared synchronization initialize their pre-created defaults
+		// from the effective configuration, including Supervisor Service namespaces.
+		inheritedProvider := r.NSXConfig.NetworkMigrationEnabled() && config.IsPerNamespaceProvidersSupported() && !config.IsVPCNamespace(obj)
+		if !inheritedProvider {
+			if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack); err != nil {
+				return common.ResultNormal, err
+			}
 		}
 
 		// Sync shared subnets, look into shared subnets in vpcnetworkconfigurations,
