@@ -52,6 +52,9 @@ var sharedOwnerPredicate = predicate.Funcs{
 }
 
 func (r *NamespaceReconciler) reconcileDependency(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if !r.NSXConfig.NetworkMigrationEnabled() {
+		return ctrl.Result{}, nil
+	}
 	var names []string
 	if req.Namespace == networkConfigDependency {
 		var err error

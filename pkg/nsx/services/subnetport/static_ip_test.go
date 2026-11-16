@@ -14,6 +14,7 @@ import (
 
 func staticIPTestService(t *testing.T) (*SubnetPortService, *model.VpcSubnet, *CountInfo) {
 	service := createSubnetPortService(t)
+	service.NSXConfig.EnableNetworkMigration = true
 	subnet := &model.VpcSubnet{
 		Id: common.String("subnet"), Path: common.String("/orgs/default/projects/default/vpcs/vpc/subnets/subnet"),
 		IpAddresses:    []string{"192.0.2.0/24"},
@@ -156,4 +157,45 @@ func TestSharedSubnetExplicitIPConflict(t *testing.T) {
 			require.Zero(t, info.dirtyStaticCount)
 		})
 	}
+}
+
+func TestNetworkMigrationDisabledAllocation(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			s, subnet, info := staticIPTestService(t)
+			s.NSXConfig.EnableNetworkMigration = enabled
+			backend := &conflictPortClient{fail: true}
+			s.NSXClient.PortClient = backend
+			bindings := []v1alpha1.PortAddressBinding{{IPAddress: "192.0.2.10"}}
+			ok, err := s.AllocatePortFromSubnet(subnet, true, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, bindings)
+			if enabled {
+				require.Error(t, err, "migration must fail closed when backend conflict reads fail")
+				require.False(t, ok)
+				require.Equal(t, 1, backend.calls)
+				require.Zero(t, info.dirtyStaticCount)
+			} else {
+				require.NoError(t, err)
+				require.True(t, ok)
+				require.Zero(t, backend.calls, "legacy allocation must not perform the new conflict List")
+				require.Empty(t, info.requestedIPs)
+				require.Equal(t, 1, info.dirtyStaticCount)
+				s.ReleasePortInSubnet(*subnet.Path, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, bindings)
+				require.Zero(t, info.dirtyStaticCount)
+			}
+		})
+	}
+}
+
+func TestNetworkMigrationDisabledCleanup(t *testing.T) {
+	s, subnet, info := staticIPTestService(t)
+	bindings := []v1alpha1.PortAddressBinding{{IPAddress: "192.0.2.10"}}
+	ok, err := s.AllocatePortFromSubnet(subnet, false, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, bindings)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotEmpty(t, info.requestedIPs)
+	// Cleanup must be unconditional, including for work admitted while enabled.
+	s.NSXConfig.EnableNetworkMigration = false
+	s.ReleasePortInSubnet(*subnet.Path, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeIPv4, bindings)
+	require.Empty(t, info.requestedIPs)
+	require.Zero(t, info.dirtyStaticCount)
 }

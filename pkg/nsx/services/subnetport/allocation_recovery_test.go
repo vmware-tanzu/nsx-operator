@@ -47,6 +47,7 @@ func (c *commitThenTimeoutClient) Get(_, _, _, _, id string) (model.VpcSubnetPor
 
 func TestSharedSubnetRetryAfterCommittedTimeout(t *testing.T) {
 	s := createSubnetPortService(t)
+	s.NSXConfig.EnableNetworkMigration = true
 	s.Client = fake.NewClientBuilder().WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "review", UID: "namespace-id"}}).Build()
 	backend := &commitThenTimeoutClient{}
 	s.NSXClient.PortClient = backend
@@ -99,6 +100,7 @@ func TestSharedSubnetRetryAfterCommittedTimeout(t *testing.T) {
 
 func TestRejectedRequestDoesNotPoisonRelayCapacity(t *testing.T) {
 	s := createSubnetPortService(t)
+	s.NSXConfig.EnableNetworkMigration = true
 	subnet := &model.VpcSubnet{
 		Id: common.String("relay"), Path: common.String("/orgs/default/projects/default/vpcs/vpc/subnets/relay"),
 		IpAddresses: []string{"192.0.2.0/28"}, SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String(model.SubnetDhcpConfig_MODE_RELAY)},
@@ -140,6 +142,7 @@ func TestSharedSubnetRecoveryRejectsUnownedOrInvalidPorts(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s := createSubnetPortService(t)
+			s.NSXConfig.EnableNetworkMigration = true
 			subnet := &model.VpcSubnet{Path: common.String("/orgs/default/projects/default/vpcs/vpc/subnets/subnet")}
 			port := model.VpcSubnetPort{
 				Id: common.String("port"), DisplayName: common.String("port"), ParentPath: subnet.Path,
@@ -165,6 +168,7 @@ func TestSharedSubnetRecoveryRejectsUnownedOrInvalidPorts(t *testing.T) {
 
 func TestRelayCapacityReinitializedAfterReset(t *testing.T) {
 	s := createSubnetPortService(t)
+	s.NSXConfig.EnableNetworkMigration = true
 	subnet := &model.VpcSubnet{Path: common.String("/orgs/default/projects/default/vpcs/vpc/subnets/relay"),
 		Ipv4SubnetSize: common.Int64(4), SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: common.String(model.SubnetDhcpConfig_MODE_RELAY)}}
 	ok, err := s.AllocatePortFromSubnet(subnet, false, v1alpha1.IPAddressTypeIPv4, v1alpha1.StaticIPAllocationTypeNone, nil)
@@ -198,6 +202,7 @@ func TestSharedSubnetRecoveryChecksAllPagesBeforeCaching(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		t.Run(fmt.Sprintf("listFailure=%t", fail), func(t *testing.T) {
 			s := createSubnetPortService(t)
+			s.NSXConfig.EnableNetworkMigration = true
 			subnet := &model.VpcSubnet{Path: common.String("/orgs/default/projects/default/vpcs/vpc/subnets/subnet")}
 			s.NSXClient.PortClient = &recoveryPageClient{fail: fail, own: model.VpcSubnetPort{
 				Id: common.String("port"), DisplayName: common.String("port"), ParentPath: subnet.Path,

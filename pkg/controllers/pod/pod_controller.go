@@ -567,7 +567,7 @@ func (r *PodReconciler) GetSubnetPathForPod(ctx context.Context, pod *v1.Pod) (b
 	if subnetSet.Spec.IPAddressType == "" {
 		return false, "", subnetSetUID, subnetSetLock, "", "", fmt.Errorf("default Pod SubnetSet IPAddressType is under calculation")
 	}
-	subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err := common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfacetype, "", nil)
+	subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err := common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfacetype, "", nil, r.SubnetPortService.NSXConfig.NetworkMigrationEnabled())
 	if err != nil {
 		return false, subnetPath, subnetSetUID, subnetSetLock, interfacetype, staticIPAllocationType, err
 	}

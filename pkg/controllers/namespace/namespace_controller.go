@@ -271,7 +271,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// even when the VPC provider is inherited from the owner. Always process deletion
 	// to clean up resources if provider annotations have already been removed.
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		allowed, err := common.IsVPCNamespaceOrShared(ctx, r.Client, obj)
+		allowed, err := common.IsVPCNamespaceOrShared(ctx, r.Client, obj, r.NSXConfig.NetworkMigrationEnabled())
 		if err != nil {
 			var unavailable *common.SharedVPCOwnerUnavailableError
 			if errors.As(err, &unavailable) {
@@ -358,15 +358,16 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
-	r.namespaceEvents = make(chan event.GenericEvent)
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1.Namespace{}).
-		Watches(&v1.Namespace{}, handler.EnqueueRequestsFromMapFunc(sharedOwnerRequests), builder.WithPredicates(sharedOwnerPredicate)).
-		WatchesRawSource(source.Channel(r.namespaceEvents, &handler.EnqueueRequestForObject{})).
-		WithOptions(
-			controller.Options{
-				MaxConcurrentReconciles: common.NumReconcile(),
-			}).
+	b := ctrl.NewControllerManagedBy(mgr).For(&v1.Namespace{})
+	if r.NSXConfig.NetworkMigrationEnabled() {
+		r.namespaceEvents = make(chan event.GenericEvent)
+		b = b.Watches(&v1.Namespace{}, handler.EnqueueRequestsFromMapFunc(sharedOwnerRequests), builder.WithPredicates(sharedOwnerPredicate)).
+			WatchesRawSource(source.Channel(r.namespaceEvents, &handler.EnqueueRequestForObject{}))
+	}
+	return b.WithOptions(
+		controller.Options{
+			MaxConcurrentReconciles: common.NumReconcile(),
+		}).
 		Watches(
 			&v1alpha1.VPCNetworkConfiguration{},
 			&EnqueueRequestForVPCNetworkConfiguration{Reconciler: r},

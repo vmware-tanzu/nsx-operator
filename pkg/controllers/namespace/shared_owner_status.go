@@ -24,7 +24,7 @@ const sharedOwnerUnavailableReason = "SharedVPCOwnerUnavailable"
 // On recovery, wake the resource controllers to revalidate; only they can report
 // Ready=True after checking the backend and member status.
 func (r *NamespaceReconciler) updateSharedOwnerResourceStatus(ctx context.Context, ns string, unavailable bool) error {
-	if !config.IsPerNamespaceProvidersSupported() {
+	if !r.NSXConfig.NetworkMigrationEnabled() || !config.IsPerNamespaceProvidersSupported() {
 		return nil
 	}
 	subnets, subnetSets := &v1alpha1.SubnetList{}, &v1alpha1.SubnetSetList{}
@@ -79,7 +79,7 @@ func (r *NamespaceReconciler) updateSharedOwnerResourceStatus(ctx context.Contex
 		if _, explicit := namespace.Annotations[config.VPCNetworkConfigAnnotation]; unavailable && explicit {
 			return nil
 		}
-		allowed, err := common.IsVPCNamespaceOrShared(ctx, r.APIReader, namespace)
+		allowed, err := common.IsVPCNamespaceOrShared(ctx, r.APIReader, namespace, r.NSXConfig.NetworkMigrationEnabled())
 		var ownerErr *common.SharedVPCOwnerUnavailableError
 		if err != nil && !errors.As(err, &ownerErr) {
 			return err

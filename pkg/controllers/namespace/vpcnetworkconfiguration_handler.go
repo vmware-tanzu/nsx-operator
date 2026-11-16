@@ -71,5 +71,16 @@ func requeueNamespacesByVPCNetworkConfiguration(_ context.Context, reconciler *N
 		return
 	}
 
+	if !reconciler.NSXConfig.NetworkMigrationEnabled() {
+		namespaces, err := reconciler.VPCService.GetNamespacesByNetworkconfigName(vpcNetConfig.Name)
+		if err != nil {
+			log.Error(err, "Failed to get Namespaces for VPCNetworkConfiguration", "Name", vpcNetConfig.Name)
+			return
+		}
+		for _, ns := range namespaces {
+			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: ns}})
+		}
+		return
+	}
 	q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Namespace: networkConfigDependency, Name: vpcNetConfig.Name}})
 }

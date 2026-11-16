@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 )
 
 // Helper function to create a test VPCNetworkConfiguration
@@ -251,7 +252,7 @@ func TestRequeueNamespacesByVPCNetworkConfiguration(t *testing.T) {
 	requeueNamespacesByVPCNetworkConfiguration(context.Background(), nil, nc, queue)
 	assert.Zero(t, queue.Len())
 	// No client/service is configured: the event handler must not perform API reads.
-	requeueNamespacesByVPCNetworkConfiguration(context.Background(), &NamespaceReconciler{}, nc, queue)
+	requeueNamespacesByVPCNetworkConfiguration(context.Background(), &NamespaceReconciler{NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{EnableNetworkMigration: true}}}, nc, queue)
 	assert.Equal(t, 1, queue.Len())
 	request, _ := queue.Get()
 	defer queue.Done(request)

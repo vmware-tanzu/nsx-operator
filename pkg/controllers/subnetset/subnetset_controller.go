@@ -147,7 +147,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if subnetsetCR.DeletionTimestamp.IsZero() {
-		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetsetCR)
+		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetsetCR, r.SubnetService.NSXConfig.NetworkMigrationEnabled())
 		if err != nil {
 			return ResultRequeue, err
 		}
@@ -161,7 +161,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := r.UpdateSubnetSetForSubnetNames(ctx, subnetsetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
 			var pending *subnetNotReadyError
-			if errors.As(err, &pending) {
+			if r.SubnetService.NSXConfig.NetworkMigrationEnabled() && errors.As(err, &pending) {
 				// Returning nil error resets any outage backoff. Subnet status
 				// changes do not otherwise enqueue the referencing SubnetSets.
 				return common.ResultRequeueAfter10sec, nil
@@ -459,7 +459,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetSet{}).
-		WithEventFilter(common.SubnetResourceNamespacePredicate(r.Client)).
+		WithEventFilter(common.SubnetResourceNamespacePredicate(r.Client, r.SubnetService.NSXConfig.NetworkMigrationEnabled())).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).

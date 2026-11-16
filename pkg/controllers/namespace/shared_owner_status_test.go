@@ -52,6 +52,7 @@ func TestSharedOwnerStatusGuards(t *testing.T) {
 				objects = append(objects, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", Annotations: map[string]string{config.VPCNetworkConfigAnnotation: "owner-config"}}})
 			}
 			r := createNameSpaceReconciler(objects)
+			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 			api := fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(objects...).WithStatusSubresource(&v1alpha1.Subnet{}, &v1alpha1.SubnetSet{}).Build()
 			r.Client, r.APIReader = api, api
 			if tc.readError {
@@ -103,6 +104,7 @@ func TestSharedOwnerStatusWriteFailureRetries(t *testing.T) {
 	child := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "staging", Annotations: map[string]string{servicecommon.AnnotationSharedVPCNamespace: "missing"}}}
 	member := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: child.Name, Annotations: map[string]string{servicecommon.AnnotationAssociatedResource: "project:vpc:subnet"}}, Status: v1alpha1.SubnetStatus{Conditions: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}}}}
 	r := createNameSpaceReconciler([]client.Object{child, member})
+	r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 	fail := true
 	api := fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(child, member).WithStatusSubresource(member).WithInterceptorFuncs(interceptor.Funcs{
 		SubResourceUpdate: func(ctx context.Context, c client.Client, subresource string, obj client.Object, opts ...client.SubResourceUpdateOption) error {

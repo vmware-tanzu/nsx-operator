@@ -130,12 +130,12 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	if subnetPort.ObjectMeta.DeletionTimestamp.IsZero() {
 		// Predicates retain events on lookup errors. Recheck the current provider
 		// before allocating capacity, updating CRs or writing a backend port.
-		if config.IsPerNamespaceProvidersSupported() {
+		if config.IsPerNamespaceProvidersSupported() && r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
 			namespace := &v1.Namespace{}
 			if err := reader.Get(ctx, types.NamespacedName{Name: req.Namespace}, namespace); err != nil {
 				return common.ResultRequeue, err
 			}
-			allowed, err := common.IsVPCNamespaceOrShared(ctx, reader, namespace)
+			allowed, err := common.IsVPCNamespaceOrShared(ctx, reader, namespace, true)
 			if err != nil {
 				return common.ResultRequeue, err
 			}
@@ -273,7 +273,13 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				// staticIPAllocationType is the value actually resolved and used by Allocate above,
 				// not re-derived later from subnetPort.Spec (which may still be blank at this point).
 				// Later API updates may replace spec; release the original reservation.
-				defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType, staticIPAllocationType, slices.Clone(subnetPort.Spec.AddressBindings))
+				if r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
+					defer r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType, staticIPAllocationType, slices.Clone(subnetPort.Spec.AddressBindings))
+				} else {
+					defer func() {
+						r.SubnetPortService.ReleasePortInSubnet(nsxSubnetPath, interfaceIPType, staticIPAllocationType, subnetPort.Spec.AddressBindings)
+					}()
+				}
 			}
 		}
 
@@ -1332,7 +1338,7 @@ func isCpvmPort(port *model.VpcSubnetPort) bool {
 func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetPort{}).
-		WithEventFilter(common.SubnetPortNamespacePredicate(r.Client)).
+		WithEventFilter(common.SubnetPortNamespacePredicate(r.Client, r.SubnetPortService.NSXConfig.NetworkMigrationEnabled())).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
@@ -2009,7 +2015,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		log.Info("Got SubnetSet for SubnetPort CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings, subnetPort.UID)
+		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings, r.SubnetPortService.NSXConfig.NetworkMigrationEnabled(), subnetPort.UID)
 		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return
@@ -2034,7 +2040,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		if err != nil {
 			return
 		}
-		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings, subnetPort.UID)
+		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings, r.SubnetPortService.NSXConfig.NetworkMigrationEnabled(), subnetPort.UID)
 		if err != nil {
 			return
 		}
@@ -2042,8 +2048,10 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 	}
 	// Allocation may have recovered a backend port after a committed Patch timed
 	// out. Recovery consumes no new capacity and must not release a reservation.
-	if recovered, lookupErr := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.UID); lookupErr == nil && recovered != nil && recovered.ParentPath != nil {
-		existing = *recovered.ParentPath == subnetPath
+	if r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
+		if recovered, lookupErr := r.SubnetPortService.SubnetPortStore.GetVpcSubnetPortByUID(subnetPort.UID); lookupErr == nil && recovered != nil && recovered.ParentPath != nil {
+			existing = *recovered.ParentPath == subnetPath
+		}
 	}
 	return
 }

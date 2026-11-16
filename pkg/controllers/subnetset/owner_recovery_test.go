@@ -33,6 +33,7 @@ func TestPrecreatedSubnetSetRecoversAfterOwnerOutage(t *testing.T) {
 			set := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "named", Namespace: child.Name, UID: "existing-set"}, Spec: v1alpha1.SubnetSetSpec{SubnetNames: &members, IPAddressType: v1alpha1.IPAddressTypeIPv4}, Status: v1alpha1.SubnetSetStatus{Conditions: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionFalse, Reason: "SharedVPCOwnerUnavailable"}}}}
 			port := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{Name: "existing-port", Namespace: child.Name}, Spec: v1alpha1.SubnetPortSpec{SubnetSet: set.Name, AddressBindings: []v1alpha1.PortAddressBinding{{IPAddress: "192.0.2.6"}}}}
 			r := createFakeSubnetSetReconciler(nil)
+			r.SubnetService.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 			failRead := false
 			api := fake.NewClientBuilder().WithScheme(r.Client.Scheme()).WithObjects(child, member, set, port).WithStatusSubresource(member, set).WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -93,4 +94,16 @@ func TestPrecreatedSubnetSetRecoversAfterOwnerOutage(t *testing.T) {
 			require.Equal(t, port.Spec, gotPort.Spec)
 		})
 	}
+}
+
+func TestNetworkMigrationDisabledMemberWait(t *testing.T) {
+	member := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "member", Namespace: "test"}}
+	set := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "set", Namespace: "test"}, Spec: v1alpha1.SubnetSetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4, SubnetNames: &[]string{member.Name}}}
+	r := createFakeSubnetSetReconciler(nil)
+	api := fake.NewClientBuilder().WithScheme(r.Client.Scheme()).WithObjects(member, set).WithStatusSubresource(set).Build()
+	r.Client = api
+	r.StatusUpdater = controllercommon.NewStatusUpdater(api, r.SubnetService.NSXConfig, &fakeRecorder{}, MetricResTypeSubnetSet, "Subnet", "SubnetSet")
+	result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(set)})
+	require.ErrorContains(t, err, "is not realized", "disabled mode retains the existing error retry path")
+	require.Zero(t, result.RequeueAfter)
 }

@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
@@ -44,7 +45,7 @@ func TestRecoveredPortIsExistingForAllSubnetSelectionPaths(t *testing.T) {
 			subnetService := &mock.MockSubnetServiceProvider{}
 			subnetService.On("GetSubnetByCR", testifymock.Anything).Return(&model.VpcSubnet{Path: &path}, nil)
 			r := &SubnetPortReconciler{Client: c, APIReader: c, SubnetService: subnetService,
-				SubnetPortService: &subnetport.SubnetPortService{SubnetPortStore: &subnetport.SubnetPortStore{}},
+				SubnetPortService: &subnetport.SubnetPortService{Service: servicecommon.Service{NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{EnableNetworkMigration: true}}}, SubnetPortStore: &subnetport.SubnetPortStore{}},
 			}
 			var recovered *model.VpcSubnetPort
 			calls := 0
@@ -63,7 +64,7 @@ func TestRecoveredPortIsExistingForAllSubnetSelectionPaths(t *testing.T) {
 				recoverPort(bindings, uid)
 				return true, nil
 			})
-			patches.ApplyFunc(common.AllocateSubnetFromSubnetSet, func(_ client.Client, _ client.Reader, _ *v1alpha1.SubnetSet, _ servicecommon.VPCServiceProvider, _ servicecommon.SubnetServiceProvider, _ servicecommon.SubnetPortServiceProvider, _ v1alpha1.IPAddressType, _ v1alpha1.StaticIPAllocationType, bindings []v1alpha1.PortAddressBinding, uid ...types.UID) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
+			patches.ApplyFunc(common.AllocateSubnetFromSubnetSet, func(_ client.Client, _ client.Reader, _ *v1alpha1.SubnetSet, _ servicecommon.VPCServiceProvider, _ servicecommon.SubnetServiceProvider, _ servicecommon.SubnetPortServiceProvider, _ v1alpha1.IPAddressType, _ v1alpha1.StaticIPAllocationType, bindings []v1alpha1.PortAddressBinding, enableNetworkMigration bool, uid ...types.UID) (string, v1alpha1.StaticIPAllocationType, *types.UID, *sync.RWMutex, error) {
 				recoverPort(bindings, uid)
 				return path, v1alpha1.StaticIPAllocationTypeIPv4, nil, nil, nil
 			})

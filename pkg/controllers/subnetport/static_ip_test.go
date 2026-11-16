@@ -43,7 +43,7 @@ func TestStagingSubnetPortReconcileReleasesRequestedIPs(t *testing.T) {
 		servicecommon.TagScopePodUID:          emptyIndex,
 		servicecommon.IndexKeySubnetPath:      emptyIndex,
 	})}}
-	ports := &portservice.SubnetPortService{Service: servicecommon.Service{Client: api, NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}}, SubnetPortStore: store}
+	ports := &portservice.SubnetPortService{Service: servicecommon.Service{Client: api, NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{EnableNetworkMigration: true}, NsxConfig: &config.NsxConfig{}}}, SubnetPortStore: store}
 	subnets := &pkgmock.MockSubnetServiceProvider{}
 	wrongNSX := &model.VpcSubnet{Id: servicecommon.String("wrong"), Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc/subnets/wrong"), IpAddresses: []string{"198.51.100.0/24"}}
 	rightNSX := &model.VpcSubnet{Id: servicecommon.String("right"), Path: servicecommon.String("/orgs/default/projects/default/vpcs/vpc/subnets/right"), IpAddresses: []string{"192.0.2.0/24"}}

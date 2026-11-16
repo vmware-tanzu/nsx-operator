@@ -61,6 +61,7 @@ func TestSubnetPortRetriesAndRevalidatesOwner(t *testing.T) {
 			servicecommon.TagScopePodUID:          emptyIndex,
 		}),
 	}}}
+	r.SubnetPortService.NSXConfig = &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{EnableNetworkMigration: true}}
 	r.StatusUpdater = common.NewStatusUpdater(api, &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}}, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 	reachedAllocation := errors.New("allocation reached")
 	allocations := 0
@@ -72,7 +73,7 @@ func TestSubnetPortRetriesAndRevalidatesOwner(t *testing.T) {
 	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 	defer q.ShutDown()
 	ev := event.CreateEvent{Object: port}
-	require.True(t, common.SubnetPortNamespacePredicate(reader).Create(ev))
+	require.True(t, common.SubnetPortNamespacePredicate(reader, true).Create(ev))
 	(&handler.EnqueueRequestForObject{}).Create(context.Background(), ev, q)
 	require.Equal(t, 1, q.Len(), "a transient owner error must not discard the only create event")
 	req, _ := q.Get()

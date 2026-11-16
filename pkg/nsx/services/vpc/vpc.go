@@ -98,12 +98,18 @@ func (s *VPCService) GetNamespacesByNetworkconfigName(nc string) ([]string, erro
 	}
 	// Resolve owners from the same list snapshot. Extra Get calls can fail or
 	// observe a different owner configuration and silently lose update targets.
-	byName := make(map[string]*v1.Namespace, len(namespaces.Items))
-	for i := range namespaces.Items {
-		byName[namespaces.Items[i].Name] = &namespaces.Items[i]
+	var byName map[string]*v1.Namespace
+	if s.NSXConfig.NetworkMigrationEnabled() {
+		byName = make(map[string]*v1.Namespace, len(namespaces.Items))
+		for i := range namespaces.Items {
+			byName[namespaces.Items[i].Name] = &namespaces.Items[i]
+		}
 	}
 	for _, ns := range namespaces.Items {
-		source := byName[networkconfigSourceNamespace(&ns)]
+		source := &ns
+		if s.NSXConfig.NetworkMigrationEnabled() {
+			source = byName[networkconfigSourceNamespace(&ns)]
+		}
 		if source == nil {
 			// The owner's creation/update event will reconcile its inheritors.
 			continue
@@ -335,7 +341,7 @@ func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) 
 func (s *VPCService) getEffectiveNetworkconfigName(ctx context.Context, obj *v1.Namespace) (string, error) {
 	// A namespace sharing a VPC may omit its own network configuration. In that
 	// case use the owner's configuration, rather than the cluster default.
-	if source := networkconfigSourceNamespace(obj); source != obj.Name {
+	if source := networkconfigSourceNamespace(obj); s.NSXConfig.NetworkMigrationEnabled() && source != obj.Name {
 		owner, err := s.getNamespace(ctx, source)
 		if err != nil {
 			return "", err

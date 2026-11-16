@@ -46,7 +46,7 @@ func isVPCNamespaceByName(c client.Reader, ns string, allowShared bool) bool {
 	if !allowShared {
 		return config.IsVPCNamespace(namespace)
 	}
-	allowed, err := IsVPCNamespaceOrShared(context.Background(), c, namespace)
+	allowed, err := IsVPCNamespaceOrShared(context.Background(), c, namespace, true)
 	if err != nil {
 		log.Error(err, "Failed to get shared VPC Namespace; allowing event for reconcile retry", "namespace", ns)
 		return true
@@ -59,11 +59,11 @@ func isVPCNamespaceByName(c client.Reader, ns string, allowShared bool) bool {
 // provider checks; unrelated controllers retain their existing namespace rules.
 // Lookup errors are returned so reconcilers can retry without admitting an
 // unverified owner or silently dropping a configuration update.
-func IsVPCNamespaceOrShared(ctx context.Context, c client.Reader, namespace *corev1.Namespace) (bool, error) {
+func IsVPCNamespaceOrShared(ctx context.Context, c client.Reader, namespace *corev1.Namespace, enableNetworkMigration bool) (bool, error) {
 	if config.IsVPCNamespace(namespace) {
 		return true, nil
 	}
-	if !config.IsPerNamespaceProvidersSupported() {
+	if !enableNetworkMigration || !config.IsPerNamespaceProvidersSupported() {
 		return false, nil
 	}
 	shared := namespace.Annotations[servicecommon.AnnotationSharedVPCNamespace]
@@ -108,8 +108,8 @@ func VPCNamespacePredicate(c client.Reader) predicate.Funcs {
 // VPC namespace, including system/staging namespaces without their own provider.
 // Shared Subnet resources use their own predicate to restrict the exception to
 // shared Subnets and pre-created SubnetSets.
-func SubnetPortNamespacePredicate(c client.Reader) predicate.Funcs {
-	return vpcNamespacePredicate(c, true)
+func SubnetPortNamespacePredicate(c client.Reader, enableNetworkMigration bool) predicate.Funcs {
+	return vpcNamespacePredicate(c, enableNetworkMigration)
 }
 
 func isSharedSubnetResource(obj client.Object) bool {
@@ -127,8 +127,8 @@ func isSharedSubnetResource(obj client.Object) bool {
 // requests from dependency watches or restore. Only shared Subnets and pre-created
 // SubnetSets may inherit an owner's provider; managed resources keep the VPC gate.
 // Legacy clusters retain their existing reconcile behavior.
-func CanReconcileSubnetResource(ctx context.Context, c client.Reader, obj client.Object) (bool, error) {
-	if !config.IsPerNamespaceProvidersSupported() {
+func CanReconcileSubnetResource(ctx context.Context, c client.Reader, obj client.Object, enableNetworkMigration bool) (bool, error) {
+	if !enableNetworkMigration || !config.IsPerNamespaceProvidersSupported() {
 		return true, nil
 	}
 	namespace := &corev1.Namespace{}
@@ -136,7 +136,7 @@ func CanReconcileSubnetResource(ctx context.Context, c client.Reader, obj client
 		return false, err
 	}
 	if isSharedSubnetResource(obj) {
-		return IsVPCNamespaceOrShared(ctx, c, namespace)
+		return IsVPCNamespaceOrShared(ctx, c, namespace, enableNetworkMigration)
 	}
 	return config.IsVPCNamespace(namespace), nil
 }
@@ -144,13 +144,16 @@ func CanReconcileSubnetResource(ctx context.Context, c client.Reader, obj client
 // SubnetResourceNamespacePredicate lets inherited namespaces initialize shared
 // Subnets and pre-created SubnetSets without admitting managed resources. Lookup
 // failures reach Reconcile for retry, where the owner is verified before any write.
-func SubnetResourceNamespacePredicate(c client.Reader) predicate.Funcs {
+func SubnetResourceNamespacePredicate(c client.Reader, enableNetworkMigration bool) predicate.Funcs {
 	base := VPCNamespacePredicate(c)
+	if !enableNetworkMigration {
+		return base
+	}
 	sharedAllowed := func(obj client.Object) bool {
 		if !config.IsPerNamespaceProvidersSupported() || !isSharedSubnetResource(obj) {
 			return false
 		}
-		allowed, err := CanReconcileSubnetResource(context.Background(), c, obj)
+		allowed, err := CanReconcileSubnetResource(context.Background(), c, obj, enableNetworkMigration)
 		return allowed || err != nil
 	}
 	return predicate.Funcs{

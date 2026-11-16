@@ -822,9 +822,13 @@ func (service *SubnetPortService) ListSubnetPortByStsUid(ns string, stsUid strin
 // already allocated port, recover it into the store without a new reservation;
 // callers must treat that port as existing and must not release a reservation.
 func (service *SubnetPortService) AllocatePortFromSubnet(subnet *model.VpcSubnet, sharedSubnet bool, interfaceIPType v1alpha1.IPAddressType, staticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, portUID ...types.UID) (bool, error) {
-	requestedIPs, err := util.RequestedBindingIPs(addressBindings)
-	if err != nil {
-		return false, err
+	var requestedIPs []net.IP
+	if service.NSXConfig.NetworkMigrationEnabled() {
+		var err error
+		requestedIPs, err = util.RequestedBindingIPs(addressBindings)
+		if err != nil {
+			return false, err
+		}
 	}
 	subnetInfo, _ := servicecommon.ParseVPCResourcePath(*subnet.Path)
 
@@ -1039,6 +1043,10 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 		return true, nil
 	}
 
+	initializeRelayCapacity := !existedEntry
+	if service.NSXConfig.NetworkMigrationEnabled() {
+		initializeRelayCapacity = !info.relayCapacityInitialized
+	}
 	var allocatedIPNumber int
 	if useStaticPool {
 		// When SubnetIPReservation is created/deleted, we will reset the info.totalStaticIP and
@@ -1072,7 +1080,7 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 		if sharedSubnet && len(dhcpServerStats.IpPoolStats) > 0 && dhcpServerStats.IpPoolStats[0].AllocatedNumber != nil {
 			allocatedIPNumber = int(*dhcpServerStats.IpPoolStats[0].AllocatedNumber)
 		}
-	} else if !info.relayCapacityInitialized && dhcpMode == model.SubnetDhcpConfig_MODE_RELAY {
+	} else if dhcpMode == model.SubnetDhcpConfig_MODE_RELAY && initializeRelayCapacity {
 		// For DHCP Relay mode Subnet, assume 4 reserved IPs
 		var totalIP int
 		if subnet.Ipv4SubnetSize != nil {
@@ -1082,7 +1090,7 @@ func (service *SubnetPortService) checkIPv4Capacity(subnet *model.VpcSubnet, sha
 			// totalIP will be overrided if IpAddresses are specified.
 			var err error
 			totalIP, err = util.CalculateIPFromCIDRs(subnet.IpAddresses)
-			if err != nil {
+			if service.NSXConfig.NetworkMigrationEnabled() && err != nil {
 				return false, err
 			}
 		}

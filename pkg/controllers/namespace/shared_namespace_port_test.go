@@ -56,6 +56,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			}
 			owner := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "shared-config"}}}
 			r := createNameSpaceReconciler([]client.Object{child, owner})
+			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 			r.Client = fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(child, owner).WithStatusSubresource(&v1alpha1.Subnet{}, &v1alpha1.SubnetSet{}).
 				WithIndex(&v1alpha1.SubnetPort{}, "spec.subnet", func(obj client.Object) []string { return []string{obj.(*v1alpha1.SubnetPort).Spec.Subnet} }).
 				WithIndex(&v1alpha1.SubnetIPReservation{}, "spec.subnet", func(obj client.Object) []string { return []string{obj.(*v1alpha1.SubnetIPReservation).Spec.Subnet} }).Build()
@@ -89,7 +90,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			require.NotNil(t, set)
 			require.Equal(t, []string{"new"}, *set.Spec.SubnetNames)
 			initialType := set.Spec.IPAddressType
-			admitted := controllercommon.SubnetResourceNamespacePredicate(r.Client).Create(event.CreateEvent{Object: set})
+			admitted := controllercommon.SubnetResourceNamespacePredicate(r.Client, true).Create(event.CreateEvent{Object: set})
 			require.True(t, admitted)
 			// Exercise actual controllers, including the retry while the member is
 			// not realized. No type, gateway or Ready status is filled by the test.
@@ -100,7 +101,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			require.Equal(t, controllercommon.ResultRequeueAfter10sec, waiting)
 			member := &v1alpha1.Subnet{}
 			require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: child.Name, Name: "new"}, member))
-			require.True(t, controllercommon.SubnetResourceNamespacePredicate(r.Client).Create(event.CreateEvent{Object: member}))
+			require.True(t, controllercommon.SubnetResourceNamespacePredicate(r.Client, true).Create(event.CreateEvent{Object: member}))
 			patches.ApplyMethod(r.SubnetService, "GetSubnetStatusFromCacheOrAPI", func(_ *subnet.SubnetService, _ *model.VpcSubnet, _ string) ([]model.VpcSubnetStatus, error) {
 				return []model.VpcSubnetStatus{{NetworkAddress: servicecommon.String("192.0.2.0/24"), GatewayAddress: servicecommon.String("192.0.2.1")}}, nil
 			})
@@ -119,7 +120,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 
 			emptyIndex := func(interface{}) ([]string, error) { return nil, nil }
 			store := &portservice.SubnetPortStore{ResourceStore: servicecommon.ResourceStore{Indexer: cache.NewIndexer(func(obj interface{}) (string, error) { return *obj.(*model.VpcSubnetPort).Id, nil }, cache.Indexers{servicecommon.TagScopeSubnetPortCRUID: emptyIndex, servicecommon.TagScopePodUID: emptyIndex})}}
-			ps := &portservice.SubnetPortService{SubnetPortStore: store}
+			ps := &portservice.SubnetPortService{Service: servicecommon.Service{NSXConfig: r.NSXConfig}, SubnetPortStore: store}
 			allocations := 0
 			patches.ApplyMethod(ps, "AllocatePortFromSubnet", func(_ *portservice.SubnetPortService, selected *model.VpcSubnet, shared bool, family v1alpha1.IPAddressType, _ v1alpha1.StaticIPAllocationType, addresses []v1alpha1.PortAddressBinding, _ ...types.UID) (bool, error) {
 				require.Equal(t, path, *selected.Path)
@@ -365,8 +366,9 @@ func TestSharedResourceProviderGuards(t *testing.T) {
 				objects = append(objects, owner)
 			}
 			r := createNameSpaceReconciler(objects)
+			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 			updater := controllercommon.NewStatusUpdater(r.Client, r.NSXConfig, record.NewFakeRecorder(10), "Subnet", "Subnet", "Subnet")
-			pred := controllercommon.SubnetResourceNamespacePredicate(r.Client)
+			pred := controllercommon.SubnetResourceNamespacePredicate(r.Client, true)
 			for _, resource := range []client.Object{member, set} {
 				want := tc.missing || tc.revoke
 				require.Equal(t, want, pred.Create(event.CreateEvent{Object: resource}))

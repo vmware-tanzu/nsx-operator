@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
@@ -28,7 +29,7 @@ func TestInheritedConfigReverseLookupUsesNamespaceSnapshot(t *testing.T) {
 	child := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "staging", Annotations: map[string]string{common.AnnotationSharedVPCNamespace: "owner"}}}
 	owner := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "owner", Annotations: map[string]string{common.AnnotationVPCNetworkConfig: "shared"}}}
 	api := fake.NewClientBuilder().WithObjects(child, owner).Build()
-	svc := &VPCService{Service: common.Service{Client: unavailableConfigOwnerClient{api}}}
+	svc := &VPCService{Service: common.Service{NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{EnableNetworkMigration: true}}, Client: unavailableConfigOwnerClient{api}}}
 	names, err := svc.GetNamespacesByNetworkconfigName("shared")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"owner", "staging"}, names, "an extra owner Get must not lose an inherited namespace already resolvable from the list")
@@ -37,7 +38,7 @@ func TestInheritedConfigReverseLookupUsesNamespaceSnapshot(t *testing.T) {
 func TestInheritedConfigReverseLookup(t *testing.T) {
 	child := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "vmware-system-net-staging", Annotations: map[string]string{common.AnnotationSharedVPCNamespace: "kube-system"}}}
 	owner := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", Annotations: map[string]string{common.AnnotationVPCNetworkConfig: "system"}}}
-	service := &VPCService{Service: common.Service{Client: fake.NewClientBuilder().WithObjects(child, owner).Build()}}
+	service := &VPCService{Service: common.Service{NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{EnableNetworkMigration: true}}, Client: fake.NewClientBuilder().WithObjects(child, owner).Build()}}
 	patches := gomonkey.ApplyMethod(service, "GetDefaultNetworkConfig", func(_ *VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
 		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "default"}}, nil
 	})

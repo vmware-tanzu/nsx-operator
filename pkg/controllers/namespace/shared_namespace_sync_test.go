@@ -56,6 +56,7 @@ func TestSharedNamespaceConfigUpdateSync(t *testing.T) {
 				objects = append(objects, &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "default-" + network, Namespace: child.Name, Labels: map[string]string{servicecommon.LabelDefaultNetwork: network}}, Spec: v1alpha1.SubnetSetSpec{SubnetNames: &members}})
 			}
 			r := createNameSpaceReconciler(objects)
+			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 			api := fake.NewClientBuilder().WithScheme(r.Scheme).WithObjects(objects...).
 				WithIndex(&v1alpha1.SubnetPort{}, "spec.subnet", func(obj client.Object) []string { return []string{obj.(*v1alpha1.SubnetPort).Spec.Subnet} }).
 				WithIndex(&v1alpha1.SubnetIPReservation{}, "spec.subnet", func(obj client.Object) []string { return []string{obj.(*v1alpha1.SubnetIPReservation).Spec.Subnet} }).Build()
@@ -197,6 +198,7 @@ func TestSharedNamespaceProviderBoundaries(t *testing.T) {
 				objects = append(objects, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "owner", Annotations: tc.owner}})
 			}
 			r := createNameSpaceReconciler(objects)
+			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 			result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: child.Name}})
 			if tc.missing && !tc.deleting {
 				require.True(t, apierrors.IsNotFound(err))
