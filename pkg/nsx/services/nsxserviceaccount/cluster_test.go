@@ -4222,8 +4222,8 @@ func TestCleanupBeforeVPCDeletion(t *testing.T) {
 }
 
 func TestCCPCapacityBackoffBlocksCreation(t *testing.T) {
-	ClearCCPConnectionCapacityFull()
-	t.Cleanup(ClearCCPConnectionCapacityFull)
+	clearCCPConnectionCapacityFull()
+	t.Cleanup(clearCCPConnectionCapacityFull)
 	s := &NSXServiceAccountService{Service: newFakeCommonService()}
 	s.SetUpStore()
 	obj := &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "pending", Namespace: "ns1", UID: "pending-uid"}}
@@ -4255,8 +4255,8 @@ func TestCCPCapacityBackoffBlocksCreation(t *testing.T) {
 func TestCCPCapacityBackoffAllowsExistingAccountUpdates(t *testing.T) {
 	for _, operation := range []string{"rotate", "retry-failed-account"} {
 		t.Run(operation, func(t *testing.T) {
-			ClearCCPConnectionCapacityFull()
-			t.Cleanup(ClearCCPConnectionCapacityFull)
+			clearCCPConnectionCapacityFull()
+			t.Cleanup(clearCCPConnectionCapacityFull)
 			ctx := context.Background()
 			s := &NSXServiceAccountService{Service: newFakeCommonService()}
 			s.SetUpStore()
@@ -4282,8 +4282,8 @@ func TestCCPCapacityBackoffAllowsExistingAccountUpdates(t *testing.T) {
 }
 
 func TestCCPCreationDefersWhenCapacityFillsDuringPICreation(t *testing.T) {
-	ClearCCPConnectionCapacityFull()
-	t.Cleanup(ClearCCPConnectionCapacityFull)
+	clearCCPConnectionCapacityFull()
+	t.Cleanup(clearCCPConnectionCapacityFull)
 	s := &NSXServiceAccountService{Service: newFakeCommonService()}
 	s.SetUpStore()
 	obj := newTestServiceAccount()
@@ -4304,8 +4304,8 @@ func TestCCPCreationDefersWhenCapacityFillsDuringPICreation(t *testing.T) {
 func TestCCPWritesPreserveNewCapacityError(t *testing.T) {
 	for _, operation := range []string{"create", "retry", "rotate"} {
 		t.Run(operation, func(t *testing.T) {
-			ClearCCPConnectionCapacityFull()
-			t.Cleanup(ClearCCPConnectionCapacityFull)
+			clearCCPConnectionCapacityFull()
+			t.Cleanup(clearCCPConnectionCapacityFull)
 			s := &NSXServiceAccountService{Service: newFakeCommonService()}
 			s.SetUpStore()
 			obj := newTestServiceAccount()
@@ -4335,8 +4335,8 @@ func TestNSXServiceAccountRejectsMissingCCPNodeID(t *testing.T) {
 	empty := ""
 	for name, nodeID := range map[string]*string{"nil": nil, "empty": &empty} {
 		t.Run(name, func(t *testing.T) {
-			ClearCCPConnectionCapacityFull()
-			t.Cleanup(ClearCCPConnectionCapacityFull)
+			clearCCPConnectionCapacityFull()
+			t.Cleanup(clearCCPConnectionCapacityFull)
 			ctx := context.Background()
 			s := &NSXServiceAccountService{Service: newFakeCommonService()}
 			s.SetUpStore()
@@ -4359,8 +4359,8 @@ func TestNSXServiceAccountRejectsMissingCCPNodeID(t *testing.T) {
 }
 
 func TestNSXServiceAccountRecoversAfterCapacityReturns(t *testing.T) {
-	ClearCCPConnectionCapacityFull()
-	t.Cleanup(ClearCCPConnectionCapacityFull)
+	clearCCPConnectionCapacityFull()
+	t.Cleanup(clearCCPConnectionCapacityFull)
 	ctx := context.Background()
 	s := &NSXServiceAccountService{Service: newFakeCommonService()}
 	s.SetUpStore()
@@ -4420,8 +4420,8 @@ func TestRestoreRealizedNSXServiceAccountRetriesPartialRestore(t *testing.T) {
 	} {
 		for _, restart := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/restart=%t", failure.name, restart), func(t *testing.T) {
-				ClearCCPConnectionCapacityFull()
-				t.Cleanup(ClearCCPConnectionCapacityFull)
+				clearCCPConnectionCapacityFull()
+				t.Cleanup(clearCCPConnectionCapacityFull)
 				ctx := context.Background()
 				s := &NSXServiceAccountService{Service: newFakeCommonService()}
 				s.SetUpStore()
@@ -4474,7 +4474,7 @@ func TestRestoreRealizedNSXServiceAccountRetriesPartialRestore(t *testing.T) {
 					s = &NSXServiceAccountService{Service: s.Service}
 					s.SetUpStore()
 					require.NoError(t, s.PrincipalIdentityStore.Add(&persistedPI))
-					ClearCCPConnectionCapacityFull()
+					clearCCPConnectionCapacityFull()
 				} else {
 					_, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now().Add(6 * time.Minute))
 					require.False(t, skip)
@@ -4508,8 +4508,8 @@ func TestRestoreRealizedNSXServiceAccountPartialRestoreGuards(t *testing.T) {
 		{name: "CCP missing from cache only", ccpExistsOnNSX: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ClearCCPConnectionCapacityFull()
-			t.Cleanup(ClearCCPConnectionCapacityFull)
+			clearCCPConnectionCapacityFull()
+			t.Cleanup(clearCCPConnectionCapacityFull)
 			ctx := context.Background()
 			s := &NSXServiceAccountService{Service: newFakeCommonService()}
 			s.SetUpStore()
