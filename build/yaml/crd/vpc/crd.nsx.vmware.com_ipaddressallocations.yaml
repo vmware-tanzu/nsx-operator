@@ -126,8 +126,6 @@ spec:
                   rule: self == oldSelf
             type: object
             x-kubernetes-validations:
-            - message: spec is immutable
-              rule: self == oldSelf
             - message: Only one of allocationSize or allocationIPs can be specified
               rule: '!has(self.allocationSize) || !has(self.allocationIPs)'
             - message: Only one of ipv6AllocationPrefixLength or allocationIPs can
