@@ -13,10 +13,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
@@ -187,16 +191,62 @@ func TestDHCPDefaultPodReconcileReadinessAndRetry(t *testing.T) {
 	_, err = r.Reconcile(ctx, req)
 	require.NoError(t, err)
 	require.False(t, read().Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet)
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer queue.ShutDown()
+	subnetSetHandler := handler.EnqueueRequestsFromMapFunc(r.subnetSetMapFunc)
+	reconcileQueued := func() error {
+		require.Equal(t, 1, queue.Len(), "SubnetSet event must enqueue the existing Ready port")
+		queued, shutdown := queue.Get()
+		require.False(t, shutdown)
+		defer queue.Done(queued)
+		require.Equal(t, req, queued)
+		_, err := r.Reconcile(ctx, queued)
+		return err
+	}
 	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(ss), ss))
+	oldSet := ss.DeepCopy()
 	ss.Labels = nil
 	require.NoError(t, c.Update(ctx, ss))
-	_, err = r.Reconcile(ctx, req)
-	require.NoError(t, err)
+	updated := event.UpdateEvent{ObjectOld: oldSet, ObjectNew: ss}
+	require.True(t, subnetSetPredicate.Update(updated))
+	subnetSetHandler.Update(ctx, updated, queue)
+	require.NoError(t, reconcileQueued())
 	require.True(t, read().Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet)
 
+	// The direct-Subnet path depends on both membership and the default label.
+	direct := read()
+	direct.Spec.SubnetSet, direct.Spec.Subnet = "", "vlan"
+	require.NoError(t, c.Update(ctx, direct))
+	oldSet = ss.DeepCopy()
+	ss.Labels = map[string]string{servicecommon.LabelDefaultNetwork: servicecommon.DefaultPodNetwork}
+	ss.Spec.SubnetNames = &[]string{"vlan"}
+	ss.Generation++
+	require.NoError(t, c.Update(ctx, ss))
+	updated = event.UpdateEvent{ObjectOld: oldSet, ObjectNew: ss}
+	require.True(t, subnetSetPredicate.Update(updated))
+	subnetSetHandler.Update(ctx, updated, queue)
+	require.NoError(t, reconcileQueued())
+	require.False(t, read().Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet)
+	oldSet = ss.DeepCopy()
+	ss.Spec.SubnetNames = &[]string{"other"}
+	ss.Generation++
+	require.NoError(t, c.Update(ctx, ss))
+	updated = event.UpdateEvent{ObjectOld: oldSet, ObjectNew: ss}
+	require.True(t, subnetSetPredicate.Update(updated))
+	subnetSetHandler.Update(ctx, updated, queue)
+	require.NoError(t, reconcileQueued())
+	require.True(t, read().Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet)
+	require.Equal(t, "ready-attachment", read().Status.Attachment.ID)
+	require.Equal(t, sp.Spec.AddressBindings, read().Spec.AddressBindings)
+
 	// A failed lookup must remain visible, rather than silently disabling DHCP.
+	direct = read()
+	direct.Spec.SubnetSet, direct.Spec.Subnet = ss.Name, ""
+	require.NoError(t, c.Update(ctx, direct))
 	require.NoError(t, c.Delete(ctx, ss))
-	_, err = r.Reconcile(ctx, req)
-	require.Error(t, err)
+	deleted := event.DeleteEvent{Object: ss}
+	require.True(t, subnetSetPredicate.Delete(deleted))
+	subnetSetHandler.Delete(ctx, deleted, queue)
+	require.Error(t, reconcileQueued())
 	require.Equal(t, v1.ConditionFalse, read().Status.Conditions[0].Status)
 }

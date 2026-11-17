@@ -1380,9 +1380,47 @@ func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&v1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.podMapFunc),
 			builder.WithPredicates(podPredicate)).
+		Watches(&v1alpha1.SubnetSet{},
+			handler.EnqueueRequestsFromMapFunc(r.subnetSetMapFunc),
+			builder.WithPredicates(subnetSetPredicate)).
 		Watches(&v1alpha1.AddressBinding{},
 				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
+}
+
+// Status-only SubnetSet updates do not change a port's network membership.
+// Label changes must be watched even when the generation is unchanged.
+var subnetSetPredicate = predicate.Or(predicate.LabelChangedPredicate{}, predicate.GenerationChangedPredicate{})
+
+func (r *SubnetPortReconciler) subnetSetMapFunc(ctx context.Context, obj client.Object) []reconcile.Request {
+	subnetSet, ok := obj.(*v1alpha1.SubnetSet)
+	if !ok {
+		return nil
+	}
+	subnetPorts := &v1alpha1.SubnetPortList{}
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool { return err != nil }, func() error {
+		return r.Client.List(ctx, subnetPorts, client.InNamespace(subnetSet.Namespace))
+	})
+	if err != nil {
+		log.Error(err, "Failed to list SubnetPorts for SubnetSet change", "SubnetSet", client.ObjectKeyFromObject(subnetSet))
+		return nil
+	}
+	var requests []reconcile.Request
+	for _, sp := range subnetPorts.Items {
+		if common.GetPodNameForSubnetPort(&sp) == "" {
+			continue
+		}
+		// Match the same direct-Subnet membership rule used by
+		// isExternalDHCPDefaultPodNetwork. The update handler maps both the
+		// old and new SubnetSet, so removed labels/members also refresh ports.
+		directMember := sp.Spec.Subnet != "" &&
+			subnetSet.Labels[servicecommon.LabelDefaultNetwork] == servicecommon.DefaultPodNetwork &&
+			subnetSet.Spec.SubnetNames != nil && slices.Contains(*subnetSet.Spec.SubnetNames, sp.Spec.Subnet)
+		if sp.Spec.SubnetSet == subnetSet.Name || directMember {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&sp)})
+		}
+	}
+	return requests
 }
 
 func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
