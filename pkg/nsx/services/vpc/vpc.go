@@ -55,9 +55,10 @@ var (
 
 type VPCService struct {
 	common.Service
-	VpcStore            *VPCStore
-	LbsStore            *LBSStore
-	defaultProjectCache sync.Map // cache for IsDefaultNSXProject results, key: "orgID/projectID", value: bool
+	VpcStore                        *VPCStore
+	LbsStore                        *LBSStore
+	defaultProjectCache             sync.Map // cache for IsDefaultNSXProject results, key: "orgID/projectID", value: bool
+	distributedConnectionReadyCache sync.Map // profilePath -> true, only when ServiceGateway is absent
 }
 
 func (s *VPCService) GetDefaultNetworkConfig() (*v1alpha1.VPCNetworkConfiguration, error) {
@@ -953,19 +954,34 @@ func (s *VPCService) GetNetworkStackFromNC(nc *v1alpha1.VPCNetworkConfiguration)
 	return s.GetNetworkStackFromTGW(profile)
 }
 
-func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration, profilePath string) (*common.VPCConnectionStatus, error) {
+func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration, profilePath string, allowWithoutServiceGateway bool) (*common.VPCConnectionStatus, error) {
+	if !allowWithoutServiceGateway {
+		return s.validateConnectionStatus(nc, profilePath, false)
+	}
+	// Cache distributed connection readiness for AVI VLAN-backed VPCs to avoid repeated NSX queries.
+	if _, ok := s.distributedConnectionReadyCache.Load(profilePath); ok {
+		status := newVPCConnectionStatus()
+		status.DistributedConnectionReady = true
+		return status, nil
+	}
+	return s.validateConnectionStatus(nc, profilePath, true)
+}
+
+func newVPCConnectionStatus() *common.VPCConnectionStatus {
+	return &common.VPCConnectionStatus{
+		GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+		ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+	}
+}
+
+func (s *VPCService) validateConnectionStatus(nc *v1alpha1.VPCNetworkConfiguration, profilePath string, allowWithoutServiceGateway bool) (*common.VPCConnectionStatus, error) {
 	org, project, err := common.NSXProjectPathToId(nc.Spec.NSXProject)
 	if err != nil {
 		log.Error(err, "Failed to parse NSX project in NetworkConfig", "ProjectPath", nc.Spec.NSXProject)
 		return nil, err
 	}
 
-	status := &common.VPCConnectionStatus{
-		GatewayConnectionReady:  false,
-		GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
-		ServiceClusterReady:     false,
-		ServiceClusterReason:    common.ReasonServiceClusterNotSet,
-	}
+	status := newVPCConnectionStatus()
 
 	profile, err := s.GetVpcConnectivityProfile(nc, profilePath)
 	if err != nil {
@@ -973,13 +989,18 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 		return nil, err
 	}
 
-	// If ServiceGateway is not enable, both gateway connection and service cluster are not ready
-	if profile.ServiceGateway == nil || profile.ServiceGateway.Enable == nil || !(*profile.ServiceGateway.Enable) || len(profile.ServiceGateway.EdgeClusterPaths) == 0 {
+	// Gateway and service-cluster readiness retain the ServiceGateway requirement.
+	// Distributed connection readiness is checked independently for VLAN-backed AVI VPCs.
+	serviceGatewayReady := profile.ServiceGateway != nil && profile.ServiceGateway.Enable != nil &&
+		*profile.ServiceGateway.Enable && len(profile.ServiceGateway.EdgeClusterPaths) > 0
+	if !serviceGatewayReady && !allowWithoutServiceGateway {
 		return status, nil
+	}
+	if profile.TransitGatewayPath == nil || *profile.TransitGatewayPath == "" {
+		return status, fmt.Errorf("VPC connectivity profile has no TransitGatewayPath")
 	}
 	// For DTGW, distributed-vlan-connection will be set in TGW connection.
 	// For CTGW, gateway-connection will be set in TGW connection.
-	var connectionPaths []string // i.e. TGW connection paths
 	markedForDelete := false
 	transitGatewayPath := *profile.TransitGatewayPath
 	parts := strings.Split(transitGatewayPath, "/")
@@ -990,21 +1011,29 @@ func (s *VPCService) ValidateConnectionStatus(nc *v1alpha1.VPCNetworkConfigurati
 		return status, err
 	}
 	for _, attachment := range res.Results {
-		connectionPaths = append(connectionPaths, *attachment.ConnectionPath)
-	}
-	for _, connectionPath := range connectionPaths {
-		connectionType, err := s.GetConnectionTypeFromConnectionPath(connectionPath)
+		if attachment.ConnectionPath == nil {
+			return status, fmt.Errorf("transit gateway attachment has no ConnectionPath")
+		}
+		connectionType, err := s.GetConnectionTypeFromConnectionPath(*attachment.ConnectionPath)
 		if err != nil {
 			return status, err
 		}
 		switch connectionType {
 		case TypeGatewayConnection:
-			status.GatewayConnectionReady = true
-			status.GatewayConnectionReason = ""
+			if serviceGatewayReady {
+				status.GatewayConnectionReady = true
+				status.GatewayConnectionReason = ""
+			}
 		case TypeDistributedVlanConnection, TypeDistributedVXlanConnection:
-			status.ServiceClusterReady = true
-			status.ServiceClusterReason = ""
+			status.DistributedConnectionReady = true
+			if serviceGatewayReady {
+				status.ServiceClusterReady = true
+				status.ServiceClusterReason = ""
+			}
 		}
+	}
+	if allowWithoutServiceGateway && !serviceGatewayReady && status.DistributedConnectionReady {
+		s.distributedConnectionReadyCache.Store(profilePath, true)
 	}
 	return status, nil
 }

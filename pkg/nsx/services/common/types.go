@@ -321,10 +321,11 @@ func (info *VPCResourceInfo) GetVPCPath() string {
 }
 
 type VPCConnectionStatus struct {
-	GatewayConnectionReady  bool
-	GatewayConnectionReason string
-	ServiceClusterReady     bool
-	ServiceClusterReason    string
+	GatewayConnectionReady     bool
+	GatewayConnectionReason    string
+	ServiceClusterReady        bool
+	ServiceClusterReason       string
+	DistributedConnectionReady bool
 }
 
 type GatewayPrefixInfo struct {
