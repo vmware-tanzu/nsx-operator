@@ -431,7 +431,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// AKO needs to know the AVI subnet path created by NSX
-	setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, aviSubnetPath, nsxLBSPath, *createdVpc.Path)
+	if err := setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, aviSubnetPath, nsxLBSPath, *createdVpc.Path); err != nil {
+		return common.ResultRequeue, err
+	}
 	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state)
 
 	if retryWithSystemVPC {
