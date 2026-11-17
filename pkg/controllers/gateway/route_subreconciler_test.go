@@ -955,7 +955,7 @@ func TestGenericRouteReconciler_DNSPolicyConditions(t *testing.T) {
 		{name: "mixed hostnames retain DNS operation failure", hostname: "app.example.com", additionalHostnames: []gatewayv1.Hostname{"*.example.com"}, listener: "*.example.com", wantAccepted: true, wantReason: reasonDNSHostnamesAccepted, wantRows: 1, upsertErr: errors.New("record conflict"), wantDNSFailed: true},
 		{name: "wildcard does not hide zone failure for concrete hostname", hostname: "app.other.test", additionalHostnames: []gatewayv1.Hostname{"*.other.test"}, listener: "*.other.test", wantAccepted: true, wantReason: reasonDNSHostnamesAccepted, wantDNSFailed: true},
 		{name: "zone not allowed", hostname: "app.other.test", listener: "*.other.test", wantAccepted: true, wantReason: reasonDNSHostnamesAccepted, wantDNSFailed: true},
-		{name: "zone apex", hostname: "example.com", listener: "example.com", wantAccepted: true, wantReason: reasonDNSHostnamesAccepted, wantDNSFailed: true},
+		{name: "zone apex", hostname: "example.com", listener: "example.com", wantAccepted: true, wantReason: reasonDNSHostnamesAccepted, wantRows: 1},
 		{name: "no allowed zones", hostname: "app.example.com", listener: "*.example.com", noZones: true, wantAccepted: true, wantReason: reasonDNSHostnamesAccepted, wantDNSFailed: true},
 		{name: "configuration lookup failure", hostname: "app.example.com", listener: "*.example.com", configErr: errors.New("configuration unavailable"), wantAccepted: true, wantReason: reasonDNSHostnamesAccepted, wantDNSFailed: true},
 		{name: "matched listener without address", hostname: "app.example.com", listener: "*.example.com", noAddress: true, wantReason: reasonNoValidParentGateways},
@@ -996,15 +996,16 @@ func TestGenericRouteReconciler_DNSPolicyConditions(t *testing.T) {
 			ctrlMock := gomock.NewController(t)
 			d := mockdns.NewMockDNSRecordProvider(ctrlMock)
 			if !tc.skipValidation {
-				// Keep zone/apex rejection tests on real validation logic.
-				nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}
+				// Exercise zone authorization and apex handling with real validation logic.
+				const zonePath = "/orgs/default/projects/project/dns-services/service/zones/zone"
+				nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{zonePath}}}
 				if tc.noZones {
 					nc.Spec.DNSZones = nil
 				}
 				vpc := &pkgmock.MockVPCServiceProvider{}
 				vpc.On("GetVPCNetworkConfigByNamespace", "ns").Return(nc, tc.configErr).Once()
 				t.Cleanup(func() { vpc.AssertExpectations(t) })
-				validator := &dns.DNSRecordService{VPCService: vpc, DNSZoneMap: dns.NewDNSZoneCacheFromMap(map[string]string{"zone": "example.com"})}
+				validator := &dns.DNSRecordService{VPCService: vpc, DNSZoneMap: dns.NewDNSZoneCacheFromMap(map[string]string{zonePath: "example.com"})}
 				d.EXPECT().ValidateEndpointsByZone("ns", gomock.Any(), gomock.Any()).DoAndReturn(validator.ValidateEndpointsByZone)
 			}
 			s := mockgateway.NewMockStatusUpdater(ctrlMock)
