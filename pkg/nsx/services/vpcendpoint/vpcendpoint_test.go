@@ -68,6 +68,23 @@ func TestResolveIPAllocationPath(t *testing.T) {
 		assert.ErrorContains(t, err, "not found")
 	})
 
+	t.Run("CR being deleted", func(t *testing.T) {
+		now := metav1.Now()
+		deletingCR := ipAllocCR.DeepCopy()
+		deletingCR.DeletionTimestamp = &now
+		deletingCR.Finalizers = []string{"test/finalizer"}
+		service := &VPCEndpointService{}
+		service.Client = fake.NewClientBuilder().WithScheme(scheme()).WithObjects(deletingCR).Build()
+		service.IPAllocationService = &fakeIPAllocationService{
+			getByOwner: func(metav1.Object) (*model.VpcIpAddressAllocation, error) {
+				t.Fatal("NSX allocation must not be looked up for a deleting CR")
+				return nil, nil
+			},
+		}
+		_, err := service.resolveIPAllocationPath(context.Background(), ns, name)
+		assert.ErrorContains(t, err, "being deleted")
+	})
+
 	t.Run("NSX allocation not found in store", func(t *testing.T) {
 		service := &VPCEndpointService{}
 		service.Client = fake.NewClientBuilder().WithScheme(scheme()).WithObjects(ipAllocCR).Build()

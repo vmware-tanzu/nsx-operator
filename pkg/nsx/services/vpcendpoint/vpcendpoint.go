@@ -72,6 +72,10 @@ func (service *VPCEndpointService) resolveIPAllocationPath(ctx context.Context, 
 		return "", fmt.Errorf("failed to get IPAddressAllocation CR %s/%s: %w", namespace, ipAllocCRName, err)
 	}
 
+	if !ipAllocCR.DeletionTimestamp.IsZero() {
+		return "", fmt.Errorf("IPAddressAllocation CR %s/%s is being deleted", namespace, ipAllocCRName)
+	}
+
 	nsxAllocation, err := service.IPAllocationService.GetIPAddressAllocationByOwner(ipAllocCR)
 	if err != nil {
 		return "", fmt.Errorf("failed to look up NSX allocation for IPAddressAllocation CR %s/%s: %w", namespace, ipAllocCRName, err)
