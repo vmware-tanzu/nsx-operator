@@ -272,6 +272,25 @@ func TestNsxVersion_SubnetPortSetting(t *testing.T) {
 	}
 }
 
+func TestNsxVersion_ServiceAccountMultiTenancy(t *testing.T) {
+	for _, tc := range []struct {
+		version   string
+		supported bool
+	}{
+		{"4.2.0", false},
+		{"9.1.2", false},
+		{"9.2.0", true},
+		{"9.2.0.0.12345", true},
+		{"9.3.0", true},
+		{"9.2", false},
+		{"9.x.0", false},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			assert.Equal(t, tc.supported, (&NsxVersion{ProductVersion: tc.version}).featureSupported(ServiceAccountMultiTenancy))
+		})
+	}
+}
+
 func TestCluster_validate(t *testing.T) {
 	nsxVersion := &NsxVersion{}
 	nsxVersion.ProductVersion = "12"
