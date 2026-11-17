@@ -851,185 +851,6 @@ func TestGetVPCsByNamespace(t *testing.T) {
 	}
 }
 
-func TestGetLBProvider(t *testing.T) {
-	previousProvider := globalLbProvider
-	t.Cleanup(func() { globalLbProvider = previousProvider })
-	vpcService := &VPCService{
-		Service: common.Service{
-			NSXConfig: &config.NSXOperatorConfig{
-				NsxConfig: &config.NsxConfig{
-					UseAVILoadBalancer: false,
-				},
-			},
-			NSXClient: &nsx.Client{
-				Cluster: &nsx.Cluster{},
-			},
-		},
-		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
-			Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-			BindingType: model.LBServiceBindingType(),
-		}},
-	}
-
-	testCases := []struct {
-		name             string
-		prepareFuncs     func() *gomonkey.Patches
-		lbprovider       LBProvider
-		expectLBProvider LBProvider
-		expectError      bool
-	}{
-		{
-			name:             "Test when globalLbProvider is avi lb",
-			lbprovider:       AVILB,
-			expectLBProvider: AVILB,
-		},
-		{
-			name:             "Test when globalLbProvider is nsx lb",
-			lbprovider:       NSXLB,
-			expectLBProvider: NSXLB,
-		},
-		{
-			name:             "Test when globalLbProvider is none lb and GetVPCNetworkConfig",
-			lbprovider:       NoneLB,
-			expectLBProvider: NSXLB,
-			prepareFuncs: func() *gomonkey.Patches {
-				patches := gomonkey.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVpcConnectivityProfileWithRetry", func(_ *VPCService, nc *v1alpha1.VPCNetworkConfiguration) (*model.VpcConnectivityProfile, error) {
-					return &model.VpcConnectivityProfile{
-						ServiceGateway: &model.VpcServiceGatewayConfig{
-							Enable: common.Bool(true),
-							NatConfig: &model.VpcNatConfig{
-								EnableDefaultSnat: common.Bool(true),
-							},
-						},
-					}, nil
-				})
-				patches.ApplyPrivateMethod(reflect.TypeOf(&VPCService{}), "getLBProvider", func(_ *VPCService, _ bool) (LBProvider, error) {
-					return NSXLB, nil
-				})
-				patches.ApplyMethod(reflect.TypeOf(&VPCService{}), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
-					return &v1alpha1.VPCNetworkConfiguration{}, true, nil
-				})
-				return patches
-			},
-		},
-		{
-			name:             "Test when globalLbProvider is none lb GetVPCNetworkConfig none",
-			lbprovider:       NoneLB,
-			expectLBProvider: NoneLB,
-			prepareFuncs: func() *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
-					return &v1alpha1.VPCNetworkConfiguration{}, false, nil
-				})
-			},
-		},
-		{
-			name:             "Test when GetVPCNetworkConfig returns error",
-			lbprovider:       NoneLB,
-			expectLBProvider: NoneLB,
-			expectError:      true,
-			prepareFuncs: func() *gomonkey.Patches {
-				return gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
-					return nil, false, errors.New("api server connection timeout")
-				})
-			},
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			globalLbProvider = testCase.lbprovider
-			vpcService.Service.NSXConfig.UseAVILoadBalancer = false
-
-			if testCase.prepareFuncs != nil {
-				patches := testCase.prepareFuncs()
-				defer patches.Reset()
-			}
-
-			lbProvider, err := vpcService.GetLBProvider()
-			if testCase.expectError {
-				assert.NotNil(t, err)
-				assert.Equal(t, testCase.expectLBProvider, lbProvider)
-			} else {
-				assert.Nil(t, err)
-				assert.Equal(t, testCase.expectLBProvider, lbProvider)
-			}
-		})
-	}
-}
-
-func TestGetLBProviderRetriesALBProbeAndCachesAVI(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		probeErr error
-		health   nsx.ClusterHealth
-	}{
-		{name: "HTTP common error", probeErr: nsxUtil.HttpCommonError, health: nsx.GREEN},
-		{name: "TCP connection refused", probeErr: &url.Error{Op: "Get", URL: albEndpointPath, Err: syscall.ECONNREFUSED}, health: nsx.GREEN},
-		{name: "connection timeout", probeErr: &url.Error{Op: "Get", URL: albEndpointPath, Err: context.DeadlineExceeded}, health: nsx.GREEN},
-		{name: "TLS failure", probeErr: &url.Error{Op: "Get", URL: albEndpointPath, Err: errors.New("TLS handshake failed")}, health: nsx.GREEN},
-		{name: "404 while cluster is down", probeErr: nsxUtil.HttpNotFoundError, health: nsx.RED},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			previousProvider := globalLbProvider
-			globalLbProvider = NoneLB
-			t.Cleanup(func() { globalLbProvider = previousProvider })
-
-			vpcService := &VPCService{
-				Service: common.Service{
-					NSXConfig: &config.NSXOperatorConfig{
-						NsxConfig: &config.NsxConfig{UseAVILoadBalancer: true},
-					},
-					NSXClient: &nsx.Client{Cluster: &nsx.Cluster{}},
-				},
-				LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
-					Indexer:     cache.NewIndexer(keyFunc, cache.Indexers{}),
-					BindingType: model.LBServiceBindingType(),
-				}},
-			}
-			patches := gomonkey.ApplyMethod(reflect.TypeOf(vpcService), "GetVPCNetworkConfig", func(_ *VPCService, name string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
-				assert.Equal(t, common.SystemVPCNetworkConfigurationName, name)
-				return &v1alpha1.VPCNetworkConfiguration{}, true, nil
-			})
-			defer patches.Reset()
-			patches.ApplyMethod(reflect.TypeOf(vpcService), "GetVpcConnectivityProfileWithRetry", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*model.VpcConnectivityProfile, error) {
-				return &model.VpcConnectivityProfile{
-					ServiceGateway: &model.VpcServiceGatewayConfig{Enable: common.Bool(true)},
-				}, nil
-			})
-			patches.ApplyMethod(reflect.TypeOf(vpcService.NSXClient.Cluster), "Health", func(_ *nsx.Cluster) nsx.ClusterHealth {
-				return tc.health
-			})
-			probeErr := tc.probeErr
-			probeCalls := 0
-			patches.ApplyMethod(reflect.TypeOf(vpcService.NSXClient.Cluster), "HttpGet", func(_ *nsx.Cluster, path string) (map[string]interface{}, error) {
-				assert.Equal(t, albEndpointPath, path)
-				probeCalls++
-				return nil, probeErr
-			})
-
-			provider, err := vpcService.GetLBProvider()
-			require.Error(t, err)
-			assert.Equal(t, NoneLB, provider)
-			assert.Equal(t, NoneLB, globalLbProvider)
-			assert.Equal(t, 1, probeCalls)
-
-			probeErr = nil
-			provider, err = vpcService.GetLBProvider()
-			require.NoError(t, err)
-			assert.Equal(t, AVILB, provider)
-			assert.Equal(t, AVILB, globalLbProvider)
-			assert.Equal(t, 2, probeCalls)
-
-			// A later probe failure must not affect the cached provider or cause another probe.
-			probeErr = errors.New("ALB endpoint unavailable again")
-			provider, err = vpcService.GetLBProvider()
-			require.NoError(t, err)
-			assert.Equal(t, AVILB, provider)
-			assert.Equal(t, 2, probeCalls)
-		})
-	}
-}
-
 func TestIsEnableAutoSNAT(t *testing.T) {
 	vpcConnProfile := &model.VpcConnectivityProfile{}
 	assert.False(t, IsEnableAutoSNAT(vpcConnProfile))
@@ -1189,6 +1010,112 @@ func TestGetLbProvider(t *testing.T) {
 			assert.Equal(t, tc.wantProbeCalls, calls)
 		})
 	}
+}
+
+type lbProviderGetCountingClient struct {
+	client.Client
+	getCalls int
+	getErr   error
+}
+
+func (c *lbProviderGetCountingClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	c.getCalls++
+	if c.getErr != nil {
+		return c.getErr
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+func newLBProviderTestClient(t *testing.T, objects ...client.Object) *lbProviderGetCountingClient {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	baseClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+	return &lbProviderGetCountingClient{Client: baseClient}
+}
+
+func resetGlobalLBProvider(t *testing.T) {
+	t.Helper()
+	previousProvider := globalLbProvider
+	globalLbProvider = NoneLB
+	t.Cleanup(func() { globalLbProvider = previousProvider })
+}
+
+func TestGetLBProviderRestoresAndCachesAVIFromStatus(t *testing.T) {
+	resetGlobalLBProvider(t)
+	client := newLBProviderTestClient(t, &v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: common.SystemVPCNetworkConfigurationName},
+		Status: v1alpha1.VPCNetworkConfigurationStatus{VPCs: []v1alpha1.VPCInfo{{
+			Name: "tenant-vpc", AVISESubnetPath: "/orgs/default/projects/default/vpcs/tenant-vpc/subnets/avi-lb",
+		}}},
+	})
+	service := &VPCService{Service: common.Service{Client: client}}
+
+	provider, err := service.GetLBProvider()
+	require.NoError(t, err)
+	assert.Equal(t, AVILB, provider)
+	assert.Equal(t, AVILB, globalLbProvider)
+	assert.Equal(t, 1, client.getCalls)
+
+	// A positive cache hit must not inspect status or perform provider discovery again.
+	client.getErr = errors.New("unexpected get after provider resolution")
+	provider, err = service.GetLBProvider()
+	require.NoError(t, err)
+	assert.Equal(t, AVILB, provider)
+	assert.Equal(t, 1, client.getCalls)
+}
+
+func TestGetLBProviderDoesNotCacheNoneLB(t *testing.T) {
+	resetGlobalLBProvider(t)
+	client := newLBProviderTestClient(t, &v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: common.SystemVPCNetworkConfigurationName},
+	})
+	service := &VPCService{
+		Service: common.Service{
+			Client:    client,
+			NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{UseAVILoadBalancer: false}},
+		},
+		LbsStore: &LBSStore{ResourceStore: common.ResourceStore{
+			Indexer: cache.NewIndexer(keyFunc, cache.Indexers{}), BindingType: model.LBServiceBindingType(),
+		}},
+	}
+	edgeEnabled := false
+	patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "GetVpcConnectivityProfileWithRetry", func(_ *VPCService, _ *v1alpha1.VPCNetworkConfiguration) (*model.VpcConnectivityProfile, error) {
+		return &model.VpcConnectivityProfile{ServiceGateway: &model.VpcServiceGatewayConfig{Enable: common.Bool(edgeEnabled)}}, nil
+	})
+	defer patches.Reset()
+
+	provider, err := service.GetLBProvider()
+	require.NoError(t, err)
+	assert.Equal(t, NoneLB, provider)
+	assert.Equal(t, NoneLB, globalLbProvider)
+	assert.Equal(t, 1, client.getCalls)
+
+	// Day 0 NoneLB must be re-evaluated when the system gateway becomes available.
+	edgeEnabled = true
+	provider, err = service.GetLBProvider()
+	require.NoError(t, err)
+	assert.Equal(t, NSXLB, provider)
+	assert.Equal(t, NSXLB, globalLbProvider)
+	assert.Equal(t, 2, client.getCalls)
+
+	provider, err = service.GetLBProvider()
+	require.NoError(t, err)
+	assert.Equal(t, NSXLB, provider)
+	assert.Equal(t, 2, client.getCalls)
+}
+
+func TestGetLBProviderReturnsSystemConfigGetError(t *testing.T) {
+	resetGlobalLBProvider(t)
+	wantErr := errors.New("get system VPCNetworkConfiguration failed")
+	client := &lbProviderGetCountingClient{getErr: wantErr}
+	service := &VPCService{Service: common.Service{Client: client}}
+
+	provider, err := service.GetLBProvider()
+	require.ErrorIs(t, err, wantErr)
+	assert.Equal(t, NoneLB, provider)
+	assert.Equal(t, NoneLB, globalLbProvider)
+	assert.Equal(t, 1, client.getCalls)
 }
 
 func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
