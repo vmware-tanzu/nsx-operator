@@ -26,6 +26,21 @@ webhooks:
         name: supervisor-network-migration-admission
         path: /validate-migration-workload
         port: 443
+    matchConditions:
+      - name: exclude-trusted-controllers
+        expression: >-
+          !(request.userInfo.username in [
+            'system:kube-controller-manager',
+            'system:serviceaccount:kube-system:replicaset-controller',
+            'system:serviceaccount:kube-system:replication-controller',
+            'system:serviceaccount:kube-system:daemon-set-controller',
+            'system:serviceaccount:kube-system:statefulset-controller',
+            'system:serviceaccount:kube-system:job-controller',
+            'system:serviceaccount:vmware-system-nsx:ncp-svc-account',
+            'system:serviceaccount:vmware-system-netop:vmware-system-netop-controller-manager',
+            'system:serviceaccount:vmware-system-vmop:vmware-system-vmop-vmoperator-service-account',
+            'system:serviceaccount:vmware-system-ako:vmware-system-ako-controller-manager'
+          ])
     rules:
       - apiGroups: [""]
         apiVersions: [v1]
@@ -63,6 +78,20 @@ webhooks:
         path: /validate-migration-workload
         port: 443
     matchConditions:
+      - name: exclude-trusted-controllers
+        expression: >-
+          !(request.userInfo.username in [
+            'system:kube-controller-manager',
+            'system:serviceaccount:kube-system:replicaset-controller',
+            'system:serviceaccount:kube-system:replication-controller',
+            'system:serviceaccount:kube-system:daemon-set-controller',
+            'system:serviceaccount:kube-system:statefulset-controller',
+            'system:serviceaccount:kube-system:job-controller',
+            'system:serviceaccount:vmware-system-nsx:ncp-svc-account',
+            'system:serviceaccount:vmware-system-netop:vmware-system-netop-controller-manager',
+            'system:serviceaccount:vmware-system-vmop:vmware-system-vmop-vmoperator-service-account',
+            'system:serviceaccount:vmware-system-ako:vmware-system-ako-controller-manager'
+          ])
       - name: service-is-loadbalancer
         expression: >-
           (object != null && has(object.spec) && has(object.spec.type) && object.spec.type == 'LoadBalancer') ||

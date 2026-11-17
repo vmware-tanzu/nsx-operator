@@ -8,14 +8,21 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 )
 
 // SetupWithManager registers both stages with a shared dispatcher. Disabled
-// startup skips registration entirely. Concrete action handlers are not yet wired.
+// startup skips registration entirely. Evaluate checks supplied inputs before
+// reporting that source discovery and reservation are unavailable.
 func SetupWithManager(mgr ctrl.Manager) error {
-	return registerControllers(mgr.GetClient(), mgr.GetAPIReader(), &transition.Engine{Enabled: true}, func(r *controllers.Reconciler) error {
+	engine := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+		// Supply each stage's DHCP discovery and Evaluate handler when available.
+		{Stage: transition.Infrastructure, Action: api.ActionEvaluate}: transition.EvaluateInputs{},
+		{Stage: transition.Namespaces, Action: api.ActionEvaluate}:     transition.EvaluateInputs{},
+	}}
+	return registerControllers(mgr.GetClient(), mgr.GetAPIReader(), engine, func(r *controllers.Reconciler) error {
 		return r.SetupWithManager(mgr)
 	})
 }

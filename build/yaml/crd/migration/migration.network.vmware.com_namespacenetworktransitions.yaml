@@ -76,9 +76,9 @@ spec:
                 description: |-
                   NetworkConfiguration supplies administrator-provided migration parameters.
                   Values may be added, corrected, or removed while the requested action is
-                  Evaluate and no execution checkpoint has been recorded, or after a successful
-                  Rollback with no irreversible checkpoint. Execute otherwise freezes the configuration.
-                  Rollback success requires verified restoration; a new Evaluate is required before another Execute.
+                  Evaluate and no execution checkpoint has been recorded. Execute freezes the
+                  configuration. Namespace inputs may be edited again only after a verified,
+                  successful whole-batch Rollback and a new Evaluate request.
                 properties:
                   namespaceDHCPNetworks:
                     description: |-
@@ -525,14 +525,18 @@ spec:
             == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration)
             || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))
         - message: networkConfiguration cannot change after execution starts unless
-            Evaluate follows a successful Rollback without an irreversible checkpoint
+            Evaluate follows a current, verified successful Rollback without an irreversible
+            checkpoint
           rule: '!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction
             in [''Execute'', ''Rollback'', ''Commit'', ''Finalize'']) || (self.spec.action
             == ''Evaluate'' && oldSelf.status.lastAction == ''Rollback'' && has(oldSelf.status.actionState)
-            && oldSelf.status.actionState == ''Succeeded'' && !has(oldSelf.status.irreversibleAction))
-            || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration)
-            && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration
-            == oldSelf.spec.networkConfiguration))'
+            && oldSelf.status.actionState == ''Succeeded'' && has(oldSelf.status.actionGeneration)
+            && has(oldSelf.status.observedGeneration) && oldSelf.status.actionGeneration
+            == oldSelf.status.observedGeneration && has(oldSelf.status.phase) && oldSelf.status.phase
+            == ''RolledBack'' && has(oldSelf.status.rollbackComplete) && oldSelf.status.rollbackComplete
+            && !has(oldSelf.status.irreversibleAction)) || (has(self.spec.networkConfiguration)
+            == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration)
+            || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))'
         - message: an irreversible checkpoint cannot change or be cleared; only its
             action may be resumed
           rule: '!has(oldSelf.status) || !has(oldSelf.status.irreversibleAction) ||
