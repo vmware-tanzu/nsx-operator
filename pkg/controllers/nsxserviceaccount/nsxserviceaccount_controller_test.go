@@ -585,6 +585,12 @@ func TestNSXServiceAccountReconciler_Reconcile(t *testing.T) {
 	}
 }
 
+func clearCCPConnectionCapacityFull() {
+	// Expire the service's process-local backoff through its clock-aware API;
+	// production code must not expose a reset solely for another package's tests.
+	nsxsasvc.CCPConnectionCapacityFullBackoffRequeue(time.Now().Add(24 * time.Hour))
+}
+
 func newCapacityTestReconciler() *NSXServiceAccountReconciler {
 	r := newFakeNSXServiceAccountReconciler()
 	nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
@@ -618,7 +624,7 @@ func TestNSXServiceAccountReconciler_Reconcile_CapacityBackoff(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			nsxsasvc.MarkCCPConnectionCapacityFull()
-			t.Cleanup(nsxsasvc.ClearCCPConnectionCapacityFull)
+			t.Cleanup(clearCCPConnectionCapacityFull)
 			ctx := context.Background()
 			r := newCapacityTestReconciler()
 			obj := &nsxvmwarecomv1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "ns1"}}
@@ -662,8 +668,8 @@ func TestNSXServiceAccountReconciler_Reconcile_CapacityBackoff(t *testing.T) {
 }
 
 func TestRestoreReconcileContinuesAfterCapacityDeferral(t *testing.T) {
-	nsxsasvc.ClearCCPConnectionCapacityFull()
-	t.Cleanup(nsxsasvc.ClearCCPConnectionCapacityFull)
+	clearCCPConnectionCapacityFull()
+	t.Cleanup(clearCCPConnectionCapacityFull)
 	r := newCapacityTestReconciler()
 	ctx := context.Background()
 	for _, name := range []string{"account-a", "account-b"} {
@@ -778,8 +784,8 @@ func TestNSXServiceAccountReconciler_RestoreReconcile(t *testing.T) {
 		{"CapacityBackoff", reconcile.Result{RequeueAfter: time.Minute}, nsxsasvc.CCPBackoffError{RequeueAfter: time.Minute}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			nsxsasvc.ClearCCPConnectionCapacityFull()
-			t.Cleanup(nsxsasvc.ClearCCPConnectionCapacityFull)
+			clearCCPConnectionCapacityFull()
+			t.Cleanup(clearCCPConnectionCapacityFull)
 			r := newFakeNSXServiceAccountReconciler()
 			nsxvmwarecomv1alpha1.AddToScheme(r.Scheme)
 			ctx := context.TODO()
@@ -1293,8 +1299,8 @@ func TestNSXServiceAccountReconciler_serviceMapFunc(t *testing.T) {
 func TestCapacityBackoffAfterRestartKeepsRealizedAccountUsable(t *testing.T) {
 	// Restart loses the old in-memory mark; the first rejected creation relearns it.
 	nsxsasvc.MarkCCPConnectionCapacityFull()
-	nsxsasvc.ClearCCPConnectionCapacityFull()
-	t.Cleanup(nsxsasvc.ClearCCPConnectionCapacityFull)
+	clearCCPConnectionCapacityFull()
+	t.Cleanup(clearCCPConnectionCapacityFull)
 	r := newFakeNSXServiceAccountReconciler()
 	r.Service = &nsxsasvc.NSXServiceAccountService{Service: servicecommon.Service{
 		NSXClient: &nsx.Client{}, NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}},

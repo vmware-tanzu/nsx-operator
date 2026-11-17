@@ -10,10 +10,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCCPConnectionCapacityFullBackoffRequeue(t *testing.T) {
-	t.Cleanup(ClearCCPConnectionCapacityFull)
+func clearCCPConnectionCapacityFull() {
+	ccpConnCapMu.Lock()
+	defer ccpConnCapMu.Unlock()
+	ccpConnCapFull = time.Time{}
+}
 
-	ClearCCPConnectionCapacityFull()
+func TestCCPConnectionCapacityFullBackoffRequeue(t *testing.T) {
+	t.Cleanup(clearCCPConnectionCapacityFull)
+
+	clearCCPConnectionCapacityFull()
 	d, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now())
 	assert.False(t, skip)
 	assert.Zero(t, d)
@@ -33,14 +39,14 @@ func TestCCPConnectionCapacityFullBackoffRequeue(t *testing.T) {
 	assert.False(t, skip)
 	assert.Zero(t, d)
 
-	ClearCCPConnectionCapacityFull()
+	clearCCPConnectionCapacityFull()
 	d, skip = CCPConnectionCapacityFullBackoffRequeue(time.Now())
 	assert.False(t, skip)
 	assert.Zero(t, d)
 }
 
 func TestCCPConnectionCapacityFullBackoffRequeue_SubSecondRemainingReturnsOneSecond(t *testing.T) {
-	t.Cleanup(ClearCCPConnectionCapacityFull)
+	t.Cleanup(clearCCPConnectionCapacityFull)
 	ccpConnCapMu.Lock()
 	// ~1s left in the 5-minute window: mark at now - 4m59s.
 	ccpConnCapFull = time.Now().Add(-4*time.Minute - 59*time.Second)
