@@ -143,6 +143,18 @@ func (r *IPAddressAllocationReconciler) Reconcile(ctx context.Context, req ctrl.
 }
 
 func (r *IPAddressAllocationReconciler) handleUpdate(ctx context.Context, obj *v1alpha1.IPAddressAllocation) (ctrl.Result, error) {
+	// Skip reconciliation if this CR was created as a migration transition target and
+	// has not yet been adopted by the NetworkResourceTransition controller.
+	// The underlying NSX VpcIpAddressAllocation resource is adopted in-place from the source CR;
+	// no new IP allocation should be requested from NSX. Skipping here prevents a race condition
+	// where IPAA controller allocates a duplicate VIP before NRT completes tag adoption.
+	// The annotation is removed only after NRT writes Status.AllocationIPs. Keep
+	// skipping while it exists because the status write and annotation removal are
+	// separate API calls, and the status update can enqueue this controller in between.
+	if obj.Annotations != nil && obj.Annotations[servicecommon.AnnotationTransitionTarget] == "true" {
+		log.Info("IPAddressAllocation is a transition target awaiting adoption completion, skipping reconciliation", "Namespace", obj.Namespace, "Name", obj.Name)
+		return resultNormal, nil
+	}
 	r.StatusUpdater.IncreaseUpdateTotal()
 	updated, err := r.Service.CreateOrUpdateIPAddressAllocation(obj, r.restoreMode)
 	if err != nil {

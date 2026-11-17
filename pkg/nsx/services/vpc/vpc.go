@@ -25,13 +25,13 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
-type LBProvider string
+type LBProvider = common.LBProvider
 
 const (
 	albEndpointPath = "policy/api/v1/infra/sites/default/enforcement-points/alb-endpoint"
-	NSXLB           = LBProvider("nsx-lb")
-	AVILB           = LBProvider("avi")
-	NoneLB          = LBProvider("none")
+	NSXLB           = common.NSXLB
+	AVILB           = common.AVILB
+	NoneLB          = common.NoneLB
 	NSXLBEIPID      = "_DEFAULT--VPC_SERVICE_IP"
 	NSXLBEIPIDV6    = "_DEFAULT--VPC_SERVICE_IP_V6"
 

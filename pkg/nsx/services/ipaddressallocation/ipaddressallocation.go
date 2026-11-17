@@ -26,6 +26,7 @@ type IPAddressAllocationService struct {
 	ipAddressAllocationStore *IPAddressAllocationStore
 	VPCService               common.VPCServiceProvider
 	builder                  *common.PolicyTreeBuilder[*model.VpcIpAddressAllocation]
+	allocationLocks          [64]sync.RWMutex
 }
 
 func InitializeIPAddressAllocation(service common.Service, vpcService common.VPCServiceProvider, includeNCP bool) (*IPAddressAllocationService,
@@ -64,7 +65,42 @@ func InitializeIPAddressAllocation(service common.Service, vpcService common.VPC
 	return ipAddressAllocationService, nil
 }
 
+func getOwnerUID(alloc *model.VpcIpAddressAllocation) string {
+	if alloc == nil {
+		return ""
+	}
+	return nsxutil.FindTag(alloc.Tags, common.TagScopeIPAddressAllocationCRUID)
+}
+
+// storeHasOwner must be called while holding the expected owner's allocation lock.
+func (service *IPAddressAllocationService) storeHasOwner(allocID string, expectedOwner string) bool {
+	current := service.ipAddressAllocationStore.GetByKey(allocID)
+	if current == nil {
+		return false
+	}
+	return getOwnerUID(current.(*model.VpcIpAddressAllocation)) == expectedOwner
+}
+
+// validateNoConflictingAllocation prevents a queued source reconciliation from
+// allocating another VIP after its original allocation has changed owners.
+// The caller must hold the owner's allocation lock.
+func (service *IPAddressAllocationService) validateNoConflictingAllocation(ip, vpcPath string, ownerUID types.UID) error {
+	allocations, err := service.ipAddressAllocationStore.GetByVPCPath(vpcPath)
+	if err != nil {
+		return err
+	}
+	for _, allocation := range allocations {
+		if allocation.AllocationIps != nil && *allocation.AllocationIps == ip && getOwnerUID(allocation) != string(ownerUID) {
+			return fmt.Errorf("LB VIP %s is owned by another IPAddressAllocation; refusing to recreate source %s", ip, ownerUID)
+		}
+	}
+	return nil
+}
+
 func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj *v1alpha1.IPAddressAllocation, restoreMode bool) (bool, error) {
+	unlock := service.lockAllocationUIDs(obj.UID)
+	defer unlock()
+
 	nsxIPAddressAllocation, vpcInfo, err := service.BuildIPAddressAllocation(obj, nil, restoreMode)
 	if err != nil {
 		return false, err
@@ -75,6 +111,11 @@ func (service *IPAddressAllocationService) CreateOrUpdateIPAddressAllocation(obj
 		return false, err
 	}
 	log.Debug("Existing ipaddressallocation", "ipaddressallocation", existingIPAddressAllocation)
+	if existingIPAddressAllocation == nil && service.isLBAllocation(obj) && obj.Status.AllocationIPs != "" && len(vpcInfo) > 0 {
+		if err := service.validateNoConflictingAllocation(obj.Status.AllocationIPs, vpcInfo[0].GetVPCPath(), obj.UID); err != nil {
+			return false, err
+		}
+	}
 
 	if existingIPAddressAllocation != nil {
 		if existingIPAddressAllocation.AllocationIps != nil && existingIPAddressAllocation.AllocationSize == nil {
@@ -194,6 +235,13 @@ func (service *IPAddressAllocationService) DeleteIPAddressAllocationForAddressBi
 }
 
 func (service *IPAddressAllocationService) DeleteIPAddressAllocationByNSXResource(nsxIPAddressAllocation *model.VpcIpAddressAllocation) error {
+	owner := getOwnerUID(nsxIPAddressAllocation)
+	unlock := service.lockAllocationUIDs(types.UID(owner))
+	defer unlock()
+	if owner != "" && !service.storeHasOwner(*nsxIPAddressAllocation.Id, owner) {
+		// A deletion queued before handoff must not release the new owner's VIP.
+		return nil
+	}
 	vpcResourceInfo, err := common.ParseVPCResourcePath(*nsxIPAddressAllocation.Path)
 	if err != nil {
 		return err
@@ -355,6 +403,8 @@ func (service *IPAddressAllocationService) GetIPAddressAllocationUID(nsxIPAddres
 
 // GetIPAddressAllocationByOwner gets the NSX IPAddressAllocation via SubnetPort UID or external AddrssBinding UID
 func (service *IPAddressAllocationService) GetIPAddressAllocationByOwner(owner metav1.Object) (*model.VpcIpAddressAllocation, error) {
+	unlock := service.readAllocationUID(owner.GetUID())
+	defer unlock()
 	existingIPAddressAllocation, err := service.indexedIPAddressAllocation(owner.GetUID())
 	return existingIPAddressAllocation, err
 }
