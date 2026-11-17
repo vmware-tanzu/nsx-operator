@@ -100,6 +100,208 @@ func (c *fakePrincipalIdentitiesClient) List() (mpmodel.PrincipalIdentityList, e
 	return mpmodel.PrincipalIdentityList{}, nil
 }
 
+func TestRecoverDuplicatePrincipalIdentity(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		t.Run(fmt.Sprintf("owned=%t", owned), func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "ns", UID: "uid1"}}
+			name, id, oldCert, newCert, nodeID := "cluster", "pi-id", "old-cert", "new-cert", "node-id"
+			scope, uid := common.TagScopeNSXServiceAccountCRUID, "uid1"
+			if !owned {
+				uid = "other-uid"
+			}
+			pi := mpmodel.PrincipalIdentity{Name: &name, NodeId: &name, Id: &id, CertificateId: &oldCert, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}
+			code := principalAlreadyExistsCode
+			patches := gomonkey.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, _ mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+				return mpmodel.PrincipalIdentity{}, &nsxutil.NSXApiError{ApiError: &model.ApiError{ErrorCode: &code}}
+			})
+			defer patches.Reset()
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "List", func(_ *fakePrincipalIdentitiesClient) (mpmodel.PrincipalIdentityList, error) {
+				return mpmodel.PrincipalIdentityList{Results: []mpmodel.PrincipalIdentity{pi}}, nil
+			})
+			updated := false
+			patches.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, request mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+				assert.Equal(t, "persisted-cert", *request.PemEncoded)
+				return mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &newCert}}}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, request mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+				updated = true
+				assert.Equal(t, id, *request.PrincipalIdentityId)
+				pi.CertificateId = &newCert
+				return pi, nil
+			})
+			patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+				assert.Equal(t, "persisted-cert", *request.Certificate)
+				request.Id, request.NodeId = &name, &nodeID
+				return request, nil
+			})
+			clusterID, err := s.createPIAndCCP(name, "/vpc", "persisted-cert", nil, obj)
+			if !owned {
+				require.ErrorContains(t, err, "not owned")
+				assert.False(t, updated)
+				assert.Nil(t, s.PrincipalIdentityStore.GetByKey(name))
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, updated)
+			assert.Equal(t, nodeID, clusterID)
+			assert.NotNil(t, s.PrincipalIdentityStore.GetByKey(name))
+		})
+	}
+}
+
+func TestCreatePIRejectsCachedIdentityOwnedByAnotherAccount(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "ns", UID: "uid1"}}
+	name, otherName, scope, uid, otherUID := "cluster", "another-pi", common.TagScopeNSXServiceAccountCRUID, "uid1", "uid2"
+	require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &name, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &otherUID}}}))
+	require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &otherName, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}))
+	_, err := s.createPIAndCCP(name, "/vpc", "cert", nil, obj)
+	require.ErrorContains(t, err, "not owned")
+}
+
+func TestCreatePIRejectsCachedCCPOwnedByAnotherAccount(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "ns", UID: "uid1"}}
+	name, otherName, scope, uid, otherUID := "cluster", "another-ccp", common.TagScopeNSXServiceAccountCRUID, "uid1", "uid2"
+	require.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &name, Tags: []model.Tag{{Scope: &scope, Tag: &otherUID}}}))
+	require.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &otherName, Tags: []model.Tag{{Scope: &scope, Tag: &uid}}}))
+	_, err := s.createPIAndCCP(name, "/vpc", "cert", nil, obj)
+	require.ErrorContains(t, err, "not owned")
+}
+
+func TestUpdatePIAndCCPCertRejectsOtherAccountResources(t *testing.T) {
+	for _, wrongPI := range []bool{true, false} {
+		t.Run(fmt.Sprintf("wrongPI=%t", wrongPI), func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			name, otherName, scope, uid, other := "cluster", "other", common.TagScopeNSXServiceAccountCRUID, "uid1", "uid2"
+			piOwner, ccpOwner := uid, uid
+			if wrongPI {
+				piOwner = other
+			} else {
+				ccpOwner = other
+			}
+			require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &name, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &piOwner}}}))
+			require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &otherName, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}))
+			require.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &name, Tags: []model.Tag{{Scope: &scope, Tag: &ccpOwner}}}))
+			require.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &otherName, Tags: []model.Tag{{Scope: &scope, Tag: &uid}}}))
+			require.ErrorContains(t, s.updatePIAndCCPCert(name, uid, "cert"), "not owned")
+		})
+	}
+}
+
+func TestCreatePIAndCCPPreservesPartialCCPResponse(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	name := util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+	mockServiceAccountNSX(t, s, obj, false)
+	nodeID := "node-id"
+	patches := gomonkey.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, _ model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+		return model.ClusterControlPlane{NodeId: &nodeID}, nil
+	})
+	defer patches.Reset()
+	got, err := s.createPIAndCCP(name, "/vpc", "cert", nil, obj)
+	require.NoError(t, err)
+	assert.Equal(t, nodeID, got)
+	ccp := s.ClusterControlPlaneStore.GetByKey(name).(*model.ClusterControlPlane)
+	assert.Equal(t, name, *ccp.Id)
+	assert.Len(t, s.ClusterControlPlaneStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID)), 1)
+}
+
+func TestFindOwnedPrincipalIdentityPaginated(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "account", Namespace: "ns", UID: "uid1"}}
+	name, id, scope, uid, cursor := "cluster", "pi-id", common.TagScopeNSXServiceAccountCRUID, "uid1", "next"
+	pi := mpmodel.PrincipalIdentity{Name: &name, NodeId: &name, Id: &id, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}
+	patches := gomonkey.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "List", func(_ *fakePrincipalIdentitiesClient) (mpmodel.PrincipalIdentityList, error) {
+		return mpmodel.PrincipalIdentityList{Cursor: &cursor}, nil
+	})
+	defer patches.Reset()
+	value, conversionErrors := common.NewConverter().ConvertToVapi(pi, mpmodel.PrincipalIdentityBindingType())
+	require.Empty(t, conversionErrors)
+	patches.ApplyMethod(s.NSXClient.MPQueryClient, "List", func(_ *fakeMPQueryClient, query string, pageCursor *string, _ *string, _ *int64, _ *bool, _ *string) (mpmodel.SearchResponse, error) {
+		assert.Contains(t, query, "tags.tag:uid1")
+		if pageCursor == nil {
+			return mpmodel.SearchResponse{Cursor: &cursor}, nil
+		}
+		assert.Equal(t, cursor, *pageCursor)
+		return mpmodel.SearchResponse{Results: []*data.StructValue{value.(*data.StructValue)}}, nil
+	})
+	got, err := s.findOwnedPrincipalIdentity(name, obj)
+	require.NoError(t, err)
+	assert.Equal(t, id, *got.Id)
+	assert.Nil(t, s.PrincipalIdentityStore.GetByKey(name))
+}
+
+func TestFindOwnedPrincipalIdentityRejectsInvalidResults(t *testing.T) {
+	name, id, scope, uid, other := "cluster", "pi-id", common.TagScopeNSXServiceAccountCRUID, "uid1", "other"
+	owned := mpmodel.PrincipalIdentity{Name: &name, NodeId: &name, Id: &id, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}
+	for _, tt := range []struct {
+		name string
+		pis  []mpmodel.PrincipalIdentity
+	}{
+		{name: "duplicate identities", pis: []mpmodel.PrincipalIdentity{owned, owned}},
+		{name: "missing owner", pis: []mpmodel.PrincipalIdentity{{Name: &name, NodeId: &name, Id: &id, Tags: []mpmodel.Tag{{Scope: nil}}}}},
+		{name: "conflicting owner tags", pis: []mpmodel.PrincipalIdentity{{Name: &name, NodeId: &name, Id: &id, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}, {Scope: &scope, Tag: &other}}}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			patches := gomonkey.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "List", func(_ *fakePrincipalIdentitiesClient) (mpmodel.PrincipalIdentityList, error) {
+				return mpmodel.PrincipalIdentityList{Results: tt.pis}, nil
+			})
+			defer patches.Reset()
+			_, err := s.findOwnedPrincipalIdentity(name, &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{UID: "uid1"}})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestUpdatePICertDoesNotDeleteReusedCertificate(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	name, id, certID := "cluster", "pi-id", "cert-id"
+	pi := mpmodel.PrincipalIdentity{Name: &name, Id: &id, CertificateId: &certID}
+	patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+		return mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &certID}}}, nil
+	})
+	defer patches.Reset()
+	patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, _ mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+		return pi, nil
+	})
+	deleted := false
+	patches.ApplyMethod(s.NSXClient.CertificatesClient, "Delete", func(_ *fakeCertificatesClient, _ string) error {
+		deleted = true
+		return nil
+	})
+	require.NoError(t, s.updatePICert(&pi, name, "cert"))
+	assert.False(t, deleted)
+}
+
+func TestUpdatePICertPreservesIdentityFromPartialResponse(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	name, id, oldID, newID, scope, uid := "cluster", "pi-id", "old", "new", common.TagScopeNSXServiceAccountCRUID, "uid1"
+	pi := mpmodel.PrincipalIdentity{Name: &name, Id: &id, CertificateId: &oldID, Tags: []mpmodel.Tag{{Scope: nil}, {Scope: &scope, Tag: &uid}}}
+	patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+		return mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &newID}}}, nil
+	})
+	defer patches.Reset()
+	patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, _ mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+		return mpmodel.PrincipalIdentity{}, nil
+	})
+	require.NoError(t, s.updatePICert(&pi, name, "cert"))
+	cached := s.PrincipalIdentityStore.GetByKey(name).(*mpmodel.PrincipalIdentity)
+	assert.Equal(t, newID, *cached.CertificateId)
+	assert.Len(t, s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, uid), 1)
+}
+
 func (c *fakePrincipalIdentitiesClient) Updatecertificate(updatePrincipalIdentityCertificateRequestParam mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
 	return mpmodel.PrincipalIdentity{}, nil
 }
@@ -1336,6 +1538,34 @@ func newTestServiceAccount() *v1alpha1.NSXServiceAccount {
 	return &v1alpha1.NSXServiceAccount{ObjectMeta: metav1.ObjectMeta{
 		Name: "name1", Namespace: "ns1", UID: "00000000-0000-0000-0000-000000000001",
 	}}
+}
+
+func TestCreateOrUpdateRecoversExistingPIWithPersistedCredentials(t *testing.T) {
+	ctx := context.Background()
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	require.NoError(t, s.Client.Create(ctx, obj))
+	name := util.NormalizeId(s.getClusterName(obj.Namespace, obj.Name))
+	id, oldCert, scope, uid := "pi1", "old-cert", common.TagScopeNSXServiceAccountCRUID, string(obj.UID)
+	pi := mpmodel.PrincipalIdentity{Name: &name, NodeId: &name, Id: &id, CertificateId: &oldCert, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}
+	captured := mockServiceAccountNSX(t, s, obj, false)
+	code := principalAlreadyExistsCode
+	patches := gomonkey.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, _ mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+		return mpmodel.PrincipalIdentity{}, &nsxutil.NSXApiError{ApiError: &model.ApiError{ErrorCode: &code}}
+	})
+	defer patches.Reset()
+	patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "List", func(_ *fakePrincipalIdentitiesClient) (mpmodel.PrincipalIdentityList, error) {
+		return mpmodel.PrincipalIdentityList{Results: []mpmodel.PrincipalIdentity{pi}}, nil
+	})
+	require.NoError(t, s.CreateOrUpdateNSXServiceAccount(ctx, obj))
+	secret := &v1.Secret{}
+	require.NoError(t, s.Client.Get(ctx, types.NamespacedName{Name: obj.Name + SecretSuffix, Namespace: obj.Namespace}, secret))
+	require.NotEmpty(t, secret.Data[SecretCertName])
+	assert.Equal(t, string(secret.Data[SecretCertName]), captured.pi)
+	assert.Equal(t, captured.pi, captured.ccp)
+	assert.Equal(t, v1alpha1.NSXServiceAccountPhaseRealized, obj.Status.Phase)
+	assert.NotNil(t, s.PrincipalIdentityStore.GetByKey(name))
 }
 
 func newOwnedTestSecret(obj *v1alpha1.NSXServiceAccount, data map[string][]byte) *v1.Secret {
@@ -3878,6 +4108,11 @@ func TestRestoreRealizedNSXServiceAccountRetriesPartialRestore(t *testing.T) {
 					return persistedPI, nil
 				})
 				defer patches.Reset()
+				patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, request mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+					assert.Equal(t, *persistedPI.Id, *request.PrincipalIdentityId)
+					persistedPI.CertificateId = request.CertificateId
+					return persistedPI, nil
+				})
 				patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Get", func(_ *fakeClusterControlPlanesClient, _, _, _ string) (model.ClusterControlPlane, error) {
 					gets++
 					return model.ClusterControlPlane{}, nsxutil.NewNSXApiError(nil, vapierrors.ErrorType_NOT_FOUND)
