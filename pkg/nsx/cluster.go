@@ -582,6 +582,9 @@ func (nsxVersion *NsxVersion) featureSupported(feature int) bool {
 	case SubnetPortSetting:
 		minVersion = nsx920Version
 		validFeature = true
+	case ServiceAccountMultiTenancy:
+		minVersion = nsx920Version
+		validFeature = true
 	}
 
 	if validFeature {
