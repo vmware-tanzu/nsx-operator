@@ -135,7 +135,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if err := reader.Get(ctx, types.NamespacedName{Name: req.Namespace}, namespace); err != nil {
 				return common.ResultRequeue, err
 			}
-			allowed, err := common.IsVPCNamespaceOrShared(ctx, reader, namespace, true)
+			allowed, err := common.CanUseNetworkMigration(ctx, reader, namespace, true)
 			if err != nil {
 				return common.ResultRequeue, err
 			}

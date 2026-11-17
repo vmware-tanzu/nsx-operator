@@ -46,7 +46,7 @@ func TestServiceNamespaceManagedDefaultsRespectProvider(t *testing.T) {
 			r.APIReader = r.Client
 			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: tc.enabled}
 			if !tc.enabled {
-				patches.ApplyFunc(common.IsVPCNamespaceOrShared, func(context.Context, client.Reader, *corev1.Namespace, bool) (bool, error) {
+				patches.ApplyFunc(common.CanUseNetworkMigration, func(context.Context, client.Reader, *corev1.Namespace, bool) (bool, error) {
 					t.Error("disabled migration entered shared namespace admission")
 					return tc.explicit, nil
 				})

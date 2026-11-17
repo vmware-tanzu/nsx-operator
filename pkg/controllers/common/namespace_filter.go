@@ -46,7 +46,7 @@ func isVPCNamespaceByName(c client.Reader, ns string, allowShared bool) bool {
 	if !allowShared {
 		return config.IsVPCNamespace(namespace)
 	}
-	allowed, err := IsVPCNamespaceOrShared(context.Background(), c, namespace, true)
+	allowed, err := CanUseNetworkMigration(context.Background(), c, namespace, true)
 	if err != nil {
 		log.Error(err, "Failed to get shared VPC Namespace; allowing event for reconcile retry", "namespace", ns)
 		return true
@@ -54,13 +54,11 @@ func isVPCNamespaceByName(c client.Reader, ns string, allowShared bool) bool {
 	return allowed
 }
 
-// IsVPCNamespaceOrShared admits VPC and shared namespaces to migration handling
-// only when enabled. Disabled callers use the original IsVPCNamespace path.
-// Namespace synchronization and opt-in resource filters use the same
-// provider checks; unrelated controllers retain their existing namespace rules.
-// Lookup errors are returned so reconcilers can retry without admitting an
-// unverified owner or silently dropping a configuration update.
-func IsVPCNamespaceOrShared(ctx context.Context, c client.Reader, namespace *corev1.Namespace, enableNetworkMigration bool) (bool, error) {
+// CanUseNetworkMigration reports whether migration is enabled and the namespace
+// is eligible through its own VPC provider or a valid shared VPC owner. A false
+// result does not classify the namespace's network type; disabled callers use
+// their original VPC handling. Lookup errors are returned for reconcile retry.
+func CanUseNetworkMigration(ctx context.Context, c client.Reader, namespace *corev1.Namespace, enableNetworkMigration bool) (bool, error) {
 	if !enableNetworkMigration {
 		return false, nil
 	}
@@ -140,7 +138,7 @@ func CanReconcileSubnetResource(ctx context.Context, c client.Reader, obj client
 		return false, err
 	}
 	if isSharedSubnetResource(obj) {
-		return IsVPCNamespaceOrShared(ctx, c, namespace, enableNetworkMigration)
+		return CanUseNetworkMigration(ctx, c, namespace, enableNetworkMigration)
 	}
 	return config.IsVPCNamespace(namespace), nil
 }
