@@ -23,6 +23,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DHCPIPv6IPPoolUsage":                     schema_pkg_apis_eas_v1alpha1_DHCPIPv6IPPoolUsage(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DHCPLease":                               schema_pkg_apis_eas_v1alpha1_DHCPLease(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DHCPv6Lease":                             schema_pkg_apis_eas_v1alpha1_DHCPv6Lease(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DNSClientConfig":                         schema_pkg_apis_eas_v1alpha1_DNSClientConfig(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.EndpointStatistics":                      schema_pkg_apis_eas_v1alpha1_EndpointStatistics(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsage":                            schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsageList":                        schema_pkg_apis_eas_v1alpha1_IPBlockUsageList(ref),
@@ -40,6 +41,10 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetStatusList":                        schema_pkg_apis_eas_v1alpha1_SubnetStatusList(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.UsageDetails":                            schema_pkg_apis_eas_v1alpha1_UsageDetails(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VLANExtension":                           schema_pkg_apis_eas_v1alpha1_VLANExtension(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPAdvancedConfig":                   schema_pkg_apis_eas_v1alpha1_VPCDHCPAdvancedConfig(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPRelayConfig":                      schema_pkg_apis_eas_v1alpha1_VPCDHCPRelayConfig(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPServerConfig":                     schema_pkg_apis_eas_v1alpha1_VPCDHCPServerConfig(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPv6ServerConfig":                   schema_pkg_apis_eas_v1alpha1_VPCDHCPv6ServerConfig(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCEndpointStatistics":                   schema_pkg_apis_eas_v1alpha1_VPCEndpointStatistics(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCEndpointStatisticsList":               schema_pkg_apis_eas_v1alpha1_VPCEndpointStatisticsList(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddress":                            schema_pkg_apis_eas_v1alpha1_VPCIPAddress(ref),
@@ -48,6 +53,11 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressUsage":                       schema_pkg_apis_eas_v1alpha1_VPCIPAddressUsage(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressUsageList":                   schema_pkg_apis_eas_v1alpha1_VPCIPAddressUsageList(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPBlockAllocationState":               schema_pkg_apis_eas_v1alpha1_VPCIPBlockAllocationState(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDHCPConfig":                    schema_pkg_apis_eas_v1alpha1_VPCProfileDHCPConfig(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDHCPv6Config":                  schema_pkg_apis_eas_v1alpha1_VPCProfileDHCPv6Config(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDNSConfig":                     schema_pkg_apis_eas_v1alpha1_VPCProfileDNSConfig(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceProfile":                       schema_pkg_apis_eas_v1alpha1_VPCServiceProfile(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceProfileList":                   schema_pkg_apis_eas_v1alpha1_VPCServiceProfileList(ref),
 		v1.APIGroup{}.OpenAPIModelName():                                                                     schema_pkg_apis_meta_v1_APIGroup(ref),
 		v1.APIGroupList{}.OpenAPIModelName():                                                                 schema_pkg_apis_meta_v1_APIGroupList(ref),
 		v1.APIResource{}.OpenAPIModelName():                                                                  schema_pkg_apis_meta_v1_APIResource(ref),
@@ -389,6 +399,33 @@ func schema_pkg_apis_eas_v1alpha1_DHCPv6Lease(ref common.ReferenceCallback) comm
 							Description: "ExpireTime is the time at which the lease expires.",
 							Type:        []string{"string"},
 							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_DNSClientConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"dnsServerIPs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "IPs of the DNS servers which need to be configured on the workload VMs",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
 						},
 					},
 				},
@@ -1417,6 +1454,172 @@ func schema_pkg_apis_eas_v1alpha1_VLANExtension(ref common.ReferenceCallback) co
 	}
 }
 
+func schema_pkg_apis_eas_v1alpha1_VPCDHCPAdvancedConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"isDistributedDHCP": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Flag indicating the DHCP mode. - When set to true (default), the DHCP server dynamically assigns an IP address per VM network interface. - When set to false, the DHCP server operates in traditional mode, allocating IPs based on the VM's MAC address.\n  This mode requires the VPC to be attached to a TransitGateway connected to a Provider Gateway.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCDHCPRelayConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"serverAddresses": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCP server IP addresses for DHCP relay configuration. Both IPv4 and IPv6 addresses are supported.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCDHCPServerConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"advancedConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCP Advanced configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPAdvancedConfig"),
+						},
+					},
+					"dnsClientConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DNS client configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DNSClientConfig"),
+						},
+					},
+					"leaseTime": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCP lease time in seconds. Value range is [60, 4294967295], default value is 86400.",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"ntpServers": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Hostname/IP list of NTP servers",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"leaseTime"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DNSClientConfig", "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPAdvancedConfig"},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCDHCPv6ServerConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"advancedConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "VPC DHCPv6 advanced configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPAdvancedConfig"),
+						},
+					},
+					"dnsClientConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DNS client configuration includes the DNS servers that DHCPv6 clients use to resolve domain names into IPv6 addresses.",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DNSClientConfig"),
+						},
+					},
+					"leaseTime": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCPv6 lease time in seconds. Value range is [60, 4294967295], default value is 86400.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"preferredTime": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Preferred time in seconds. Value range is [48, 4294967295].",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"ntpServers": {
+						SchemaProps: spec.SchemaProps{
+							Description: "NTP servers as FQDN or IPv6 address. Supports unicast, multicast, and FQDN formats.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"sntpServers": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SNTP server IPv6 addresses for VPC Subnets.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DNSClientConfig", "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPAdvancedConfig"},
+	}
+}
+
 func schema_pkg_apis_eas_v1alpha1_VPCEndpointStatistics(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -1879,6 +2082,216 @@ func schema_pkg_apis_eas_v1alpha1_VPCIPBlockAllocationState(ref common.Reference
 		},
 		Dependencies: []string{
 			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCIPAddressBlockAllocationStateForCIDR", v1.ObjectMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCProfileDHCPConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"dhcpRelayConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCP relay configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPRelayConfig"),
+						},
+					},
+					"dhcpServerConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCP server configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPServerConfig"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPRelayConfig", "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPServerConfig"},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCProfileDHCPv6Config(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"dhcpv6RelayConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCPv6 relay configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPRelayConfig"),
+						},
+					},
+					"dhcpv6ServerConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DHCPv6 server configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPv6ServerConfig"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPRelayConfig", "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCDHCPv6ServerConfig"},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCProfileDNSConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"ipv4ResolverIP": {
+						SchemaProps: spec.SchemaProps{
+							Description: "IPv4 address of the DNS resolver that VPC workloads use for DNS resolution. Optional, but at least one of IPv4ResolverIP or IPv6ResolverIP must be provided.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"ipv6ResolverIP": {
+						SchemaProps: spec.SchemaProps{
+							Description: "IPv6 address of the DNS resolver that VPC workloads use for DNS resolution. Optional, but at least one of IPv4ResolverIP or IPv6ResolverIP must be provided.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCServiceProfile(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1.ObjectMeta{}.OpenAPIModelName()),
+						},
+					},
+					"isDefault": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Flag to indicate that the VPC Service Profile is a default profile. If true, then this VPC Service Profile is the default system created profile.",
+							Default:     false,
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+					"dhcpConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Common DHCP config for VPC Subnet.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDHCPConfig"),
+						},
+					},
+					"serviceSubnetCIDRs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "An array of service subnet CIDRs. CIDRs should be in ip/prefix_length format.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"dnsConfig": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DNS configuration",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDNSConfig"),
+						},
+					},
+					"dhcpv6Config": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Common DHCPv6 config for VPC Subnets.",
+							Ref:         ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDHCPv6Config"),
+						},
+					},
+					"description": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The description of the VPCServiceProfile.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"isDefault"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDHCPConfig", "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDHCPv6Config", "github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCProfileDNSConfig", v1.ObjectMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_VPCServiceProfileList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1.ListMeta{}.OpenAPIModelName()),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceProfile"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.VPCServiceProfile", v1.ListMeta{}.OpenAPIModelName()},
 	}
 }
 
