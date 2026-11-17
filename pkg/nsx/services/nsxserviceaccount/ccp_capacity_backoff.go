@@ -42,14 +42,6 @@ func MarkCCPConnectionCapacityFull() {
 	ccpConnCapFull = time.Now()
 }
 
-// ClearCCPConnectionCapacityFull resets the process-local cooldown.
-// Existing CCP updates must not clear it: they do not prove new capacity is available.
-func ClearCCPConnectionCapacityFull() {
-	ccpConnCapMu.Lock()
-	defer ccpConnCapMu.Unlock()
-	ccpConnCapFull = time.Time{}
-}
-
 func checkCCPCapacityBackoff() error {
 	if delay, skip := CCPConnectionCapacityFullBackoffRequeue(time.Now()); skip {
 		return CCPBackoffError{RequeueAfter: delay}
