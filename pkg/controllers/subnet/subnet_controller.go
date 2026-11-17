@@ -85,7 +85,7 @@ func (r *SubnetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if subnetCR.DeletionTimestamp.IsZero() && r.SubnetService.NSXConfig.NetworkMigrationEnabled() {
-		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetCR, true)
+		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetCR)
 		if err != nil {
 			return ResultRequeue, err
 		}
@@ -636,7 +636,7 @@ func (r *SubnetReconciler) start(mgr ctrl.Manager, hookServer webhook.Server) er
 func (r *SubnetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	namespacePredicate := common.VPCNamespacePredicate(r.Client)
 	if r.SubnetService.NSXConfig.NetworkMigrationEnabled() {
-		namespacePredicate = common.SubnetResourceNamespacePredicate(r.Client, true)
+		namespacePredicate = common.SubnetResourceNamespacePredicate(r.Client)
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.Subnet{}).

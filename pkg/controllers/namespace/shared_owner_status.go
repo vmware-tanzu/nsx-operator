@@ -79,7 +79,7 @@ func (r *NamespaceReconciler) updateSharedOwnerResourceStatus(ctx context.Contex
 		if _, explicit := namespace.Annotations[config.VPCNetworkConfigAnnotation]; unavailable && explicit {
 			return nil
 		}
-		allowed, err := common.CanUseNetworkMigration(ctx, r.APIReader, namespace, r.NSXConfig.NetworkMigrationEnabled())
+		allowed, err := common.IsVPCNamespaceOrShared(ctx, r.APIReader, namespace)
 		var ownerErr *common.SharedVPCOwnerUnavailableError
 		if err != nil && !errors.As(err, &ownerErr) {
 			return err

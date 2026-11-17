@@ -98,7 +98,7 @@ func TestPrecreatedSubnetSetRecoversAfterOwnerOutage(t *testing.T) {
 }
 
 func TestNetworkMigrationDisabledMemberWait(t *testing.T) {
-	patches := gomonkey.ApplyFunc(controllercommon.CanReconcileSubnetResource, func(context.Context, client.Reader, client.Object, bool) (bool, error) {
+	patches := gomonkey.ApplyFunc(controllercommon.CanReconcileSubnetResource, func(context.Context, client.Reader, client.Object) (bool, error) {
 		t.Error("disabled migration entered resource admission")
 		return true, nil
 	})

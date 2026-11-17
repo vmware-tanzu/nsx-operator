@@ -135,7 +135,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			if err := reader.Get(ctx, types.NamespacedName{Name: req.Namespace}, namespace); err != nil {
 				return common.ResultRequeue, err
 			}
-			allowed, err := common.CanUseNetworkMigration(ctx, reader, namespace, true)
+			allowed, err := common.IsVPCNamespaceOrShared(ctx, reader, namespace)
 			if err != nil {
 				return common.ResultRequeue, err
 			}
@@ -1338,7 +1338,7 @@ func isCpvmPort(port *model.VpcSubnetPort) bool {
 func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 	namespacePredicate := common.VPCNamespacePredicate(r.Client)
 	if r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
-		namespacePredicate = common.SubnetPortNamespacePredicate(r.Client, true)
+		namespacePredicate = common.SubnetPortNamespacePredicate(r.Client)
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetPort{}).
@@ -1904,7 +1904,7 @@ func (r *SubnetPortReconciler) validateSubnetParent(ctx context.Context, parent 
 	if reader == nil {
 		reader = r.Client
 	}
-	allowed, err := common.CanReconcileSubnetResource(ctx, reader, parent, r.SubnetPortService.NSXConfig.NetworkMigrationEnabled())
+	allowed, err := common.CanReconcileSubnetResource(ctx, reader, parent)
 	if err != nil {
 		return err
 	}

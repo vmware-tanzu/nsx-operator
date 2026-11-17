@@ -98,7 +98,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(child)})
 			require.NoError(t, err, "repeated initialization must not create a competing managed default")
 			initialType := set.Spec.IPAddressType
-			admitted := controllercommon.SubnetResourceNamespacePredicate(r.Client, true).Create(event.CreateEvent{Object: set})
+			admitted := controllercommon.SubnetResourceNamespacePredicate(r.Client).Create(event.CreateEvent{Object: set})
 			require.True(t, admitted)
 			// Exercise actual controllers, including the retry while the member is
 			// not realized. No type, gateway or Ready status is filled by the test.
@@ -109,7 +109,7 @@ func TestFreshSharedNamespacePortUsable(t *testing.T) {
 			require.Equal(t, controllercommon.ResultRequeueAfter10sec, waiting)
 			member := &v1alpha1.Subnet{}
 			require.NoError(t, r.Client.Get(ctx, types.NamespacedName{Namespace: child.Name, Name: "new"}, member))
-			require.True(t, controllercommon.SubnetResourceNamespacePredicate(r.Client, true).Create(event.CreateEvent{Object: member}))
+			require.True(t, controllercommon.SubnetResourceNamespacePredicate(r.Client).Create(event.CreateEvent{Object: member}))
 			patches.ApplyMethod(r.SubnetService, "GetSubnetStatusFromCacheOrAPI", func(_ *subnet.SubnetService, _ *model.VpcSubnet, _ string) ([]model.VpcSubnetStatus, error) {
 				return []model.VpcSubnetStatus{{NetworkAddress: servicecommon.String("192.0.2.0/24"), GatewayAddress: servicecommon.String("192.0.2.1")}}, nil
 			})
@@ -380,7 +380,7 @@ func TestSharedResourceProviderGuards(t *testing.T) {
 			r := createNameSpaceReconciler(objects)
 			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: true}
 			updater := controllercommon.NewStatusUpdater(r.Client, r.NSXConfig, record.NewFakeRecorder(10), "Subnet", "Subnet", "Subnet")
-			pred := controllercommon.SubnetResourceNamespacePredicate(r.Client, true)
+			pred := controllercommon.SubnetResourceNamespacePredicate(r.Client)
 			for _, resource := range []client.Object{member, set} {
 				want := tc.missing || tc.revoke
 				require.Equal(t, want, pred.Create(event.CreateEvent{Object: resource}))

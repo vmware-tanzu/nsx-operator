@@ -277,7 +277,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		var allowed bool
 		var err error
 		if r.NSXConfig.NetworkMigrationEnabled() {
-			allowed, err = common.CanUseNetworkMigration(ctx, r.Client, obj, true)
+			allowed, err = common.IsVPCNamespaceOrShared(ctx, r.Client, obj)
 		} else {
 			allowed = config.IsVPCNamespace(obj)
 		}

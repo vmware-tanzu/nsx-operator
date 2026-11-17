@@ -147,7 +147,7 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if subnetsetCR.DeletionTimestamp.IsZero() && r.SubnetService.NSXConfig.NetworkMigrationEnabled() {
-		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetsetCR, true)
+		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetsetCR)
 		if err != nil {
 			return ResultRequeue, err
 		}
@@ -459,7 +459,7 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
 	namespacePredicate := common.VPCNamespacePredicate(r.Client)
 	if r.SubnetService.NSXConfig.NetworkMigrationEnabled() {
-		namespacePredicate = common.SubnetResourceNamespacePredicate(r.Client, true)
+		namespacePredicate = common.SubnetResourceNamespacePredicate(r.Client)
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetSet{}).

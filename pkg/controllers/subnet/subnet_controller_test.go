@@ -1989,7 +1989,7 @@ func TestSubnetReconciler_updateSubnetStatus(t *testing.T) {
 func TestNetworkMigrationDisabledSubnetKeepsLegacyPath(t *testing.T) {
 	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "subnet", Namespace: "ordinary-vpc"}}
 	r := createFakeSubnetReconciler([]client.Object{subnetCR})
-	patches := gomonkey.ApplyFunc(common2.CanReconcileSubnetResource, func(context.Context, client.Reader, client.Object, bool) (bool, error) {
+	patches := gomonkey.ApplyFunc(common2.CanReconcileSubnetResource, func(context.Context, client.Reader, client.Object) (bool, error) {
 		t.Error("disabled migration entered resource admission")
 		return true, nil
 	})

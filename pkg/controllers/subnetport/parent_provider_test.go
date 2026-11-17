@@ -32,10 +32,10 @@ import (
 // An admitted port event must not grant permission to create a rejected parent.
 func TestSubnetPortParentProviderAdmission(t *testing.T) {
 	for _, selection := range []string{"subnet", "subnetset", "default"} {
-		for _, scenario := range []string{"inherited_managed", "inherited_shared", "explicit_managed", "disabled", "legacy_provider", "shared_provider_retry"} {
+		for _, scenario := range []string{"inherited_managed", "inherited_shared", "explicit_managed", "disabled", "disabled_explicit", "legacy_provider", "shared_provider_retry"} {
 			t.Run(selection+"/"+scenario, func(t *testing.T) {
 				ctx := context.Background()
-				enabled := scenario != "disabled"
+				enabled := scenario != "disabled" && scenario != "disabled_explicit"
 				patches := gomonkey.ApplyFunc(config.IsPerNamespaceProvidersSupported, func() bool { return scenario != "legacy_provider" })
 				defer patches.Reset()
 				scheme := runtime.NewScheme()
@@ -43,7 +43,7 @@ func TestSubnetPortParentProviderAdmission(t *testing.T) {
 				require.NoError(t, v1alpha1.AddToScheme(scheme))
 				child := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "staging", Annotations: map[string]string{servicecommon.AnnotationSharedVPCNamespace: "owner"}}}
 				owner := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "owner", Annotations: map[string]string{servicecommon.AnnotationVPCNetworkConfig: "network"}}}
-				if scenario == "explicit_managed" {
+				if scenario == "explicit_managed" || scenario == "disabled_explicit" {
 					child.Annotations[servicecommon.AnnotationVPCNetworkConfig] = "network"
 				}
 				path := "/orgs/default/projects/default/vpcs/vpc/subnets/member"
@@ -87,9 +87,20 @@ func TestSubnetPortParentProviderAdmission(t *testing.T) {
 				})
 				r := &SubnetPortReconciler{Client: api, APIReader: api, SubnetService: ss, VPCService: vs, SubnetPortService: ps}
 				r.StatusUpdater = common.NewStatusUpdater(api, cfg, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
-				allowed, err := common.CanReconcileSubnetResource(ctx, api, parent, enabled)
-				require.NoError(t, err)
-				if !enabled {
+				var allowed bool
+				var err error
+				if enabled {
+					allowed, err = common.CanReconcileSubnetResource(ctx, api, parent)
+					require.NoError(t, err)
+				} else {
+					patches.ApplyFunc(common.IsVPCNamespaceOrShared, func(context.Context, client.Reader, *corev1.Namespace) (bool, error) {
+						t.Error("disabled migration entered shared namespace admission")
+						return true, nil
+					})
+					patches.ApplyFunc(common.CanReconcileSubnetResource, func(context.Context, client.Reader, client.Object) (bool, error) {
+						t.Error("disabled migration entered resource admission")
+						return true, nil
+					})
 					patches.ApplyFunc((*SubnetPortReconciler).validateSubnetParent, func(*SubnetPortReconciler, context.Context, client.Object) error {
 						t.Error("disabled migration entered new parent admission")
 						return nil
@@ -116,7 +127,9 @@ func TestSubnetPortParentProviderAdmission(t *testing.T) {
 					require.NotEmpty(t, current.Status.Conditions)
 					require.False(t, common.IsObjectReady(current.Status.Conditions))
 				} else {
-					require.True(t, allowed)
+					if enabled {
+						require.True(t, allowed)
+					}
 					require.ErrorIs(t, err, reached, "valid and legacy parents must still reach real allocation")
 					require.Equal(t, 1, allocations)
 					if selection != "subnet" && scenario != "inherited_shared" && scenario != "shared_provider_retry" {
