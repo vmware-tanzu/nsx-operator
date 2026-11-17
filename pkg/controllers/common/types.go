@@ -29,6 +29,8 @@ const (
 	MetricResTypeStatefulSet                = "statefulset"
 	MetricResTypeGateway                    = "gateway"
 	MetricResTypeDNSRecord                  = "dnsrecord"
+	MetricResTypeServiceEndpoint            = "serviceendpoint"
+	MetricResTypeVPCEndpoint                = "vpcendpoint"
 	MaxConcurrentReconciles                 = 8
 	NSXOperatorError                        = "nsx-op/error"
 	//sync the error with NCP side
