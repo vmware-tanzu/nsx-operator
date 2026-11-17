@@ -91,7 +91,7 @@ func indexFunc(obj interface{}) ([]string, error) {
 var filterTag = func(v []model.Tag) []string {
 	res := make([]string, 0, 5)
 	for _, tag := range v {
-		if *tag.Scope == common.TagScopeNSXServiceAccountCRUID {
+		if tag.Scope != nil && tag.Tag != nil && *tag.Scope == common.TagScopeNSXServiceAccountCRUID {
 			res = append(res, *tag.Tag)
 		}
 	}
