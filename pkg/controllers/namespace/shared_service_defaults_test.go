@@ -45,6 +45,16 @@ func TestServiceNamespaceManagedDefaultsRespectProvider(t *testing.T) {
 			r := createNameSpaceReconciler([]client.Object{child, owner})
 			r.APIReader = r.Client
 			r.NSXConfig.CoeConfig = &config.CoeConfig{EnableNetworkMigration: tc.enabled}
+			if !tc.enabled {
+				patches.ApplyFunc(common.IsVPCNamespaceOrShared, func(context.Context, client.Reader, *corev1.Namespace, bool) (bool, error) {
+					t.Error("disabled migration entered shared namespace admission")
+					return tc.explicit, nil
+				})
+				patches.ApplyFunc((*NamespaceReconciler).updateSharedOwnerResourceStatus, func(*NamespaceReconciler, context.Context, string, bool) error {
+					t.Error("disabled migration entered owner readiness synchronization")
+					return nil
+				})
+			}
 			svc := r.VPCService.(*vpc.VPCService)
 			nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "network"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DefaultSubnetSize: 32}}
 			patches.ApplyMethod(svc, "GetDefaultNetworkConfig", func(*vpc.VPCService) (*v1alpha1.VPCNetworkConfiguration, error) { return nc, nil })

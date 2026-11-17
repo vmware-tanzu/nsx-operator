@@ -1336,9 +1336,13 @@ func isCpvmPort(port *model.VpcSubnetPort) bool {
 
 // setupWithManager sets up the controller with the Manager.
 func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
+	namespacePredicate := common.VPCNamespacePredicate(r.Client)
+	if r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
+		namespacePredicate = common.SubnetPortNamespacePredicate(r.Client, true)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetPort{}).
-		WithEventFilter(common.SubnetPortNamespacePredicate(r.Client, r.SubnetPortService.NSXConfig.NetworkMigrationEnabled())).
+		WithEventFilter(namespacePredicate).
 		WithOptions(
 			controller.Options{
 				MaxConcurrentReconciles: common.NumReconcile(),
@@ -1987,8 +1991,10 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("failed to get Subnet CR %s/%s", subnetPort.Namespace, subnetPort.Spec.Subnet)
 			return
 		}
-		if err = r.validateSubnetParent(ctx, subnetCR); err != nil {
-			return
+		if r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
+			if err = r.validateSubnetParent(ctx, subnetCR); err != nil {
+				return
+			}
 		}
 		var nsxSubnet *model.VpcSubnet
 		nsxSubnet, err = r.SubnetService.GetSubnetByCR(subnetCR)
@@ -2026,8 +2032,10 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("subnetset %s is being deleted, cannot operate subnetport %s", namespacedName, subnetPort.Name)
 			return
 		}
-		if err = r.validateSubnetParent(ctx, subnetSet); err != nil {
-			return
+		if r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
+			if err = r.validateSubnetParent(ctx, subnetSet); err != nil {
+				return
+			}
 		}
 		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {
 			err = fmt.Errorf("waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)
@@ -2054,8 +2062,10 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			err = fmt.Errorf("default subnetset %s is being deleted, cannot operate subnetport %s", subnetSet.Name, subnetPort.Name)
 			return
 		}
-		if err = r.validateSubnetParent(ctx, subnetSet); err != nil {
-			return
+		if r.SubnetPortService.NSXConfig.NetworkMigrationEnabled() {
+			if err = r.validateSubnetParent(ctx, subnetSet); err != nil {
+				return
+			}
 		}
 		if subnetPort.Spec.InterfaceIPType == "" && subnetSet.Spec.IPAddressType == "" {
 			err = fmt.Errorf("waiting for SubnetSet %s/%s IPAddressType calculation", subnetSet.Namespace, subnetSet.Name)

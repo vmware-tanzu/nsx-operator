@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,6 +23,12 @@ import (
 )
 
 func TestNetworkMigrationDisabledNamespace(t *testing.T) {
+	patches := gomonkey.ApplyFunc((*NamespaceReconciler).reconcileDependency, func(*NamespaceReconciler, context.Context, ctrl.Request) (ctrl.Result, error) {
+		t.Error("disabled migration entered dependency reconciliation")
+		return ctrl.Result{}, nil
+	})
+	defer patches.Reset()
+
 	previous := config.IsPerNamespaceProvidersSupported()
 	config.SetPerNamespaceProvidersSupportedForTest(true)
 	t.Cleanup(func() { config.SetPerNamespaceProvidersSupportedForTest(previous) })

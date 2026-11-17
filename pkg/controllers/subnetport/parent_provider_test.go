@@ -89,6 +89,12 @@ func TestSubnetPortParentProviderAdmission(t *testing.T) {
 				r.StatusUpdater = common.NewStatusUpdater(api, cfg, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 				allowed, err := common.CanReconcileSubnetResource(ctx, api, parent, enabled)
 				require.NoError(t, err)
+				if !enabled {
+					patches.ApplyFunc((*SubnetPortReconciler).validateSubnetParent, func(*SubnetPortReconciler, context.Context, client.Object) error {
+						t.Error("disabled migration entered new parent admission")
+						return nil
+					})
+				}
 				if scenario == "shared_provider_retry" {
 					// The event's provider check succeeds; only the parent-side live read fails.
 					reader := &parentProviderReader{Client: api}

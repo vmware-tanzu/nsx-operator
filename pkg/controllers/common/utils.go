@@ -165,13 +165,15 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 				continue
 			}
 		}
-		matches, err := subnetContainsRequestedIPs(nsxSubnet, requestedIPs)
-		if err != nil {
-			errList = append(errList, err)
-			continue
-		}
-		if !matches {
-			continue
+		if enableNetworkMigration {
+			matches, err := subnetContainsRequestedIPs(nsxSubnet, requestedIPs)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+			if !matches {
+				continue
+			}
 		}
 		matched = true
 		effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)
@@ -291,13 +293,15 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 	matched := false
 	var errList []error
 	for _, nsxSubnet := range subnetList {
-		matches, err := subnetContainsRequestedIPs(nsxSubnet, requestedIPs)
-		if err != nil {
-			errList = append(errList, err)
-			continue
-		}
-		if !matches {
-			continue
+		if enableNetworkMigration {
+			matches, err := subnetContainsRequestedIPs(nsxSubnet, requestedIPs)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+			if !matches {
+				continue
+			}
 		}
 		matched = true
 		effectiveStaticType := ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType, nsxSubnet, interfaceIPType)

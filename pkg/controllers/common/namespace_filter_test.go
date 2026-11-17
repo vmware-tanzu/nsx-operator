@@ -218,6 +218,13 @@ func TestNetworkMigrationDisabledProviderFilters(t *testing.T) {
 	allowed, err := IsVPCNamespaceOrShared(context.Background(), reader, child, false)
 	assert.NoError(t, err, "disabled migration must not query the unavailable owner")
 	assert.False(t, allowed)
+	// An ordinary VPC remains eligible for its legacy path, but the migration
+	// admission helper must not grant entry when the feature is disabled.
+	normal := vpcNamespace("normal", true)
+	assert.True(t, config.IsVPCNamespace(normal))
+	allowed, err = IsVPCNamespaceOrShared(context.Background(), reader, normal, false)
+	assert.NoError(t, err)
+	assert.False(t, allowed)
 	// Legacy reconcile does not add provider reads for an already queued resource.
 	allowed, err = CanReconcileSubnetResource(context.Background(), nil, &v1alpha1.Subnet{}, false)
 	assert.NoError(t, err)

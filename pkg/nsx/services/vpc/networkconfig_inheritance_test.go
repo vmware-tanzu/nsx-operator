@@ -74,3 +74,29 @@ func TestInheritedConfigReverseLookup(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{child.Name}, users)
 }
+
+func TestDisabledMigrationSkipsInheritedConfigHelpers(t *testing.T) {
+	child := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "staging", Annotations: map[string]string{common.AnnotationSharedVPCNamespace: "owner"}}}
+	local := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "local", Annotations: map[string]string{common.AnnotationVPCNetworkConfig: "local-config"}}}
+	service := &VPCService{Service: common.Service{NSXConfig: &config.NSXOperatorConfig{}, Client: fake.NewClientBuilder().WithObjects(child, local).Build()}}
+	patches := gomonkey.ApplyFunc((*VPCService).getEffectiveNetworkconfigName, func(*VPCService, context.Context, *corev1.Namespace) (string, error) {
+		t.Error("disabled migration entered inherited configuration resolution")
+		return "unexpected", nil
+	})
+	defer patches.Reset()
+	patches.ApplyFunc(networkconfigSourceNamespace, func(*corev1.Namespace) string {
+		t.Error("disabled migration entered owner selection")
+		return "unexpected"
+	})
+	patches.ApplyMethod(service, "GetDefaultNetworkConfig", func(*VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "default"}}, nil
+	})
+	for _, tc := range []struct{ name, expected string }{{child.Name, "default"}, {local.Name, "local-config"}} {
+		name, err := service.GetNetworkconfigNameFromNS(context.Background(), tc.name)
+		require.NoError(t, err)
+		require.Equal(t, tc.expected, name)
+		names, err := service.GetNamespacesByNetworkconfigName(tc.expected)
+		require.NoError(t, err)
+		require.Equal(t, []string{tc.name}, names)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -97,6 +98,12 @@ func TestPrecreatedSubnetSetRecoversAfterOwnerOutage(t *testing.T) {
 }
 
 func TestNetworkMigrationDisabledMemberWait(t *testing.T) {
+	patches := gomonkey.ApplyFunc(controllercommon.CanReconcileSubnetResource, func(context.Context, client.Reader, client.Object, bool) (bool, error) {
+		t.Error("disabled migration entered resource admission")
+		return true, nil
+	})
+	defer patches.Reset()
+
 	member := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "member", Namespace: "test"}}
 	set := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "set", Namespace: "test"}, Spec: v1alpha1.SubnetSetSpec{IPAddressType: v1alpha1.IPAddressTypeIPv4, SubnetNames: &[]string{member.Name}}}
 	r := createFakeSubnetSetReconciler(nil)

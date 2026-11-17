@@ -335,13 +335,16 @@ func (s *VPCService) GetNetworkconfigNameFromNS(ctx context.Context, ns string) 
 	if err != nil {
 		return "", err
 	}
-	return s.getEffectiveNetworkconfigName(ctx, obj)
+	if s.NSXConfig.NetworkMigrationEnabled() {
+		return s.getEffectiveNetworkconfigName(ctx, obj)
+	}
+	return s.GetNetworkconfigNameFromAnnotation(obj.Name, obj.Annotations)
 }
 
 func (s *VPCService) getEffectiveNetworkconfigName(ctx context.Context, obj *v1.Namespace) (string, error) {
 	// A namespace sharing a VPC may omit its own network configuration. In that
 	// case use the owner's configuration, rather than the cluster default.
-	if source := networkconfigSourceNamespace(obj); s.NSXConfig.NetworkMigrationEnabled() && source != obj.Name {
+	if source := networkconfigSourceNamespace(obj); source != obj.Name {
 		owner, err := s.getNamespace(ctx, source)
 		if err != nil {
 			return "", err

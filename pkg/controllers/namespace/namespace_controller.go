@@ -251,7 +251,10 @@ We suppose Namespace should have following annotations:
 */
 func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if req.Namespace == networkConfigDependency || req.Namespace == sharedOwnerDependency {
-		return r.reconcileDependency(ctx, req)
+		if r.NSXConfig.NetworkMigrationEnabled() {
+			return r.reconcileDependency(ctx, req)
+		}
+		return common.ResultNormal, nil
 	}
 	startTime := time.Now()
 	defer func() {
@@ -271,7 +274,13 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// even when the VPC provider is inherited from the owner. Always process deletion
 	// to clean up resources if provider annotations have already been removed.
 	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		allowed, err := common.IsVPCNamespaceOrShared(ctx, r.Client, obj, r.NSXConfig.NetworkMigrationEnabled())
+		var allowed bool
+		var err error
+		if r.NSXConfig.NetworkMigrationEnabled() {
+			allowed, err = common.IsVPCNamespaceOrShared(ctx, r.Client, obj, true)
+		} else {
+			allowed = config.IsVPCNamespace(obj)
+		}
 		if err != nil {
 			var unavailable *common.SharedVPCOwnerUnavailableError
 			if errors.As(err, &unavailable) {
@@ -343,8 +352,10 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "Failed to sync shared Subnets", "Namespace", ns)
 			return common.ResultRequeue, err
 		}
-		if err := r.updateSharedOwnerResourceStatus(ctx, ns, false); err != nil {
-			return common.ResultRequeue, err
+		if r.NSXConfig.NetworkMigrationEnabled() {
+			if err := r.updateSharedOwnerResourceStatus(ctx, ns, false); err != nil {
+				return common.ResultRequeue, err
+			}
 		}
 
 		return common.ResultNormal, nil

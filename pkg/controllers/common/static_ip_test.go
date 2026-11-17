@@ -3,9 +3,11 @@ package common
 import (
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"testing"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
@@ -53,6 +55,13 @@ func TestSubnetSetRequestedAddresses(t *testing.T) {
 					tc.want, tc.wantErr, tc.full, tc.conflict = 0, "", false, false
 				}
 				t.Run(fmt.Sprintf("enabled=%t/precreated=%t/%s", enabled, precreated, tc.name), func(t *testing.T) {
+					if !enabled {
+						patches := gomonkey.ApplyFunc(subnetContainsRequestedIPs, func(*model.VpcSubnet, []net.IP) (bool, error) {
+							t.Error("disabled migration entered CIDR selection")
+							return true, nil
+						})
+						defer patches.Reset()
+					}
 					scheme := runtime.NewScheme()
 					require.NoError(t, v1alpha1.AddToScheme(scheme))
 					set := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "set", Namespace: "vmware-system-net-staging", UID: types.UID(t.Name())}}

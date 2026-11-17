@@ -54,16 +54,20 @@ func isVPCNamespaceByName(c client.Reader, ns string, allowShared bool) bool {
 	return allowed
 }
 
-// IsVPCNamespaceOrShared permits VPC namespaces and namespaces explicitly sharing
-// a VPC owner. Namespace synchronization and opt-in resource filters use the same
+// IsVPCNamespaceOrShared admits VPC and shared namespaces to migration handling
+// only when enabled. Disabled callers use the original IsVPCNamespace path.
+// Namespace synchronization and opt-in resource filters use the same
 // provider checks; unrelated controllers retain their existing namespace rules.
 // Lookup errors are returned so reconcilers can retry without admitting an
 // unverified owner or silently dropping a configuration update.
 func IsVPCNamespaceOrShared(ctx context.Context, c client.Reader, namespace *corev1.Namespace, enableNetworkMigration bool) (bool, error) {
+	if !enableNetworkMigration {
+		return false, nil
+	}
 	if config.IsVPCNamespace(namespace) {
 		return true, nil
 	}
-	if !enableNetworkMigration || !config.IsPerNamespaceProvidersSupported() {
+	if !config.IsPerNamespaceProvidersSupported() {
 		return false, nil
 	}
 	shared := namespace.Annotations[servicecommon.AnnotationSharedVPCNamespace]
