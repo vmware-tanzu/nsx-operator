@@ -56,6 +56,8 @@ const (
 	// Internal request marker for retrying configuration-to-record mapping.
 	// This is not a Kubernetes Namespace; underscores are invalid in Namespace names.
 	networkConfigRetryNamespace = "_dnsconfig"
+	// Retry a namespace-scoped fan-out without treating it as a DNSRecord name.
+	namespaceRetryNamespace = "_dnsnamespace"
 )
 
 // DNSRecordReconciler reconciles a DNSRecord object
@@ -109,6 +111,9 @@ func NewDNSRecordReconciler(mgr ctrl.Manager, dnsRecordService *dns.DNSRecordSer
 func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if req.Namespace == networkConfigRetryNamespace {
 		return r.reconcileNetworkConfig(ctx, req.Name)
+	}
+	if req.Namespace == namespaceRetryNamespace {
+		return r.reconcileNamespace(ctx, req.Name)
 	}
 	obj := &v1alpha1.DNSRecord{}
 	log.Info("reconciling DNSRecord CR", "dnsrecord", req.NamespacedName)
@@ -374,6 +379,16 @@ func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
 	r.usePriorityQueue = mgr.GetControllerOptions().UsePriorityQueue
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DNSRecord{}, builder.WithPredicates(predicateDNSRecordDesiredStateChanged(), vpcPredicate)).
+		Watches(
+			&corev1.Namespace{},
+			handler.EnqueueRequestsFromMapFunc(r.namespaceToDNSRecordRequests),
+			builder.WithPredicates(predicateNamespaceBecameVPC()),
+		).
+		Watches(
+			&v1alpha1.NetworkInfo{},
+			handler.EnqueueRequestsFromMapFunc(r.namespaceToDNSRecordRequests),
+			builder.WithPredicates(predicateNetworkInfoDNSStateChanged(), vpcPredicate),
+		).
 		Watches(
 			&v1alpha1.VPCNetworkConfiguration{},
 			handler.EnqueueRequestsFromMapFunc(r.networkConfigToDNSRecordRequests),
