@@ -42,17 +42,17 @@ func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 		restoreMode  bool
 		newPort      bool
 		stateCalls   int
-		patchCount   int
+		postCount    int
 	}{
 		{name: "ready L2 port without IP or gateway", ready: corev1.ConditionTrue, attachmentID: attachmentID},
 		{name: "missing Ready condition", attachmentID: attachmentID, stateCalls: 1},
 		{name: "not ready", ready: corev1.ConditionFalse, attachmentID: attachmentID, stateCalls: 1},
 		{name: "missing status attachment", ready: corev1.ConditionTrue, stateCalls: 1},
 		{name: "mismatched status attachment", ready: corev1.ConditionTrue, attachmentID: "different-attachment", stateCalls: 1},
-		{name: "changed context", ready: corev1.ConditionTrue, attachmentID: attachmentID, contextID: "host-1", stateCalls: 1, patchCount: 1},
-		{name: "changed tags", ready: corev1.ConditionTrue, attachmentID: attachmentID, updateTags: true, stateCalls: 1, patchCount: 1},
+		{name: "changed context", ready: corev1.ConditionTrue, attachmentID: attachmentID, contextID: "host-1", stateCalls: 1, postCount: 1},
+		{name: "changed tags", ready: corev1.ConditionTrue, attachmentID: attachmentID, updateTags: true, stateCalls: 1, postCount: 1},
 		{name: "restore unchanged port", ready: corev1.ConditionTrue, attachmentID: attachmentID, restoreMode: true, stateCalls: 1},
-		{name: "new port with stale ready status", ready: corev1.ConditionTrue, attachmentID: attachmentID, newPort: true, stateCalls: 1, patchCount: 1},
+		{name: "new port with stale ready status", ready: corev1.ConditionTrue, attachmentID: attachmentID, newPort: true, stateCalls: 1, postCount: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,6 +86,9 @@ func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 				return &model.SegmentPortState{}, nil
 			})
 			defer patches.Reset()
+			patches.ApplyFunc((*SubnetPortService).postSegmentPort, func(_ *SubnetPortService, _ string, port *model.SegmentPort) error {
+				return segmentClient.post(port)
+			})
 			patches.ApplyFunc(nsx.RestoreVifFeatureEnabled, func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool { return true })
 			var tags *map[string]string
 			if tt.updateTags {
@@ -94,7 +97,7 @@ func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 
 			state, err := service.CreateOrUpdateSegmentPort(sp, segmentPath, tt.contextID, tags, true, tt.restoreMode)
 			require.NoError(t, err)
-			assert.Equal(t, tt.patchCount, segmentClient.patchCount)
+			assert.Equal(t, tt.postCount, segmentClient.postCount)
 			assert.Equal(t, tt.stateCalls, stateCalls)
 			assert.Equal(t, tt.stateCalls, segmentClient.getCount)
 			if tt.stateCalls == 0 {

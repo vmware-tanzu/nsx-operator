@@ -52,12 +52,12 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 		contextID       string
 		existingContext string
 		expectedContext string
-		patchCount      int
+		postCount       int
 	}{
-		{name: "new port", newPort: true, contextID: "host-1", expectedContext: "host-1", patchCount: 1},
-		{name: "changed context", contextID: "host-2", existingContext: "host-1", expectedContext: "host-2", patchCount: 1},
+		{name: "new port", newPort: true, contextID: "host-1", expectedContext: "host-1", postCount: 1},
+		{name: "changed context", contextID: "host-2", existingContext: "host-1", expectedContext: "host-2", postCount: 1},
 		{name: "unchanged context", contextID: "host-1", existingContext: "host-1", expectedContext: "host-1"},
-		{name: "cleared context", existingContext: "host-1", patchCount: 1},
+		{name: "cleared context", existingContext: "host-1", postCount: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,10 +87,13 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 				return &model.SegmentPortState{}, nil
 			})
 			defer patches.Reset()
+			patches.ApplyFunc((*SubnetPortService).postSegmentPort, func(_ *SubnetPortService, _ string, port *model.SegmentPort) error {
+				return segmentClient.post(port)
+			})
 
 			_, err := service.CreateOrUpdateSegmentPort(sp, segmentPath, tt.contextID, nil, true, false)
 			require.NoError(t, err)
-			assert.Equal(t, tt.patchCount, segmentClient.patchCount)
+			assert.Equal(t, tt.postCount, segmentClient.postCount)
 			cached, err := service.SegmentPortStore.GetSegmentPortByUID(sp.UID)
 			require.NoError(t, err)
 			require.NotNil(t, cached)

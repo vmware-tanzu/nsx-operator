@@ -10,8 +10,8 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
-	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,12 +24,20 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/mock"
-	mockrealized "github.com/vmware-tanzu/nsx-operator/pkg/mock/realizedentitiesclient"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnet"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/subnetport"
 )
+
+type segmentLookupClient struct {
+	infra.SegmentsClient
+	getFn func(string) (model.Segment, error)
+}
+
+func (c *segmentLookupClient) Get(segmentID string) (model.Segment, error) {
+	return c.getFn(segmentID)
+}
 
 func TestCheckAndGetSubnetPathForExistingSegmentPort(t *testing.T) {
 	const segmentPath = "/infra/segments/segment-1"
@@ -158,19 +166,18 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 		},
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(sp).WithObjects(sp).Build()
-	entitiesClient := mockrealized.NewMockRealizedEntitiesClient(gomock.NewController(t))
-	entitiesClient.EXPECT().List("/infra/segments/segment-1", nil).Return(model.GenericPolicyRealizedResourceListResult{
-		Results: []model.GenericPolicyRealizedResource{{
-			EntityType: servicecommon.String("RealizedLogicalSwitch"), State: servicecommon.String("REALIZED"),
-			RealizationSpecificIdentifier: servicecommon.String("switch-uuid"),
-		}},
-	}, nil)
+	lookupCalled := false
+	segmentsClient := &segmentLookupClient{getFn: func(segmentID string) (model.Segment, error) {
+		lookupCalled = true
+		assert.Equal(t, "segment-1", segmentID)
+		return model.Segment{RealizationId: servicecommon.String("switch-uuid")}, nil
+	}}
 	service := &subnetport.SubnetPortService{Service: servicecommon.Service{
-		NSXClient: &nsx.Client{RealizedEntitiesClient: entitiesClient},
+		NSXClient: &nsx.Client{SegmentsClient: segmentsClient},
 		NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}},
 	}}
 	vpcService := &mock.MockVPCServiceProvider{}
-	vpcService.On("IsRADeactivatedByVPCPath", "/tracking-subnet").Return(false, errors.New("RA configuration is unavailable"))
+	vpcService.On("GetSubnetPortVPCConfigByVPCPath", "/tracking-subnet").Return(false, []string(nil), errors.New("VPC configuration is unavailable"))
 	r := &SubnetPortReconciler{
 		Client: k8sClient, SubnetPortService: service, SubnetService: &subnet.SubnetService{}, VPCService: vpcService,
 	}
@@ -201,8 +208,9 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 	key := types.NamespacedName{Namespace: sp.Namespace, Name: sp.Name}
 	result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
 	require.NoError(t, err)
+	assert.True(t, lookupCalled)
 	assert.Equal(t, common.ResultNormal, result)
-	vpcService.AssertNotCalled(t, "IsRADeactivatedByVPCPath", "/tracking-subnet")
+	vpcService.AssertNotCalled(t, "GetSubnetPortVPCConfigByVPCPath", "/tracking-subnet")
 	require.NoError(t, k8sClient.Get(ctx, key, sp))
 	assert.Equal(t, "existing-attachment", sp.Status.Attachment.ID)
 	assert.Equal(t, v1alpha1.NetworkInterfaceConfig{LogicalSwitchUUID: "switch-uuid"}, sp.Status.NetworkInterfaceConfig)
@@ -211,18 +219,23 @@ func TestReconcileSegmentPortWithoutVPCNetworkStatus(t *testing.T) {
 func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 	for _, tt := range []struct {
 		name                 string
+		existingSwitchID     string
 		subnetRealizationID  *string
 		segmentRealizationID *string
 		lookupErr            error
 		wantUUID             string
 		wantErr              bool
+		nonVM                bool
 	}{
-		{name: "correct unchanged port", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid"},
+		{name: "missing switch UUID", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid"},
+		{name: "populated switch UUID", existingSwitchID: "segment-switch-uuid", segmentRealizationID: servicecommon.String("different-switch-uuid"), wantUUID: "segment-switch-uuid"},
+		{name: "populated switch UUID with NSX unavailable", existingSwitchID: "segment-switch-uuid", lookupErr: errors.New("NSX unavailable"), wantUUID: "segment-switch-uuid"},
+		{name: "non-VM segment port", segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid", nonVM: true},
 		{name: "missing subnet realization ID", segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid"},
 		{name: "empty subnet realization ID", subnetRealizationID: servicecommon.String(""), segmentRealizationID: servicecommon.String("segment-switch-uuid"), wantUUID: "segment-switch-uuid"},
-		{name: "missing segment realization", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), wantUUID: "old-switch-uuid", wantErr: true},
-		{name: "empty segment realization ID", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), segmentRealizationID: servicecommon.String(""), wantUUID: "old-switch-uuid", wantErr: true},
-		{name: "segment lookup error", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), lookupErr: errors.New("NSX unavailable"), wantUUID: "old-switch-uuid", wantErr: true},
+		{name: "missing segment realization", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), wantErr: true},
+		{name: "empty segment realization ID", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), segmentRealizationID: servicecommon.String(""), wantErr: true},
+		{name: "segment lookup error", subnetRealizationID: servicecommon.String("subnet-switch-uuid"), lookupErr: errors.New("NSX unavailable"), wantErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -233,7 +246,7 @@ func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 				Status: v1alpha1.SubnetPortStatus{
 					Attachment: v1alpha1.PortAttachment{ID: "attachment"},
 					NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
-						LogicalSwitchUUID: "old-switch-uuid",
+						LogicalSwitchUUID: tt.existingSwitchID,
 						MACAddress:        "02:50:56:00:00:01",
 						IPAddresses:       []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}},
 					},
@@ -241,20 +254,20 @@ func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 			}
 			oldStatus := sp.Status.DeepCopy()
 			k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(sp).WithObjects(sp).Build()
-			entitiesClient := mockrealized.NewMockRealizedEntitiesClient(gomock.NewController(t))
-			var entities []model.GenericPolicyRealizedResource
-			if tt.segmentRealizationID != nil {
-				entities = append(entities, model.GenericPolicyRealizedResource{
-					EntityType: servicecommon.String("RealizedLogicalSwitch"), State: servicecommon.String("REALIZED"),
-					RealizationSpecificIdentifier: tt.segmentRealizationID,
-				})
-			}
-			entitiesClient.EXPECT().List("/infra/segments/segment-1", nil).Return(model.GenericPolicyRealizedResourceListResult{Results: entities}, tt.lookupErr)
+			lookupCalled := false
+			segmentsClient := &segmentLookupClient{getFn: func(segmentID string) (model.Segment, error) {
+				lookupCalled = true
+				assert.Equal(t, "segment-1", segmentID)
+				return model.Segment{
+					RealizationId: tt.segmentRealizationID,
+					UniqueId:      servicecommon.String("policy-segment-uuid"),
+				}, tt.lookupErr
+			}}
 			service := &subnetport.SubnetPortService{Service: servicecommon.Service{
-				NSXClient: &nsx.Client{RealizedEntitiesClient: entitiesClient},
+				NSXClient: &nsx.Client{SegmentsClient: segmentsClient},
 				NSXConfig: &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{}},
 			}}
-			r := &SubnetPortReconciler{Client: k8sClient, SubnetPortService: service}
+			r := &SubnetPortReconciler{Client: k8sClient, SubnetPortService: service, restoreMode: true}
 			r.StatusUpdater = common.NewStatusUpdater(k8sClient, service.NSXConfig, fakeRecorder{}, MetricResTypeSubnetPort, "SubnetPort", "SubnetPort")
 			patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSegmentPort,
 				func(_ *subnetport.SubnetPortService, _ *v1alpha1.SubnetPort, _, _ string, _ *map[string]string, _, _ bool) (*model.SegmentPortState, error) {
@@ -264,10 +277,15 @@ func TestReconcileSegmentPortSwitchUUIDWithoutPortState(t *testing.T) {
 			patches.ApplyFunc(setAddressBindingStatusBySubnetPort,
 				func(client.Client, context.Context, *v1alpha1.SubnetPort, *subnetport.SubnetPortService, metav1.Time, error, bool) {
 				})
+			patches.ApplyFunc(nsx.RestoreVifFeatureEnabled, func(*nsx.Client, *config.NSXOperatorConfig) bool {
+				t.Fatal("segment-tracked ports must skip restore annotations regardless of port type")
+				return false
+			})
 			key := types.NamespacedName{Namespace: sp.Namespace, Name: sp.Name}
 			result, err := r.reconcileSubnetPort(ctx, ctrl.Request{NamespacedName: key}, sp, oldStatus,
 				&model.VpcSubnet{RealizationId: tt.subnetRealizationID}, "/tracking-subnet", "/infra/segments/segment-1", true,
-				nil, true, v1alpha1.IPAddressTypeIPv4, nil, "", false, false, "", nil, k8sClient, nil)
+				nil, !tt.nonVM, v1alpha1.IPAddressTypeIPv4, nil, "", false, nil, false, "", nil, k8sClient, nil)
+			assert.Equal(t, tt.existingSwitchID == "", lookupCalled)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Equal(t, common.ResultRequeue, result)

@@ -6,6 +6,7 @@ package subnetport
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"github.com/gofrs/uuid"
 	stderrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data/serializers/cleanjson"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,7 +25,6 @@ import (
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	controllercommon "github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
-	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
@@ -316,23 +317,20 @@ func parseSegmentPath(segmentPath string) (string, error) {
 	return parts[2], nil
 }
 
-// GetSegmentLogicalSwitchID returns the realized logical switch backing the segment.
+// GetSegmentLogicalSwitchID returns the segment's realization ID as its logical switch ID.
 func (service *SubnetPortService) GetSegmentLogicalSwitchID(segmentPath string) (string, error) {
-	if _, err := parseSegmentPath(segmentPath); err != nil {
+	segmentID, err := parseSegmentPath(segmentPath)
+	if err != nil {
 		return "", err
 	}
-	entities, err := service.NSXClient.RealizedEntitiesClient.List(segmentPath, nil)
+	segment, err := service.NSXClient.SegmentsClient.Get(segmentID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get realized entities for segment %s: %w", segmentPath, nsxutil.TransNSXApiError(err))
+		return "", fmt.Errorf("failed to get segment %s: %w", segmentPath, nsxutil.TransNSXApiError(err))
 	}
-	for _, entity := range entities.Results {
-		if entity.EntityType != nil && *entity.EntityType == "RealizedLogicalSwitch" &&
-			entity.State != nil && *entity.State == model.GenericPolicyRealizedResource_STATE_REALIZED &&
-			entity.RealizationSpecificIdentifier != nil && *entity.RealizationSpecificIdentifier != "" {
-			return *entity.RealizationSpecificIdentifier, nil
-		}
+	if segment.RealizationId == nil || *segment.RealizationId == "" {
+		return "", fmt.Errorf("segment %s has no realization_id", segmentPath)
 	}
-	return "", fmt.Errorf("logical switch for segment %s is not realized", segmentPath)
+	return *segment.RealizationId, nil
 }
 
 // CreateOrUpdateSegmentPort creates or updates SegmentPort on NSX
@@ -364,7 +362,7 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 		nsxSegmentPort.Attachment.Id = existingSegmentPort.Attachment.Id
 	}
 
-	if restoreMode && nsx.RestoreVifFeatureEnabled(service.NSXClient, service.NSXConfig) && attachmentID != "" {
+	if restoreMode && attachmentID != "" {
 		nsxSegmentPort.Attachment.Id = &attachmentID
 		nsxSegmentPort.InitState = common.String(model.SegmentPort_INIT_STATE_RESTORE_VIF)
 	}
@@ -384,7 +382,9 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 		}
 	} else {
 		log.Info("Updating the NSX segment port", "existingSegmentPort", existingSegmentPort, "desiredSegmentPort", nsxSegmentPort)
-		err = service.NSXClient.SegmentPortsClient.Patch(segmentID, *nsxSegmentPort.Id, *nsxSegmentPort)
+		// SegmentPort VIF restore requires POST, which the SDK does not expose.
+		// Use HttpPost directly instead of the SDK's PATCH operation.
+		err = service.postSegmentPort(segmentID, nsxSegmentPort)
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update segment port", "nsxSegmentPort.Id", *nsxSegmentPort.Id, "segmentPath", segmentPath)
@@ -432,6 +432,20 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 	}
 
 	return nsxSegmentPortState, nil
+}
+
+func (service *SubnetPortService) postSegmentPort(segmentID string, port *model.SegmentPort) error {
+	value, conversionErrs := port.GetDataValue__()
+	if len(conversionErrs) > 0 {
+		return fmt.Errorf("convert segment port: %v", conversionErrs)
+	}
+	body, err := cleanjson.NewDataValueToJsonEncoder().Encode(value)
+	if err != nil {
+		return fmt.Errorf("encode segment port: %w", err)
+	}
+	url := fmt.Sprintf("policy/api/v1/infra/segments/%s/ports/%s", segmentID, *port.Id)
+	_, err = service.NSXClient.Cluster.HttpPost(url, json.RawMessage(body))
+	return err
 }
 
 func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.SubnetPort, segmentPath string) (*model.SegmentPortState, error) {

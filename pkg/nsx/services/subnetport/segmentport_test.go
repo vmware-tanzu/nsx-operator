@@ -5,6 +5,7 @@ package subnetport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	infra_segments "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra/segments"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
@@ -27,52 +29,41 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
+type fakeSegmentsClient struct {
+	infra.SegmentsClient
+	getFn func(string) (model.Segment, error)
+}
+
+func (c *fakeSegmentsClient) Get(segmentID string) (model.Segment, error) {
+	return c.getFn(segmentID)
+}
+
 func TestGetSegmentLogicalSwitchID(t *testing.T) {
 	const segmentPath = "/infra/segments/segment-1"
-	switchEntity := model.GenericPolicyRealizedResource{
-		EntityType:                    common.String("RealizedLogicalSwitch"),
-		State:                         common.String(model.GenericPolicyRealizedResource_STATE_REALIZED),
-		RealizationSpecificIdentifier: common.String("segment-switch-uuid"),
-	}
 	for _, tt := range []struct {
-		name    string
-		modify  func(*model.GenericPolicyRealizedResource)
-		missing bool
-		badPath bool
-		apiErr  error
-		wantID  string
+		name          string
+		realizationID *string
+		badPath       bool
+		apiErr        error
+		wantID        string
 	}{
-		{name: "realized switch", wantID: "segment-switch-uuid"},
-		{name: "missing switch", missing: true},
-		{name: "unrealized switch", modify: func(e *model.GenericPolicyRealizedResource) { e.State = common.String("UNREALIZED") }},
-		{name: "switch realization error", modify: func(e *model.GenericPolicyRealizedResource) { e.State = common.String("ERROR") }},
-		{name: "missing state", modify: func(e *model.GenericPolicyRealizedResource) { e.State = nil }},
-		{name: "missing identifier", modify: func(e *model.GenericPolicyRealizedResource) { e.RealizationSpecificIdentifier = nil }},
-		{name: "empty identifier", modify: func(e *model.GenericPolicyRealizedResource) { e.RealizationSpecificIdentifier = common.String("") }},
+		{name: "segment realization ID", realizationID: common.String("segment-switch-uuid"), wantID: "segment-switch-uuid"},
+		{name: "missing realization ID"},
+		{name: "empty realization ID", realizationID: common.String("")},
 		{name: "API error", apiErr: errors.New("NSX unavailable")},
 		{name: "invalid path", badPath: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			entity := switchEntity
-			if tt.modify != nil {
-				tt.modify(&entity)
-			}
 			called := false
-			entitiesClient := &fakeRealizedEntitiesClient{listFn: func(path string, sitePath *string) (model.GenericPolicyRealizedResourceListResult, error) {
+			segmentsClient := &fakeSegmentsClient{getFn: func(segmentID string) (model.Segment, error) {
 				called = true
-				assert.Equal(t, segmentPath, path)
-				assert.Nil(t, sitePath)
-				// Ignore other realized resources and entities with missing fields.
-				entities := []model.GenericPolicyRealizedResource{{}, {
-					EntityType: common.String("RealizedLogicalPort"), State: common.String("REALIZED"),
-					RealizationSpecificIdentifier: common.String("port-uuid"),
-				}}
-				if !tt.missing {
-					entities = append(entities, entity)
-				}
-				return model.GenericPolicyRealizedResourceListResult{Results: entities}, tt.apiErr
+				assert.Equal(t, "segment-1", segmentID)
+				return model.Segment{
+					RealizationId: tt.realizationID,
+					UniqueId:      common.String("policy-segment-uuid"),
+				}, tt.apiErr
 			}}
-			service := &SubnetPortService{Service: common.Service{NSXClient: &nsx.Client{RealizedEntitiesClient: entitiesClient}}}
+			service := &SubnetPortService{Service: common.Service{NSXClient: &nsx.Client{SegmentsClient: segmentsClient}}}
 			path := segmentPath
 			if tt.badPath {
 				path = "/tracking-subnet"
@@ -294,36 +285,6 @@ func TestSegmentPortStoreMissingParentPath(t *testing.T) {
 	}))
 }
 
-func TestGetSegmentPathForSubnetPortFromStore(t *testing.T) {
-	const segmentPath = "/infra/segments/segment-1"
-	for _, tt := range []struct {
-		name       string
-		scope      string
-		parentPath *string
-		want       string
-	}{
-		{name: "CR UID", scope: common.TagScopeSubnetPortCRUID, parentPath: common.String(segmentPath), want: segmentPath},
-		{name: "not found"},
-		{name: "nil parent", scope: common.TagScopeSubnetPortCRUID},
-		{name: "empty parent", scope: common.TagScopeSubnetPortCRUID, parentPath: common.String("")},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			store := setupSegmentPortStore()
-			// Allow incomplete cached records to exercise the missing-parent check.
-			store.Indexer = cache.NewIndexer(keyFunc, cache.Indexers{
-				common.TagScopeSubnetPortCRUID: segmentPortIndexByCRUID,
-			})
-			require.NoError(t, store.Add(&model.SegmentPort{
-				Id: common.String("port-1"), ParentPath: tt.parentPath,
-				Tags: []model.Tag{{Scope: common.String(tt.scope), Tag: common.String("uid-1")}},
-			}))
-			service := &SubnetPortService{SegmentPortStore: store}
-			path := service.GetSegmentPathForSubnetPortFromStore("uid-1")
-			assert.Equal(t, tt.want, path)
-		})
-	}
-}
-
 func TestBuildSegmentPortIdAndNameExisting(t *testing.T) {
 	service := &SubnetPortService{SegmentPortStore: setupSegmentPortStore()}
 	meta := &metav1.ObjectMeta{Name: "port", UID: "cr-uid"}
@@ -350,18 +311,73 @@ func TestBuildSegmentPortIdAndNameLookupError(t *testing.T) {
 
 type fakeSegmentPortsClient struct {
 	infra_segments.PortsClient
-	port       model.SegmentPort
-	patchCount int
+	port      model.SegmentPort
+	postCount int
 }
 
 func (c *fakeSegmentPortsClient) Get(segmentID, portID string) (model.SegmentPort, error) {
 	return c.port, nil
 }
 
-func (c *fakeSegmentPortsClient) Patch(segmentID, portID string, port model.SegmentPort) error {
-	c.patchCount++
-	c.port = port
+func (c *fakeSegmentPortsClient) post(port *model.SegmentPort) error {
+	c.postCount++
+	c.port = *port
 	return nil
+}
+
+func TestPostSegmentPort(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		initState *string
+		apiErr    error
+	}{
+		{name: "normal port"},
+		{name: "restored port", initState: common.String(model.SegmentPort_INIT_STATE_RESTORE_VIF)},
+		{name: "POST error", initState: common.String(model.SegmentPort_INIT_STATE_RESTORE_VIF), apiErr: errors.New("POST failed")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &SubnetPortService{Service: common.Service{NSXClient: &nsx.Client{Cluster: &nsx.Cluster{}}}}
+			port := &model.SegmentPort{
+				Id:          common.String("port-1"),
+				DisplayName: common.String("Port 1"),
+				InitState:   tt.initState,
+				Attachment: &model.PortAttachment{
+					Id:        common.String("saved-vif-id"),
+					Type_:     common.String(model.PortAttachment_TYPE_INDEPENDENT),
+					ContextId: common.String("host-1"),
+				},
+			}
+			called := false
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.Cluster), "HttpPost", func(_ *nsx.Cluster, url string, requestBody interface{}) (map[string]interface{}, error) {
+				called = true
+				assert.Equal(t, "policy/api/v1/infra/segments/seg-1/ports/port-1", url)
+				encoded, err := json.Marshal(requestBody)
+				require.NoError(t, err)
+				var body map[string]interface{}
+				require.NoError(t, json.Unmarshal(encoded, &body))
+				assert.Equal(t, "port-1", body["id"])
+				assert.Equal(t, "Port 1", body["display_name"])
+				assert.Equal(t, map[string]interface{}{
+					"id": "saved-vif-id", "type": model.PortAttachment_TYPE_INDEPENDENT, "context_id": "host-1",
+				}, body["attachment"])
+				if tt.initState == nil {
+					assert.NotContains(t, body, "init_state")
+				} else {
+					assert.Equal(t, *tt.initState, body["init_state"])
+				}
+				return body, tt.apiErr
+			})
+			defer patches.Reset()
+
+			err := service.postSegmentPort("seg-1", port)
+			assert.True(t, called)
+			if tt.apiErr != nil {
+				assert.ErrorIs(t, err, tt.apiErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestCreateOrUpdateSegmentPortExisting(t *testing.T) {
@@ -372,12 +388,12 @@ func TestCreateOrUpdateSegmentPortExisting(t *testing.T) {
 		restoreVifEnabled  bool
 		attachmentID       string
 		existingAttachment string
-		patchCount         int
+		postCount          int
 	}{
 		{name: "normal reconcile preserves attachment", attachmentID: attachmentID, existingAttachment: "existing-attachment"},
-		{name: "restore updates attachment", restoreMode: true, restoreVifEnabled: true, attachmentID: attachmentID, existingAttachment: "existing-attachment", patchCount: 1},
+		{name: "restore updates attachment", restoreMode: true, restoreVifEnabled: true, attachmentID: attachmentID, existingAttachment: "existing-attachment", postCount: 1},
 		{name: "restore unchanged attachment", restoreMode: true, restoreVifEnabled: true, attachmentID: attachmentID, existingAttachment: attachmentID},
-		{name: "restore feature disabled", restoreMode: true, attachmentID: attachmentID, existingAttachment: "existing-attachment"},
+		{name: "restore feature disabled", restoreMode: true, attachmentID: attachmentID, existingAttachment: "existing-attachment", postCount: 1},
 		{name: "restore empty attachment", restoreMode: true, restoreVifEnabled: true, existingAttachment: "existing-attachment"},
 	}
 	for _, tt := range tests {
@@ -406,19 +422,26 @@ func TestCreateOrUpdateSegmentPortExisting(t *testing.T) {
 				return &model.SegmentPortState{}, nil
 			})
 			defer patches.Reset()
+			patches.ApplyFunc((*SubnetPortService).postSegmentPort, func(_ *SubnetPortService, _ string, port *model.SegmentPort) error {
+				return segmentClient.post(port)
+			})
+			restoreVifChecks := 0
 			patches.ApplyFunc(nsx.RestoreVifFeatureEnabled, func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool {
+				restoreVifChecks++
 				return tt.restoreVifEnabled
 			})
 
 			_, err = service.CreateOrUpdateSegmentPort(sp, segmentPath, "", nil, true, tt.restoreMode)
 			require.NoError(t, err)
-			assert.Equal(t, tt.patchCount, segmentClient.patchCount)
+			assert.Zero(t, restoreVifChecks)
+			assert.Equal(t, tt.postCount, segmentClient.postCount)
 			assert.Len(t, service.SegmentPortStore.List(), 1)
 			cached := service.SegmentPortStore.GetByKey(*port.Id)
 			require.NotNil(t, cached)
 			expectedAttachment := tt.existingAttachment
-			if tt.patchCount > 0 {
+			if tt.postCount > 0 {
 				expectedAttachment = tt.attachmentID
+				assert.Equal(t, common.String(model.SegmentPort_INIT_STATE_RESTORE_VIF), cached.InitState)
 			}
 			assert.Equal(t, expectedAttachment, *cached.Attachment.Id)
 			assert.Equal(t, segmentPath, *cached.ParentPath)

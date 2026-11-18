@@ -121,6 +121,7 @@ type Client struct {
 	VpcGroupClient                     vpcs.GroupsClient
 	PortClient                         subnets.PortsClient
 	PortStateClient                    ports.StateClient
+	SegmentsClient                     infra.SegmentsClient
 	SegmentPortsClient                 infra_segments.PortsClient
 	SegmentPortStateClient             segment_ports.StateClient
 	IPPoolClient                       subnets.IpPoolsClient
@@ -289,6 +290,7 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 	vpcGroupClient := vpcs.NewGroupsClient(connector)
 	portClient := subnets.NewPortsClient(connectorAllowOverwrite)
 	portStateClient := ports.NewStateClient(connector)
+	segmentsClient := infra.NewSegmentsClient(connector)
 	segmentPortsClient := infra_segments.NewPortsClient(connectorAllowOverwrite)
 	segmentPortStateClient := segment_ports.NewStateClient(connector)
 	ipPoolClient := subnets.NewIpPoolsClient(connector)
@@ -382,6 +384,7 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 		VpcGroupClient:                     vpcGroupClient,
 		PortClient:                         portClient,
 		PortStateClient:                    portStateClient,
+		SegmentsClient:                     segmentsClient,
 		SegmentPortsClient:                 segmentPortsClient,
 		SegmentPortStateClient:             segmentPortStateClient,
 		SubnetStatusClient:                 subnetStatusClient,

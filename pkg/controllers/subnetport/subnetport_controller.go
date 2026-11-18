@@ -500,8 +500,8 @@ func (r *SubnetPortReconciler) reconcileSubnetPort(
 		return common.ResultRequeue, err
 	}
 
-	// An unchanged segment port may skip the state lookup, but still need its switch UUID populated.
-	if isSegmentTracking {
+	// Populate the segment's switch UUID only when missing, even if port state lookup was skipped.
+	if isSegmentTracking && subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID == "" {
 		switchID, err := r.SubnetPortService.GetSegmentLogicalSwitchID(segmentPath)
 		if err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get segment logical switch ID", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
@@ -565,6 +565,10 @@ func (r *SubnetPortReconciler) reconcileSubnetPort(
 	}
 
 	r.StatusUpdater.UpdateSuccess(ctx, subnetPort, setReadyStatusTrue, r.SubnetPortService, isPublicSubnet)
+	if isSegmentTracking {
+		// SegmentPort restore preserves the original VIF without restore annotations.
+		return common.ResultNormal, nil
+	}
 	return r.handleVMAnnotationsIfInRestoreMode(ctx, req, subnetPort, vm, nicName, pod, reader)
 }
 
