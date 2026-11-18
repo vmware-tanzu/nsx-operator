@@ -285,6 +285,8 @@ spec:
             - targetMode
             type: object
             x-kubernetes-validations:
+            - message: infrastructure action must be Evaluate, Execute, or Finalize
+              rule: self.action in ['Evaluate', 'Execute', 'Finalize']
             - message: infrastructure Rollback is unsupported; use WCP backup and
                 restore
               rule: self.action != 'Rollback'
@@ -601,6 +603,16 @@ spec:
         - spec
         type: object
         x-kubernetes-validations:
+        - message: infrastructure lastAction must be Evaluate, Execute, or Finalize
+            unless an existing checkpoint is unchanged
+          rule: '!has(self.status) || !has(self.status.lastAction) || self.status.lastAction
+            in [''Evaluate'', ''Execute'', ''Finalize''] || (has(oldSelf.status) &&
+            has(oldSelf.status.lastAction) && self.status.lastAction == oldSelf.status.lastAction
+            && has(self.status.actionState) == has(oldSelf.status.actionState) &&
+            (!has(self.status.actionState) || self.status.actionState == oldSelf.status.actionState)
+            && has(self.status.actionGeneration) == has(oldSelf.status.actionGeneration)
+            && (!has(self.status.actionGeneration) || self.status.actionGeneration
+            == oldSelf.status.actionGeneration))'
         - message: IPv4 LB SNAT input cannot change after its allocation is accepted
           rule: '!has(oldSelf.status) || !has(oldSelf.status.lbSNATIPAllocations)
             || !oldSelf.status.lbSNATIPAllocations.exists(r, ip(r.ipAddress).family()

@@ -2,7 +2,7 @@
 IMG ?= controller:latest
 MIGRATION_IMG ?= supervisor-network-migration-operator:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.22
+ENVTEST_K8S_VERSION ?= 1.33.0
 LDFLAGS            :=
 GOFLAGS            :=
 COVERAGE	       ?= false
@@ -91,7 +91,7 @@ golangci-fix: $(GOLANGCI_LINT_BIN)
 
 .PHONY: test
 test: manifests generate fmt vet envtest .coverage ## Run tests with clean output (only pass/fail results)
-	./hack/test-unit.sh
+	ENVTEST_K8S_VERSION="$(ENVTEST_K8S_VERSION)" ./hack/test-unit.sh
 
 .PHONY: test-snaps-update
 test-snaps-update: ## Run unit tests and cleanly regenerate snapshots without orphan blocks (Usage: make test-snaps-update [FEATURE=subnet | ALL=true])

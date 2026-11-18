@@ -23,7 +23,7 @@ func TestNCPPatchPreservesExistingNetworkingContainers(t *testing.T) {
 	  "apiVersion":"apps/v1","kind":"Deployment",
 	  "metadata":{"name":"nsx-ncp","namespace":"vmware-system-nsx"},
 	  "spec":{"template":{"metadata":{"labels":{"component":"nsx-ncp","nsx-operator-role":"master"}},
-	    "spec":{"hostNetwork":true,"serviceAccountName":"nsx-ncp","containers":[
+	    "spec":{"hostNetwork":true,"serviceAccountName":"ncp-svc-account","containers":[
 	      {"name":"nsx-operator","image":"existing-networking-image","args":["--nsxconfig=/etc/nsx-operator/nsxop.ini"]},
 	      {"name":"nsx-eas","image":"existing-eas-image"}
 	    ]}}}}`)
@@ -37,7 +37,7 @@ func TestNCPPatchPreservesExistingNetworkingContainers(t *testing.T) {
 	require.NoError(t, json.Unmarshal(merged, &deployment))
 	pod := deployment.Spec.Template
 	require.True(t, pod.Spec.HostNetwork)
-	require.Equal(t, "nsx-ncp", pod.Spec.ServiceAccountName)
+	require.Equal(t, "ncp-svc-account", pod.Spec.ServiceAccountName)
 	require.Equal(t, "master", pod.Labels["nsx-operator-role"])
 	require.Len(t, pod.Spec.Containers, 3)
 	for _, container := range pod.Spec.Containers {
@@ -113,7 +113,7 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 			require.Equal(t, leaseRole.Namespace, binding.Namespace)
 			require.Equal(t, leaseRole.Name, binding.RoleRef.Name)
 			require.Equal(t, "Role", binding.RoleRef.Kind)
-			require.Contains(t, binding.Subjects, rbacv1.Subject{Kind: "ServiceAccount", Name: "nsx-ncp", Namespace: "vmware-system-nsx"})
+			require.Contains(t, binding.Subjects, rbacv1.Subject{Kind: "ServiceAccount", Name: "ncp-svc-account", Namespace: "vmware-system-nsx"})
 			bindings++
 		}
 	}

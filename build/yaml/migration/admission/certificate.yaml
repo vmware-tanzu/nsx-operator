@@ -1,0 +1,23 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: supervisor-network-migration-admission
+  namespace: vmware-system-nsx
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: supervisor-network-migration-admission
+  namespace: vmware-system-nsx
+spec:
+  dnsNames:
+    - supervisor-network-migration-admission.vmware-system-nsx.svc
+    - supervisor-network-migration-admission.vmware-system-nsx.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: supervisor-network-migration-admission
+  secretName: supervisor-network-migration-admission-tls

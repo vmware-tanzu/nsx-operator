@@ -26,7 +26,7 @@ spec:
       subnetMask: 255.255.255.0
 status:
   actionGeneration: 5
-  actionState: Succeeded
+  actionState: Running
   conditions:
   - lastTransitionTime: '2026-10-09T15:20:00Z'
     message: All 24 workloads compatible with SubnetPort live rebind.
