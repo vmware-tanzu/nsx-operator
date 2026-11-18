@@ -61,6 +61,10 @@ spec:
                 description: Number of requested IP allocations.
                 format: int64
                 type: integer
+              reservedIPs:
+                description: Number of IPs reserved through dynamic or static IP reservations
+                  and unavailable for workload allocation, as a decimal string.
+                type: string
               totalIPs:
                 description: Total number of IPs in the pool.
                 format: int64

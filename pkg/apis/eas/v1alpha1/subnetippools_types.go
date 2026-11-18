@@ -18,6 +18,9 @@ type PoolUsage struct {
 	AllocatedIPAllocations int64 `json:"allocatedIPAllocations"`
 	// Number of requested IP allocations.
 	RequestedIPAllocations int64 `json:"requestedIPAllocations"`
+	// Number of IPs reserved through dynamic or static IP reservations and unavailable for workload allocation, as a decimal string.
+	// +optional
+	ReservedIPs string `json:"reservedIPs,omitempty"`
 }
 
 // +genclient

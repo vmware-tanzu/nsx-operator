@@ -6,6 +6,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,6 +34,9 @@ func resolveSubnet(ctx context.Context, k8sClient k8sclient.Client, nsxClient *n
 		return model.VpcSubnet{}, info, fmt.Errorf("subnet CR %s/%s has empty UID", namespace, name)
 	}
 	info.OrgID, info.ProjectID, info.VPCID = parseSubnetVPCName(subnetCR.Spec.VPCName)
+	if nsxcommon.IsSharedSubnet(subnetCR) {
+		return resolveSharedSubnet(ctx, nsxClient, subnetCR, info, resource)
+	}
 	var match *model.VpcSubnet
 	var cursor *string
 	seenCursors := make(map[string]struct{})
@@ -69,6 +73,36 @@ func resolveSubnet(ctx context.Context, k8sClient k8sclient.Client, nsxClient *n
 		return model.VpcSubnet{}, info, k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: resource}, name)
 	}
 	return *match, info, nil
+}
+
+// Shared Subnet associations are set by the operator and protected by admission.
+// A pre-created subnet can be shared by several CRs and has no per-CR ownership
+// tags. Resolve its explicit association within the VPC recorded on the CR.
+func resolveSharedSubnet(ctx context.Context, nsxClient *nsx.Client, subnetCR *vpcv1alpha1.Subnet, info nsxcommon.VPCResourceInfo, resource string) (model.VpcSubnet, nsxcommon.VPCResourceInfo, error) {
+	associatedResource := subnetCR.Annotations[nsxcommon.AnnotationAssociatedResource]
+	parts := strings.Split(associatedResource, ":")
+	if len(parts) != 3 {
+		return model.VpcSubnet{}, info, fmt.Errorf("invalid associated resource on Subnet CR %s/%s: expected projectID:vpcID:subnetID", subnetCR.Namespace, subnetCR.Name)
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.TrimSpace(part) != part || strings.ContainsAny(part, "/\\%?#") {
+			return model.VpcSubnet{}, info, fmt.Errorf("invalid associated resource on Subnet CR %s/%s: identifiers must be nonempty path segments", subnetCR.Namespace, subnetCR.Name)
+		}
+	}
+	if parts[0] != info.ProjectID || parts[1] != info.VPCID {
+		return model.VpcSubnet{}, info, fmt.Errorf("associated resource on Subnet CR %s/%s does not match spec.vpcName", subnetCR.Namespace, subnetCR.Name)
+	}
+	if err := ctx.Err(); err != nil {
+		return model.VpcSubnet{}, info, err
+	}
+	subnet, err := nsxClient.SubnetsClient.Get(info.OrgID, info.ProjectID, info.VPCID, parts[2])
+	if err != nil {
+		return model.VpcSubnet{}, info, HandleEASError(err, resource, subnetCR.Name, fmt.Errorf("failed to get shared subnet from NSX: %w", err))
+	}
+	if subnet.Id == nil || *subnet.Id != parts[2] {
+		return model.VpcSubnet{}, info, fmt.Errorf("NSX shared subnet does not match the association on Subnet CR %s/%s", subnetCR.Namespace, subnetCR.Name)
+	}
+	return subnet, info, nil
 }
 
 // nsxTagValue returns the tag value for the given scope from an NSX tags slice.
