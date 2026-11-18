@@ -49,6 +49,9 @@ type Client struct {
 
 // NewClient wraps an NSX client initialized by nsx.NewMigrationClient.
 func NewClient(client *nsx.Client) *Client {
+	if client == nil {
+		return &Client{}
+	}
 	return &Client{workflows: client.WorkflowsClient, validationResults: client.WorkflowValidationResultsClient}
 }
 
@@ -57,6 +60,9 @@ func NewClient(client *nsx.Client) *Client {
 // operator retains control of Commit/Finalize and the rollback boundary.
 func (client *Client) Put(ctx context.Context, request model.DvpgToSubnetWorkflow) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := client.requireWorkflowClient(); err != nil {
 		return err
 	}
 	if ptr.Deref(request.AutoCommit, false) {
@@ -76,6 +82,9 @@ func (client *Client) Put(ctx context.Context, request model.DvpgToSubnetWorkflo
 func (client *Client) GetStatus(ctx context.Context, workflowID string) (model.DvpgToSubnetWorkflow, error) {
 	var workflow model.DvpgToSubnetWorkflow
 	if err := ctx.Err(); err != nil {
+		return workflow, err
+	}
+	if err := client.requireWorkflowClient(); err != nil {
 		return workflow, err
 	}
 	value, err := client.workflows.Get(workflowID)
@@ -101,7 +110,7 @@ func (client *Client) ListValidationResultsPage(ctx context.Context, workflowID,
 	if err := ctx.Err(); err != nil {
 		return model.DvpgValidationResultsList{}, err
 	}
-	if client.validationResults == nil {
+	if client == nil || client.validationResults == nil {
 		return model.DvpgValidationResultsList{}, errors.New("NSX workflow validation client is required")
 	}
 	if pageSize <= 0 || pageSize > 1000 {
@@ -141,7 +150,17 @@ func (client *Client) Delete(ctx context.Context, workflowID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := client.requireWorkflowClient(); err != nil {
+		return err
+	}
 	return client.workflows.Delete(workflowID)
+}
+
+func (client *Client) requireWorkflowClient() error {
+	if client == nil || client.workflows == nil {
+		return errors.New("NSX workflow client is required")
+	}
+	return nil
 }
 
 // WaitForCompletion polls until the requested workflow state succeeds and every
@@ -172,11 +191,21 @@ func (client *Client) WaitForCompletion(ctx context.Context, workflowID, expecte
 		if err := ValidateTargetScope(workflowStatus, expectedVPCPath); err != nil {
 			return workflowStatus, err
 		}
-		complete, err := resourcesComplete(workflowStatus)
+		// NSX may still expose the previous phase's execution and resource states
+		// immediately after the desired state has been advanced.
+		if ptr.Deref(workflowStatus.DesiredState, "") != expectedState {
+			select {
+			case <-ctx.Done():
+				return workflowStatus, ctx.Err()
+			case <-ticker.C:
+				continue
+			}
+		}
+		complete, err := resourcesComplete(workflowStatus, expectedState)
 		if err != nil {
 			return workflowStatus, err
 		}
-		if (expectedState == DesiredStateValidation || expectedState == DesiredStatePlan) &&
+		if (expectedState == DesiredStateValidation || expectedState == DesiredStatePlan || expectedState == DesiredStateRollbackConversion) &&
 			(workflowStatus.WorkflowState == nil || workflowStatus.WorkflowState.MigrationStatus == nil || len(workflowStatus.WorkflowState.MigrationStatus.NsxObject) == 0) {
 			complete = true
 		}
@@ -226,7 +255,8 @@ func ValidateTargetScope(workflowStatus model.DvpgToSubnetWorkflow, expectedVPCP
 				return fmt.Errorf("NSX workflow %q DVC path %q is outside the infrastructure scope", ptr.Deref(workflowStatus.Id, ""), ptr.Deref(resource.PolicyPath, ""))
 			}
 		case "IpBlock", "IpAddressBlock":
-			if !pathIsWithin(ptr.Deref(resource.PolicyPath, ""), "/infra/ip-blocks") {
+			if !pathIsWithin(resourcePath, "/infra/ip-blocks") &&
+				!pathIsWithin(resourcePath, projectInfraResourceRoot(expectedVPCPath, "/infra/ip-blocks")) {
 				return fmt.Errorf("NSX workflow %q IP block path %q is outside the infrastructure scope", ptr.Deref(workflowStatus.Id, ""), ptr.Deref(resource.PolicyPath, ""))
 			}
 		default:
@@ -236,7 +266,7 @@ func ValidateTargetScope(workflowStatus model.DvpgToSubnetWorkflow, expectedVPCP
 	return nil
 }
 
-func resourcesComplete(workflowStatus model.DvpgToSubnetWorkflow) (bool, error) {
+func resourcesComplete(workflowStatus model.DvpgToSubnetWorkflow, expectedState DesiredState) (bool, error) {
 	if workflowStatus.WorkflowState == nil || workflowStatus.WorkflowState.MigrationStatus == nil || len(workflowStatus.WorkflowState.MigrationStatus.NsxObject) == 0 {
 		return false, nil
 	}
@@ -244,6 +274,10 @@ func resourcesComplete(workflowStatus model.DvpgToSubnetWorkflow) (bool, error) 
 	for _, resource := range workflowStatus.WorkflowState.MigrationStatus.NsxObject {
 		switch strings.ToUpper(ptr.Deref(resource.State, "")) {
 		case "COMPLETED":
+		case "ROLLED_BACK":
+			if expectedState != DesiredStateRollbackConversion {
+				return false, fmt.Errorf("NSX workflow %q resource %q has unexpected state %q", ptr.Deref(workflowStatus.Id, ""), ptr.Deref(resource.PolicyPath, ""), ptr.Deref(resource.State, ""))
+			}
 		case "PENDING", "IN_PROGRESS", "RUNNING":
 			allResourcesCompleted = false
 		case "FAILED", "ERROR":
@@ -265,7 +299,19 @@ func validPolicyPath(policyPath string) bool {
 }
 
 func pathIsWithin(resourcePath, parentPath string) bool {
+	if parentPath == "" {
+		return false
+	}
 	return strings.HasPrefix(resourcePath, strings.TrimRight(parentPath, "/")+"/")
+}
+
+func projectInfraResourceRoot(vpcPath, resourceRoot string) string {
+	parts := strings.Split(vpcPath, "/")
+	if len(parts) != 7 || parts[0] != "" || parts[1] != "orgs" || parts[2] == "" ||
+		parts[3] != "projects" || parts[4] == "" || parts[5] != "vpcs" || parts[6] == "" {
+		return ""
+	}
+	return strings.Join(parts[:5], "/") + resourceRoot
 }
 
 func workflowExecutionStatus(workflow model.DvpgToSubnetWorkflow) string {

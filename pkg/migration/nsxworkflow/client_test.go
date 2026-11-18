@@ -118,6 +118,53 @@ func TestPollingWaitsForRequestedPhaseAndResources(t *testing.T) {
 	require.Equal(t, 4, calls)
 }
 
+func TestPollingIgnoresPreviousPhaseFailure(t *testing.T) {
+	calls := 0
+	client := sdkClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			_, _ = w.Write([]byte(`{"id":"workflow-a","resource_type":"DvpgToSubnetWorkflow","desired_state":"PLAN","vpc_path":"` + targetVPC + `","workflow_state":{"status":"FAILED","migration_status":{"nsx_object":[{"policy_path":"` + targetVPC + `/subnets/subnet-a","resource_type":"VpcSubnet","state":"FAILED"}]}}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"workflow-a","resource_type":"DvpgToSubnetWorkflow","desired_state":"CONVERSION","vpc_path":"` + targetVPC + `","workflow_state":{"status":"SUCCESS","migration_status":{"nsx_object":[{"policy_path":"` + targetVPC + `/subnets/subnet-a","resource_type":"VpcSubnet","state":"COMPLETED"}]}}}`))
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := client.WaitForCompletion(ctx, "workflow-a", targetVPC, DesiredStateConversion)
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+}
+
+func TestRollbackCompletesWithNoResourcesOrRolledBackResources(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		migration string
+	}{
+		{name: "no resources"},
+		{name: "rolled back resource", migration: `,"migration_status":{"nsx_object":[{"policy_path":"` + targetVPC + `/subnets/subnet-a","resource_type":"VpcSubnet","state":"ROLLED_BACK"}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sdkClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"workflow-a","resource_type":"DvpgToSubnetWorkflow","desired_state":"ROLLBACK_CONVERSION","vpc_path":"` + targetVPC + `","workflow_state":{"status":"SUCCESS"` + tc.migration + `}}`))
+			})
+			_, err := client.WaitForCompletion(context.Background(), "workflow-a", targetVPC, DesiredStateRollbackConversion)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestNilWorkflowClientReturnsErrors(t *testing.T) {
+	client := NewClient(nil)
+	require.ErrorContains(t, client.Put(context.Background(), model.DvpgToSubnetWorkflow{}), "workflow client is required")
+	_, err := client.GetStatus(context.Background(), "workflow-a")
+	require.ErrorContains(t, err, "workflow client is required")
+	require.ErrorContains(t, client.Delete(context.Background(), "workflow-a"), "workflow client is required")
+	_, err = (*Client)(nil).GetStatus(context.Background(), "workflow-a")
+	require.ErrorContains(t, err, "workflow client is required")
+}
+
 func TestValidationCompletesWithoutResourceProgress(t *testing.T) {
 	client := sdkClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -132,10 +179,10 @@ func TestScopeAndResourceFailure(t *testing.T) {
 	require.ErrorContains(t, ValidateTargetScope(status, targetVPC), "outside target VPC")
 	status.WorkflowState.MigrationStatus.NsxObject[0].PolicyPath = ptr.To(targetVPC + "/subnets/a")
 	require.NoError(t, ValidateTargetScope(status, targetVPC))
-	_, err := resourcesComplete(status)
+	_, err := resourcesComplete(status, DesiredStateConversion)
 	require.ErrorContains(t, err, "failed")
 	status.WorkflowState.MigrationStatus.NsxObject[0].State = ptr.To("UNKNOWN")
-	_, err = resourcesComplete(status)
+	_, err = resourcesComplete(status, DesiredStateConversion)
 	require.ErrorContains(t, err, "unknown state")
 }
 
@@ -152,6 +199,19 @@ func TestTargetScopeErrorsIncludeResourceDetails(t *testing.T) {
 	status.WorkflowState.MigrationStatus.NsxObject[0].ResourceType = ptr.To("UnknownResource")
 	status.WorkflowState.MigrationStatus.NsxObject[0].PolicyPath = ptr.To("/infra/unknown/resource-a")
 	require.ErrorContains(t, ValidateTargetScope(status, targetVPC), `unsupported resource type "UnknownResource" at policy path "/infra/unknown/resource-a"`)
+}
+
+func TestTargetScopeAllowsProjectScopedIPBlocks(t *testing.T) {
+	status := model.DvpgToSubnetWorkflow{
+		Id:      ptr.To("workflow-a"),
+		VpcPath: ptr.To(targetVPC),
+		WorkflowState: &model.DvpgToSubnetWorkflowState{MigrationStatus: &model.DvpgToSubnetMigrationStatus{
+			NsxObject: []model.DvpgToSubnetNsxObjectMigrationStatus{{ResourceType: ptr.To("IpAddressBlock"), PolicyPath: ptr.To("/orgs/default/projects/default/infra/ip-blocks/block-a")}},
+		}},
+	}
+	require.NoError(t, ValidateTargetScope(status, targetVPC))
+	status.WorkflowState.MigrationStatus.NsxObject[0].PolicyPath = ptr.To("/orgs/default/projects/other/infra/ip-blocks/block-a")
+	require.ErrorContains(t, ValidateTargetScope(status, targetVPC), "outside the infrastructure scope")
 }
 
 func TestAutoCommitGuardAndCancellation(t *testing.T) {

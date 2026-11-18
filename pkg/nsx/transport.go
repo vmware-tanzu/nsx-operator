@@ -38,12 +38,14 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		func() error {
 			if sentRequest && r.Body != nil {
 				if r.GetBody == nil {
-					return errors.New("cannot retry NSX request with a non-replayable body")
+					resul = errors.New("cannot retry NSX request with a non-replayable body")
+					return retry.Unrecoverable(resul)
 				}
 				r.Body.Close()
 				body, err := r.GetBody()
 				if err != nil {
-					return fmt.Errorf("restore NSX request body for retry: %w", err)
+					resul = fmt.Errorf("restore NSX request body for retry: %w", err)
+					return retry.Unrecoverable(resul)
 				}
 				r.Body = body
 			}
@@ -94,6 +96,9 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			return err
 		}, retry.RetryIf(func(err error) bool {
+			if !retry.IsRecoverable(err) {
+				return false
+			}
 			if util.ShouldGroundPoint(err) {
 				return true
 			} else if util.ShouldRetry(err) {
