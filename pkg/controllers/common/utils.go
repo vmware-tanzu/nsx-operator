@@ -121,7 +121,8 @@ func ResolveEffectiveStaticIPAllocationType(rawStaticIPAllocationType v1alpha1.S
 // StaticIPAllocationType actually resolved for the winning Subnet, so callers can release
 // the same pool capacity they reserved without having to recompute it later from state that
 // may no longer be available (e.g. if a later step fails).
-func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, enableNetworkMigration bool, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, error) {
+// Use a live reader when migration admission checks per-namespace providers.
+func GetSubnetFromSubnetSet(reader k8sclient.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, enableNetworkMigration bool, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, error) {
 	var requestedIPs []net.IP
 	var err error
 	if enableNetworkMigration {
@@ -144,10 +145,23 @@ func GetSubnetFromSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.SubnetS
 	}
 	for _, subnetName := range *subnetSet.Spec.SubnetNames {
 		subnetCR := &v1alpha1.Subnet{}
-		if err := client.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetName}, subnetCR); err != nil {
+		if err := reader.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetName}, subnetCR); err != nil {
 			log.Error(err, "Failed to get Subnet for SubnetSet", "Subnet", subnetName, "SubnetSet", subnetSet.Name, "Namespace", subnetSet.Namespace)
 			errList = append(errList, err)
 			continue
+		}
+		if enableNetworkMigration {
+			// A pre-created collection may be eligible while an individual managed
+			// member is not. Check the actual member before reserving any capacity.
+			allowed, err := CanReconcileSubnetResource(context.Background(), reader, subnetCR)
+			if err != nil {
+				errList = append(errList, fmt.Errorf("failed to check Subnet %s/%s provider eligibility: %w", subnetCR.Namespace, subnetCR.Name, err))
+				continue
+			}
+			if !allowed {
+				errList = append(errList, fmt.Errorf("Subnet %s/%s is not eligible for the namespace network provider", subnetCR.Namespace, subnetCR.Name))
+				continue
+			}
 		}
 		nsxSubnet, err := subnetService.GetSubnetByCR(subnetCR)
 		if err != nil {
@@ -283,7 +297,13 @@ func AllocateSubnetFromSubnetSet(client k8sclient.Client, apiReader k8sclient.Re
 		if err := apiReader.Get(context.Background(), types.NamespacedName{Namespace: subnetSet.Namespace, Name: subnetSet.Name}, subnetSet); err != nil {
 			return "", "", &subnetSet.UID, subnetSetLock, err
 		}
-		nsxSubnet, staticIPAllocationType, err := GetSubnetFromSubnetSet(client, subnetSet, vpcService, subnetService, subnetPortService, interfaceIPType, rawStaticIPAllocationType, addressBindings, enableNetworkMigration, portUID...)
+		memberReader := k8sclient.Reader(client)
+		if enableNetworkMigration && config.IsPerNamespaceProvidersSupported() {
+			// Cached member annotations or namespace providers may predate a switch
+			// to shared ownership. Validate against the same live view as the parent.
+			memberReader = apiReader
+		}
+		nsxSubnet, staticIPAllocationType, err := GetSubnetFromSubnetSet(memberReader, subnetSet, vpcService, subnetService, subnetPortService, interfaceIPType, rawStaticIPAllocationType, addressBindings, enableNetworkMigration, portUID...)
 		return nsxSubnet, staticIPAllocationType, &subnetSet.UID, subnetSetLock, err
 	}
 	// Use SubnetSet uuid lock to make sure when multiple ports are created on the same SubnetSet, only one Subnet will be created

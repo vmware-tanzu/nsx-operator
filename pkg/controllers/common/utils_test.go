@@ -143,7 +143,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 		},
 	}
 	k8sclient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(subnetSet).Build()
-	patches := gomonkey.ApplyFunc(GetSubnetFromSubnetSet, func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, enableNetworkMigration bool, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, error) {
+	patches := gomonkey.ApplyFunc(GetSubnetFromSubnetSet, func(reader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, enableNetworkMigration bool, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, error) {
 		return expectedSubnetPath, "", nil
 	})
 	defer patches.Reset()
