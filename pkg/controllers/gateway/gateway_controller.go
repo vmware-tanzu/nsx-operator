@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -456,10 +455,14 @@ func (r *GatewayReconciler) setupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	dnsWatch, err := common.NewRetryingNamespaceHandler(mgr, r.listGatewayDNSRequests)
+	if err != nil {
+		return err
+	}
 	b := ctrl.NewControllerManagedBy(mgr).For(&gatewayv1.Gateway{}, builder.WithPredicates(predicateFuncsGateway)).
 		Watches(
 			&v1alpha1.NetworkInfo{},
-			handler.EnqueueRequestsFromMapFunc(r.networkInfoToGatewayDNSRequests),
+			dnsWatch,
 			builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged()),
 		)
 

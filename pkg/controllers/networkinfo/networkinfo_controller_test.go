@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,7 +118,7 @@ func createNetworkInfoReconciler(objs []client.Object) *NetworkInfoReconciler {
 	newScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(newScheme))
 	utilruntime.Must(v1alpha1.AddToScheme(newScheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithObjects(objs...).Build()
+	fakeClient := fake.NewClientBuilder().WithScheme(newScheme).WithStatusSubresource(&v1alpha1.VPCNetworkConfiguration{}).WithObjects(objs...).Build()
 
 	vpcStore := &vpc.VPCStore{ResourceStore: servicecommon.ResourceStore{
 		BindingType: model.VpcBindingType(),
@@ -187,6 +190,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 	tests := []struct {
 		name        string
 		prepareFunc func(*testing.T, *NetworkInfoReconciler, context.Context) *gomonkey.Patches
+		verifyFunc  func(*testing.T, *NetworkInfoReconciler)
 		args        args
 		want        controllerruntime.Result
 		wantErr     bool
@@ -1281,6 +1285,12 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						Name: "system",
 					},
 				}))
+				dnsZonePath := "/orgs/default/projects/project-quality/dns-services/default-dns-service/zones/project-zone1"
+				invalidDNSZone := "/orgs/default/projects/project-quality/dns-services/default-dns-service/zones/inv-zone"
+				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.VPCNetworkConfiguration{
+					ObjectMeta: metav1.ObjectMeta{Name: "pre-vpc-nc"},
+					Spec:       v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{dnsZonePath, invalidDNSZone}},
+				}))
 				patches = gomonkey.ApplyMethod(reflect.TypeOf(r.Service), "GetNetworkconfigNameFromNS", func(_ *vpc.VPCService, ctx context.Context, _ string) (string, error) {
 					return "pre-vpc-nc", nil
 				})
@@ -1288,10 +1298,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 				patches.ApplyMethod(reflect.TypeOf(r), "GetVpcConnectivityProfilePathByVpcPath", func(_ *NetworkInfoReconciler, _ string) (string, error) {
 					return "", nil
 				})
-				dnsZonePath := "/orgs/default/projects/project-quality/dns-services/default-dns-service/zones/project-zone1"
-				invalidDNSZone := "/orgs/default/projects/project-quality/dns-services/default-dns-service/zones/inv-zone"
 				patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
 					return &v1alpha1.VPCNetworkConfiguration{
+						ObjectMeta: metav1.ObjectMeta{Name: "pre-vpc-nc"},
 						Spec: v1alpha1.VPCNetworkConfigurationSpec{
 							NSXProject: "/orgs/default/projects/project-quality",
 							VPC:        "/orgs/default/projects/nsx_operator_e2e_test/vpcs/pre-vpc",
@@ -1345,6 +1354,15 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			args:    requestArgs,
 			want:    common.ResultNormal,
 			wantErr: false,
+			verifyFunc: func(t *testing.T, r *NetworkInfoReconciler) {
+				got := &v1alpha1.VPCNetworkConfiguration{}
+				require.NoError(t, r.Client.Get(context.Background(), types.NamespacedName{Name: "pre-vpc-nc"}, got))
+				condition := getExistingConditionOfType(v1alpha1.DNSZonesReady, got.Status.Conditions)
+				require.NotNil(t, condition)
+				require.Equal(t, corev1.ConditionFalse, condition.Status)
+				require.Equal(t, "DNSZoneNotFound", condition.Reason)
+				require.Contains(t, condition.Message, "/zones/inv-zone")
+			},
 		},
 		{
 			name: "Failed to sync DNS zones in VpcNetworkConfiguration",
@@ -1566,6 +1584,9 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Reconcile() got = %v, want %v", got, tt.want)
+			}
+			if tt.verifyFunc != nil {
+				tt.verifyFunc(t, r)
 			}
 		})
 	}
@@ -2978,10 +2999,587 @@ func TestPrimaryLBIP(t *testing.T) {
 }
 
 type mockDNSZoneSyncer struct {
+	zoneChangeHandler     func(string)
+	force                 func(string) (string, error)
+	cached                map[string]string
+	refresh               func(*v1alpha1.VPCNetworkConfiguration) (map[string]string, error)
 	dnsZoneConfigurations map[string]string
 	syncErr               error
 }
 
 func (s *mockDNSZoneSyncer) SyncDNSZonesByVpcNetworkConfig(_ *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
 	return s.dnsZoneConfigurations, s.syncErr
+}
+
+func (s *mockDNSZoneSyncer) RefreshDNSZone(path string, bypassStore bool) (string, error) {
+	if bypassStore && s.force != nil {
+		return s.force(path)
+	}
+	if s.refresh != nil {
+		nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{path}}}
+		zones, err := s.refresh(nc)
+		var missing *dns.DNSZoneNotFoundError
+		if err != nil && !bypassStore && !errors.As(err, &missing) {
+			return s.cached[path], err
+		}
+		return zones[path], err
+	}
+	if s.syncErr != nil && !bypassStore {
+		return s.cached[path], s.syncErr
+	}
+	return s.dnsZoneConfigurations[path], s.syncErr
+}
+
+func (s *mockDNSZoneSyncer) SetDNSZoneChangeHandler(handler func(string)) {
+	s.zoneChangeHandler = handler
+}
+func TestSyncDNSZones(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		domains map[string]string
+		err     error
+		want    []string
+	}{
+		{name: "refresh", domains: map[string]string{"zone1": "new.example", "zone2": "a.example", "empty": ""}, want: []string{"a.example", "new.example"}},
+		{name: "removed zones", want: nil},
+		{name: "query failure preserves domains", err: errors.New("NSX unavailable"), want: []string{"old.example"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha1.AddToScheme(scheme))
+			info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "ns"}, AllowedDNSRecordDomains: []string{"old.example"}}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+			r := &NetworkInfoReconciler{Client: c, DNSRecordService: &mockDNSZoneSyncer{dnsZoneConfigurations: tc.domains, syncErr: tc.err}}
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+				var paths []string
+				for path := range tc.domains {
+					paths = append(paths, path)
+				}
+				slices.Sort(paths)
+				if tc.err != nil {
+					paths = []string{"failed-zone"}
+				}
+				return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: paths}}, nil
+			})
+			defer patches.Reset()
+			r.syncDNSZones(context.Background())
+			got := &v1alpha1.NetworkInfo{}
+			require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), got))
+			assert.Equal(t, tc.want, got.AllowedDNSRecordDomains)
+		})
+	}
+}
+
+func TestSyncDNSZonesRechecksConfiguration(t *testing.T) {
+	for _, bindingChange := range []bool{false, true} {
+		t.Run(fmt.Sprintf("bindingChange=%v", bindingChange), func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha1.AddToScheme(scheme))
+			info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "ns"}}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+			currentConfig := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config", ResourceVersion: "1"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"old-zone"}}}
+			calls := 0
+			dnsSvc := &mockDNSZoneSyncer{refresh: func(nc *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+				calls++
+				if calls == 1 {
+					currentConfig = currentConfig.DeepCopy()
+					if bindingChange {
+						currentConfig.Name = "other-config"
+					} else {
+						currentConfig.ResourceVersion = "2"
+					}
+					currentConfig.Spec.DNSZones = []string{"new-zone"}
+					return map[string]string{"old-zone": "old.example"}, nil
+				}
+				require.Equal(t, []string{"new-zone"}, nc.Spec.DNSZones)
+				return map[string]string{"new-zone": "new.example"}, nil
+			}}
+			r := &NetworkInfoReconciler{Client: c, DNSRecordService: dnsSvc}
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+				return currentConfig.DeepCopy(), nil
+			})
+			defer patches.Reset()
+			r.syncDNSZones(context.Background())
+			got := &v1alpha1.NetworkInfo{}
+			require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), got))
+			require.Equal(t, []string{"new.example"}, got.AllowedDNSRecordDomains)
+			require.Equal(t, 2, calls)
+		})
+	}
+}
+
+func TestSyncDNSZonesIgnoresResourceVersionChange(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "ns"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+	currentConfig := &v1alpha1.VPCNetworkConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "config", UID: types.UID("config-uid"), ResourceVersion: "1"},
+		Spec:       v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}},
+	}
+	configReads := 0
+	zoneRefreshes := 0
+	dnsSvc := &mockDNSZoneSyncer{refresh: func(_ *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+		zoneRefreshes++
+		currentConfig = currentConfig.DeepCopy()
+		currentConfig.ResourceVersion = "2"
+		return map[string]string{"zone": "new.example"}, nil
+	}}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: dnsSvc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		configReads++
+		return currentConfig.DeepCopy(), nil
+	})
+	defer patches.Reset()
+
+	require.NoError(t, r.syncDNSZones(context.Background()))
+	got := &v1alpha1.NetworkInfo{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), got))
+	assert.Equal(t, []string{"new.example"}, got.AllowedDNSRecordDomains)
+	assert.Equal(t, 2, configReads, "read once before and once after the NSX refresh")
+	assert.Equal(t, 1, zoneRefreshes)
+}
+
+type dnsConflictClient struct {
+	client.Client
+	conflict bool
+}
+
+func (c *dnsConflictClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if !c.conflict {
+		c.conflict = true
+		return apierrors.NewConflict(v1alpha1.Resource("networkinfos"), obj.GetName(), errors.New("concurrent reconcile"))
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
+}
+
+func TestSyncDNSZonesRecomputesAfterConflict(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "ns"}}
+	c := &dnsConflictClient{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()}
+	calls := 0
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: &mockDNSZoneSyncer{refresh: func(_ *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+		calls++
+		return map[string]string{"zone": fmt.Sprintf("version%d.example", calls)}, nil
+	}}}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
+	})
+	defer patches.Reset()
+	r.syncDNSZones(context.Background())
+	got := &v1alpha1.NetworkInfo{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), got))
+	require.Equal(t, []string{"version2.example"}, got.AllowedDNSRecordDomains)
+	require.Equal(t, 2, calls)
+}
+
+func TestSyncDNSZonesSharesZoneResultsAcrossConfigurations(t *testing.T) {
+	for _, failShared := range []bool{false, true} {
+		t.Run(fmt.Sprintf("sharedFailure=%v", failShared), func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1alpha1.AddToScheme(scheme))
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+				&v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "a"}, AllowedDNSRecordDomains: []string{"old.example"}},
+				&v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "b"}, AllowedDNSRecordDomains: []string{"old.example"}},
+				&v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "healthy"}},
+			).Build()
+			queries := make(map[string]int)
+			r := &NetworkInfoReconciler{Client: c, DNSRecordService: &mockDNSZoneSyncer{refresh: func(nc *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+				path := nc.Spec.DNSZones[0]
+				queries[path]++
+				if failShared && path == "shared" {
+					return nil, errors.New("NSX unavailable")
+				}
+				return map[string]string{path: path + ".example"}, nil
+			}}}
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, info *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+				paths := []string{"shared", info.Namespace, "shared"}
+				if info.Namespace == "healthy" {
+					paths = []string{"healthy"}
+				}
+				return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config-" + info.Namespace}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: paths}}, nil
+			})
+			defer patches.Reset()
+			r.syncDNSZones(context.Background())
+			require.Equal(t, 1, queries["shared"], "shared success or failure should be queried once per round")
+			for _, ns := range []string{"a", "b", "healthy"} {
+				got := &v1alpha1.NetworkInfo{}
+				require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "info"}, got))
+				want := []string{ns + ".example", "shared.example"}
+				if failShared {
+					want = []string{"old.example"}
+				}
+				if ns == "healthy" {
+					want = []string{"healthy.example"}
+				}
+				require.Equal(t, want, got.AllowedDNSRecordDomains)
+			}
+			// Results and errors must not persist into the next polling round.
+			r.syncDNSZones(context.Background())
+			require.Equal(t, 2, queries["shared"])
+			require.Equal(t, 2, queries["healthy"])
+		})
+	}
+}
+
+func TestSyncDNSZonesRetainsCachedDomainWhenRefreshFails(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "ns"}, AllowedDNSRecordDomains: []string{"old-a.example", "old-b.example"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+	unavailable := true
+	svc := &mockDNSZoneSyncer{}
+	svc.refresh = func(nc *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+		path := nc.Spec.DNSZones[0]
+		if path == "b" && unavailable {
+			return nil, errors.New("zone b unavailable")
+		}
+		return map[string]string{path: "new-" + path + ".example"}, nil
+	}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"a", "b"}}}, nil
+	})
+	defer patches.Reset()
+	require.Error(t, r.syncDNSZones(context.Background()))
+	got := &v1alpha1.NetworkInfo{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), got))
+	require.Equal(t, []string{"old-a.example", "old-b.example"}, got.AllowedDNSRecordDomains)
+
+	unavailable = false
+	require.NoError(t, r.syncDNSZones(context.Background()))
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), got))
+	require.Equal(t, []string{"new-a.example", "new-b.example"}, got.AllowedDNSRecordDomains)
+}
+
+func TestHandleDNSZoneChangeDoesNotPatchUnchangedDomains(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	affected := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "affected"}, AllowedDNSRecordDomains: []string{"same.example"}}
+	other := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "other"}, AllowedDNSRecordDomains: []string{"other.example"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(affected, other).Build()
+	forced := 0
+	svc := &mockDNSZoneSyncer{dnsZoneConfigurations: map[string]string{"zone": "same.example", "other-zone": "other.example"}, force: func(path string) (string, error) {
+		require.Equal(t, "zone", path)
+		forced++
+		if forced == 1 {
+			return "", errors.New("NSX unavailable")
+		}
+		return "same.example", nil
+	}}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, info *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		path := "zone"
+		if info.Namespace == "other" {
+			path = "other-zone"
+		}
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: info.Namespace}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{path}}}, nil
+	})
+	defer patches.Reset()
+	require.Error(t, r.handleDNSZoneChange(context.Background(), "zone"))
+	current := &v1alpha1.NetworkInfo{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(affected), current))
+	beforeVersion := current.ResourceVersion
+	require.NoError(t, r.handleDNSZoneChange(context.Background(), "zone"))
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(affected), current))
+	require.Equal(t, []string{"same.example"}, current.AllowedDNSRecordDomains)
+	require.Equal(t, beforeVersion, current.ResourceVersion)
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(other), current))
+	require.Empty(t, current.Annotations)
+	require.Equal(t, 2, forced)
+}
+
+func TestDNSZoneRefreshQueueRetries(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "ns"}, AllowedDNSRecordDomains: []string{"old.example"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+	attempts := make(chan string, 4)
+	calls := 0
+	svc := &mockDNSZoneSyncer{dnsZoneConfigurations: map[string]string{"zone": "example.com"}, force: func(path string) (string, error) {
+		calls++
+		attempts <- path
+		if calls == 1 {
+			return "", errors.New("temporary failure")
+		}
+		return "example.com", nil
+	}}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc, dnsZoneRefreshQueue: workqueue.NewTypedRateLimitingQueue(workqueue.NewTypedItemExponentialFailureRateLimiter[string](time.Millisecond, time.Millisecond))}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
+	})
+	defer patches.Reset()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.runDNSZoneRefreshQueue(ctx) }()
+	r.dnsZoneRefreshQueue.Add("zone")
+	r.dnsZoneRefreshQueue.Add("zone")
+	require.Eventually(t, func() bool {
+		current := &v1alpha1.NetworkInfo{}
+		return c.Get(context.Background(), client.ObjectKeyFromObject(info), current) == nil && len(current.AllowedDNSRecordDomains) == 1 && current.AllowedDNSRecordDomains[0] == "example.com"
+	}, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+	require.Equal(t, "zone", <-attempts)
+	require.Equal(t, "zone", <-attempts)
+	require.Equal(t, 2, calls)
+}
+
+type failOneDNSNotificationClient struct {
+	client.Client
+	patches map[string]int
+}
+
+func (c *failOneDNSNotificationClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	c.patches[obj.GetNamespace()]++
+	if obj.GetNamespace() == "b" && c.patches["b"] == 1 {
+		return errors.New("temporary API failure")
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
+}
+
+func TestDNSZoneRefreshRetryDoesNotRepeatSuccessfulPatches(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	objects := []client.Object{
+		&v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "a"}, AllowedDNSRecordDomains: []string{"old.example"}},
+		&v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "b"}, AllowedDNSRecordDomains: []string{"old.example"}},
+	}
+	c := &failOneDNSNotificationClient{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build(), patches: map[string]int{}}
+	svc := &mockDNSZoneSyncer{dnsZoneConfigurations: map[string]string{"zone": "example.com"}}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
+	})
+	defer patches.Reset()
+	require.Error(t, r.handleDNSZoneChange(context.Background(), "zone"))
+	require.NoError(t, r.handleDNSZoneChange(context.Background(), "zone"))
+	require.Equal(t, 1, c.patches["a"])
+	require.Equal(t, 2, c.patches["b"])
+	for _, ns := range []string{"a", "b"} {
+		current := &v1alpha1.NetworkInfo{}
+		require.NoError(t, c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "info"}, current))
+		require.Equal(t, []string{"example.com"}, current.AllowedDNSRecordDomains)
+		require.Empty(t, current.Annotations)
+	}
+}
+
+func TestDNSZoneDomainTransitionsUpdateNetworkInfo(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: "ns"}, AllowedDNSRecordDomains: []string{"old.example"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+	domain := "old.example"
+	svc := &mockDNSZoneSyncer{refresh: func(_ *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+		return map[string]string{"zone": domain}, nil
+	}}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
+	})
+	defer patches.Reset()
+	current := &v1alpha1.NetworkInfo{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), current))
+	initialVersion := current.ResourceVersion
+	domain = "mid.example"
+	require.NoError(t, r.syncDNSZones(context.Background()))
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), current))
+	require.Equal(t, []string{"mid.example"}, current.AllowedDNSRecordDomains)
+	midVersion := current.ResourceVersion
+	require.NotEqual(t, initialVersion, midVersion)
+	domain = "old.example"
+	require.NoError(t, r.syncDNSZones(context.Background()))
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), current))
+	require.Equal(t, []string{"old.example"}, current.AllowedDNSRecordDomains)
+	require.NotEqual(t, midVersion, current.ResourceVersion)
+	require.Empty(t, current.Annotations)
+}
+
+func TestDeletedDNSZoneUpdatesConfigurationAndNetworkInfos(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"deleted", "healthy"}}}
+	info := func(ns string) *v1alpha1.NetworkInfo {
+		return &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "info", Namespace: ns}, AllowedDNSRecordDomains: []string{"deleted.example", "healthy.example"}}
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(nc).WithObjects(nc, info("a"), info("b")).Build()
+	deleted := true
+	svc := &mockDNSZoneSyncer{}
+	svc.force = func(path string) (string, error) {
+		if path == "deleted" && deleted {
+			return "", &dns.DNSZoneNotFoundError{Path: path, Err: errors.New("not found")}
+		}
+		return path + ".example", nil
+	}
+	svc.refresh = func(nc *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+		path := nc.Spec.DNSZones[0]
+		return map[string]string{path: path + ".example"}, nil
+	}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, ctx context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		current := &v1alpha1.VPCNetworkConfiguration{}
+		err := c.Get(ctx, client.ObjectKey{Name: "config"}, current)
+		return current, err
+	})
+	defer patches.Reset()
+
+	require.NoError(t, r.handleDNSZoneChange(ctx, "deleted"))
+	for _, ns := range []string{"a", "b"} {
+		got := &v1alpha1.NetworkInfo{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "info"}, got))
+		require.Equal(t, []string{"healthy.example"}, got.AllowedDNSRecordDomains)
+	}
+	gotNC := &v1alpha1.VPCNetworkConfiguration{}
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: "config"}, gotNC))
+	condition := getExistingConditionOfType(v1alpha1.DNSZonesReady, gotNC.Status.Conditions)
+	require.NotNil(t, condition)
+	require.Equal(t, corev1.ConditionFalse, condition.Status)
+	require.Equal(t, "DNSZoneNotFound", condition.Reason)
+	require.Contains(t, condition.Message, "deleted")
+
+	deleted = false
+	require.NoError(t, r.syncDNSZones(ctx))
+	for _, ns := range []string{"a", "b"} {
+		got := &v1alpha1.NetworkInfo{}
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Namespace: ns, Name: "info"}, got))
+		require.Equal(t, []string{"deleted.example", "healthy.example"}, got.AllowedDNSRecordDomains)
+	}
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: "config"}, gotNC))
+	condition = getExistingConditionOfType(v1alpha1.DNSZonesReady, gotNC.Status.Conditions)
+	require.Equal(t, corev1.ConditionTrue, condition.Status)
+	require.Equal(t, "DNSZonesAvailable", condition.Reason)
+}
+
+func TestDeletedDNSZoneWithoutNetworkInfo(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	nc := &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "orphan-config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(nc).WithObjects(nc).Build()
+	missing := true
+	unavailable := false
+	svc := &mockDNSZoneSyncer{refresh: func(_ *v1alpha1.VPCNetworkConfiguration) (map[string]string, error) {
+		if unavailable {
+			return nil, errors.New("NSX unavailable")
+		}
+		if missing {
+			return nil, &dns.DNSZoneNotFoundError{Path: "zone", Err: errors.New("not found")}
+		}
+		return map[string]string{"zone": "example.com"}, nil
+	}}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	require.NoError(t, r.syncDNSZones(ctx))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: nc.Name}, nc))
+	condition := getExistingConditionOfType(v1alpha1.DNSZonesReady, nc.Status.Conditions)
+	require.NotNil(t, condition)
+	require.Equal(t, corev1.ConditionFalse, condition.Status)
+	missing = false
+	unavailable = true
+	require.Error(t, r.syncDNSZones(ctx))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: nc.Name}, nc))
+	require.Equal(t, corev1.ConditionFalse, getExistingConditionOfType(v1alpha1.DNSZonesReady, nc.Status.Conditions).Status)
+	unavailable = false
+	require.NoError(t, r.syncDNSZones(ctx))
+	require.NoError(t, c.Get(ctx, client.ObjectKey{Name: nc.Name}, nc))
+	condition = getExistingConditionOfType(v1alpha1.DNSZonesReady, nc.Status.Conditions)
+	require.Equal(t, corev1.ConditionTrue, condition.Status)
+}
+
+func TestDNSZonePollAndForcedRefreshAreSerialized(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "info"}, AllowedDNSRecordDomains: []string{"new.example"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+	pollStarted, releasePoll, forced := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(releasePoll) })
+	var refreshCalls atomic.Int32
+	svc := &mockDNSZoneSyncer{
+		force: func(_ string) (string, error) {
+			if refreshCalls.Add(1) == 1 {
+				close(pollStarted)
+				<-releasePoll
+				return "old.example", nil
+			}
+			close(forced)
+			return "new.example", nil
+		},
+	}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config", ResourceVersion: "1"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
+	})
+	defer patches.Reset()
+	pollDone, callbackDone := make(chan error, 1), make(chan error, 1)
+	go func() { pollDone <- r.syncDNSZones(context.Background()) }()
+	select {
+	case <-pollStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("poll did not start")
+	}
+	callbackStarted := make(chan struct{})
+	go func() {
+		close(callbackStarted)
+		callbackDone <- r.handleDNSZoneChange(context.Background(), "zone")
+	}()
+	<-callbackStarted
+	select {
+	case <-forced:
+		t.Fatal("forced refresh ran before the older poll finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseOnce.Do(func() { close(releasePoll) })
+	require.NoError(t, <-pollDone)
+	require.NoError(t, <-callbackDone)
+	current := &v1alpha1.NetworkInfo{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), current))
+	require.Equal(t, []string{"new.example"}, current.AllowedDNSRecordDomains)
+}
+
+func TestDNSZonePollWaitsForForcedRefresh(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	info := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "info"}, AllowedDNSRecordDomains: []string{"old.example"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
+	forceStarted, releaseForce, refreshCalled := make(chan struct{}), make(chan struct{}), make(chan struct{}, 2)
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(releaseForce) })
+	var refreshCalls atomic.Int32
+	svc := &mockDNSZoneSyncer{
+		force: func(_ string) (string, error) {
+			if refreshCalls.Add(1) == 1 {
+				close(forceStarted)
+				<-releaseForce
+				return "new.example", nil
+			}
+			refreshCalled <- struct{}{}
+			return "new.example", nil
+		},
+	}
+	r := &NetworkInfoReconciler{Client: c, DNSRecordService: svc}
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig", func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
+	})
+	defer patches.Reset()
+	pollDone, callbackDone := make(chan error, 1), make(chan error, 1)
+	go func() { callbackDone <- r.handleDNSZoneChange(context.Background(), "zone") }()
+	select {
+	case <-forceStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("forced refresh did not start")
+	}
+	go func() { pollDone <- r.syncDNSZones(context.Background()) }()
+	select {
+	case <-refreshCalled:
+		t.Fatal("poll read zones while forced refresh was in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseOnce.Do(func() { close(releaseForce) })
+	require.NoError(t, <-callbackDone)
+	require.NoError(t, <-pollDone)
+	current := &v1alpha1.NetworkInfo{}
+	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), current))
+	require.Equal(t, []string{"new.example"}, current.AllowedDNSRecordDomains)
 }

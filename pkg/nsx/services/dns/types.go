@@ -44,6 +44,8 @@ type AggregatedDNSEndpoints struct {
 type EndpointRow struct {
 	*extdns.Endpoint
 	zonePath string
+	// Domain used when validating this row; checked again under the zone lock.
+	validatedZoneDomain string
 	// nsxRecordName is the host prefix of the FQDN, i.e. Endpoint.DNSName with the DNS zone's domain
 	// suffix (and the separating dot) stripped. For example, if DNSName is "foo.example.com" and
 	// the zone domain is "example.com", nsxRecordName is "foo".

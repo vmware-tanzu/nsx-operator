@@ -80,6 +80,7 @@ func TestDNSRecordGetFailureOnlyAppliesConfirmedRecords(t *testing.T) {
 			Path:         servicecommon.String("/orgs/org1/projects/proj1/dns-records/" + id),
 			RecordName:   servicecommon.String(id),
 			RecordType:   servicecommon.String("A"),
+			Fqdn:         servicecommon.String(id + ".example.com"),
 			ZonePath:     servicecommon.String(testDNSZonePathT),
 			RecordValues: []string{"192.0.2.1"},
 		}

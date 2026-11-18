@@ -573,6 +573,8 @@ func TestPredicateNetworkInfoAllowedDNSRecordDomainsChanged(t *testing.T) {
 	p := predicateNetworkInfoAllowedDNSRecordDomainsChanged()
 
 	assert.False(t, p.Create(event.CreateEvent{}))
+	assert.False(t, p.Create(event.CreateEvent{Object: &v1alpha1.NetworkInfo{}}))
+	assert.True(t, p.Create(event.CreateEvent{Object: &v1alpha1.NetworkInfo{AllowedDNSRecordDomains: []string{"example.com"}}}))
 	assert.False(t, p.Delete(event.DeleteEvent{}))
 	assert.False(t, p.Generic(event.GenericEvent{}))
 
@@ -689,7 +691,6 @@ func TestGetLoadBalancerServicesWithDNS(t *testing.T) {
 func TestEnqueueLBServiceRequestsFromNetworkInfo(t *testing.T) {
 	ctx := context.Background()
 	scheme := serviceLbTestScheme(t)
-	ni := &v1alpha1.NetworkInfo{}
 
 	makeLbSvc := func(name string, annotations map[string]string) client.Object {
 		return &v1.Service{
@@ -705,19 +706,16 @@ func TestEnqueueLBServiceRequestsFromNetworkInfo(t *testing.T) {
 		makeLbSvc("no-annotation", map[string]string{}),
 	)
 	r := &ServiceLbReconciler{Client: c, DNS: emptyDNSRecordService()}
-	reqs := r.enqueueLBServiceRequestsFromNetworkInfo(ctx, ni)
+	reqs, err := r.listLBServiceDNSRequests(ctx, "ns")
+	require.NoError(t, err)
 	require.Len(t, reqs, 1)
 	require.Equal(t, types.NamespacedName{Namespace: "ns", Name: "eligible"}, reqs[0].NamespacedName)
-
-	t.Run("invalid_object", func(t *testing.T) {
-		reqs := r.enqueueLBServiceRequestsFromNetworkInfo(ctx, &v1.Pod{})
-		assert.Nil(t, reqs)
-	})
 
 	t.Run("list_error", func(t *testing.T) {
 		fc := &failingClient{Client: c}
 		rErr := &ServiceLbReconciler{Client: fc, DNS: emptyDNSRecordService()}
-		reqs := rErr.enqueueLBServiceRequestsFromNetworkInfo(ctx, ni)
+		reqs, err := rErr.listLBServiceDNSRequests(ctx, "ns")
+		assert.Error(t, err)
 		assert.Nil(t, reqs)
 	})
 }

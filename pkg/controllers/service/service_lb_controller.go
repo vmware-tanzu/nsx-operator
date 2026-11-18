@@ -21,7 +21,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -163,11 +162,15 @@ func (r *ServiceLbReconciler) setServiceLbStatus(ctx context.Context, lbService 
 }
 
 func (r *ServiceLbReconciler) setupWithManager(mgr ctrl.Manager) error {
+	dnsWatch, err := common.NewRetryingNamespaceHandler(mgr, r.listLBServiceDNSRequests)
+	if err != nil {
+		return err
+	}
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Service{}).
 		Watches(
 			&v1alpha1.NetworkInfo{},
-			handler.EnqueueRequestsFromMapFunc(r.enqueueLBServiceRequestsFromNetworkInfo),
+			dnsWatch,
 			builder.WithPredicates(predicateNetworkInfoAllowedDNSRecordDomainsChanged()),
 		).
 		WithEventFilter(common.VPCNamespacePredicate(r.Client)).

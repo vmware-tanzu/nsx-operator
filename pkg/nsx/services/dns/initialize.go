@@ -22,7 +22,7 @@ func (s *DNSRecordService) CheckDNSRecordSupport() error {
 	return nil
 }
 
-// InitializeDNSRecordService constructs a DNSRecordService and restores records from NSX search.
+// InitializeDNSRecordService constructs a DNSRecordService and restores records from NSX Policy search.
 func InitializeDNSRecordService(commonService common.Service, vpcService common.VPCServiceProvider) (*DNSRecordService, error) {
 	builder, err := common.PolicyPathDnsRecord.NewPolicyTreeBuilder()
 	if err != nil {
@@ -64,7 +64,7 @@ func InitializeDNSRecordService(commonService common.Service, vpcService common.
 			log.Error(err, "failed to warm up DNS zone cache during initialization", "path", zonePath)
 			continue // non-fatal: will be re-fetched on demand by SyncDNSZonesByVpcNetworkConfig
 		}
-		if zone.DnsDomainName != nil {
+		if zone.DnsDomainName != nil && strings.TrimSpace(*zone.DnsDomainName) != "" {
 			s.DNSZoneMap.set(zonePath, strings.TrimSpace(*zone.DnsDomainName))
 		}
 	}

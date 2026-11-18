@@ -4,10 +4,12 @@
 package dns
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -64,6 +66,9 @@ func (s *DNSRecordService) getZonePathForHostname(z extprovider.ZoneIDName, host
 	if name == "" {
 		return "", "", fmt.Errorf("empty hostname")
 	}
+	if strings.Contains(name, "_") {
+		return "", "", fmt.Errorf("hostname %q must not contain underscores", hostname)
+	}
 
 	zonePath, matchedDomain, normalizedFQDN := z.FindZone(name)
 	if matchedDomain == "" {
@@ -80,7 +85,7 @@ func (s *DNSRecordService) getZonePathForHostname(z extprovider.ZoneIDName, host
 	return recordName, zonePath, nil
 }
 
-// ValidateEndpointsByZone maps each endpoint to a zone and row; returns validated rows, invalid rows, path→domain map for permitted zones (from sync), and err. owner must be non-nil.
+// ValidateEndpointsByZone maps endpoints to permitted zones and returns the valid rows and path→domain map. Endpoint validation errors are returned alongside any valid rows, so callers can reconcile the valid subset. owner must be non-nil.
 func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *ResourceRef, eps []*extdns.Endpoint) ([]EndpointRow, map[string]string, error) {
 	if s.disabled {
 		return nil, nil, nil
@@ -125,6 +130,7 @@ func (s *DNSRecordService) ValidateEndpointsByZone(namespace string, owner *Reso
 		}
 		log.Debug("Mapped DNS endpoint to zone", "dnsName", ep.DNSName, "zonePath", zonePath, "recordName", recName)
 		row := NewEndpointRow(ep, zonePath, recName)
+		row.validatedZoneDomain = allowedZones[zonePath]
 		validRows = append(validRows, *row)
 	}
 	return validRows, allowedZones, validationErr
@@ -146,22 +152,14 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 		if _, _, _, _, err := parseDnsZonePath(p); err != nil {
 			return nil, &DNSZoneValidationError{Msg: "invalid configured DNS zone path", Cause: err}
 		}
-		domain, found := s.DNSZoneMap.get(p)
-		if !found {
-			log.Info("Fetching DNS zone domain from NSX", "path", p)
-			zone, err := s.getDNSZoneFromNSX(p)
-			if err != nil {
-				log.Error(err, "failed to retrieve DNS zone from NSX", "path", p)
-				return nil, err
+		domain, err := s.getOrFetchDNSZone(p)
+		if err != nil {
+			var missing *DNSZoneNotFoundError
+			if errors.As(err, &missing) {
+				s.notifyDNSZoneChanges([]string{p})
+				continue
 			}
-			if zone.DnsDomainName == nil {
-				return nil, &DNSZoneValidationError{Msg: fmt.Sprintf("DNS zone %s returned from NSX with no domain name", p)}
-			}
-			domain = strings.TrimSpace(*zone.DnsDomainName)
-			log.Info("DNS zone domain fetched from NSX and cached", "path", p, "domain", domain)
-			s.DNSZoneMap.set(p, domain)
-		} else {
-			log.Debug("DNS zone domain resolved from cache", "path", p, "domain", domain)
+			return nil, err
 		}
 		// Match the same IDNA normalization used when selecting a zone for a record.
 		normalizedZones.Add(p, domain)
@@ -175,6 +173,54 @@ func (s *DNSRecordService) SyncDNSZonesByVpcNetworkConfig(vpcConfig *v1alpha1.VP
 	return dnsZoneDomainMapping, nil
 }
 
+// RefreshDNSZone refreshes an empty zone, or bypasses the caches when requested.
+// On a non-NotFound refresh failure, a non-forced lookup returns the cached
+// domain alongside the error so callers can retain it while reporting uncertainty.
+func (s *DNSRecordService) RefreshDNSZone(path string, bypassStore bool) (string, error) {
+	key := dnsZoneLockKey(path)
+	recordArbitrator.lock(key)
+	defer recordArbitrator.unlock(key)
+	cached, found := s.DNSZoneMap.get(path)
+	if !bypassStore && found && s.DNSRecordStore != nil && s.DNSRecordStore.HasActiveRecordsForZone(path) {
+		return cached, nil
+	}
+	domain, err := s.refreshDNSZoneFromNSXLocked(path)
+	var missing *DNSZoneNotFoundError
+	if err != nil && !bypassStore && found && cached != "" && !errors.As(err, &missing) {
+		return cached, err
+	}
+	return domain, err
+}
+
+// The zone lock also covers record writes through their store updates. Keep the
+// lookup and NSX response publication together so an older GET cannot win later.
+func (s *DNSRecordService) getOrFetchDNSZone(path string) (string, error) {
+	key := dnsZoneLockKey(path)
+	recordArbitrator.lock(key)
+	defer recordArbitrator.unlock(key)
+	if domain, found := s.DNSZoneMap.get(path); found {
+		return domain, nil
+	}
+	return s.refreshDNSZoneFromNSXLocked(path)
+}
+
+func (s *DNSRecordService) refreshDNSZoneFromNSXLocked(path string) (string, error) {
+	zone, err := s.getDNSZoneFromNSX(path)
+	if err != nil {
+		var missing *DNSZoneNotFoundError
+		if errors.As(err, &missing) {
+			s.DNSZoneMap.delete(path)
+		}
+		return "", err
+	}
+	if zone.DnsDomainName == nil || strings.TrimSpace(*zone.DnsDomainName) == "" {
+		return "", &DNSZoneValidationError{Msg: fmt.Sprintf("DNS zone %s returned from NSX with no domain name", path)}
+	}
+	domain := strings.TrimSpace(*zone.DnsDomainName)
+	s.DNSZoneMap.set(path, domain)
+	return domain, nil
+}
+
 func (s *DNSRecordService) getDNSZoneFromNSX(zonePath string) (*model.DnsZone, error) {
 	orgID, projectID, dnsServiceID, zoneID, err := parseDnsZonePath(zonePath)
 	if err != nil {
@@ -182,7 +228,14 @@ func (s *DNSRecordService) getDNSZoneFromNSX(zonePath string) (*model.DnsZone, e
 	}
 	z, err := s.NSXClient.DnsZoneClient.Get(orgID, projectID, dnsServiceID, zoneID)
 	if err != nil {
-		return nil, nsxutil.TransNSXApiError(err)
+		translated := nsxutil.TransNSXApiError(err)
+		if nsxErr, ok := translated.(*nsxutil.NSXApiError); ok && nsxErr.Type() == apierrors.ErrorType_NOT_FOUND {
+			indexNotReady := nsxErr.ApiError != nil && nsxErr.ErrorCode != nil && *nsxErr.ErrorCode == 500090
+			if !indexNotReady {
+				return nil, &DNSZoneNotFoundError{Path: zonePath, Err: translated}
+			}
+		}
+		return nil, translated
 	}
 	out := z
 	return &out, nil

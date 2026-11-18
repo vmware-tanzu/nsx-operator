@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"golang.org/x/net/idna"
+
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,6 +52,10 @@ var recordArbitrator = func() *recordAccessArbitrator {
 	a.cond = sync.NewCond(&a.mutex)
 	return a
 }()
+
+func dnsZoneLockKey(path string) string {
+	return "zone/" + path
+}
 
 func getLockKey(zonePath, recordName, recType string) string {
 	return "record/" + dnsRecordZonePathRecordNameIndexKey(zonePath, recordName, recType)
@@ -112,7 +118,13 @@ func (c *dnsZoneCache) set(key, value string) {
 	c.m[key] = value
 }
 
-// DNSRecordService reconciles DNS rows against NSX (store + future HAPI); optional VPCService and DNSZoneMap for zone validation.
+func (c *dnsZoneCache) delete(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.m, key)
+}
+
+// DNSRecordService reconciles DNS records against NSX and maintains the local stores.
 type DNSRecordService struct {
 	common.Service
 	VPCService       common.VPCServiceProvider
@@ -120,7 +132,47 @@ type DNSRecordService struct {
 	DNSZoneMap       *dnsZoneCache
 	DnsRecordBuilder *common.PolicyTreeBuilder[*model.DnsRecord]
 
-	disabled bool // startup feature gate; keep an empty service for existing callers
+	disabled          bool // startup feature gate; keep an empty service for existing callers
+	zoneChangeMu      sync.RWMutex
+	zoneChangeHandler func(string)
+}
+
+// SetDNSZoneChangeHandler registers a non-blocking notification handler.
+func (s *DNSRecordService) SetDNSZoneChangeHandler(handler func(string)) {
+	s.zoneChangeMu.Lock()
+	defer s.zoneChangeMu.Unlock()
+	s.zoneChangeHandler = handler
+}
+
+func (s *DNSRecordService) notifyDNSZoneChanges(paths []string) {
+	s.zoneChangeMu.RLock()
+	handler := s.zoneChangeHandler
+	s.zoneChangeMu.RUnlock()
+	if handler != nil {
+		for _, path := range paths {
+			handler(path)
+		}
+	}
+}
+
+var fqdnIDNA = idna.New(idna.MapForLookup(), idna.Transitional(true), idna.StrictDomainName(false))
+
+// normalizeFQDN follows DNS case and trailing-dot rules and normalizes IDNA labels.
+func normalizeFQDN(name string) string {
+	labels := strings.Split(strings.TrimSuffix(strings.TrimSpace(name), "."), ".")
+	for i, label := range labels {
+		if !strings.Contains(label, "_") {
+			if normalized, err := fqdnIDNA.ToUnicode(label); err == nil {
+				label = normalized
+			}
+		}
+		labels[i] = strings.ToLower(label)
+	}
+	return strings.Join(labels, ".")
+}
+
+func equalFQDN(a, b string) bool {
+	return a == b || normalizeFQDN(a) == normalizeFQDN(b)
 }
 
 // getInvolvedRecordLockKeys returns the logical lock keys for all records involved in this batch.
@@ -131,11 +183,15 @@ func (s *DNSRecordService) getInvolvedRecordLockKeys(batch *AggregatedDNSEndpoin
 	if batch.Owner != nil {
 		for _, row := range batch.Rows {
 			involvedLockKeys[getLockKey(row.zonePath, row.nsxRecordName, getNSXDnsRecordType(row.RecordType))] = struct{}{}
+			involvedLockKeys[dnsZoneLockKey(row.zonePath)] = struct{}{}
 		}
 
 		_, ownedRecs := s.collectRecordsByOwner(batch.Owner.Kind, batch.Owner.GetNamespace(), batch.Owner.GetName())
 		for _, rec := range ownedRecs {
 			addRecordLockKeys(involvedLockKeys, rec)
+			if rec.ZonePath != nil {
+				involvedLockKeys[dnsZoneLockKey(*rec.ZonePath)] = struct{}{}
+			}
 		}
 	}
 
@@ -184,6 +240,9 @@ func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *Agg
 	if s.disabled {
 		return false, nil
 	}
+	var changedZones []string
+	// Notify only after releasing record and owner locks.
+	defer func() { s.notifyDNSZoneChanges(changedZones) }()
 	if batch.Owner != nil {
 		ownerKey := "owner/" + batch.Owner.Kind + "/" + batch.Owner.GetNamespace() + "/" + batch.Owner.GetName()
 		recordArbitrator.lock(ownerKey)
@@ -203,12 +262,68 @@ func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *Agg
 		}
 	}()
 
+	// Validation happens before acquiring these locks. Reject the entire batch
+	// before any NSX writes if a refresh changed a domain in the meantime.
+	for _, row := range batch.Rows {
+		if row.validatedZoneDomain == "" {
+			continue
+		}
+		if s.DNSZoneMap == nil {
+			return false, fmt.Errorf("DNS zone cache is missing; retry endpoint validation")
+		}
+		domain, found := s.DNSZoneMap.get(row.zonePath)
+		if !found || domain != row.validatedZoneDomain {
+			return false, fmt.Errorf("DNS zone %s changed after endpoint validation; retry validation", row.zonePath)
+		}
+	}
+
 	toUpsert, toRemove, planErr := s.applyDNSUpsertRows(batch)
+
+	upsertPaths := sets.New[string]()
+	mismatchedZones := sets.New[string]()
+	var storeCheckErrors []error
+	for _, rec := range toUpsert {
+		if rec.Path != nil {
+			upsertPaths.Insert(*rec.Path)
+		}
+	}
+	if planErr == nil {
+		for _, row := range batch.Rows {
+			_, path, _ := getRecordIDAndPathAndType(row.nsxRecordName, row.RecordType, row.zonePath)
+			// Upserts are checked against the NSX response after the write.
+			if upsertPaths.Has(path) {
+				continue
+			}
+			stored := s.DNSRecordStore.GetByKey(path)
+			if stored == nil {
+				storeCheckErrors = append(storeCheckErrors, fmt.Errorf("NSX record %s missing from store; retry reconciliation", path))
+				continue
+			}
+			if stored.Fqdn == nil || strings.TrimSpace(*stored.Fqdn) == "" {
+				storeCheckErrors = append(storeCheckErrors, fmt.Errorf("DNS record %s in store has no FQDN", path))
+				continue
+			}
+			if !equalFQDN(*stored.Fqdn, row.Endpoint.DNSName) {
+				mismatchedZones.Insert(row.zonePath)
+			}
+		}
+	}
+	if mismatchedZones.Len() > 0 {
+		changedZones = sets.List(mismatchedZones)
+		storeCheckErrors = append(storeCheckErrors, &DNSZoneMismatchError{ZonePaths: changedZones})
+	}
+	if len(storeCheckErrors) > 0 {
+		return false, errors.Join(storeCheckErrors...)
+	}
 	if len(toUpsert) == 0 && len(toRemove) == 0 {
 		return false, planErr
 	}
 
 	toApply, syncErr := s.syncDnsRecordsInNSX(ctx, toUpsert, toRemove)
+	var mismatch *DNSZoneMismatchError
+	if errors.As(syncErr, &mismatch) {
+		changedZones = mismatch.ZonePaths
+	}
 
 	// Apply whichever records were successfully processed to keep the local store in sync even on
 	// partial realization failures; this prevents re-sending already-realized records next reconcile.
@@ -220,9 +335,8 @@ func (s *DNSRecordService) CreateOrUpdateRecords(ctx context.Context, batch *Agg
 	return len(toApply) > 0, errors.Join(planErr, syncErr)
 }
 
-// syncDnsRecordsInNSX sends upserts then deletes via OrgRoot hierarchy patch. For each upsert it checks
-// realization on the patched record path (like Subnet), then GETs the record from NSX for the store; on realization
-// failure it deletes the record via Policy API.
+// syncDnsRecordsInNSX applies the batch and reads upserted records back from NSX.
+// Successfully read records and deletions are returned even when another operation fails.
 func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, toRemove []*model.DnsRecord) ([]*model.DnsRecord, error) {
 	removeOps := make([]*model.DnsRecord, 0, len(toRemove))
 	for _, rec := range toRemove {
@@ -247,6 +361,7 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 	}
 	refreshed := make([]*model.DnsRecord, 0, len(toUpsert))
 	var realizeErrs []error
+	mismatchedZones := sets.New[string]()
 	for _, rec := range toUpsert {
 		orgID, projectID, recordID, perr := parseDnsRecordPolicyPath(*rec.Path)
 		if perr != nil {
@@ -281,12 +396,27 @@ func (s *DNSRecordService) syncDnsRecordsInNSX(ctx context.Context, toUpsert, to
 			continue
 		}
 		log.Debug("DnsRecord realized and refreshed", "Id", recordID)
+		if live.Fqdn == nil || strings.TrimSpace(*live.Fqdn) == "" {
+			realizeErrs = append(realizeErrs, fmt.Errorf("NSX record %s returned no FQDN", recordID))
+			continue
+		}
+		if rec.Fqdn != nil && *rec.Fqdn != "" {
+			if !equalFQDN(*live.Fqdn, *rec.Fqdn) {
+				if rec.ZonePath != nil && *rec.ZonePath != "" {
+					mismatchedZones.Insert(*rec.ZonePath)
+				}
+				realizeErrs = append(realizeErrs, fmt.Errorf("NSX record %s FQDN %q differs from desired %q", recordID, *live.Fqdn, *rec.Fqdn))
+			}
+		}
 		lc := live
 		refreshed = append(refreshed, &lc)
 	}
+	if mismatchedZones.Len() > 0 {
+		realizeErrs = append(realizeErrs, &DNSZoneMismatchError{ZonePaths: sets.List(mismatchedZones)})
+	}
 	toApply := append(append([]*model.DnsRecord(nil), refreshed...), removeOps...)
 	if len(realizeErrs) > 0 {
-		log.Error(errors.Join(realizeErrs...), "Some DnsRecords failed realization",
+		log.Error(errors.Join(realizeErrs...), "Some DNS records failed reconciliation",
 			"failed", len(realizeErrs), "succeeded", len(refreshed))
 		return toApply, errors.Join(realizeErrs...)
 	}
@@ -530,6 +660,9 @@ func (s *DNSRecordService) getInvolvedRecordLockKeysForOwner(kind, namespace, na
 	_, ownedRecs := s.collectRecordsByOwner(kind, namespace, name)
 	for _, rec := range ownedRecs {
 		addRecordLockKeys(recordKeysToLock, rec)
+		if rec.ZonePath != nil {
+			recordKeysToLock[dnsZoneLockKey(*rec.ZonePath)] = struct{}{}
+		}
 	}
 
 	var sortedRecordKeys []string

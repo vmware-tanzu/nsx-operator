@@ -104,14 +104,11 @@ func buildLoadBalancerServiceDNSBatch(svc *v1.Service, w dns.DNSRecordProvider) 
 	}
 	owner := &dns.ResourceRef{Kind: dns.ResourceKindService, Object: svc.GetObjectMeta()}
 	rows, _, err := w.ValidateEndpointsByZone(svc.Namespace, owner, eps)
-	if err != nil {
+	if len(rows) == 0 {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
 	log.Info("DNS batch built for LB service", "namespace", svc.Namespace, "name", svc.Name, "rows", len(rows))
-	return dns.NewOwnerScopedAggregatedRouteDNS(owner, rows), nil
+	return dns.NewOwnerScopedAggregatedRouteDNS(owner, rows), err
 }
 
 func buildServiceDNSReadyCondition(err error) metav1.Condition {
@@ -236,28 +233,23 @@ func getLoadBalancerServicesWithDNS(ctx context.Context, c client.Client, listOp
 	return filtered, nil
 }
 
-// enqueueLBServiceRequestsFromNetworkInfo requeues LoadBalancer Services that publish DNS when namespace AllowedDNSRecordDomains change.
-func (r *ServiceLbReconciler) enqueueLBServiceRequestsFromNetworkInfo(ctx context.Context, obj client.Object) []reconcile.Request {
-	ni, ok := obj.(*v1alpha1.NetworkInfo)
-	if !ok || ni == nil {
-		return nil
-	}
-	svcs, err := getLoadBalancerServicesWithDNS(ctx, r.Client, client.InNamespace(ni.Namespace))
+func (r *ServiceLbReconciler) listLBServiceDNSRequests(ctx context.Context, namespace string) ([]reconcile.Request, error) {
+	svcs, err := getLoadBalancerServicesWithDNS(ctx, r.Client, client.InNamespace(namespace))
 	if err != nil {
-		log.Error(err, "Failed to list Services for NetworkInfo DNS domain change", "Namespace", ni.Namespace)
-		return nil
+		return nil, err
 	}
 	var reqs []reconcile.Request
 	for _, svc := range svcs {
 		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: svc.Namespace, Name: svc.Name}})
 	}
-	return reqs
+	return reqs, nil
 }
 
 func predicateNetworkInfoAllowedDNSRecordDomainsChanged() predicate.Predicate {
 	return predicate.Funcs{
-		CreateFunc: func(event.CreateEvent) bool {
-			return false
+		CreateFunc: func(e event.CreateEvent) bool {
+			info, ok := e.Object.(*v1alpha1.NetworkInfo)
+			return ok && info != nil && len(info.AllowedDNSRecordDomains) > 0
 		},
 		DeleteFunc: func(event.DeleteEvent) bool {
 			return false
