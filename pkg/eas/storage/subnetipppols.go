@@ -88,6 +88,7 @@ func (s *SubnetIPPoolsStorage) fetchIPPools(namespace, nsxSubnetID, name string,
 				AvailableIPs:           DerefInt64(pu.AvailableIps),
 				AllocatedIPAllocations: DerefInt64(pu.AllocatedIpAllocations),
 				RequestedIPAllocations: DerefInt64(pu.RequestedIpAllocations),
+				ReservedIPs:            DerefString(pu.ReservedIps),
 			}
 		}
 		result.Items = append(result.Items, item)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -193,4 +194,126 @@ func TestResolveSubnet_PaginationErrors(t *testing.T) {
 			require.Equal(t, 2, calls)
 		})
 	}
+}
+
+func TestSubnetEAS_PreCreatedSharedSubnet(t *testing.T) {
+	for _, dhcp := range []bool{false, true} {
+		for _, namespace := range []string{"ns-1", "ns-2", "ns-3"} {
+			t.Run(fmt.Sprintf("DHCP=%t/namespace=%s", dhcp, namespace), func(t *testing.T) {
+				cr := &vpcv1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: "cr-alias", Namespace: namespace, UID: types.UID(namespace + "-uid"),
+						Annotations: map[string]string{common.AnnotationAssociatedResource: "p1:vpc1:precreated-subnet"}},
+					Spec: vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
+				}
+				mode := "DHCP_DEACTIVATED"
+				if dhcp {
+					mode = "DHCP_SERVER"
+				}
+				pools := &fakeIPPoolClient{result: model.IpAddressPoolListResult{
+					Results: []model.IpAddressPool{{IpAddressType: strPtr("IPV4")}},
+				}}
+				stats := &fakeDHCPStatsClient{}
+				c := &nsx.Client{SubnetsClient: &fakeSubnetsClient{
+					get: func(orgID, projectID, vpcID, subnetID string) (model.VpcSubnet, error) {
+						require.Equal(t, []string{"default", "p1", "vpc1", "precreated-subnet"}, []string{orgID, projectID, vpcID, subnetID})
+						return model.VpcSubnet{Id: strPtr(subnetID), SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: strPtr(mode)}}, nil
+					},
+					list: func(_, _, _ string, _ *string) (model.VpcSubnetListResult, error) {
+						t.Fatal("shared resources must use their explicit association")
+						return model.VpcSubnetListResult{}, nil
+					},
+				}, IPPoolClient: pools, DhcpServerConfigStatsClient: stats}
+				result, err := getSubnetEAS(context.Background(), dhcp, c, newFakeK8sClient(cr), namespace, cr.Name)
+				require.NoError(t, err)
+				require.Equal(t, cr.Name, result.GetName())
+				require.Equal(t, namespace, result.GetNamespace())
+				require.Equal(t, []string{"precreated-subnet"}, append(pools.subnetIDs, stats.subnetIDs...))
+			})
+		}
+	}
+}
+
+func TestResolveSubnet_InvalidSharedAssociation(t *testing.T) {
+	for _, association := range []string{
+		"", "p1:vpc1", "p1:vpc1:subnet:extra", ":vpc1:subnet", "p1::subnet", "p1:vpc1:",
+		"other:vpc1:subnet", "p1:other:subnet", "p1:vpc1:a/b", "p1:vpc1:a\\b", "p1:vpc1:..",
+		"p1:vpc1:.", "p1:vpc1:%2e%2e", "p1:vpc1:subnet?x", "p1:vpc1:subnet#x", "p1:vpc1: subnet",
+	} {
+		t.Run(association, func(t *testing.T) {
+			cr := &vpcv1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns1", UID: "uid",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: association}},
+				Spec: vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
+			}
+			// Invalid associations must be rejected before calling NSX.
+			_, _, err := resolveSubnet(context.Background(), newFakeK8sClient(cr), &nsx.Client{}, "ns1", cr.Name, "subnetstatuses")
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestResolveSubnet_SharedErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		subnet    model.VpcSubnet
+		err       error
+		isError   func(error) bool
+		wantError string
+	}{
+		{name: "not found", err: vapierrors.NotFound{}, isError: k8serrors.IsNotFound},
+		{name: "forbidden", err: vapierrors.Unauthorized{}, isError: k8serrors.IsForbidden},
+		{name: "backend error", err: fmt.Errorf("backend unavailable"), wantError: "backend unavailable"},
+		{name: "missing ID", wantError: "does not match the association"},
+		{name: "wrong ID", subnet: model.VpcSubnet{Id: strPtr("other-subnet")}, wantError: "does not match the association"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := &vpcv1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "ns1", UID: "uid",
+					Annotations: map[string]string{common.AnnotationAssociatedResource: "p1:vpc1:subnet"}},
+				Spec: vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
+			}
+			c := &nsx.Client{SubnetsClient: &fakeSubnetsClient{get: func(_, _, _, _ string) (model.VpcSubnet, error) {
+				return tc.subnet, tc.err
+			}}}
+			_, _, err := resolveSubnet(context.Background(), newFakeK8sClient(cr), c, "ns1", cr.Name, "subnetstatuses")
+			require.Error(t, err)
+			if tc.isError != nil {
+				require.True(t, tc.isError(err), "got %v", err)
+			} else {
+				require.ErrorContains(t, err, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestResolveSubnet_SharedFlagDoesNotBypassOwnership(t *testing.T) {
+	cr := &vpcv1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{Name: "subnet", Namespace: "ns1", UID: "uid"},
+		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
+		Status:     vpcv1alpha1.SubnetStatus{Shared: true},
+	}
+	c := &nsx.Client{SubnetsClient: &fakeSubnetsClient{results: model.VpcSubnetListResult{Results: []model.VpcSubnet{{Id: strPtr("subnet")}}}}}
+	_, _, err := resolveSubnet(context.Background(), newFakeK8sClient(cr), c, "ns1", cr.Name, "subnetstatuses")
+	require.True(t, k8serrors.IsNotFound(err), "got %v", err)
+}
+
+func TestResolveSubnet_SharedDefaultProject(t *testing.T) {
+	cr := &vpcv1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{Name: "alias", Namespace: "ns1", UID: "uid",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:vpc1:subnet"}},
+		Spec: vpcv1alpha1.SubnetSpec{VPCName: ":vpc1"},
+	}
+	c := &nsx.Client{SubnetsClient: &fakeSubnetsClient{get: func(orgID, projectID, vpcID, subnetID string) (model.VpcSubnet, error) {
+		require.Equal(t, []string{"default", "default", "vpc1", "subnet"}, []string{orgID, projectID, vpcID, subnetID})
+		return model.VpcSubnet{Id: strPtr(subnetID)}, nil
+	}}}
+	subnet, info, err := resolveSubnet(context.Background(), newFakeK8sClient(cr), c, "ns1", cr.Name, "subnetstatuses")
+	require.NoError(t, err)
+	require.Equal(t, "default", info.ProjectID)
+	require.Equal(t, "subnet", *subnet.Id)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err = resolveSharedSubnet(ctx, &nsx.Client{}, cr, info, "subnetstatuses")
+	require.ErrorIs(t, err, context.Canceled)
 }
