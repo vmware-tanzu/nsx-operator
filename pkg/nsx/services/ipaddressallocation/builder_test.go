@@ -118,6 +118,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 			Spec: v1alpha1.IPAddressAllocationSpec{
 				IPAddressBlockVisibility: v1alpha1.IPAddressVisibilityExternal,
 				AllocationSize:           10,
+				DNSHostName:              "MyHost",
 			},
 		}
 		patch := gomonkey.ApplyMethod(reflect.TypeOf(ipAllocService.VPCService), "ListVPCInfo", func(_ *vpc.VPCService, _ string) []common.VPCResourceInfo {
@@ -146,6 +147,7 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Equal(t, (*int64)(nil), result.Ipv6AllocationPrefixLength)
 		assert.Equal(t, 6, len(result.Tags))
 		assert.Nil(t, result.UsedFor)
+		assert.Equal(t, "myhost", *result.DnsHostname)
 	})
 
 	t.Run("Success case for IPAddressAllocation CR with allocationIPs", func(t *testing.T) {
@@ -705,6 +707,15 @@ func TestBuildIPAddressAllocation(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, "/orgs/org1/projects/proj2/infra/ip-blocks/custom-block-id", *result.IpBlock)
 	})
+}
+
+func TestIsLBAllocation(t *testing.T) {
+	service := &IPAddressAllocationService{}
+	assert.False(t, service.isLBAllocation(nil))
+	assert.False(t, service.isLBAllocation(&v1alpha1.IPAddressAllocation{}))
+	assert.True(t, service.isLBAllocation(&v1alpha1.IPAddressAllocation{
+		Spec: v1alpha1.IPAddressAllocationSpec{UsedFor: v1alpha1.UsedForLBFrontend},
+	}))
 }
 
 func TestBuildIPBlockPath(t *testing.T) {

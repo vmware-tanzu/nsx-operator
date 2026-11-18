@@ -589,7 +589,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			_, err := service.CreateOrUpdateSubnetPort(tt.obj, tt.nsxSubnet, "", nil, false, tt.restore, "")
+			_, err := service.CreateOrUpdateSubnetPort(tt.obj, tt.nsxSubnet, "", nil, false, tt.restore, "", "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateOrUpdateSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -700,12 +700,14 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort_NilStaticIpAllocationType(t 
 		return nil
 	})
 
-	state, err := service.CreateOrUpdateSubnetPort(subnetPortCR, nsxSubnet, "", nil, false, false, "")
+	state, err := service.CreateOrUpdateSubnetPort(subnetPortCR, nsxSubnet, "", nil, false, false, "", "")
 	assert.NoError(t, err)
 	// Because existing port has StaticIpAllocationType == nil, desired port aligns it to nil.
 	// Since port is already realized and other fields match, Patch should NOT be called.
 	assert.False(t, patchCalled)
 	assert.Nil(t, state)
+	storedPort := service.SubnetPortStore.GetByKey(*existingPort.Id)
+	assert.Nil(t, storedPort.DnsHostname, "an existing port without a CR hostname remains unchanged")
 }
 
 func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
@@ -774,7 +776,6 @@ func TestSubnetPortService_DeleteSubnetPort(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-
 			if err := service.DeleteSubnetPortById(subnetPortId1); (err != nil) != tt.wantErr {
 				t.Errorf("DeleteSubnetPort() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -3172,7 +3173,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort_PreservesOriginCRUID(t *test
 	})
 	defer patches.Reset()
 
-	_, err = service.CreateOrUpdateSubnetPort(cr, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+	_, err = service.CreateOrUpdateSubnetPort(cr, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4, "")
 	assert.Error(t, err)
 	assert.True(t, nsxutil.IsRealizeStateError(err), "Error should be a realization error: %v", err)
 	assert.False(t, deleteCalled, "Port should not be deleted on realization failure when updated with origin_cr_uid")
@@ -3292,7 +3293,7 @@ func TestSubnetPortService_CreateOrUpdateSubnetPort_PreservesOriginCRUID_WhenFla
 	})
 	defer patches.Reset()
 
-	_, err = service.CreateOrUpdateSubnetPort(cr, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+	_, err = service.CreateOrUpdateSubnetPort(cr, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4, "")
 	assert.Error(t, err)
 	assert.True(t, nsxutil.IsRealizeStateError(err), "Error should be a realization error: %v", err)
 	assert.False(t, deleteCalled, "Port must NOT be deleted on realization failure even when support_reuse_port is false")
@@ -4089,7 +4090,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 		service, patches := createService(false)
 		defer patches.Reset()
 
-		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4, "")
 		assert.NoError(t, err)
 		assert.NotNil(t, fakePort.patchedPort)
 
@@ -4102,7 +4103,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 		service, patches := createService(true)
 		defer patches.Reset()
 
-		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4, "")
 		assert.NoError(t, err)
 		assert.NotNil(t, fakePort.patchedPort)
 
@@ -4113,7 +4114,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 	t.Run("restore preserves verified migration history", func(t *testing.T) {
 		service, patches := createService(true)
 		defer patches.Reset()
-		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4)
+		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4, "")
 		require.NoError(t, err)
 		require.NotNil(t, fakePort.patchedPort)
 		require.Equal(t, string(sourceCRUID), nsxutil.FindTag(fakePort.patchedPort.Tags, common.TagScopeOriginCRUID))
@@ -4148,7 +4149,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 			service, patches := createService(true)
 			defer patches.Reset()
 			service.Client = fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, source).Build()
-			_, err := service.CreateOrUpdateSubnetPort(destination, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4)
+			_, err := service.CreateOrUpdateSubnetPort(destination, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4, "")
 			require.NoError(t, err)
 			origin := nsxutil.FindTag(fakePort.patchedPort.Tags, common.TagScopeOriginCRUID)
 			if tc.wantOrigin {
@@ -4171,7 +4172,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 		}).AnyTimes()
 		mockClient.EXPECT().Get(gomock.Any(), types.NamespacedName{Namespace: "user-ns", Name: "source-vm"}, gomock.AssignableToTypeOf(&v1alpha1.SubnetPort{})).Return(lookupErr)
 		service.Client = mockClient
-		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4)
+		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4, "")
 		require.ErrorIs(t, err, lookupErr)
 		require.Nil(t, fakePort.patchedPort)
 	})
@@ -4185,7 +4186,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 		defer func() { fakeEntitiesClient.listFn = nil; fakePort.deleteFn = nil }()
 		deletes := 0
 		fakePort.deleteFn = func(_, _, _, _, _ string) error { deletes++; return nil }
-		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4)
+		_, err := service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4, "")
 		require.True(t, nsxutil.IsRealizeStateError(err), "%v", err)
 		require.Equal(t, 1, deletes)
 		missing, err := service.SubnetPortStore.GetVpcSubnetPortByUID(destCR.UID)
@@ -4193,7 +4194,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 		require.Nil(t, missing)
 		// Reintroduce the same metadata as a surviving backend. Restore must never delete it.
 		require.NoError(t, service.SubnetPortStore.Apply(fakePort.patchedPort))
-		_, err = service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4)
+		_, err = service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, true, v1alpha1.IPAddressTypeIPv4, "")
 		require.True(t, nsxutil.IsRealizeStateError(err), "%v", err)
 		require.Equal(t, 1, deletes)
 	})
@@ -4220,7 +4221,7 @@ func TestCreateOrUpdateSubnetPort_AnnotationOriginCRUID_GatedBySupportReusePort(
 		err := service.SubnetPortStore.Add(existingPort)
 		assert.NoError(t, err)
 
-		_, err = service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4)
+		_, err = service.CreateOrUpdateSubnetPort(destCR, nsxSubnet, "", nil, true, false, v1alpha1.IPAddressTypeIPv4, "")
 		assert.NoError(t, err)
 		assert.NotNil(t, fakePort.patchedPort)
 

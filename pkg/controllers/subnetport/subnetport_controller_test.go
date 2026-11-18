@@ -180,7 +180,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		defer patchesGetByUID.Reset()
 
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(_ *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labels *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(_ *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labels *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				assert.False(t, isVmSubnetPort)
 				assert.Equal(t, "v1", (*labels)["k1"])
 				state := &model.SegmentPortState{
@@ -254,7 +254,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		var capturedContextID string
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(_ *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labels *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(_ *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, labels *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				capturedContextID = contextID
 				state := &model.SegmentPortState{
 					Attachment: &model.SegmentPortAttachmentState{
@@ -577,7 +577,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		err := errors.New("CreateOrUpdateSubnetPort failed")
 
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return nil, err
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -630,7 +630,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		defer patchesIsSharedSubnetPath.Reset()
 		err := nsxutil.NewRealizeStateError("CreateOrUpdateSubnetPort failed", 0)
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return nil, err
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -676,7 +676,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesIsSharedSubnetPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return portState, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -720,7 +720,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		}
 		patchesCreateOrUpdateSubnetPort.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return portState3, nil
 			})
 		k8sClient.EXPECT().Status().Return(fakewriter)
@@ -760,7 +760,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer patchesGetSubnetByPath.Reset()
 		patchesCreateOrUpdateSubnetPort.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return portState2, nil
 			})
 		k8sClient.EXPECT().Status().Return(fakewriter)
@@ -818,7 +818,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		}
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return portStateDHCP, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -890,7 +890,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		var capturedIPTypeInCreate v1alpha1.IPAddressType
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				capturedIPTypeInCreate = interfaceIPType
 				return portState, nil
 			})
@@ -983,7 +983,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer patchesDeleteSubnetPort.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				assert.FailNow(t, "should not be called")
 				return nil, nil
 			})
@@ -1096,7 +1096,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		defer patchesIsSharedSubnetPath.Reset()
 
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return portState, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -1182,7 +1182,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesIsSharedSubnetPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return portStateNoIP, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -1305,7 +1305,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesIsSharedSubnetPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return dhcpPortState, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -1497,7 +1497,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 		})
 		defer patchesIsSharedSubnetPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return dhcpPortState, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -1580,7 +1580,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			})
 		defer patchesGetSubnetByPath.Reset()
 		patchesCreateOrUpdateSubnetPort := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				return portState, nil
 			})
 		defer patchesCreateOrUpdateSubnetPort.Reset()
@@ -1630,7 +1630,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 			},
 		}
 
-		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort, func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, _ v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort, func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, _ v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 			return portStateLocal, nil
 		})
 		defer patches.Reset()
@@ -1723,7 +1723,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		var passedInterfaceIPType v1alpha1.IPAddressType
 		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				passedInterfaceIPType = ifType
 				return portStateLocal, nil
 			})
@@ -1799,7 +1799,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		var passedInterfaceIPType v1alpha1.IPAddressType
 		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				passedInterfaceIPType = ifType
 				return portStateLocal, nil
 			})
@@ -1861,7 +1861,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		var passedInterfaceIPType v1alpha1.IPAddressType
 		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				passedInterfaceIPType = ifType
 				return portStateLocal, nil
 			})
@@ -1937,7 +1937,7 @@ func TestSubnetPortReconciler_Reconcile(t *testing.T) {
 
 		var passedInterfaceIPType v1alpha1.IPAddressType
 		patches := gomonkey.ApplyFunc((*subnetport.SubnetPortService).CreateOrUpdateSubnetPort,
-			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+			func(_ *subnetport.SubnetPortService, _ interface{}, _ *model.VpcSubnet, _ string, _ *map[string]string, _ bool, _ bool, ifType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 				passedInterfaceIPType = ifType
 				return portStateLocal, nil
 			})
@@ -2104,7 +2104,7 @@ func TestSubnetPortReconciler_Reconcile_RADeactivated(t *testing.T) {
 				},
 			}
 			patchesCreateOrUpdateSubnetPort := gomonkey.ApplyMethod(reflect.TypeOf(&subnetport.SubnetPortService{}), "CreateOrUpdateSubnetPort",
-				func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType) (*model.SegmentPortState, error) {
+				func(s *subnetport.SubnetPortService, obj interface{}, nsxSubnet *model.VpcSubnet, contextID string, tags *map[string]string, isVmSubnetPort bool, restoreMode bool, interfaceIPType v1alpha1.IPAddressType, _ string) (*model.SegmentPortState, error) {
 					return portState, nil
 				})
 			defer patchesCreateOrUpdateSubnetPort.Reset()

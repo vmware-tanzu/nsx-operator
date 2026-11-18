@@ -98,6 +98,18 @@ func TestSubnetPortToComparable(t *testing.T) {
 			expectChanged: true,
 		},
 		{
+			name: "SubnetPort with diff DNS hostname",
+			nsxSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: common.String("new-host"),
+			},
+			existingSubnetPort: &model.VpcSubnetPort{
+				Id:          &id1,
+				DnsHostname: common.String("old-host"),
+			},
+			expectChanged: true,
+		},
+		{
 			name: "SubnetPort with same fields",
 			nsxSubnetPort: &model.VpcSubnetPort{
 				Id:          &id1,
@@ -198,3 +210,22 @@ func TestComparableToSubnetPort(t *testing.T) {
 	converted := ComparableToSubnetPort(comparable)
 	assert.Equal(t, sp, converted)
 }
+
+func TestDNSHostnameComparisonNormalization(t *testing.T) {
+	for _, tc := range []struct {
+		existing, desired *string
+		changed           bool
+	}{
+		{dnsCompareString(" My-Host "), dnsCompareString("my-host"), false},
+		{dnsCompareString("old"), dnsCompareString("new"), true},
+		{nil, dnsCompareString("new"), true},
+		{nil, nil, false},
+	} {
+		existing := &model.VpcSubnetPort{Id: dnsCompareString("id"), DnsHostname: tc.existing}
+		desired := &model.VpcSubnetPort{Id: dnsCompareString("id"), DnsHostname: tc.desired}
+		assert.Equal(t, tc.changed, common.CompareResource(SubnetPortToComparable(existing), SubnetPortToComparable(desired)))
+		assert.Equal(t, tc.existing, existing.DnsHostname)
+	}
+}
+
+func dnsCompareString(value string) *string { return &value }

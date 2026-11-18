@@ -45,9 +45,6 @@ type SubnetPortSpec struct {
 	StaticIPAllocationType StaticIPAllocationType `json:"staticIPAllocationType,omitempty"`
 	// Name of PortSetting associated with this SubnetPort.
 	PortSettingName string `json:"portSettingName,omitempty"`
-	// DNSHostName specifies the hostname used when auto-creating DNS records.
-	// +optional
-	DNSHostName string `json:"dnsHostName,omitempty"`
 }
 
 // PortAddressBinding defines static addresses for the Port.

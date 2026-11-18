@@ -44,7 +44,6 @@ type IPAddressAllocationList struct {
 }
 
 // IPAddressAllocationSpec defines the desired state of IPAddressAllocation.
-// +kubebuilder:validation:XValidation:rule="self == oldSelf", message="spec is immutable"
 // +kubebuilder:validation:XValidation:rule="!has(self.allocationSize) || !has(self.allocationIPs)", message="Only one of allocationSize or allocationIPs can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(self.ipv6AllocationPrefixLength) || !has(self.allocationIPs)", message="Only one of ipv6AllocationPrefixLength or allocationIPs can be specified"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.allocationSize) || has(self.allocationSize)", message="allocationSize is required once set"
@@ -93,8 +92,13 @@ type IPAddressAllocationSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPBlockName string `json:"ipBlockName,omitempty"`
-	// DNSHostName specifies the hostname used when auto-creating DNS record.
+	// DNSHostName specifies the DNS name used when auto-creating DNS records.
+	// It must be a valid DNS label or domain, with labels up to 63 characters
+	// and a total length of at most 253 characters. The operator normalizes it
+	// to lowercase before sending it to NSX.
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$`
 	DNSHostName string `json:"dnsHostName,omitempty"`
 }
 
