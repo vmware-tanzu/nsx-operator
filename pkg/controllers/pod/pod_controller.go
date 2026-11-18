@@ -170,6 +170,14 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 		return common.ResultNormal, err
 	}
 
+	staticIPAllocationType := v1alpha1.StaticIPAllocationType(interfaceIPType)
+	if subnetSet.Spec.SubnetNames != nil {
+		// Resolve against the actual backing Subnet when the SubnetPort controller
+		// selects it. SubnetSet DHCP mode does not describe external DHCP, and
+		// staticIPAllocationType cannot be changed once written to the CR.
+		staticIPAllocationType = ""
+	}
+
 	// Bound name collision retries per reconcile; the controller retries on error.
 	const maxCreateAttempts = 2
 	var createErr error
@@ -181,10 +189,9 @@ func (r *PodReconciler) reconcilePodV2(ctx context.Context, req ctrl.Request) (c
 				Namespace: pod.Namespace,
 			},
 			Spec: v1alpha1.SubnetPortSpec{
-				SubnetSet:       subnetSet.Name,
-				InterfaceIPType: interfaceIPType,
-				// Pods do not support DHCP, so request static allocation even on mixed-mode Subnets.
-				StaticIPAllocationType: v1alpha1.StaticIPAllocationType(interfaceIPType),
+				SubnetSet:              subnetSet.Name,
+				InterfaceIPType:        interfaceIPType,
+				StaticIPAllocationType: staticIPAllocationType,
 			},
 		}
 

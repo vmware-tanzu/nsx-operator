@@ -358,6 +358,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err != nil {
 			return common.ResultNormal, err
 		}
+		externalDHCP, err := r.isExternalDHCPDefaultPodNetwork(subnetPort, nsxSubnet)
+		if err != nil {
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to resolve default Pod DHCP configuration", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+			return common.ResultRequeue, err
+		}
 		if r.restoreMode && pod != nil {
 			// Updating spec returns the server's status, which is still empty for a
 			// newly recreated CR. Keep the original network data for the NSX restore.
@@ -393,6 +398,11 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return common.ResultRequeue, err
 		}
 		if nsxSubnetPortState != nil {
+			if pod != nil && (nsxSubnetPortState.Attachment == nil || nsxSubnetPortState.Attachment.Id == nil || *nsxSubnetPortState.Attachment.Id == "") {
+				err = errors.New("realized attachment is missing for Pod SubnetPort")
+				r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+				return common.ResultRequeue, err
+			}
 			if nsxSubnetPortState.ExternalAddressBinding == nil && ab == nil {
 				err = r.IpAddressAllocationService.DeleteIPAddressAllocationForAddressBinding(subnetPort)
 				if err != nil {
@@ -425,7 +435,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
 				IPAddresses:               make([]v1alpha1.NetworkInterfaceIPAddress, preSeedCount),
-				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
+				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet) && !externalDHCP,
 				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
 				RADeactivated:             raDeactivated,
 			}
@@ -461,7 +471,18 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			err = r.updateSubnetStatusOnSubnetPort(subnetPort, nsxSubnet)
 			if err != nil {
 				log.Error(err, "Failed to retrieve Subnet status for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+				if pod != nil {
+					// Do not expose a new attachment before its interface configuration
+					// is ready for Spherelet to consume.
+					subnetPort.Status = *old_status.DeepCopy()
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to retrieve Subnet status for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+					return common.ResultRequeue, err
+				}
 			}
+		}
+		if pod != nil {
+			// Also refresh ports whose already-realized payload needed no update.
+			subnetPort.Status.NetworkInterfaceConfig.DHCPDeactivatedOnSubnet = !util.NSXSubnetDHCPEnabled(nsxSubnet) && !externalDHCP
 		}
 		if reflect.DeepEqual(*old_status, subnetPort.Status) {
 			log.Info("Status (without conditions) already matched", "new status", subnetPort.Status, "existing status", old_status)
@@ -661,7 +682,7 @@ func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subne
 		specChanged = true
 	}
 	if subnetPort.Spec.StaticIPAllocationType == "" {
-		subnetPort.Spec.StaticIPAllocationType = util.ComputeDefaultStaticIPAllocationType(nsxSubnet, subnetPort.Spec.InterfaceIPType)
+		subnetPort.Spec.StaticIPAllocationType = common.ResolveEffectiveStaticIPAllocationType("", nsxSubnet, subnetPort.Spec.InterfaceIPType, common.GetPodNameForSubnetPort(subnetPort) != "")
 		specChanged = true
 	} else if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone {
 		// User-set StaticIPAllocationType must be a subset of InterfaceIPType.
@@ -678,6 +699,38 @@ func (r *SubnetPortReconciler) updateSubnetPortIPType(ctx context.Context, subne
 		}
 	}
 	return nil
+}
+
+// External DHCP is meaningful only for the supported default Pod VLAN network.
+// An allocation opt-out on a VM, overlay, or secondary network must not enable
+// guest DHCP. The existing status flag describes guest configuration, including
+// DHCP supplied outside NSX; it is not just a mirror of NSX's DHCP service mode.
+func (r *SubnetPortReconciler) isExternalDHCPDefaultPodNetwork(sp *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) (bool, error) {
+	if common.GetPodNameForSubnetPort(sp) == "" ||
+		sp.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone ||
+		!util.IPAddressTypeIncludesIPv4(sp.Spec.InterfaceIPType) ||
+		!util.NSXSubnetStaticIPAllocationDisabled(nsxSubnet) ||
+		nsxSubnet.VlanConnection == nil || *nsxSubnet.VlanConnection == "" ||
+		util.NSXSubnetDHCPEnabled(nsxSubnet) {
+		return false, nil
+	}
+	if sp.Spec.SubnetSet != "" {
+		subnetSet := &v1alpha1.SubnetSet{}
+		if err := r.Client.Get(context.Background(), types.NamespacedName{Namespace: sp.Namespace, Name: sp.Spec.SubnetSet}, subnetSet); err != nil {
+			return false, err
+		}
+		return util.GetSubnetSetKind(subnetSet) == servicecommon.DefaultPodNetwork, nil
+	}
+	defaultSets := &v1alpha1.SubnetSetList{}
+	if err := r.Client.List(context.Background(), defaultSets, client.InNamespace(sp.Namespace), client.MatchingLabels{servicecommon.LabelDefaultNetwork: servicecommon.DefaultPodNetwork}); err != nil {
+		return false, err
+	}
+	for _, subnetSet := range defaultSets.Items {
+		if sp.Spec.Subnet != "" && subnetSet.Spec.SubnetNames != nil && slices.Contains(*subnetSet.Spec.SubnetNames, sp.Spec.Subnet) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // validateStaticIPSubsetOfInterface returns an error when the user-set StaticIPAllocationType
@@ -1327,9 +1380,47 @@ func (r *SubnetPortReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&v1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.podMapFunc),
 			builder.WithPredicates(podPredicate)).
+		Watches(&v1alpha1.SubnetSet{},
+			handler.EnqueueRequestsFromMapFunc(r.subnetSetMapFunc),
+			builder.WithPredicates(subnetSetPredicate)).
 		Watches(&v1alpha1.AddressBinding{},
 				handler.EnqueueRequestsFromMapFunc(r.addressBindingMapFunc)).
 		Complete(r) // TODO: watch the virtualmachine event and update the labels on NSX subnet port.
+}
+
+// Status-only SubnetSet updates do not change a port's network membership.
+// Label changes must be watched even when the generation is unchanged.
+var subnetSetPredicate = predicate.Or(predicate.LabelChangedPredicate{}, predicate.GenerationChangedPredicate{})
+
+func (r *SubnetPortReconciler) subnetSetMapFunc(ctx context.Context, obj client.Object) []reconcile.Request {
+	subnetSet, ok := obj.(*v1alpha1.SubnetSet)
+	if !ok {
+		return nil
+	}
+	subnetPorts := &v1alpha1.SubnetPortList{}
+	err := retry.OnError(retry.DefaultRetry, func(err error) bool { return err != nil }, func() error {
+		return r.Client.List(ctx, subnetPorts, client.InNamespace(subnetSet.Namespace))
+	})
+	if err != nil {
+		log.Error(err, "Failed to list SubnetPorts for SubnetSet change", "SubnetSet", client.ObjectKeyFromObject(subnetSet))
+		return nil
+	}
+	var requests []reconcile.Request
+	for _, sp := range subnetPorts.Items {
+		if common.GetPodNameForSubnetPort(&sp) == "" {
+			continue
+		}
+		// Match the same direct-Subnet membership rule used by
+		// isExternalDHCPDefaultPodNetwork. The update handler maps both the
+		// old and new SubnetSet, so removed labels/members also refresh ports.
+		directMember := sp.Spec.Subnet != "" &&
+			subnetSet.Labels[servicecommon.LabelDefaultNetwork] == servicecommon.DefaultPodNetwork &&
+			subnetSet.Spec.SubnetNames != nil && slices.Contains(*subnetSet.Spec.SubnetNames, sp.Spec.Subnet)
+		if sp.Spec.SubnetSet == subnetSet.Name || directMember {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&sp)})
+		}
+	}
+	return requests
 }
 
 func (r *SubnetPortReconciler) SetupFieldIndexers(mgr ctrl.Manager) error {
@@ -1956,7 +2047,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		if err != nil {
 			return
 		}
-		staticIPAllocationType = common.ResolveEffectiveStaticIPAllocationType(subnetPort.Spec.StaticIPAllocationType, nsxSubnet, interfaceType)
+		staticIPAllocationType = common.ResolveEffectiveStaticIPAllocationType(subnetPort.Spec.StaticIPAllocationType, nsxSubnet, interfaceType, common.GetPodNameForSubnetPort(subnetPort) != "")
 		canAllocate, err = r.SubnetPortService.AllocatePortFromSubnet(nsxSubnet, servicecommon.IsSharedSubnet(subnetCR), interfaceType, staticIPAllocationType, subnetPort.Spec.AddressBindings)
 		if err != nil {
 			return
@@ -1990,7 +2081,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 			return
 		}
 		log.Info("Got SubnetSet for SubnetPort CR, allocating the NSX subnet", "subnetSet.Name", subnetSet.Name, "subnetSet.UID", subnetSet.UID, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
-		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
+		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings, common.GetPodNameForSubnetPort(subnetPort) != "")
 		log.Info("Allocated Subnet for SubnetPort", "subnetPath", subnetPath, "subnetPort.Name", subnetPort.Name, "subnetPort.UID", subnetPort.UID)
 		if err != nil {
 			return
@@ -2015,7 +2106,7 @@ func (r *SubnetPortReconciler) CheckAndGetSubnetPathForSubnetPort(ctx context.Co
 		if err != nil {
 			return
 		}
-		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings)
+		subnetPath, staticIPAllocationType, subnetSetUID, subnetSetLock, err = common.AllocateSubnetFromSubnetSet(r.Client, r.APIReader, subnetSet, r.VPCService, r.SubnetService, r.SubnetPortService, interfaceType, subnetPort.Spec.StaticIPAllocationType, subnetPort.Spec.AddressBindings, common.GetPodNameForSubnetPort(subnetPort) != "")
 		if err != nil {
 			return
 		}
@@ -2092,6 +2183,9 @@ func networkInterfaceIPAddressesFromRealizedBindings(realizedBindings []model.Ad
 }
 
 func (r *SubnetPortReconciler) updateSubnetStatusOnSubnetPort(subnetPort *v1alpha1.SubnetPort, nsxSubnet *model.VpcSubnet) error {
+	if nsxSubnet.RealizationId == nil || *nsxSubnet.RealizationId == "" {
+		return errors.New("Subnet logical switch is not realized")
+	}
 	subnetPort.Status.NetworkInterfaceConfig.LogicalSwitchUUID = *nsxSubnet.RealizationId
 	// Get all gateways from the subnet (may be IPv4, IPv6, or both for dual-stack)
 	gatewaysWithPrefixes, err := r.SubnetService.GetAllGatewayPrefixesOfSubnet(nsxSubnet)

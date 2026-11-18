@@ -536,6 +536,24 @@ func NSXSubnetStaticIPAllocationEnabled(nsxSubnet *model.VpcSubnet) bool {
 	return true
 }
 
+// NSXSubnetStaticIPAllocationDisabled distinguishes an explicit opt-out from an
+// omitted setting. In particular, absence is not evidence of external DHCP.
+func NSXSubnetStaticIPAllocationDisabled(nsxSubnet *model.VpcSubnet) bool {
+	return nsxSubnet != nil && nsxSubnet.AdvancedConfig != nil &&
+		nsxSubnet.AdvancedConfig.StaticIpAllocation != nil &&
+		nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled != nil &&
+		!*nsxSubnet.AdvancedConfig.StaticIpAllocation.Enabled
+}
+
+// ComputeDefaultPodStaticIPAllocationType preserves the Pod static allocation
+// default (including mixed-mode Subnets) unless the backing Subnet opts out.
+func ComputeDefaultPodStaticIPAllocationType(nsxSubnet *model.VpcSubnet, interfaceIPType v1alpha1.IPAddressType) v1alpha1.StaticIPAllocationType {
+	if NSXSubnetStaticIPAllocationDisabled(nsxSubnet) {
+		return v1alpha1.StaticIPAllocationTypeNone
+	}
+	return v1alpha1.StaticIPAllocationType(interfaceIPType)
+}
+
 // ComputeDefaultStaticIPAllocationType returns the StaticIPAllocationType a SubnetPort should
 // default to when the user has not explicitly set it. Mixed mode (DHCP server + static enabled
 // simultaneously) defaults to None — the DHCP path takes precedence.
