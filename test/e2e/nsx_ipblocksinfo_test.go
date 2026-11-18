@@ -235,11 +235,12 @@ func getDefaultIPBlocksCidrs(t *testing.T) (privateTGWIPCIDRs []string, external
 }
 
 func assertIPBlocksInfo(t *testing.T, privateTGWIPCIDRs []string, externalIPCIDRs []string, privateRanges []v1alpha1.IPPoolRange, externalRanges []v1alpha1.IPPoolRange) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	waitTimeout := 120 * time.Second
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer deadlineCancel()
 	log.Debug("Expecting IPBlocksInfo", "externalIPCIDRs", externalIPCIDRs, "externalIPRanges", externalRanges, "privateTGWIPCIDRs", privateTGWIPCIDRs, "privateTGWIPRanges", privateRanges)
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 120*time.Second, false, func(ctx context.Context) (done bool, err error) {
-		res, err := testData.crdClientset.CrdV1alpha1().IPBlocksInfos().Get(context.TODO(), ipBlocksInfoCRDName, metav1.GetOptions{})
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, waitTimeout, false, func(ctx context.Context) (done bool, err error) {
+		res, err := testData.crdClientset.CrdV1alpha1().IPBlocksInfos().Get(ctx, ipBlocksInfoCRDName, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil

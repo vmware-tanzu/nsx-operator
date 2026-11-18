@@ -46,7 +46,11 @@ func TestLoadBalancer(t *testing.T) {
 	podNs := NsLoadBalancerPod
 
 	// Clean up namespaces when test completes to release resources early
-	t.Cleanup(func() { CleanupVCNamespaces(lbNs, podNs) })
+	t.Cleanup(func() {
+		if err := CleanupVCNamespaces(lbNs, podNs); err != nil {
+			t.Errorf("cleanup VC namespaces: %v", err)
+		}
+	})
 	StartParallel(t)
 
 	// Note: Don't create a shared source pod here - each subtest creates its own

@@ -2348,9 +2348,13 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 	patches := gomonkey.ApplyFunc((*NetworkInfoReconciler).setupWithManager, func(r *NetworkInfoReconciler, mgr manager.Manager) error {
 		return nil
 	})
+	syncStarted := make(chan struct{}, 1)
+	gcStarted := make(chan struct{}, 1)
 	patches.ApplyFunc((*NetworkInfoReconciler).syncPreCreatedVpcs, func(r *NetworkInfoReconciler, ctx context.Context) {
+		syncStarted <- struct{}{}
 	})
 	patches.ApplyFunc(common.GenericGarbageCollector, func(cancel chan bool, timeout time.Duration, f func(ctx context.Context) error) {
+		gcStarted <- struct{}{}
 	})
 	defer patches.Reset()
 	dnsSvc, err := dns.InitializeDNSRecordService(vpcService.Service, vpcService)
@@ -2358,8 +2362,13 @@ func TestNetworkInfoReconciler_StartController(t *testing.T) {
 	r := NewNetworkInfoReconciler(mockMgr, vpcService, ipblocksInfoService, dnsSvc)
 	err = r.StartController(mockMgr, nil)
 	assert.Nil(t, err)
-	// Sleep to make sure the patches are reset after the goroutine in StartController get executed
-	time.Sleep(time.Second)
+	for _, started := range []<-chan struct{}{syncStarted, gcStarted} {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("controller background task did not start")
+		}
+	}
 }
 
 func TestNetworkInfoReconciler_RestoreReconcile(t *testing.T) {
@@ -3369,16 +3378,26 @@ func TestDNSZoneRefreshQueueRetries(t *testing.T) {
 	})
 	defer patches.Reset()
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- r.runDNSZoneRefreshQueue(ctx) }()
+	done := make(chan struct{})
+	var workerErr error
+	// Queue both notifications before starting the worker so they coalesce.
 	r.dnsZoneRefreshQueue.Add("zone")
 	r.dnsZoneRefreshQueue.Add("zone")
+	go func() {
+		defer close(done)
+		workerErr = r.runDNSZoneRefreshQueue(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
 	require.Eventually(t, func() bool {
 		current := &v1alpha1.NetworkInfo{}
 		return c.Get(context.Background(), client.ObjectKeyFromObject(info), current) == nil && len(current.AllowedDNSRecordDomains) == 1 && current.AllowedDNSRecordDomains[0] == "example.com"
 	}, 5*time.Second, 10*time.Millisecond)
 	cancel()
-	require.NoError(t, <-done)
+	<-done
+	require.NoError(t, workerErr)
 	require.Equal(t, "zone", <-attempts)
 	require.Equal(t, "zone", <-attempts)
 	require.Equal(t, 2, calls)
@@ -3552,7 +3571,7 @@ func TestDNSZonePollAndForcedRefreshAreSerialized(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
 	pollStarted, releasePoll, forced := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var releaseOnce sync.Once
-	defer releaseOnce.Do(func() { close(releasePoll) })
+	var workers sync.WaitGroup
 	var refreshCalls atomic.Int32
 	svc := &mockDNSZoneSyncer{
 		force: func(_ string) (string, error) {
@@ -3570,27 +3589,38 @@ func TestDNSZonePollAndForcedRefreshAreSerialized(t *testing.T) {
 		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config", ResourceVersion: "1"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
 	})
 	defer patches.Reset()
+	defer func() {
+		releaseOnce.Do(func() { close(releasePoll) })
+		workers.Wait()
+	}()
 	pollDone, callbackDone := make(chan error, 1), make(chan error, 1)
-	go func() { pollDone <- r.syncDNSZones(context.Background()) }()
+	workers.Add(1)
+	go func() { defer workers.Done(); pollDone <- r.syncDNSZones(context.Background()) }()
 	select {
 	case <-pollStarted:
 	case <-time.After(5 * time.Second):
 		t.Fatal("poll did not start")
 	}
 	callbackStarted := make(chan struct{})
+	workers.Add(1)
 	go func() {
+		defer workers.Done()
 		close(callbackStarted)
 		callbackDone <- r.handleDNSZoneChange(context.Background(), "zone")
 	}()
-	<-callbackStarted
+	select {
+	case <-callbackStarted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("forced refresh did not start")
+	}
 	select {
 	case <-forced:
 		t.Fatal("forced refresh ran before the older poll finished")
 	case <-time.After(50 * time.Millisecond):
 	}
 	releaseOnce.Do(func() { close(releasePoll) })
-	require.NoError(t, <-pollDone)
-	require.NoError(t, <-callbackDone)
+	require.NoError(t, waitDNSZoneTestResult(t, pollDone, "periodic DNS zone refresh"))
+	require.NoError(t, waitDNSZoneTestResult(t, callbackDone, "forced DNS zone refresh"))
 	current := &v1alpha1.NetworkInfo{}
 	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), current))
 	require.Equal(t, []string{"new.example"}, current.AllowedDNSRecordDomains)
@@ -3603,7 +3633,7 @@ func TestDNSZonePollWaitsForForcedRefresh(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(info).Build()
 	forceStarted, releaseForce, refreshCalled := make(chan struct{}), make(chan struct{}), make(chan struct{}, 2)
 	var releaseOnce sync.Once
-	defer releaseOnce.Do(func() { close(releaseForce) })
+	var workers sync.WaitGroup
 	var refreshCalls atomic.Int32
 	svc := &mockDNSZoneSyncer{
 		force: func(_ string) (string, error) {
@@ -3621,23 +3651,46 @@ func TestDNSZonePollWaitsForForcedRefresh(t *testing.T) {
 		return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "config"}, Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{"zone"}}}, nil
 	})
 	defer patches.Reset()
+	defer func() {
+		releaseOnce.Do(func() { close(releaseForce) })
+		workers.Wait()
+	}()
 	pollDone, callbackDone := make(chan error, 1), make(chan error, 1)
-	go func() { callbackDone <- r.handleDNSZoneChange(context.Background(), "zone") }()
+	workers.Add(1)
+	go func() { defer workers.Done(); callbackDone <- r.handleDNSZoneChange(context.Background(), "zone") }()
 	select {
 	case <-forceStarted:
 	case <-time.After(5 * time.Second):
 		t.Fatal("forced refresh did not start")
 	}
-	go func() { pollDone <- r.syncDNSZones(context.Background()) }()
+	pollStarted := make(chan struct{})
+	workers.Add(1)
+	go func() { defer workers.Done(); close(pollStarted); pollDone <- r.syncDNSZones(context.Background()) }()
+	select {
+	case <-pollStarted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("periodic DNS zone refresh did not start")
+	}
 	select {
 	case <-refreshCalled:
 		t.Fatal("poll read zones while forced refresh was in flight")
 	case <-time.After(50 * time.Millisecond):
 	}
 	releaseOnce.Do(func() { close(releaseForce) })
-	require.NoError(t, <-callbackDone)
-	require.NoError(t, <-pollDone)
+	require.NoError(t, waitDNSZoneTestResult(t, callbackDone, "forced DNS zone refresh"))
+	require.NoError(t, waitDNSZoneTestResult(t, pollDone, "periodic DNS zone refresh"))
 	current := &v1alpha1.NetworkInfo{}
 	require.NoError(t, c.Get(context.Background(), client.ObjectKeyFromObject(info), current))
 	require.Equal(t, []string{"new.example"}, current.AllowedDNSRecordDomains)
+}
+
+func waitDNSZoneTestResult(t *testing.T, result <-chan error, description string) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for %s", description)
+		return nil
+	}
 }

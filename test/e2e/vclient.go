@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -114,11 +115,11 @@ func createHttpClient() *http.Client {
 	return &http.Client{Transport: transport, Timeout: time.Minute}
 }
 
-// startSessionLocked creates a new session. Caller must hold sessionMutex.
-func (c *vcClient) startSessionLocked() error {
+// startSessionLockedContext creates a new session. Caller must hold sessionMutex.
+func (c *vcClient) startSessionLockedContext(ctx context.Context) error {
 	if c.sessionKey == "" {
 		url := fmt.Sprintf("%s://%s%s", c.url.Scheme, c.url.Host, sessionURLPath)
-		request, err := http.NewRequest(http.MethodPost, url, nil)
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 		if err != nil {
 			return err
 		}
@@ -137,20 +138,30 @@ func (c *vcClient) startSessionLocked() error {
 	return nil
 }
 
-// ensureSession ensures a valid session exists, creating one if needed.
-// This is the preferred method for API calls - it handles session reuse automatically.
-func (c *vcClient) ensureSession() error {
-	c.sessionMutex.Lock()
+// ensureSessionContext ensures a valid session exists, creating one if needed.
+func (c *vcClient) ensureSessionContext(ctx context.Context) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for !c.sessionMutex.TryLock() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 	defer c.sessionMutex.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if c.sessionKey != "" {
 		return nil // Session already exists, reuse it
 	}
-	return c.startSessionLocked()
+	return c.startSessionLockedContext(ctx)
 }
 
-func (c *vcClient) getSupervisorID() (string, error) {
-	if err := c.ensureSession(); err != nil {
+func (c *vcClient) getSupervisorIDContext(ctx context.Context) (string, error) {
+	if err := c.ensureSessionContext(ctx); err != nil {
 		return "", err
 	}
 	urlPath := "/api/vcenter/namespace-management/supervisors/summaries"
@@ -158,6 +169,7 @@ func (c *vcClient) getSupervisorID() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	request = request.WithContext(ctx)
 	var response struct {
 		Items []supervisorSummary `json:"items"`
 	}
@@ -175,7 +187,11 @@ func (c *vcClient) getSupervisorID() (string, error) {
 }
 
 func (c *vcClient) getStoragePolicyID() (string, string, error) {
-	if err := c.ensureSession(); err != nil {
+	return c.getStoragePolicyIDContext(context.Background())
+}
+
+func (c *vcClient) getStoragePolicyIDContext(ctx context.Context) (string, string, error) {
+	if err := c.ensureSessionContext(ctx); err != nil {
 		return "", "", err
 	}
 
@@ -184,6 +200,7 @@ func (c *vcClient) getStoragePolicyID() (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	request = request.WithContext(ctx)
 	// response is a list of storage policy info
 	var response []storagePolicyInfo
 	if _, err = c.handleRequest(request, &response); err != nil {
@@ -222,9 +239,9 @@ func (c *vcClient) getClusterVirtualMachineImage() (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// Get the first content library ID by default
-func (c *vcClient) getContentLibraryID() (string, error) {
-	if err := c.ensureSession(); err != nil {
+// getContentLibraryIDContext returns the first content library ID by default.
+func (c *vcClient) getContentLibraryIDContext(ctx context.Context) (string, error) {
+	if err := c.ensureSessionContext(ctx); err != nil {
 		return "", err
 	}
 
@@ -233,6 +250,7 @@ func (c *vcClient) getContentLibraryID() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	request = request.WithContext(ctx)
 	var response []string
 	if _, err = c.handleRequest(request, &response); err != nil {
 		return "", err
@@ -247,27 +265,25 @@ func (c *vcClient) getContentLibraryID() (string, error) {
 	return "", fmt.Errorf("no valid content library found on vCenter")
 }
 
-func (c *vcClient) createNamespaceWithPreCreatedVPC(namespace string, vpcPath string, supervisorID string) error {
-	if err := c.ensureSession(); err != nil {
-		return err
+func (c *vcClient) createNamespaceWithPreCreatedVPCContext(ctx context.Context, namespace string, vpcPath string, supervisorID string) (int, error) {
+	if err := c.ensureSessionContext(ctx); err != nil {
+		return 0, err
 	}
 	vcNamespace := createVCNamespaceSpec(namespace, supervisorID, vpcPath)
 	data, err := json.Marshal(vcNamespace)
 	if err != nil {
-		return fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
+		return 0, fmt.Errorf("unable convert vcNamespace object to json bytes: %v", err)
 	}
 	request, err := c.prepareRequest(http.MethodPost, createVCNamespaceEndpoint, data)
 	if err != nil {
-		return fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
+		return 0, fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
 	}
-	if _, err = c.handleRequest(request, nil); err != nil {
-		return err
-	}
-	return nil
+	request = request.WithContext(ctx)
+	return c.handleRequest(request, nil)
 }
 
-func (c *vcClient) getNamespaceInfoByName(namespace string) (*VCNamespaceGetInfo, int, error) {
-	if err := c.ensureSession(); err != nil {
+func (c *vcClient) getNamespaceInfoByNameContext(ctx context.Context, namespace string) (*VCNamespaceGetInfo, int, error) {
+	if err := c.ensureSessionContext(ctx); err != nil {
 		return nil, 0, err
 	}
 	urlPath := fmt.Sprintf("/api/vcenter/namespaces/instances/v2/%s", namespace)
@@ -275,6 +291,7 @@ func (c *vcClient) getNamespaceInfoByName(namespace string) (*VCNamespaceGetInfo
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to prepare http request with vcNamespace get: %v", err)
 	}
+	request = request.WithContext(ctx)
 	result := &VCNamespaceGetInfo{}
 	statusCode, err := c.handleRequest(request, result)
 	if err != nil {
@@ -283,8 +300,8 @@ func (c *vcClient) getNamespaceInfoByName(namespace string) (*VCNamespaceGetInfo
 	return result, statusCode, nil
 }
 
-func (c *vcClient) deleteNamespace(namespace string) error {
-	if err := c.ensureSession(); err != nil {
+func (c *vcClient) deleteNamespaceContext(ctx context.Context, namespace string) error {
+	if err := c.ensureSessionContext(ctx); err != nil {
 		return err
 	}
 	urlPath := fmt.Sprintf("/api/vcenter/namespaces/instances/%s", namespace)
@@ -292,7 +309,11 @@ func (c *vcClient) deleteNamespace(namespace string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parepare http request with vcNamespace deletion: %v", err)
 	}
-	if _, err = c.handleRequest(request, nil); err != nil {
+	request = request.WithContext(ctx)
+	if statusCode, err := c.handleRequest(request, nil); err != nil {
+		if statusCode == http.StatusNotFound {
+			return nil
+		}
 		return err
 	}
 	return nil

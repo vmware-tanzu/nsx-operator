@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -245,6 +246,19 @@ func (m *mockIPBlocksInfoService) ResetPeriodicSync() {
 	}
 }
 
+func waitForProcessedTasks(t *testing.T, processed <-chan struct{}, count int) {
+	t.Helper()
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	for i := 0; i < count; i++ {
+		select {
+		case <-processed:
+		case <-timer.C:
+			t.Fatalf("timed out waiting for processed tasks: received %d of %d", i, count)
+		}
+	}
+}
+
 func TestVPCNetworkConfigurationHandler_QueueFIFOAndCompletion(t *testing.T) {
 	const taskCount = 2000
 	mock := &mockIPBlocksInfoService{
@@ -261,14 +275,13 @@ func TestVPCNetworkConfigurationHandler_QueueFIFOAndCompletion(t *testing.T) {
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	handler := NewVPCNetworkConfigurationHandler(fakeClient, nil, mock)
+	t.Cleanup(handler.queue.ShutDown)
 
 	for i := 0; i < taskCount; i++ {
 		handler.enqueueTask(k8stypes.NamespacedName{Name: fmt.Sprintf("vpc-%d", i)})
 	}
 
-	for i := 0; i < taskCount; i++ {
-		<-mock.processed
-	}
+	waitForProcessedTasks(t, mock.processed, taskCount)
 
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
@@ -308,6 +321,7 @@ func TestVPCNetworkConfigurationHandler_QueueConcurrentEnqueue(t *testing.T) {
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	handler := NewVPCNetworkConfigurationHandler(fakeClient, nil, mock)
+	t.Cleanup(handler.queue.ShutDown)
 
 	var wg sync.WaitGroup
 	for g := 0; g < goroutines; g++ {
@@ -322,9 +336,7 @@ func TestVPCNetworkConfigurationHandler_QueueConcurrentEnqueue(t *testing.T) {
 
 	wg.Wait()
 
-	for i := 0; i < totalTasks; i++ {
-		<-mock.processed
-	}
+	waitForProcessedTasks(t, mock.processed, totalTasks)
 
 	mock.mu.Lock()
 	defer mock.mu.Unlock()
@@ -348,12 +360,13 @@ func TestVPCNetworkConfigurationHandler_QueueTaskTypes(t *testing.T) {
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	handler := NewVPCNetworkConfigurationHandler(fakeClient, nil, mock)
+	t.Cleanup(handler.queue.ShutDown)
 
 	handler.enqueueTask(k8stypes.NamespacedName{Name: "test-update-vpc"})
-	<-mock.processed
+	waitForProcessedTasks(t, mock.processed, 1)
 
 	handler.enqueueTask(k8stypes.NamespacedName{Name: "test-delete-vpc"})
-	<-mock.processed
+	waitForProcessedTasks(t, mock.processed, 1)
 
 	mock.mu.Lock()
 	defer mock.mu.Unlock()

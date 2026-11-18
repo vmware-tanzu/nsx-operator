@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1917,7 +1918,7 @@ func TestMixedBatchChecksUnchangedRecordFQDN(t *testing.T) {
 	var mismatch *DNSZoneMismatchError
 	require.True(t, changed)
 	require.ErrorAs(t, err, &mismatch)
-	require.Equal(t, testDNSZonePathZ, <-notifications)
+	require.Equal(t, testDNSZonePathZ, waitDNSResult(t, notifications, "zone mismatch notification"))
 
 	rowB := *NewEndpointRow(extdns.NewEndpoint("b.stable.example", extdns.RecordTypeA, "192.0.2.2"), testDNSZonePathT, "b")
 	next := NewOwnerScopedAggregatedRouteDNS(owner, []EndpointRow{rowA, rowB})
@@ -1927,7 +1928,7 @@ func TestMixedBatchChecksUnchangedRecordFQDN(t *testing.T) {
 	changed, err = env.CreateOrUpdateRecords(ctx, next)
 	require.False(t, changed)
 	require.ErrorAs(t, err, &mismatch)
-	require.Equal(t, testDNSZonePathZ, <-notifications)
+	require.Equal(t, testDNSZonePathZ, waitDNSResult(t, notifications, "retry zone mismatch notification"))
 	require.Equal(t, "a.new.example", *env.DNSRecordStore.GetByKey(pathA).Fqdn)
 	_, pathB, _ := getRecordIDAndPathAndType("b", extdns.RecordTypeA, testDNSZonePathT)
 	require.Nil(t, env.DNSRecordStore.GetByKey(pathB))
@@ -1994,6 +1995,8 @@ func TestStaleBatchWaitingForZoneRefresh(t *testing.T) {
 	zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
 	env.NSXClient.DnsZoneClient = zc
 	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
 	zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").DoAndReturn(func(_, _, _, _ string) (model.DnsZone, error) {
 		close(started)
 		<-release
@@ -2001,21 +2004,24 @@ func TestStaleBatchWaitingForZoneRefresh(t *testing.T) {
 	})
 	refreshDone, writeDone := make(chan error, 1), make(chan error, 1)
 	go func() { _, err := env.RefreshDNSZone(testDNSZonePathZ, false); refreshDone <- err }()
-	<-started
+	waitDNSResult(t, started, "zone refresh to start")
+	writeStarted := make(chan struct{})
 	go func() {
+		close(writeStarted)
 		_, err := env.CreateOrUpdateRecords(context.Background(), NewOwnerScopedAggregatedRouteDNS(owner, rows))
 		writeDone <- err
 	}()
+	waitDNSResult(t, writeStarted, "record update to start")
 	select {
 	case err := <-writeDone:
-		close(release)
-		<-refreshDone
+		releaseOnce.Do(func() { close(release) })
+		waitDNSResult(t, refreshDone, "zone refresh to finish")
 		t.Fatalf("batch did not wait for zone refresh: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
-	close(release)
-	require.NoError(t, <-refreshDone)
-	require.ErrorContains(t, <-writeDone, "changed after endpoint validation")
+	releaseOnce.Do(func() { close(release) })
+	require.NoError(t, waitDNSResult(t, refreshDone, "zone refresh to finish"))
+	require.ErrorContains(t, waitDNSResult(t, writeDone, "record update to finish"), "changed after endpoint validation")
 	require.Empty(t, env.DNSRecordStore.ListDNSRecords())
 }
 

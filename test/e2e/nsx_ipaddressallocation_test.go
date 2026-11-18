@@ -29,7 +29,11 @@ func TestIPAddressAllocation(t *testing.T) {
 	StartParallel(t)
 
 	// Clean up namespace when all IPAddressAllocation tests complete
-	t.Cleanup(func() { CleanupVCNamespaces(NsIPAddressAllocation) })
+	t.Cleanup(func() {
+		if err := CleanupVCNamespaces(NsIPAddressAllocation); err != nil {
+			t.Errorf("cleanup VC namespace: %v", err)
+		}
+	})
 
 	// Use pre-created namespace
 	ns := NsIPAddressAllocation
@@ -56,9 +60,6 @@ func TestIPAddressAllocation(t *testing.T) {
 }
 
 func testIPAddressAllocation(t *testing.T, ns string, yamlPath string, expectedCIDR string) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer deadlineCancel()
-
 	var err error
 
 	// Parse YAML to get CR's name
@@ -75,6 +76,7 @@ func testIPAddressAllocation(t *testing.T, ns string, yamlPath string, expectedC
 	// Delete IPAddressAllocation
 	_ = deleteYAML(ipAllocPath, ns)
 
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
 		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(ctx, ipAllocName, v1.GetOptions{})
 		log.Trace("Check resource", "resp", resp)
@@ -86,14 +88,16 @@ func testIPAddressAllocation(t *testing.T, ns string, yamlPath string, expectedC
 		}
 		return false, nil
 	})
+	deadlineCancel()
 	require.NoError(t, err)
 }
 
 func assureIPAddressAllocationReady(t *testing.T, ns, ipAllocName string) (ips string) {
-	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
+	waitTimeout := 2 * defaultTimeout
+	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer deadlineCancel()
-	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout*2, false, func(ctx context.Context) (done bool, err error) {
-		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(context.Background(), ipAllocName, v1.GetOptions{})
+	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, waitTimeout, false, func(ctx context.Context) (done bool, err error) {
+		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(ctx, ipAllocName, v1.GetOptions{})
 		if err != nil {
 			return false, fmt.Errorf("error when waiting for %s", ipAllocName)
 		}
@@ -116,7 +120,7 @@ func getAllocationCIDR(t *testing.T, ns, ipAllocName string) string {
 
 	var allocCIDR string
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(context.Background(), ipAllocName, v1.GetOptions{})
+		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(ctx, ipAllocName, v1.GetOptions{})
 		if err != nil {
 			return false, fmt.Errorf("error when waiting for %s", ipAllocName)
 		}
@@ -149,7 +153,7 @@ func assertAllocationCIDR(t *testing.T, ns, ipAllocName, expectedCIDR string) {
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer deadlineCancel()
 	err = wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, defaultTimeout, false, func(ctx context.Context) (bool, error) {
-		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(context.Background(), ipAllocName, v1.GetOptions{})
+		resp, err := testData.crdClientset.CrdV1alpha1().IPAddressAllocations(ns).Get(ctx, ipAllocName, v1.GetOptions{})
 		if err != nil {
 			return false, err
 		}

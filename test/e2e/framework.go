@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,7 +52,13 @@ var log = logger.Log
 const (
 	createVCNamespaceEndpoint = "/api/vcenter/namespaces/instances/v2"
 	defaultTimeout            = 60 * time.Second
+	podStartupTimeout         = 2 * time.Minute
+	vcNamespaceDeleteTimeout  = 3 * time.Minute
+	k8sNamespaceDeleteTimeout = 2 * time.Minute
+	vpcNetworkConfigTimeout   = 2 * time.Minute
 	PolicyAPI                 = "policy/api/v1"
+	e2eCRDClientQPS           = 20
+	e2eCRDClientBurst         = 40
 )
 
 type Status int
@@ -175,11 +182,17 @@ func (data *TestData) createClients() error {
 	if err != nil {
 		return fmt.Errorf("error when building kube config: %v", err)
 	}
-	clientSet, err := clientset.NewForConfig(kubeConfig)
+	k8sClientConfig := restclient.CopyConfig(kubeConfig)
+	k8sClientConfig.QPS = e2eCRDClientQPS
+	k8sClientConfig.Burst = e2eCRDClientBurst
+	clientSet, err := clientset.NewForConfig(k8sClientConfig)
 	if err != nil {
 		return fmt.Errorf("error when creating kubernetes client: %v", err)
 	}
-	crdClientset, err := versioned.NewForConfig(kubeConfig)
+	crdClientConfig := restclient.CopyConfig(kubeConfig)
+	crdClientConfig.QPS = e2eCRDClientQPS
+	crdClientConfig.Burst = e2eCRDClientBurst
+	crdClientset, err := versioned.NewForConfig(crdClientConfig)
 	if err != nil {
 		return fmt.Errorf("error when creating nsx-operator CRD client: %v", err)
 	}
@@ -303,25 +316,74 @@ func (data *TestData) createNamespace(namespace string, mutators ...func(ns *cor
 	for _, mutator := range mutators {
 		mutator(&ns)
 	}
-	if ns, err := data.clientset.CoreV1().Namespaces().Create(context.TODO(), &ns, metav1.CreateOptions{}); err != nil {
-		// Ignore error if the namespace already exists
-		if !errors.IsAlreadyExists(err) {
-			return fmt.Errorf("error when creating '%s' Namespace: %v", namespace, err)
-		}
-		// When namespace already exists, check phase
-		if ns.Status.Phase == corev1.NamespaceTerminating {
-			return fmt.Errorf("error when creating '%s' Namespace: namespace exists but is in 'Terminating' phase", namespace)
-		}
+	return data.createK8sNamespace(&ns)
+}
+
+func (data *TestData) createK8sNamespace(ns *corev1.Namespace) error {
+	namespace := ns.Name
+	// Record the name before sending the request so a lost response after a
+	// successful API-side create still leaves it eligible for suite cleanup.
+	createCtx, createCancel, accepted, wasTracked := beginNamespaceCreate(namespace, false)
+	if !accepted {
+		return fmt.Errorf("cannot create Kubernetes namespace %q after suite cleanup has started", namespace)
 	}
+	defer endNamespaceCreate(namespace, false, createCancel)
+	if err := createCtx.Err(); err != nil {
+		return fmt.Errorf("cannot create Kubernetes namespace %q after suite cleanup has started: %w", namespace, err)
+	}
+	// This admitted create request has its own deadline. Final cleanup waits for
+	// it to settle before sending a delete request.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if !trackNamespaceForCleanup(namespace, false) {
+		return fmt.Errorf("cannot create Kubernetes namespace %q after suite cleanup has started", namespace)
+	}
+	ns = ns.DeepCopy()
+	if ns.Annotations == nil {
+		ns.Annotations = make(map[string]string)
+	}
+	cleanupToken := getRandomString() + getRandomString()
+	ns.Annotations[namespaceCleanupAnnotation] = cleanupToken
+	namespaceRegistry.Lock()
+	namespaceRegistry.k8sTokens[namespace] = cleanupToken
+	namespaceRegistry.Unlock()
+	created, err := data.clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+	if err != nil {
+		if !errors.IsAlreadyExists(err) {
+			return fmt.Errorf("error when creating '%s' Namespace: %w", namespace, err)
+		}
+		if !wasTracked {
+			untrackK8sNamespace(namespace)
+		}
+		existing, getErr := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("error when checking existing '%s' Namespace: %w", namespace, getErr)
+		}
+		if existing.Status.Phase == corev1.NamespaceTerminating || existing.DeletionTimestamp != nil {
+			return fmt.Errorf("error when creating '%s' Namespace: namespace exists but is terminating", namespace)
+		}
+		return fmt.Errorf("error when creating '%s' Namespace: namespace already exists", namespace)
+	}
+	namespaceRegistry.Lock()
+	namespaceRegistry.k8s[namespace] = created.UID
+	namespaceRegistry.Unlock()
 	return nil
 }
 
 // createVCNamespace creates a VC namespace with the provided namespace.
 func (data *TestData) createVCNamespace(namespace string) error {
+	// Track before the first request so cleanup covers a create whose response
+	// is lost, and keep cleanup from snapshotting while creation is in flight.
+	createCtx, createCancel, accepted, wasTracked := beginNamespaceCreate(namespace, true)
+	if !accepted {
+		return fmt.Errorf("cannot create VC namespace %q after suite cleanup has started", namespace)
+	}
+	defer endNamespaceCreate(namespace, true, createCancel)
+
 	// the supervisor may in status CONFIGURING, waiting for it to be RUNNING
 	var svID = ""
-	err := wait.PollUntilContextTimeout(context.TODO(), 10*time.Second, 120*time.Second, false, func(ctx context.Context) (done bool, err error) {
-		superID, err := data.vcClient.getSupervisorID()
+	err := wait.PollUntilContextTimeout(createCtx, 10*time.Second, 120*time.Second, false, func(ctx context.Context) (done bool, err error) {
+		superID, err := data.vcClient.getSupervisorIDContext(ctx)
 		if err != nil {
 			log.Error(err, "Failed to get supervisor ID")
 			return false, nil
@@ -334,9 +396,9 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		log.Error(err, "Failed to get supervisor ID")
 		return fmt.Errorf("failed to get supervisor ID: %v", err)
 	}
-	_, storagePolicyID, _ := data.vcClient.getStoragePolicyID()
+	_, storagePolicyID, _ := data.vcClient.getStoragePolicyIDContext(createCtx)
 	log.Debug("Get storage policy", "storagePolicyID", storagePolicyID)
-	contentLibraryID, _ := data.vcClient.getContentLibraryID()
+	contentLibraryID, _ := data.vcClient.getContentLibraryIDContext(createCtx)
 	log.Debug("Get content library", "contentLibraryID", contentLibraryID)
 	vcNamespace := &VCNamespaceCreateSpec{
 		Supervisor: svID,
@@ -363,7 +425,7 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		},
 	}
 
-	// Session will be created automatically by ensureSession() in vcClient methods
+	// Session will be created automatically by ensureSessionContext() in vcClient methods
 	// No need to explicitly start/close sessions - they are reused globally
 
 	dataJson, err := json.Marshal(vcNamespace)
@@ -377,13 +439,32 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		log.Error(err, "Failed to prepare http request with vcNamespace data", "namespace", namespace)
 		return fmt.Errorf("failed to parepare http request with vcNamespace data: %v", err)
 	}
-	if _, err = data.vcClient.handleRequest(request, nil); err != nil {
-		log.Error(err, "Failed to create VC namespace", "namespace", namespace)
-		return err
+	if !trackNamespaceForCleanup(namespace, true) {
+		return fmt.Errorf("cannot create VC namespace %q after suite cleanup has started", namespace)
 	}
+	if err := createCtx.Err(); err != nil {
+		if !wasTracked {
+			untrackVCNamespace(namespace)
+		}
+		return fmt.Errorf("cannot create VC namespace %q after suite cleanup has started: %w", namespace, err)
+	}
+	requestCtx, requestCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer requestCancel()
+	request = request.WithContext(requestCtx)
+	statusCode, requestErr := data.vcClient.handleRequest(request, nil)
+	if requestErr != nil {
+		if statusCode == http.StatusConflict && !wasTracked {
+			untrackVCNamespace(namespace)
+		}
+		log.Error(requestErr, "Failed to create VC namespace", "namespace", namespace)
+		return requestErr
+	}
+	namespaceRegistry.Lock()
+	namespaceRegistry.vc[namespace] = true
+	namespaceRegistry.Unlock()
 	// wait for the namespace on k8s running
-	err = wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
+	err = wait.PollUntilContextTimeout(createCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
+		ns, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -400,78 +481,168 @@ func (data *TestData) createVCNamespace(namespace string) error {
 		return false, nil
 	})
 	if err != nil {
-		testData.deleteVCNamespace(namespace)
+		if !stderror.Is(err, context.Canceled) {
+			deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			_ = data.vcClient.deleteNamespaceContext(deleteCtx, namespace)
+			deleteCancel()
+		}
 	}
 	return err
 }
 
-// deleteVCNamespace deletes the provided VC namespace and waits for deletion to actually complete.
-// It first checks if the namespace exists to avoid unnecessary API calls.
+// deleteVCNamespace requests deletion through the VC API and waits for Kubernetes to observe it.
 func (data *TestData) deleteVCNamespace(namespace string) error {
-	// Session will be created automatically by ensureSession() in vcClient methods
-	// No need to explicitly start/close sessions - they are reused globally
+	log.Info("Deleting VC namespace", "namespace", namespace)
+	ctx, cancel := context.WithTimeout(context.Background(), vcNamespaceDeleteTimeout)
+	defer cancel()
+	if err := data.vcClient.deleteNamespaceContext(ctx, namespace); err != nil {
+		return fmt.Errorf("failed to delete VC namespace %q: %w", namespace, err)
+	}
 
-	// First check if namespace exists in K8s
-	_, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
-	if err != nil {
-		if errors.IsNotFound(err) {
-			log.Info("Namespace already deleted, skipping", "namespace", namespace)
-			return nil
-		}
-		log.Error(err, "Failed to check namespace existence", "namespace", namespace)
+	if err := data.waitForNamespaceDeletionContext(ctx, namespace, vcNamespaceDeleteTimeout); err != nil {
 		return err
 	}
-
-	// Namespace exists, proceed with deletion
-	log.Info("Deleting VC namespace", "namespace", namespace)
-	_ = testData.vcClient.deleteNamespace(namespace)
-
-	// Wait for the namespace to be deleted from K8s
-	err = wait.PollUntilContextTimeout(context.TODO(), 2*time.Second, defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
-		if err != nil {
-			if errors.IsNotFound(err) {
-				log.Info("Namespace successfully deleted", "namespace", namespace)
-				return true, nil
-			}
-			log.Error(err, "Check namespace existence during deletion", "namespace", namespace)
-			return false, err
-		}
-		log.Debug("Waiting for namespace to be deleted", "namespace", namespace, "status phase", ns.Status.Phase)
-		return false, nil
-	})
-	return err
+	untrackVCNamespace(namespace)
+	return nil
 }
 
-// deleteNamespace deletes the provided namespace and waits for deletion to actually complete.
-func (data *TestData) deleteNamespace(namespace string, timeout time.Duration) error {
+// deleteNamespace deletes the provided Kubernetes namespace and waits for deletion to complete.
+func (data *TestData) deleteNamespace(namespace string) error {
+	return data.deleteNamespaceWithTimeout(namespace, k8sNamespaceDeleteTimeout)
+}
+
+func (data *TestData) deleteNamespaceWithTimeout(namespace string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	var gracePeriodSeconds int64
 	propagationPolicy := metav1.DeletePropagationForeground
 	deleteOptions := metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
 		PropagationPolicy:  &propagationPolicy,
 	}
-	if err := data.clientset.CoreV1().Namespaces().Delete(context.TODO(), namespace, deleteOptions); err != nil {
+	namespaceRegistry.Lock()
+	uid, tracked := namespaceRegistry.k8s[namespace]
+	token := namespaceRegistry.k8sTokens[namespace]
+	namespaceRegistry.Unlock()
+	if tracked {
+		if uid == "" {
+			observed, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+			if err != nil {
+				if errors.IsNotFound(err) {
+					untrackK8sNamespace(namespace)
+					return nil
+				}
+				return fmt.Errorf("cannot resolve uncertain creation of namespace %q: %w", namespace, err)
+			}
+			if token == "" || observed.Annotations[namespaceCleanupAnnotation] != token {
+				return fmt.Errorf("cannot establish ownership of namespace %q", namespace)
+			}
+			uid = observed.UID
+		}
+		deleteOptions.Preconditions = &metav1.Preconditions{UID: &uid}
+	}
+	if err := data.clientset.CoreV1().Namespaces().Delete(ctx, namespace, deleteOptions); err != nil {
 		if errors.IsNotFound(err) {
 			// namespace does not exist, we return right away
+			untrackK8sNamespace(namespace)
 			return nil
 		}
 		return fmt.Errorf("error when deleting '%s' Namespace: %v", namespace, err)
 	}
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if ns, err := data.clientset.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{}); err != nil {
-			if errors.IsNotFound(err) {
-				// Success
-				return true, nil
-			}
-			return false, fmt.Errorf("error when getting Namespace '%s' after delete: %v", namespace, err)
-		} else if ns.Status.Phase != corev1.NamespaceTerminating {
-			return false, fmt.Errorf("deleted Namespace '%s' should be in 'Terminating' phase", namespace)
+	if err := data.waitForNamespaceDeletionContext(ctx, namespace, timeout); err != nil {
+		return err
+	}
+	untrackK8sNamespace(namespace)
+	return nil
+}
+
+func (data *TestData) waitForNamespaceDeletionContext(ctx context.Context, namespace string, timeout time.Duration) error {
+	var lastErr error
+	var lastNamespace *corev1.Namespace
+	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		observed, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			log.Info("Namespace successfully deleted", "namespace", namespace)
+			return true, nil
 		}
-		// Keep trying
+		if err != nil {
+			lastErr = err
+			if isRetryableAPIError(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("error when checking Namespace %q deletion: %w", namespace, err)
+		}
+		lastErr = nil
+		lastNamespace = observed
 		return false, nil
 	})
-	return err
+	if err != nil {
+		if lastNamespace != nil {
+			log.Info("Last observed Namespace before deletion wait failed", "namespace", namespace,
+				"phase", lastNamespace.Status.Phase, "deletionTimestamp", lastNamespace.DeletionTimestamp,
+				"finalizers", lastNamespace.Spec.Finalizers, "conditions", lastNamespace.Status.Conditions)
+		}
+		data.logNamespaceDeletionDiagnostics(namespace)
+		return fmt.Errorf("timed out or failed waiting for Namespace %q deletion after %s: %w; last GET error: %v", namespace, timeout, err, lastErr)
+	}
+	return nil
+}
+
+func (data *TestData) logNamespaceDeletionDiagnostics(namespace string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ns, err := data.clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		log.Error(err, "Failed to inspect Namespace after deletion wait", "namespace", namespace)
+		return
+	}
+	log.Error(nil, "Namespace deletion is still pending", "namespace", namespace, "phase", ns.Status.Phase,
+		"deletionTimestamp", ns.DeletionTimestamp, "finalizers", ns.Spec.Finalizers, "conditions", ns.Status.Conditions)
+
+	events, err := data.clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Error(err, "Failed to list Namespace events after deletion wait", "namespace", namespace)
+	} else {
+		for _, event := range events.Items {
+			log.Info("Namespace cleanup event", "namespace", namespace, "type", event.Type, "reason", event.Reason,
+				"object", event.InvolvedObject.Kind+"/"+event.InvolvedObject.Name, "message", event.Message,
+				"count", event.Count, "lastTimestamp", event.LastTimestamp)
+		}
+	}
+
+	cmdCtx, cmdCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cmdCancel()
+	output, cmdErr := exec.CommandContext(cmdCtx, "kubectl", "get", "all", "--ignore-not-found", "-n", namespace, "-o", "wide").CombinedOutput()
+	if cmdErr != nil {
+		log.Error(cmdErr, "Failed to list remaining standard resources in Namespace", "namespace", namespace, "output", string(output), "contextError", cmdCtx.Err())
+	} else if len(output) > 0 {
+		log.Info("Remaining standard resources in Namespace", "namespace", namespace, "resources", string(output))
+	}
+}
+
+func isRetryableAPIError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	return errors.IsTooManyRequests(err) || strings.Contains(err.Error(), "client rate limiter Wait returned an error") ||
+		strings.Contains(err.Error(), "rate: Wait(") || errors.IsTimeout(err) || errors.IsServerTimeout(err) ||
+		errors.IsServiceUnavailable(err) || (stderror.As(err, &netErr) && netErr.Timeout()) || strings.Contains(err.Error(), "http2: client connection lost")
+}
+
+var webhookDiagnosticsOnce sync.Once
+
+func collectWebhookDiagnostics() {
+	webhookDiagnosticsOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		for _, ns := range []string{"vmware-system-nsx", "vmware-system-vmop"} {
+			output, err := exec.CommandContext(ctx, "kubectl", "get", "pods,services,endpointslices,events", "-n", ns, "-o", "wide", "--request-timeout=5s").CombinedOutput()
+			log.Info("Webhook diagnostic snapshot", "namespace", ns, "output", string(output), "error", err)
+		}
+	})
 }
 
 type PodCondition func(*corev1.Pod) (bool, error)
@@ -483,7 +654,7 @@ func (data *TestData) deploymentWaitForNames(timeout time.Duration, namespace, d
 		LabelSelector: "deployment=" + deployment,
 	}
 	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if pods, err := data.clientset.CoreV1().Pods(namespace).List(context.TODO(), opt); err != nil {
+		if pods, err := data.clientset.CoreV1().Pods(namespace).List(ctx, opt); err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
@@ -510,20 +681,30 @@ type PodIPs struct {
 // podWaitFor polls the K8s apiServer until the specified Pod is found (in the test Namespace) and
 // the condition predicate is met (or until the provided timeout expires).
 func (data *TestData) podWaitFor(timeout time.Duration, name, namespace string, condition PodCondition) (*corev1.Pod, error) {
-	err := wait.PollUntilContextTimeout(context.TODO(), 1*time.Second, timeout, false, func(ctx context.Context) (bool, error) {
-		if pod, err := data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{}); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var readyPod *corev1.Pod
+	err := wait.PollUntilContextTimeout(ctx, time.Second, timeout, false, func(ctx context.Context) (bool, error) {
+		pod, err := data.clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
 			}
 			return false, fmt.Errorf("error when getting Pod '%s': %v", name, err)
-		} else {
-			return condition(pod)
 		}
+		if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+			return false, fmt.Errorf("pod %s/%s reached terminal phase %s: %s %s", namespace, name, pod.Status.Phase, pod.Status.Reason, pod.Status.Message)
+		}
+		ready, err := condition(pod)
+		if ready {
+			readyPod = pod
+		}
+		return ready, err
 	})
 	if err != nil {
 		return nil, err
 	}
-	return data.clientset.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	return readyPod, nil
 }
 
 func (data *TestData) vmWaitFor(timeout time.Duration, namespace, vmName string) (string, error) {
@@ -574,6 +755,7 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 	})
 	if err != nil {
 		log.Error(err, "Failed to wait for Pod becoming RUNNING phase", "Pod", name)
+		data.logPodReadinessDiagnostics(namespace, name)
 		return nil, err
 	}
 	// According to the K8s API documentation (https://godoc.org/k8s.io/api/core/v1#PodStatus),
@@ -608,6 +790,32 @@ func (data *TestData) podWaitForIPs(timeout time.Duration, name, namespace strin
 		}
 	}
 	return ips, nil
+}
+
+func (data *TestData) logPodReadinessDiagnostics(namespace, name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pod, err := data.clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		log.Error(err, "Failed to inspect Pod after readiness wait", "namespace", namespace, "pod", name)
+	} else {
+		log.Error(nil, "Pod did not become ready before timeout", "namespace", namespace, "pod", name,
+			"phase", pod.Status.Phase, "node", pod.Spec.NodeName, "podIP", pod.Status.PodIP,
+			"reason", pod.Status.Reason, "message", pod.Status.Message, "conditions", pod.Status.Conditions,
+			"containerStatuses", pod.Status.ContainerStatuses, "initContainerStatuses", pod.Status.InitContainerStatuses)
+	}
+
+	events, err := data.clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "involvedObject.name=" + name,
+	})
+	if err != nil {
+		log.Error(err, "Failed to list Pod events after readiness wait", "namespace", namespace, "pod", name)
+		return
+	}
+	for _, event := range events.Items {
+		log.Info("Pod readiness event", "namespace", namespace, "pod", name, "type", event.Type,
+			"reason", event.Reason, "message", event.Message, "count", event.Count, "lastTimestamp", event.LastTimestamp)
+	}
 }
 
 // deploymentWaitForIPsOrNames polls the K8s apiServer until the specified Pod in deployment has an IP address
@@ -725,8 +933,11 @@ func applyYAML(filename string, ns string) error {
 	_, errorString := stdout.String(), stderr.String()
 
 	if err != nil {
-		log.Info("Failed to execute", "cmd error", err, "detail error", errorString)
-		return fmt.Errorf("failed to apply YAML: %w", err)
+		log.Info("Failed to execute", "cmd error", err, "stdout", stdout.String(), "stderr", errorString)
+		if strings.Contains(errorString, "failed calling webhook") {
+			collectWebhookDiagnostics()
+		}
+		return fmt.Errorf("failed to apply YAML %q in namespace %q: %w (stdout: %s; stderr: %s)", filename, ns, err, stdout.String(), errorString)
 	}
 	return nil
 }

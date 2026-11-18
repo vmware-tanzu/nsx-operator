@@ -6,6 +6,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,9 +25,8 @@ import (
 
 const (
 	vpcNetworkConfigCRName = "default"
-	// subnetDeletionTimeout requires a bigger value than defaultTimeout, it's because that it takes some time for NSX to
-	// recycle allocated IP addresses and NSX VPCSubnet won't be deleted until all IP addresses have been recycled.
-	subnetDeletionTimeout = 600 * time.Second
+	// NSX must recycle allocated IPs before deleting VPC subnets.
+	subnetDeletionTimeout = 10 * time.Minute
 )
 
 var (
@@ -71,6 +71,23 @@ func TestSubnetSet(t *testing.T) {
 	TrackTest(t)
 	StartParallel(t)
 	setupTest(t, subnetTestNamespace)
+	createdNamespaces := map[string]bool{subnetTestNamespace: true}
+	t.Cleanup(func() {
+		var cleanup sync.WaitGroup
+		for _, namespace := range []string{subnetTestNamespace, subnetTestNamespaceShared, subnetTestNamespaceTarget} {
+			if !createdNamespaces[namespace] {
+				continue
+			}
+			cleanup.Add(1)
+			go func(namespace string) {
+				defer cleanup.Done()
+				if err := testData.deleteNamespaceWithTimeout(namespace, subnetDeletionTimeout); err != nil {
+					t.Errorf("Error deleting namespace %q: %v", namespace, err)
+				}
+			}(namespace)
+		}
+		cleanup.Wait()
+	})
 
 	targetNs := &corev1.Namespace{
 		ObjectMeta: v1.ObjectMeta{
@@ -80,11 +97,9 @@ func TestSubnetSet(t *testing.T) {
 			},
 		},
 	}
-	_, err := testData.clientset.CoreV1().Namespaces().Create(context.TODO(), targetNs, v1.CreateOptions{})
+	err := testData.createK8sNamespace(targetNs)
 	require.NoError(t, err)
-	defer func() {
-		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), subnetTestNamespaceTarget, v1.DeleteOptions{})
-	}()
+	createdNamespaces[subnetTestNamespaceTarget] = true
 
 	sharedNs := &corev1.Namespace{
 		ObjectMeta: v1.ObjectMeta{
@@ -94,17 +109,9 @@ func TestSubnetSet(t *testing.T) {
 			},
 		},
 	}
-	_, err = testData.clientset.CoreV1().Namespaces().Create(context.TODO(), sharedNs, v1.CreateOptions{})
+	err = testData.createK8sNamespace(sharedNs)
 	require.NoError(t, err)
-	defer func() {
-		_ = testData.clientset.CoreV1().Namespaces().Delete(context.TODO(), subnetTestNamespaceShared, v1.DeleteOptions{})
-	}()
-
-	t.Cleanup(func() {
-		teardownTest(t, subnetTestNamespace, subnetDeletionTimeout)
-		teardownTest(t, subnetTestNamespaceShared, subnetDeletionTimeout)
-		teardownTest(t, subnetTestNamespaceTarget, subnetDeletionTimeout)
-	})
+	createdNamespaces[subnetTestNamespaceShared] = true
 
 	// SequentialTests: These tests share subnetTestNamespace and create/modify subnets
 	// that may affect each other, so they MUST run sequentially
@@ -135,7 +142,11 @@ func TestSubnetPrecreated(t *testing.T) {
 	precreatedSubnetNsTargetNs = NsSubnetPrecreatedTarget
 
 	// Clean up namespaces when all subnet tests complete
-	t.Cleanup(func() { CleanupVCNamespaces(NsSubnetPrecreated1, NsSubnetPrecreated2, NsSubnetPrecreatedTarget) })
+	t.Cleanup(func() {
+		if err := CleanupVCNamespaces(NsSubnetPrecreated1, NsSubnetPrecreated2, NsSubnetPrecreatedTarget); err != nil {
+			t.Errorf("cleanup pre-created subnet VC namespaces: %v", err)
+		}
+	})
 
 	// SequentialTests: These tests share precreated subnet namespaces and have dependencies
 	// between tests (e.g., AddPath depends on Basic), so they MUST run sequentially
@@ -508,7 +519,7 @@ func assureSubnet(t *testing.T, ns, subnetName string, conditionMsg string) (res
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		res, err = testData.crdClientset.CrdV1alpha1().Subnets(ns).Get(context.Background(), subnetName, v1.GetOptions{})
+		res, err = testData.crdClientset.CrdV1alpha1().Subnets(ns).Get(ctx, subnetName, v1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -532,7 +543,7 @@ func assureSubnetSet(t *testing.T, ns, subnetSetName string) (res *v1alpha1.Subn
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		res, err = testData.crdClientset.CrdV1alpha1().SubnetSets(ns).Get(context.Background(), subnetSetName, v1.GetOptions{})
+		res, err = testData.crdClientset.CrdV1alpha1().SubnetSets(ns).Get(ctx, subnetSetName, v1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
@@ -580,7 +591,7 @@ func assureSubnetPort(t *testing.T, ns, subnetPortName string, condition func(su
 	deadlineCtx, deadlineCancel := context.WithTimeout(context.Background(), 2*defaultTimeout)
 	defer deadlineCancel()
 	err := wait.PollUntilContextTimeout(deadlineCtx, 1*time.Second, 2*defaultTimeout, false, func(ctx context.Context) (done bool, err error) {
-		res, err = testData.crdClientset.CrdV1alpha1().SubnetPorts(ns).Get(context.Background(), subnetPortName, v1.GetOptions{})
+		res, err = testData.crdClientset.CrdV1alpha1().SubnetPorts(ns).Get(ctx, subnetPortName, v1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				return false, nil
