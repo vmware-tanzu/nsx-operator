@@ -1722,7 +1722,7 @@ func (c *portConfigCreateFailureClient) Create(ctx context.Context, obj client.O
 }
 
 func TestOnDemandPortConfigFailureRetries(t *testing.T) {
-	for _, failure := range []string{"NSX List", "NSX List NotFound", "Kubernetes Create"} {
+	for _, failure := range []string{"NSX List", "NSX List InternalServerError", "Kubernetes Create"} {
 		for _, throughCaller := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/caller=%t", failure, throughCaller), func(t *testing.T) {
 				ctx := context.Background()
@@ -1737,8 +1737,8 @@ func TestOnDemandPortConfigFailureRetries(t *testing.T) {
 				writeClient := &portConfigCreateFailureClient{Client: r.Client}
 				r.Client = writeClient
 				sourceErr := errors.New("temporary PortConfig synchronization failure")
-				if failure == "NSX List NotFound" {
-					sourceErr = nsxutil.CreateResourceNotFound("manager", "list PortSettings")
+				if failure == "NSX List InternalServerError" {
+					sourceErr = nsxutil.NewNSXApiError(&model.ApiError{}, apierrors.ErrorType_INTERNAL_SERVER_ERROR)
 				}
 				var listErr error
 				if failure != "Kubernetes Create" {
