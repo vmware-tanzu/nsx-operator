@@ -63,3 +63,17 @@ func TestSubnetDHCPStatsStorage_ConvertToTable_Error(t *testing.T) {
 func TestSubnetDHCPStatsStorage_Destroy(t *testing.T) {
 	(&subnetDHCPStatsStorage{}).Destroy()
 }
+
+func TestSubnetDHCPStatsStorage_ConvertToTable_IPv6(t *testing.T) {
+	r := newSubnetDHCPStatsREST()
+	obj := &easv1alpha1.SubnetDHCPServerStats{
+		ObjectMeta: metav1.ObjectMeta{Name: "sub-v6", Namespace: "ns1"},
+		IPv6PoolStats: []easv1alpha1.DHCPIPv6IPPoolUsage{
+			{AllocatedPercentage: 12.5, PoolSize: "18446744073709551616"},
+		},
+	}
+	table, err := r.ConvertToTable(context.Background(), obj, nil)
+	require.NoError(t, err)
+	require.Len(t, table.Rows, 1)
+	assert.Equal(t, []interface{}{"sub-v6", "ipv6-pool-0(alloc:12.5%,size:18446744073709551616)"}, table.Rows[0].Cells)
+}
