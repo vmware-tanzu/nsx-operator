@@ -188,12 +188,13 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 		req: controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "name"}},
 	}
 	tests := []struct {
-		name        string
-		prepareFunc func(*testing.T, *NetworkInfoReconciler, context.Context) *gomonkey.Patches
-		verifyFunc  func(*testing.T, *NetworkInfoReconciler)
-		args        args
-		want        controllerruntime.Result
-		wantErr     bool
+		name              string
+		prepareFunc       func(*testing.T, *NetworkInfoReconciler, context.Context) *gomonkey.Patches
+		verifyFunc        func(*testing.T, *NetworkInfoReconciler)
+		customStatusWrite bool
+		args              args
+		want              controllerruntime.Result
+		wantErr           bool
 	}{
 		{
 			name: "Empty",
@@ -982,7 +983,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Pre-create VPC without attachment",
+			name:              "Pre-create VPC without attachment",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1043,7 +1045,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Pre-create VPC without attachment with AVILB enabled",
+			name:              "Pre-create VPC without attachment with AVILB enabled",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1114,7 +1117,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Pre-create VPC without attachment with NSXLB",
+			name:              "Pre-create VPC without attachment with NSXLB",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1272,7 +1276,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "DNS zones in VpcNetworkConfiguration",
+			name:              "DNS zones in VpcNetworkConfiguration",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1573,10 +1578,16 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			r := createNetworkInfoReconciler([]client.Object{ns1})
 			v1alpha1.AddToScheme(r.Scheme)
 			ctx := context.TODO()
+			patches := &gomonkey.Patches{}
 			if tt.prepareFunc != nil {
-				patches := tt.prepareFunc(t, r, ctx)
-				defer patches.Reset()
+				patches = tt.prepareFunc(t, r, ctx)
 			}
+			if !tt.customStatusWrite {
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS, func(context.Context, client.Client, string, string, string, string, string) error {
+					return nil
+				})
+			}
+			defer patches.Reset()
 			got, err := r.Reconcile(ctx, tt.args.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Reconcile() error = %v, wantErr %v", err, tt.wantErr)
@@ -1630,6 +1641,9 @@ func TestNetworkInfoReconciler_Reconcile_ExternalIPBlockInSystemVPC(t *testing.T
 				return servicecommon.SystemVPCNetworkConfigurationName, nil
 			})
 			defer patches.Reset()
+			patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS, func(context.Context, client.Client, string, string, string, string, string) error {
+				return nil
+			})
 
 			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
 				return &v1alpha1.VPCNetworkConfiguration{

@@ -1,0 +1,15 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v1
+kind: Service
+metadata:
+  name: supervisor-network-migration-admission
+  namespace: vmware-system-nsx
+spec:
+  selector:
+    component: nsx-ncp
+  ports:
+    - name: https
+      port: 443
+      targetPort: 9982
+      protocol: TCP

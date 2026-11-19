@@ -21,7 +21,7 @@ Package v1alpha1 defines the Supervisor network transition API.
 
 _Underlying type:_ _string_
 
-Action selects an explicit migration operation.
+Action selects an explicit migration operation. Plan and Derive are internal Execute phases, not API actions.
 
 _Validation:_
 - Enum: [Evaluate Execute Rollback Commit Finalize]

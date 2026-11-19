@@ -1,0 +1,75 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: supervisor-network-migration-workload-cutover
+  annotations:
+    cert-manager.io/inject-ca-from: vmware-system-nsx/supervisor-network-migration-admission
+webhooks:
+  - name: workload-cutover.migration.network.vmware.com
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    timeoutSeconds: 5
+    # The admission endpoint runs in nsx-ncp Pods. Allow those Pods to restart
+    # when the webhook has no ready endpoints so it cannot block its own recovery.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [vmware-system-nsx]
+    clientConfig:
+      service:
+        namespace: vmware-system-nsx
+        name: supervisor-network-migration-admission
+        path: /validate-migration-workload
+        port: 443
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [pods]
+        scope: Namespaced
+  - name: virtualmachine-cutover.migration.network.vmware.com
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    timeoutSeconds: 5
+    clientConfig:
+      service:
+        namespace: vmware-system-nsx
+        name: supervisor-network-migration-admission
+        path: /validate-migration-workload
+        port: 443
+    rules:
+      - apiGroups: [vmoperator.vmware.com]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [virtualmachines]
+        scope: Namespaced
+  - name: service-cutover.migration.network.vmware.com
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    timeoutSeconds: 5
+    clientConfig:
+      service:
+        namespace: vmware-system-nsx
+        name: supervisor-network-migration-admission
+        path: /validate-migration-workload
+        port: 443
+    matchConditions:
+      - name: service-is-loadbalancer
+        expression: >-
+          (object != null && has(object.spec) && has(object.spec.type) && object.spec.type == 'LoadBalancer') ||
+          (oldObject != null && has(oldObject.spec) && has(oldObject.spec.type) && oldObject.spec.type == 'LoadBalancer')
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [services]
+        scope: Namespaced

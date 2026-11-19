@@ -18,7 +18,8 @@ CRD definitions, and packaging. Concrete external migration handlers are still p
 ## Framework and services
 
 - `cmd_migration`: independent controller manager; no normal NSX controllers,
-  webhook servers, `electMaster` calls, or `nsx-operator-role` label changes.
+  `electMaster` calls, or `nsx-operator-role` label changes. A migration
+  admission server can be enabled independently of the transition controllers.
 - `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.network.vmware.com/v1alpha1.
 - `pkg/migration/controllers` and `pkg/migration/transition`: live dependency gates,
   action checkpoints, namespace rollback, infrastructure forward retry, and
@@ -355,9 +356,12 @@ records Evaluate. The same request-time guard applies
 to control-plane project/provider selection. The existing checkpoint-based
 freeze remains, with one Namespace-only exception: `networkConfiguration` may
 change with requested action `Evaluate` when the stored `status.lastAction` is
-`Rollback`, `status.actionState` is `Succeeded`, and no `irreversibleAction`
-checkpoint exists. The action and inputs may change together or in separate
-updates. Running, failed, or incomplete rollback checkpoints do not reopen edits.
+`Rollback`, `status.actionState` is `Succeeded`, `status.phase` is `RolledBack`,
+both `status.actionGeneration` and `status.observedGeneration` match the current
+metadata generation, and no `irreversibleAction` checkpoint exists. This records
+verified whole-batch restoration and invalidates the previous Execute results.
+The action and inputs may change together or in separate updates. Running, failed,
+stale, or incomplete rollback checkpoints do not reopen edits.
 Syntax validation and the requirement for fresh evaluation still apply; edits
 cannot accompany a request for Execute. Infrastructure has no rollback exception.
 Discovery-dependent checks, including subnet membership, ordered DHCP
@@ -422,12 +426,118 @@ handler must verify restoration of the whole batch and invalidate the previous
 evaluation results and any prepared target state. That handler work remains separate; the schema
 exception does not perform rollback or verify external state.
 
-Evaluate-to-Execute freshness belongs to admission work WBS 1.1.4.1. For that action
-change, require the old object's successful Evaluate checkpoint to have
-`status.actionGeneration == oldObject.metadata.generation`. `observedGeneration`
-alone is not proof of success; the new generation changes with the Execute request.
-This separately tracked admission integration remains pending. No
-`evaluatedSpecHash` field is added.
+Evaluate-to-Execute freshness is enforced by the transition-validation webhook
+for both transition kinds. The old object's successful Evaluate checkpoint must
+have matching `actionGeneration` and `observedGeneration` values equal to
+`oldObject.metadata.generation`; a newer spec generation requires a fresh
+Evaluate. The webhook admits only the action edges appropriate to each CR kind,
+requires successful current Execute before Commit/Finalize, and permits Evaluate
+after Namespace Rollback only for a current, successful `RolledBack` checkpoint.
+CRD validation freezes all inputs once Execute is requested; the design-internal
+plan/derive work remains inside that action. It is not active until the admission
+server and its ValidatingWebhookConfiguration are deployed. No `evaluatedSpecHash`
+field is added. The namespace lifecycle validator is wired separately below.
+
+The webhook checks both transition kinds through a direct API reader and rejects
+an observed active conflicting Execute. This best-effort check reduces conflicting
+requests before they are stored; two simultaneous requests can still both pass the
+list-before-write check. The 1.4.9 dispatch path must re-read live transition state
+before execution as the race backstop. This is not a durable global lock.
+
+The webhook requires a new transition to start with Evaluate. Unchanged Execute,
+Rollback, Commit and Finalize requests remain retryable. Namespace Rollback may
+be requested only for a current checkpointed Execute before the irreversible
+Commit boundary. Inputs reopen only after successful whole-batch Rollback. The
+transition webhook rejects deletion while an action is unresolved and performs a
+best-effort cross-CR Execute check. Namespace lifecycle protection is described
+below. Workload admission has a separate fail-closed baseline, while its controller
+exceptions and atomic concurrency guarantee remain separate work.
+
+### Deploying the transition-validation webhook
+
+The admission server is opt-in via `--enable-migration-admission`, independent
+of `--enable-network-migration` and leader election. It serves on port 9982
+and reads `tls.crt`/`tls.key` from `/etc/nsx-operator/migration-webhook-certs`
+by default; `--migration-admission-port` and `--migration-admission-cert-dir`
+override these settings. The server is available on every configured Pod,
+including non-leaders, and the readiness check waits for it to start.
+
+The configuration also installs a `SupervisorNamespace` lifecycle validator for
+`iaas.vmware.com/v1alpha1` and `v1alpha2`. During Stage 1, implicit and
+explicit VDS creation is allowed, while an explicit VPC provider or
+`spec.vpcNetworkConfig` is rejected because VPC is not ready yet.
+After the control-plane transition reaches `InfraTransitionComplete` or
+`Finalized`, creation is rejected when the object explicitly selects VDS or has
+non-empty VDS network/portgroup fields. If provider selection is omitted, the
+Supervisor Namespace API defaults the new namespace to VPC.
+
+For namespaces named in an unresolved `NamespaceNetworkTransition`, create,
+delete and user updates are rejected. The shared NCP Pod identity
+`system:serviceaccount:<operator-namespace>:ncp-svc-account` may change only
+`spec.vpcNetworkConfig`, and only while the matching Execute or Rollback
+checkpoint is Running or Failed. Protection is derived from the transition's
+namespace list, requested action and durable status; API read failures and
+multiple active transitions fail closed. Protection ends only after a current,
+successful Completed/Committed or whole-batch RolledBack checkpoint.
+
+`build/yaml/migration/admission/` supplies a Service and a cert-manager Issuer
+and Certificate. Its kustomization intentionally excludes both validating
+webhook configurations, so applying it alone cannot install a fail-closed
+webhook before a serving endpoint is ready. The separate webhook YAML files are
+opt-in resources. The container
+patch enables the admission server, exposes port 9982, and mounts the TLS Secret
+at `/etc/nsx-operator/migration-webhook-certs`. Downstream packaging must use
+the actual Pod labels and provide equivalent wiring and certificate/CA
+injection if it does not use these manifests. When changing the port or
+namespace, update the Service, certificate DNS names, webhook configuration,
+and mounted Secret in concert.
+
+Install the certificate and Service:
+
+```sh
+kubectl apply -k build/yaml/migration/admission
+```
+
+Then merge the container patch into the NCP Deployment. Wait for the Secret to
+be ready and every Service-selected Pod to serve the admission endpoint. Only
+then explicitly install `build/yaml/migration/admission/webhook.yaml` and
+`build/yaml/migration/admission/namespace-webhook.yaml`. Both configurations
+are fail-closed for their respective resources; status subresources are not
+selected. Install this
+admission before enabling concrete migration action handlers. Remove or
+replace the webhook configuration before disabling its serving endpoint.
+
+`build/yaml/migration/admission/workload-webhook.yaml` is a separate, opt-in
+guard for Pods, VirtualMachines and LoadBalancer Services. Its Service entry
+filters out non-LB Services before calling the webhook; Pod and VM requests
+still call it. During Stage 1, a workload is in scope when its namespace is a
+system namespace identified by the existing WCP T1 or shared-VPC namespace
+markers and the `ControlPlaneNetworkTransition` has an unresolved Execute.
+This guard does not inspect or change `SupervisorNamespace.spec.networking`;
+the `vsphereNetworkConfig` to `vpcNetworkConfig` handoff belongs to WBS 1.4.6.
+During Stage 2, a workload is in scope when its namespace is listed in an
+unresolved `NamespaceNetworkTransition`. In either scope, users cannot create,
+update or delete protected workloads. Updates are allowed only for configured
+controller identities and only after the matching Execute checkpoint is
+Running or Failed; RBAC governs resource and verb access. The webhook does not
+maintain a controller-to-field diff matrix. The namespace lifecycle guard
+retains its specific NCP-only ownership rule for `spec.vpcNetworkConfig`.
+
+The fixed workload controller identities observed on TB1 are NCP
+(`vmware-system-nsx:ncp-svc-account`), Net Operator
+(`vmware-system-netop:vmware-system-netop-controller-manager`), VM Operator
+(`vmware-system-vmop:vmware-system-vmop-vmoperator-service-account`) and AKO
+(`vmware-system-ako:vmware-system-ako-controller-manager`). WBS 1.6.2 does not
+require these identities to be configurable or checked during startup.
+**TODO:** Confirm whether Spherelet's `system:node:*` identity needs main-resource
+updates during migration and whether the current controller list matches the
+required write paths. Keep identities fixed while the package identity contract
+remains stable. The workload webhook configuration remains opt-in and must be
+installed before enabling migration handlers. The Execute inventory barrier and
+cutover handlers must reconcile requests admitted before protection took effect.
+Status subresources are outside this webhook; downstream packaging must verify
+their controller RBAC. The transition and namespace lifecycle webhooks above do
+not depend on this guard.
 
 VCFA Namespace onboarding and project selection belong to the VCFA client
 workstream: every Namespace must be imported before confirmation/Commit, using
@@ -452,16 +562,21 @@ Keep source identities/backing available through existing child/workflow lifecyc
 contracts until no longer needed. If required historical identity or rollback state
 cannot be reconstructed, stop with the specific missing-contract diagnostic.
 
-The separately implemented admission webhook guarantees that at most one
-transition across both transition kinds may request Execute. Its contract must
-cover concurrent submissions, completion/handoff from Stage 1 to namespace batches,
-and action/deletion changes while cutover or rollback is unresolved. In particular,
-changing the action or a Failed phase must not silently end protection or permit a
-conflicting Execute. This branch does not implement that webhook or claim that a
-list of existing CRs provides atomic admission. WBS 1.1.4 owns that integration.
+The transition admission webhook checks both CR kinds before accepting Execute,
+but a list-before-write check cannot guarantee exclusivity for simultaneous
+requests. The 1.4.9 dispatch path must re-read live transition state as the race
+backstop. Failed or incomplete Namespace Execute/Rollback keeps namespace
+lifecycle protection active; changing phase or action alone does not release it.
 
-Admission webhooks validate requests before Kubernetes accepts them: Execute
-exclusivity, cutover protection and Evaluate-to-Execute freshness belong to WBS 1.1.4.
+Admission webhooks validate requests before Kubernetes accepts them: the
+transition and namespace lifecycle guards are wired for WBS 1.1.4. The workload
+cutover handler covers Stage 1 system namespaces and Stage 2 namespace batches,
+with release tied to current successful transition checkpoints. WBS 1.1.4.3
+still requires the workload webhook configuration to be installed in the target
+package and end-to-end validation of the controller identity contract, status
+RBAC, and restart and partial-failure paths.
+The in-flight inventory barrier belongs to the Execute handlers and cutover
+integration.
 The controller processes accepted requests without confirmation callbacks or a
 second admission layer. It re-reads the live CR before dispatch to reject changed
 UID/action/generation or deletion. This check prevents dispatching stale intent;
@@ -507,8 +622,8 @@ make docker-build-migration MIGRATION_IMG=supervisor-network-migration-operator:
 ```
 
 Use the repository Go toolchain and Kubernetes/controller-runtime versions. CRD
-admission is validated with the repository-pinned Kubernetes 1.35 API-server
-libraries and their standard CEL compatibility settings. The API module has its
+admission is validated with Kubernetes 1.33, the minimum supported API-server
+version, and its standard CEL compatibility settings. The API module has its
 own admission/serialization tests, run by `test-migration-api` in CI
 and included in `test-migration`.
 The existing NSX operator and coverage images contain only their own binaries.
@@ -524,8 +639,9 @@ The production NCP Deployment is supplied outside this repository.
 patch, not a standalone Deployment. The packaging owner must:
 
 1. Install the migration CRDs and `build/yaml/migration/rbac` before starting the
-   new container. Match both bindings to the actual NCP Pod ServiceAccount
-   (`nsx-ncp` is the checked-in default); the Pod shares one ServiceAccount.
+   new container. The TB1 NCP Deployment uses `ncp-svc-account`; the migration
+   container shares that Pod identity. Match both bindings to the ServiceAccount
+   configured on the downstream NCP Deployment.
 2. Merge the container patch into the actual NCP Pod template and replace its
    image placeholder with the pinned image containing the migration binary.
 3. Mount the existing NSX operator config at `/etc/nsx-operator/nsxop.ini`, along
