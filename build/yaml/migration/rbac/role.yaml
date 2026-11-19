@@ -40,6 +40,14 @@ rules:
   verbs:
   - get
   - list
+- apiGroups:
+  - netoperator.vmware.com
+  resources:
+  - ipaddressallocations
+  verbs:
+  - get
+  - list
+  - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

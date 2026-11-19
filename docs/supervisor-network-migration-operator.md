@@ -350,6 +350,29 @@ but no source-network writes. Tests cover the live govmomi simulator, Kubernetes
 inventory reads, validation failures, both CR status writers, stale snapshots,
 missing-input recovery, and preservation of unrelated status.
 
+## WBS 1.2.2 infrastructure Evaluate
+
+`infrastructure.EvaluateHandler` discovers the CPVM primary workload network
+from each Supervisor-enabled cluster and the default workload networks for
+Kubernetes Namespaces labelled `managedBy: vSphere-AppPlatform`. Other
+Namespaces are skipped. It maps the vCenter network IDs to DVPGs, then to Net
+Operator VDNs; user-provided CR inputs do not define discovery scope.
+
+Before Evaluate can succeed, the handler submits every discovered DVPG on one
+VDS together in a single NSX `DvpgToSubnetWorkflow` validation request. It
+reports unsupported DVPGs as problems, partial compatibility and warnings as
+warnings, and resumes an in-progress validation using a deterministic workflow
+ID. Missing DHCP values are reported through the shared inspection status
+contract. The handler also applies the Supervisor LB SNAT policy and uses a
+stable Net Operator `IPAddressAllocation` request so retries reuse one source
+address; the single ControlPlane transition owns that allocation.
+
+The handler and its WCP, NSX validation, and SNAT adapters have unit coverage.
+The migration manager is not yet wired to construct authenticated vCenter/NSX
+clients and register this handler, so this branch does not yet run Evaluate
+end-to-end in the deployed operator. Cleanup of a source allocation after a
+changed or deleted evaluation request also remains open.
+
 ## Design contract
 
 The reviewed API uses `migration.network.vmware.com/v1alpha1` and

@@ -120,7 +120,7 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 	require.Equal(t, 1, bindings)
 }
 
-func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
+func TestNetworkInspectionAndSourceAllocationRBAC(t *testing.T) {
 	var role rbacv1.ClusterRole
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
 		var resource struct{ Kind string }
@@ -129,13 +129,18 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 			require.NoError(t, json.Unmarshal(doc, &role))
 		}
 	}
-	sourceReads, statusPatches := false, false
+	sourceReads, sourceAllocations, statusPatches := false, false, false
 	for _, rule := range role.Rules {
 		for _, group := range rule.APIGroups {
 			if group == "netoperator.vmware.com" {
-				sourceReads = true
-				require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
-				require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
+				if len(rule.Resources) == 1 && rule.Resources[0] == "ipaddressallocations" {
+					sourceAllocations = true
+					require.ElementsMatch(t, []string{"get", "list", "create"}, rule.Verbs)
+				} else {
+					sourceReads = true
+					require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
+					require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
+				}
 			}
 		}
 		for _, resource := range rule.Resources {
@@ -149,5 +154,6 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 		}
 	}
 	require.True(t, sourceReads)
+	require.True(t, sourceAllocations)
 	require.True(t, statusPatches)
 }
