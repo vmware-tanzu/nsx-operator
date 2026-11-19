@@ -56,8 +56,6 @@ const (
 	// Internal request marker for retrying configuration-to-record mapping.
 	// This is not a Kubernetes Namespace; underscores are invalid in Namespace names.
 	networkConfigRetryNamespace = "_dnsconfig"
-	// Retry a namespace-scoped fan-out without treating it as a DNSRecord name.
-	namespaceRetryNamespace = "_dnsnamespace"
 )
 
 // DNSRecordReconciler reconciles a DNSRecord object
@@ -111,9 +109,6 @@ func NewDNSRecordReconciler(mgr ctrl.Manager, dnsRecordService *dns.DNSRecordSer
 func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	if req.Namespace == networkConfigRetryNamespace {
 		return r.reconcileNetworkConfig(ctx, req.Name)
-	}
-	if req.Namespace == namespaceRetryNamespace {
-		return r.reconcileNamespace(ctx, req.Name)
 	}
 	obj := &v1alpha1.DNSRecord{}
 	log.Info("reconciling DNSRecord CR", "dnsrecord", req.NamespacedName)
@@ -381,16 +376,25 @@ func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Contex
 func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
 	vpcPredicate := common.VPCNamespacePredicate(r.Client)
 	r.usePriorityQueue = mgr.GetControllerOptions().UsePriorityQueue
+	// Namespace is cluster-scoped, so fan out on its name rather than its namespace.
+	nsWatch, err := common.NewRetryingNamespaceHandlerWithExtractor(mgr, r.requestsForNamespace, client.Object.GetName)
+	if err != nil {
+		return err
+	}
+	niWatch, err := common.NewRetryingNamespaceHandler(mgr, r.requestsForNamespace)
+	if err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DNSRecord{}, builder.WithPredicates(predicateDNSRecordDesiredStateChanged(), vpcPredicate)).
 		Watches(
 			&corev1.Namespace{},
-			handler.EnqueueRequestsFromMapFunc(r.namespaceToDNSRecordRequests),
+			nsWatch,
 			builder.WithPredicates(predicateNamespaceBecameVPC()),
 		).
 		Watches(
 			&v1alpha1.NetworkInfo{},
-			handler.EnqueueRequestsFromMapFunc(r.namespaceToDNSRecordRequests),
+			niWatch,
 			builder.WithPredicates(predicateNetworkInfoDNSStateChanged(), vpcPredicate),
 		).
 		Watches(
