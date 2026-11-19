@@ -209,6 +209,14 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 					return common.ResultRequeue, err
 				}
 			}
+			// In restore mode, we do not update the SubnetPort status to retian the status, so no need to check the realized bindings
+			if !r.restoreMode && util.NSXSubnetStaticIPAllocationEnabled(nsxSubnet) {
+				if len(nsxSubnetPortState.RealizedBindings) == 0 {
+					err = errors.New("IP and MAC are missing for SubnetPort")
+					r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "IP and MAC are missing for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode)
+					return common.ResultNormal, err
+				}
+			}
 			subnetPort.Status.Attachment = v1alpha1.PortAttachment{ID: *nsxSubnetPortState.Attachment.Id}
 			subnetPort.Status.NetworkInterfaceConfig = v1alpha1.NetworkInterfaceConfig{
 				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{
