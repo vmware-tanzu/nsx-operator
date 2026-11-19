@@ -66,7 +66,11 @@ func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 			deletions := map[string]int{}
 			failSecond := true
 			deleteFailure := errors.New("second workflow deletion unavailable")
+			discoverer := emptyTopologyDiscoverer()
 			handler := actionHandlerFunc(func(_ context.Context, req transition.Request) (transition.Result, error) {
+				if stage == transition.Namespaces {
+					require.Same(t, discoverer, req.NamespaceTopologyDiscoverer, "Commit handler needs the live topology discoverer")
+				}
 				persisted := read()
 				require.Equal(t, action, persisted.LastAction)
 				if stage == transition.Infrastructure && persisted.ActionState == api.ActionStateFailed {
@@ -93,7 +97,7 @@ func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 			reconcile := func() error {
 				// Reconstruct both dispatcher and reconciler to model a process restart.
 				e := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{{Stage: stage, Action: action}: handler}}
-				r := Reconciler{Client: c, APIReader: c, Stage: stage, Engine: e}
+				r := Reconciler{Client: c, APIReader: c, Stage: stage, Engine: e, TopologyDiscoverer: discoverer}
 				_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
 				return err
 			}

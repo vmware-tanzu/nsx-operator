@@ -14,9 +14,11 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 )
 
 // Stage identifies the infrastructure or namespace orchestration boundary.
@@ -36,6 +38,30 @@ type Request struct {
 	Action     api.Action
 	Generation int64
 	Status     *api.TransitionStatus
+	// Stage1Transition is the persisted Stage 1 handoff for namespace actions.
+	// It is a read-only snapshot; handlers must not mutate it or re-discover the
+	// shared Project/LB resources independently.
+	Stage1Transition *api.ControlPlaneNetworkTransition
+	// NamespaceNetworkStates contains the live Namespace identity, desired and
+	// effective provider pair, and persisted per-Namespace progress observed by
+	// preflight. Handlers must re-read state before external mutations.
+	NamespaceNetworkStates []NamespaceNetworkState
+	// NamespaceTopology is a fresh preflight snapshot. Handlers must rediscover
+	// before external writes instead of treating this snapshot as a lock.
+	NamespaceTopology           *topology.BatchSnapshot
+	NamespaceTopologyDiscoverer topology.Discoverer
+}
+
+// NamespaceNetworkState ties provider/progress observations to a live
+// Kubernetes Namespace UID for one immutable transition member.
+type NamespaceNetworkState struct {
+	Name              string
+	UID               types.UID
+	DesiredProvider   string
+	EffectiveProvider string
+	LegacyProvider    string
+	Progress          api.NamespaceStatus
+	HasProgress       bool
 }
 
 // Outcome distinguishes completion, ongoing work, and a wait for administrator input.

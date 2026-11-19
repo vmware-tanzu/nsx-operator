@@ -24,7 +24,7 @@ func TestRegisterMigrationControllers(t *testing.T) {
 		reader := fake.NewClientBuilder().WithScheme(scheme).Build()
 		engine := &transition.Engine{Enabled: enabled}
 		var registered []string
-		require.NoError(t, registerControllers(c, reader, engine, func(r *controllers.Reconciler) error {
+		require.NoError(t, registerControllers(c, reader, engine, nil, func(r *controllers.Reconciler) error {
 			require.Same(t, c, r.Client)
 			require.Same(t, reader, r.APIReader)
 			require.Same(t, engine, r.Engine)
@@ -42,7 +42,7 @@ func TestRegisterMigrationControllers(t *testing.T) {
 		require.Equal(t, []string{"controlplane", "namespace"}, registered)
 		failure := errors.New("controller registration failed")
 		calls := 0
-		err := registerControllers(c, reader, engine, func(*controllers.Reconciler) error { calls++; return failure })
+		err := registerControllers(c, reader, engine, nil, func(*controllers.Reconciler) error { calls++; return failure })
 		require.ErrorIs(t, err, failure)
 		require.Equal(t, 1, calls, "do not continue after failed registration")
 	}
