@@ -36,11 +36,13 @@ const (
 	ConditionInfraTransitionComplete        = "InfraTransitionComplete"
 	ConditionWorkloadCompatibilityEvaluated = "WorkloadCompatibilityEvaluated"
 	ConditionMigrationPlanSynthesized       = "MigrationPlanSynthesized"
+	ConditionMigrationPreviewAvailable      = "MigrationPreviewAvailable"
 	ConditionSubnetsDerived                 = "SubnetsDerived"
 	ConditionNetworkProviderTransitioned    = "NetworkProviderTransitioned"
 	ConditionWorkloadsMigrated              = "WorkloadsMigrated"
 	ConditionLoadBalancerMigrated           = "LoadBalancerMigrated"
 	ConditionNamespaceMigrationCommitted    = "NamespaceMigrationCommitted"
+	ConditionBatchPreflight                 = "BatchPreflight"
 )
 
 // NamespacePhaseCounts derives batch progress without storing redundant counters.

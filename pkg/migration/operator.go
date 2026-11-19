@@ -8,21 +8,41 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
+	migrationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/migration"
 )
 
 // SetupWithManager registers both stages with a shared dispatcher. Disabled
-// startup skips registration entirely. Concrete action handlers are not yet wired.
+// startup skips registration entirely. Evaluate checks supplied inputs before
+// reporting that source discovery and reservation are unavailable.
 func SetupWithManager(mgr ctrl.Manager) error {
-	return registerControllers(mgr.GetClient(), mgr.GetAPIReader(), &transition.Engine{Enabled: true}, func(r *controllers.Reconciler) error {
+	return SetupWithManagerAndTopologyDiscoverer(mgr, nil)
+}
+
+// SetupWithManagerAndTopologyDiscoverer provides the live topology reader to
+// namespace preflight and action handlers. A nil discoverer intentionally
+// blocks namespace actions and emits an error until discovery is implemented.
+func SetupWithManagerAndTopologyDiscoverer(mgr ctrl.Manager, discoverer topology.Discoverer) error {
+	namespaceEvaluate := transition.EvaluateInputs{
+		Discovery: transition.NamespaceTopologyDHCPDiscovery{},
+		Preflight: transition.NamespaceWorkloadCompatibility{Reader: mgr.GetAPIReader()},
+		Evaluator: transition.NamespaceEvaluate{NSXService: migrationservice.NewService()},
+	}
+	engine := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+		{Stage: transition.Infrastructure, Action: api.ActionEvaluate}: transition.EvaluateInputs{},
+		{Stage: transition.Namespaces, Action: api.ActionEvaluate}:     namespaceEvaluate,
+	}}
+	return registerControllers(mgr.GetClient(), mgr.GetAPIReader(), engine, discoverer, func(r *controllers.Reconciler) error {
 		return r.SetupWithManager(mgr)
 	})
 }
 
-func registerControllers(c client.Client, reader client.Reader, engine *transition.Engine, register func(*controllers.Reconciler) error) error {
+func registerControllers(c client.Client, reader client.Reader, engine *transition.Engine, discoverer topology.Discoverer, register func(*controllers.Reconciler) error) error {
 	for _, stage := range []transition.Stage{transition.Infrastructure, transition.Namespaces} {
-		r := &controllers.Reconciler{Client: c, APIReader: reader, Engine: engine, Stage: stage}
+		r := &controllers.Reconciler{Client: c, APIReader: reader, Engine: engine, Stage: stage, TopologyDiscoverer: discoverer}
 		if err := register(r); err != nil {
 			return err
 		}
