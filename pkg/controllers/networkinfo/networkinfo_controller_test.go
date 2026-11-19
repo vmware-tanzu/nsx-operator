@@ -175,6 +175,50 @@ func createNetworkInfoReconciler(objs []client.Object) *NetworkInfoReconciler {
 	return r
 }
 
+func TestNetworkInfoReconciler_SkipTerminatingNamespace(t *testing.T) {
+	now := metav1.Now()
+	for _, tc := range []struct {
+		name              string
+		deletionTimestamp *metav1.Time
+		phase             corev1.NamespacePhase
+	}{
+		{name: "deletion timestamp", deletionTimestamp: &now, phase: corev1.NamespaceActive},
+		{name: "terminating phase", phase: corev1.NamespaceTerminating},
+		{name: "both", deletionTimestamp: &now, phase: corev1.NamespaceTerminating},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := createNetworkInfoReconciler(nil)
+			c := mock_client.NewMockClient(gomock.NewController(t))
+			r.Client = c
+			key := types.NamespacedName{Namespace: "test-ns", Name: "test-ns"}
+			// Only reads are expected: no SubnetSet creates/deletes or status writes.
+			c.EXPECT().Get(gomock.Any(), key, gomock.AssignableToTypeOf(&v1alpha1.NetworkInfo{})).DoAndReturn(
+				func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					obj.SetName(key.Name)
+					obj.SetNamespace(key.Namespace)
+					return nil
+				})
+			c.EXPECT().Get(gomock.Any(), types.NamespacedName{Name: key.Namespace}, gomock.AssignableToTypeOf(&corev1.Namespace{})).DoAndReturn(
+				func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					ns := obj.(*corev1.Namespace)
+					ns.Name = key.Namespace
+					ns.DeletionTimestamp = tc.deletionTimestamp
+					ns.Status.Phase = tc.phase
+					return nil
+				})
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig",
+				func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return &v1alpha1.VPCNetworkConfiguration{}, nil
+				})
+			defer patches.Reset()
+
+			result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: key})
+			require.NoError(t, err)
+			assert.Equal(t, common.ResultNormal, result)
+		})
+	}
+}
+
 func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 	// These cases exercise VPC reconciliation with successful status persistence.
 	// Persistence failures and recovery are covered by TestSystemAVIStatusWriteRetriesUntilRecovery.
