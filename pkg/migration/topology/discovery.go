@@ -51,9 +51,24 @@ type ConsumerIdentity struct {
 // VDN/subnet bindings, relevant reservations, workflows, and their live
 // consumers. It is never persisted as migration status.
 type BatchSnapshot struct {
-	Complete  bool
-	Resources []ResourceIdentity
-	Consumers []ConsumerIdentity
+	Complete       bool
+	Resources      []ResourceIdentity
+	Consumers      []ConsumerIdentity
+	SourceNetworks []SourceNetwork
+}
+
+// SourceNetwork records source-only tenant VDN facts needed by Evaluate.
+// DHCPKnown must be true only after live source configuration was inspected;
+// DHCPBacked is meaningful only when DHCPKnown is true. Namespaces records the
+// batch members that currently use this VDN. VDSRef and DVPGRefs are the exact
+// vCenter identities supplied to and expected from source-only NSX validation.
+type SourceNetwork struct {
+	VDNName    string
+	VDSRef     string
+	DVPGRefs   []string
+	DHCPKnown  bool
+	DHCPBacked bool
+	Namespaces []string
 }
 
 func (s BatchSnapshot) Validate() error {

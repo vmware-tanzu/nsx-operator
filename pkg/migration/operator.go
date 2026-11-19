@@ -12,6 +12,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
+	migrationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/migration"
 )
 
 // SetupWithManager registers both stages with a shared dispatcher. Disabled
@@ -25,9 +26,14 @@ func SetupWithManager(mgr ctrl.Manager) error {
 // namespace preflight and action handlers. A nil discoverer intentionally
 // blocks namespace actions and emits an error until discovery is implemented.
 func SetupWithManagerAndTopologyDiscoverer(mgr ctrl.Manager, discoverer topology.Discoverer) error {
+	namespaceEvaluate := transition.EvaluateInputs{
+		Discovery: transition.NamespaceTopologyDHCPDiscovery{},
+		Preflight: transition.NamespaceWorkloadCompatibility{Reader: mgr.GetAPIReader()},
+		Evaluator: transition.NamespaceEvaluate{NSXService: migrationservice.NewService()},
+	}
 	engine := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
 		{Stage: transition.Infrastructure, Action: api.ActionEvaluate}: transition.EvaluateInputs{},
-		{Stage: transition.Namespaces, Action: api.ActionEvaluate}:     transition.EvaluateInputs{},
+		{Stage: transition.Namespaces, Action: api.ActionEvaluate}:     namespaceEvaluate,
 	}}
 	return registerControllers(mgr.GetClient(), mgr.GetAPIReader(), engine, discoverer, func(r *controllers.Reconciler) error {
 		return r.SetupWithManager(mgr)

@@ -28,14 +28,13 @@ type DHCPNetworkDiscovery interface {
 // A nil Evaluator keeps Evaluate unsuccessful until the stage evaluator is wired.
 type EvaluateInputs struct {
 	Discovery DHCPNetworkDiscovery
+	Preflight Handler
 	Evaluator Handler
 }
 
 func (h EvaluateInputs) Reconcile(ctx context.Context, req Request) (Result, error) {
 	var networks []api.DHCPNetworkConfiguration
 	var field string
-	req.Status.RequiredInputs = nil
-	req.Status.OptionalInputs = nil
 	switch obj := req.Object.(type) {
 	case *api.ControlPlaneNetworkTransition:
 		if req.Stage != Infrastructure {
@@ -58,6 +57,17 @@ func (h EvaluateInputs) Reconcile(ctx context.Context, req Request) (Result, err
 		}
 	default:
 		return Result{}, fmt.Errorf("unsupported transition object %T", req.Object)
+	}
+	req.Status.RequiredInputs = nil
+	req.Status.OptionalInputs = nil
+	if h.Preflight != nil {
+		result, err := h.Preflight.Reconcile(ctx, req)
+		if err != nil {
+			return Result{}, err
+		}
+		if result.Outcome != OutcomeSucceeded {
+			return result, nil
+		}
 	}
 	configured := make(map[string]bool, len(networks))
 	for _, network := range networks {

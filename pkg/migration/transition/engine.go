@@ -228,9 +228,13 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 
 	if err != nil {
 		req.Status.ActionState = api.ActionStateFailed
-		req.Status.Phase = "Failed"
+		req.Status.Phase = api.PhaseFailed
 		if req.Action == api.ActionEvaluate {
 			req.Status.Phase = "EvaluationFailed"
+			var incompatible *IncompatibleWorkloadError
+			if errors.As(err, &incompatible) {
+				req.Status.Phase = api.PhaseFailed
+			}
 		}
 		infraCondition(req, metav1.ConditionFalse, "CutoverFailed", "Control plane infrastructure transition failed")
 		if req.Action == api.ActionCommit {
