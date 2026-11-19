@@ -470,3 +470,35 @@ func TestBuildNativeSecurityPolicy(t *testing.T) {
 	require.NotNil(t, groupsVPCDef)
 	require.NotNil(t, sharesVPCDef)
 }
+
+func TestNativeNamespaceMemberType(t *testing.T) {
+	tr := true
+	fs := false
+
+	// Default (non-WCP) environment: container-inventory "Namespace".
+	service := &SecurityPolicyService{}
+	assert.Equal(t, common.MemberTypeNamespace, service.nativeNamespaceMemberType())
+
+	// vpc_wcp_enhance explicitly disabled: still "Namespace".
+	service.NSXConfig = &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &fs}}
+	assert.Equal(t, common.MemberTypeNamespace, service.nativeNamespaceMemberType())
+
+	// WCP Supervisor cluster (vpc_wcp_enhance=true): "SupervisorNamespace" so that
+	// namespace conditions are compatible with VirtualMachine conditions in a
+	// NestedExpression (NSX rejects "Namespace" there with error 500059).
+	service.NSXConfig.NsxConfig.VpcWcpEnhance = &tr
+	assert.Equal(t, common.MemberTypeSupervisorNamespace, service.nativeNamespaceMemberType())
+
+	// The namespace condition must carry the supervisor member type on WCP.
+	cond := service.buildNativeNamespaceCondition(common.TagScopeNamespaceUID, "ns-uid-1", "EQUALS")
+	memberType, err := cond.StringField("member_type")
+	require.NoError(t, err)
+	assert.Equal(t, common.MemberTypeSupervisorNamespace, memberType)
+
+	// Non-WCP keeps the container-inventory member type.
+	service.NSXConfig.NsxConfig.VpcWcpEnhance = &fs
+	cond = service.buildNativeNamespaceCondition(common.TagScopeNamespaceUID, "ns-uid-1", "EQUALS")
+	memberType, err = cond.StringField("member_type")
+	require.NoError(t, err)
+	assert.Equal(t, common.MemberTypeNamespace, memberType)
+}
