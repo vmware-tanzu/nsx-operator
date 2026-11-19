@@ -227,6 +227,10 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			// Keep retrying; the service may already have cleaned up stale records.
 			reason = ReasonDNSRecordValidationFailed
 			message = "DNS record conflict or build validation failed"
+			// Stale-owner cleanup removed the previously published record from NSX;
+			// clear the stale FQDN so the status reflects what is actually published.
+			statusErr := r.updateFailureStatus(ctx, obj, reason, err, message, "")
+			return ResultRequeue, errors.Join(err, statusErr)
 		}
 		statusErr := r.updateFailureStatus(ctx, obj, reason, err, message)
 		return ResultRequeue, errors.Join(err, statusErr)
