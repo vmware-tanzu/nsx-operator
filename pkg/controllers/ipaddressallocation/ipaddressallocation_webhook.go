@@ -110,6 +110,8 @@ func validateIPv4AllocationSpec(raw []byte, allocation *v1alpha1.IPAddressAlloca
 		return nil
 	}
 
+	// The decoded spec uses non-pointer scalar fields, so inspect the raw spec to
+	// distinguish omitted or null fields from explicit zero values.
 	var object struct {
 		Spec map[string]json.RawMessage `json:"spec"`
 	}
