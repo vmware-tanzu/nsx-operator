@@ -4,6 +4,7 @@
 package ipaddressallocation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -113,8 +114,10 @@ func validateIPv4AllocationSpec(raw []byte, allocation *v1alpha1.IPAddressAlloca
 	if err := json.Unmarshal(raw, &object); err != nil {
 		return fmt.Errorf("failed to inspect IPAddressAllocation spec: %w", err)
 	}
-	_, hasSize := object.Spec["allocationSize"]
-	_, hasIPs := object.Spec["allocationIPs"]
+	sizeRaw, hasSize := object.Spec["allocationSize"]
+	hasSize = hasSize && hasJSONValue(sizeRaw)
+	ipsRaw, hasIPs := object.Spec["allocationIPs"]
+	hasIPs = hasIPs && hasJSONValue(ipsRaw) && allocation.Spec.AllocationIPs != ""
 	if hasSize == hasIPs {
 		return errors.New("IPv4 allocations require exactly one of allocationSize or allocationIPs")
 	}
@@ -133,6 +136,11 @@ func validateIPv4AllocationSpec(raw []byte, allocation *v1alpha1.IPAddressAlloca
 		return errors.New("allocationSize must be a power of 2")
 	}
 	return nil
+}
+
+func hasJSONValue(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
 }
 
 func (v *IPAddressAllocationValidator) validateServiceVIP(ctx context.Context, req admission.Request, ipAlloc *v1alpha1.IPAddressAllocation) admission.Response {

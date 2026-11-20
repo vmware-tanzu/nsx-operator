@@ -490,6 +490,21 @@ func TestValidateIPv4AllocationSpec(t *testing.T) {
 			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
 		},
 		{
+			name:      "null allocation size is unset",
+			raw:       `{"spec":{"allocationSize":null}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
+			name:      "null allocation IPs is unset",
+			raw:       `{"spec":{"allocationIPs":null}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
+			name:      "empty allocation IPs is unset",
+			raw:       `{"spec":{"allocationIPs":""}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
 			name:      "zero allocation size",
 			raw:       `{"spec":{"allocationSize":0}}`,
 			wantError: "allocationSize must be at least 1",
@@ -522,6 +537,10 @@ func TestValidateIPv4AllocationSpec(t *testing.T) {
 			raw:  `{"spec":{"allocationIPs":"10.0.0.1"}}`,
 		},
 		{
+			name: "null allocation size with allocation IPs",
+			raw:  `{"spec":{"allocationSize":null,"allocationIPs":"10.0.0.1"}}`,
+		},
+		{
 			name:        "IPv6 does not use IPv4 allocation fields",
 			raw:         `{"spec":{}}`,
 			addressType: v1alpha1.IPAllocationIPAddressTypeIPv6,
@@ -531,6 +550,7 @@ func TestValidateIPv4AllocationSpec(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			allocation := &v1alpha1.IPAddressAllocation{}
+			assert.NoError(t, json.Unmarshal([]byte(tt.raw), allocation))
 			allocation.Spec.IPAddressType = tt.addressType
 			err := validateIPv4AllocationSpec([]byte(tt.raw), allocation)
 			if tt.wantError == "" {
