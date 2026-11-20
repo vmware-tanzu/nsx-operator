@@ -15,8 +15,9 @@ import (
 )
 
 // SetupWithManager registers both stages with a shared dispatcher. Disabled
-// startup skips registration entirely. Commit is wired to the lazy NSX workflow
-// client; the remaining migration actions require their service handlers.
+// startup skips registration entirely. Evaluate checks supplied inputs before
+// reporting that source discovery and reservation are unavailable. Commit is
+// wired to the lazy NSX workflow client.
 func SetupWithManager(mgr ctrl.Manager) error {
 	return setupWithManager(mgr, func(r *controllers.Reconciler) error {
 		return r.SetupWithManager(mgr)
@@ -31,7 +32,9 @@ func setupWithManager(mgr ctrl.Manager, register func(*controllers.Reconciler) e
 
 func newEngine(reader client.Reader, workflows transition.WorkflowDeleter) *transition.Engine {
 	return &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
-		{Stage: transition.Namespaces, Action: api.ActionCommit}: &transition.NamespaceCommitHandler{Reader: reader, Workflows: workflows},
+		{Stage: transition.Infrastructure, Action: api.ActionEvaluate}: transition.EvaluateInputs{},
+		{Stage: transition.Namespaces, Action: api.ActionEvaluate}:     transition.EvaluateInputs{},
+		{Stage: transition.Namespaces, Action: api.ActionCommit}:       &transition.NamespaceCommitHandler{Reader: reader, Workflows: workflows},
 	}}
 }
 

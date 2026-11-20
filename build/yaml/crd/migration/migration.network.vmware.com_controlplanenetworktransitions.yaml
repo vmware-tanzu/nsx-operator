@@ -253,7 +253,8 @@ spec:
               nsxProjectID:
                 description: |-
                   NSXProjectID selects a pre-existing NSX project; omission selects the default project.
-                  Once supplied, the ID cannot be changed or removed. Omission is fixed when execution starts.
+                  It may be added, corrected, or removed during Evaluate. It is frozen after Execute
+                  starts and cannot change after an LB SNAT allocation has been accepted.
                 maxLength: 256
                 minLength: 1
                 type: string
@@ -297,9 +298,6 @@ spec:
               rule: '!has(self.networkConfiguration) || !has(self.networkConfiguration.lbSNATIPs)
                 || size(self.networkConfiguration.lbSNATIPs) == 0 || !has(self.targetLBProvider)
                 || self.targetLBProvider == ''NSX_LB'''
-            - message: nsxProjectID cannot change once supplied
-              rule: '!has(oldSelf.nsxProjectID) || (has(self.nsxProjectID) && self.nsxProjectID
-                == oldSelf.nsxProjectID)'
           status:
             description: Status reports observed progress.
             properties:

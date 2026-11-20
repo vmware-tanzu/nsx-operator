@@ -486,6 +486,7 @@ func TestInputAdmission(t *testing.T) {
 					lockedStatus := map[string]any{"lastAction": string(action), "actionState": string(state), "actionGeneration": int64(1), "observedGeneration": int64(1)}
 					if action == ActionRollback && state == ActionStateSucceeded {
 						lockedStatus["phase"] = "RolledBack"
+						lockedStatus["rollbackComplete"] = true
 					}
 					locked["status"] = lockedStatus
 					label := string(action) + "/" + string(state)
@@ -522,6 +523,9 @@ func TestInputAdmission(t *testing.T) {
 					if state != "" {
 						rolledBack["status"].(map[string]any)["actionState"] = string(state)
 					}
+					if state == ActionStateSucceeded {
+						rolledBack["status"].(map[string]any)["rollbackComplete"] = true
+					}
 					if state != ActionStateSucceeded {
 						delete(rolledBack["status"].(map[string]any), "phase")
 					}
@@ -549,6 +553,48 @@ func TestInputAdmission(t *testing.T) {
 					check(label+" supply missing configuration", rolledBack, func(o map[string]any) {
 						spec(o)["networkConfiguration"] = inputs(example)
 					}, state == ActionStateSucceeded)
+				}
+				verifiedRollback := runtime.DeepCopyJSON(example)
+				object(verifiedRollback["metadata"], "metadata")["generation"] = int64(2)
+				spec(verifiedRollback)["action"] = "Rollback"
+				verifiedRollback["status"] = map[string]any{
+					"lastAction": "Rollback", "actionState": "Succeeded", "actionGeneration": int64(2),
+					"observedGeneration": int64(2), "phase": "RolledBack", "rollbackComplete": true,
+				}
+				check("fresh Evaluate requires current rollback checkpoint", verifiedRollback, func(o map[string]any) {
+					spec(o)["action"] = "Evaluate"
+					subnet(o)["gatewayAddress"] = "10.2.1.254"
+				}, true)
+				for _, missing := range []string{"actionState", "actionGeneration", "observedGeneration", "phase", "rollbackComplete"} {
+					old := runtime.DeepCopyJSON(verifiedRollback)
+					delete(object(old["status"], "status"), missing)
+					spec(old)["action"] = "Evaluate"
+					check("missing rollback "+missing+" permits unchanged inputs", old, func(o map[string]any) {
+						object(o["metadata"], "metadata")["labels"] = map[string]any{"test": "unchanged"}
+					}, true)
+					t.Run("missing rollback "+missing+" rejects input changes without CEL errors", func(t *testing.T) {
+						updated := runtime.DeepCopyJSON(old)
+						subnet(updated)["gatewayAddress"] = "10.2.1.254"
+						errs, _ := validator.Validate(context.Background(), field.NewPath("resource"), structural, updated, old, celconfig.RuntimeCELCostBudget)
+						require.NotEmpty(t, errs)
+						require.NotContains(t, errs.ToAggregate().Error(), "no such key")
+					})
+				}
+				for _, mutateStatus := range []struct {
+					name  string
+					apply func(map[string]any)
+				}{
+					{"stale action generation", func(s map[string]any) { s["actionGeneration"] = int64(1) }},
+					{"stale observed generation", func(s map[string]any) { s["observedGeneration"] = int64(1) }},
+					{"rollback did not complete", func(s map[string]any) { s["rollbackComplete"] = false }},
+					{"wrong phase", func(s map[string]any) { s["phase"] = "Failed" }},
+				} {
+					staleRollback := runtime.DeepCopyJSON(verifiedRollback)
+					mutateStatus.apply(object(staleRollback["status"], "status"))
+					check("fresh Evaluate rejects "+mutateStatus.name, staleRollback, func(o map[string]any) {
+						spec(o)["action"] = "Evaluate"
+						subnet(o)["gatewayAddress"] = "10.2.1.254"
+					}, false)
 				}
 				// Even an inconsistent stored rollback-success status must not bypass Commit.
 				committed := runtime.DeepCopyJSON(example)
@@ -683,8 +729,8 @@ func TestInputAdmission(t *testing.T) {
 				}
 				check("FLB source provider", nil, func(o map[string]any) { o["status"] = map[string]any{"sourceLBProvider": "VSPHERE_FOUNDATION"} }, true)
 				check("singleton", example, func(o map[string]any) { o["metadata"].(map[string]any)["name"] = "another" }, false)
-				check("change project", example, func(o map[string]any) { spec(o)["nsxProjectID"] = "other" }, false)
-				check("remove project", example, func(o map[string]any) { delete(spec(o), "nsxProjectID") }, false)
+				check("correct project during Evaluate", example, func(o map[string]any) { spec(o)["nsxProjectID"] = "other" }, true)
+				check("remove project during Evaluate", example, func(o map[string]any) { delete(spec(o), "nsxProjectID") }, true)
 				empty := runtime.DeepCopyJSON(example)
 				delete(spec(empty), "nsxProjectID")
 				check("supply project", empty, func(o map[string]any) { spec(o)["nsxProjectID"] = "project" }, true)
