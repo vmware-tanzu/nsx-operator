@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -239,16 +240,57 @@ func (h NamespaceEvaluate) validate(ctx context.Context, req Request) error {
 	}
 
 	previewCount := 0
-	for _, network := range networks {
-		previewCount += len(previewByVDN[network.VDNName])
+	reviewRevision := int64(1)
+	if previous := batch.Status.EvaluationPreview; previous != nil {
+		if previous.ReviewRevision == math.MaxInt64 {
+			return fmt.Errorf("namespace evaluation preview reviewRevision is exhausted")
+		}
+		reviewRevision = previous.ReviewRevision + 1
 	}
+	evaluationPreview := &api.NamespaceEvaluationPreview{
+		Generation:     req.Generation,
+		ReviewRevision: reviewRevision,
+		PendingChecks: []string{
+			"target TGW/VPC/DVC/Subnet reuse or creation decisions",
+			"target VPC validation and internal NSX conversion planning",
+		},
+		Networks: make([]api.NamespaceNetworkPreview, 0, len(networks)),
+	}
+	for _, network := range networks {
+		dvpgs := previewByVDN[network.VDNName]
+		previewCount += len(dvpgs)
+		networkPreview := api.NamespaceNetworkPreview{
+			VDNName:      network.VDNName,
+			Namespaces:   append([]string(nil), network.Namespaces...),
+			SourceVDSRef: network.VDSRef,
+			DVPGs:        make([]api.NamespaceDVPGPreview, 0, len(dvpgs)),
+			TargetResources: []api.NamespaceTargetResourcePreview{
+				{Kind: "TGW", Decision: "Pending", Reason: "This source-only Evaluate did not resolve target reuse or creation"},
+				{Kind: "VPC", Decision: "Pending", Reason: "This source-only Evaluate did not resolve target reuse or creation"},
+				{Kind: "DVC", Decision: "Pending", Reason: "This source-only Evaluate did not resolve target reuse or creation"},
+				{Kind: "Subnet", Decision: "Pending", Reason: "This source-only Evaluate did not resolve target reuse or creation"},
+			},
+		}
+		sort.Strings(networkPreview.Namespaces)
+		for _, dvpg := range dvpgs {
+			networkPreview.DVPGs = append(networkPreview.DVPGs, api.NamespaceDVPGPreview{
+				Reference:     dvpg.DVPGRef,
+				Name:          dvpg.Name,
+				VLANID:        dvpg.VLANID,
+				Compatibility: dvpg.Compatibility,
+				Warnings:      append([]string(nil), dvpg.Warnings...),
+			})
+		}
+		evaluationPreview.Networks = append(evaluationPreview.Networks, networkPreview)
+	}
+	batch.Status.EvaluationPreview = evaluationPreview
 	for _, namespace := range batch.Spec.Namespaces {
 		message := namespacePreviewMessage(batch.Status, namespace, networks, previewByVDN)
 		upsertNamespaceStatus(batch.Status, api.NamespaceStatus{
 			Name: namespace, Phase: api.PhaseEvaluating, Reason: "MigrationPreviewAvailable", Message: message,
 		})
 	}
-	setPreviewCondition(req.Status, req.Generation, metav1.ConditionTrue, "SourceValidationSucceeded", fmt.Sprintf("Source-only NSX validation succeeded for %d VDNs and %d DVPGs; per-VDN workflow IDs and validation results are available for the read-only migration preview", len(networks), previewCount))
+	setPreviewCondition(req.Status, req.Generation, metav1.ConditionTrue, "SourceValidationSucceeded", fmt.Sprintf("Source-only NSX validation succeeded for %d VDNs and %d DVPGs; structured source findings are available in status.evaluationPreview", len(networks), previewCount))
 	return nil
 }
 

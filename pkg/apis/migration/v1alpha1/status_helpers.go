@@ -12,6 +12,7 @@ const (
 	PhaseNeedsInput              = "NeedsInput"
 	PhaseEvaluating              = "Evaluating"
 	PhaseEvaluated               = "Evaluated"
+	PhaseReviewRequired          = "ReviewRequired"
 	PhaseEvaluationPassed        = "EvaluationPassed"
 	PhaseEvaluationFailed        = "EvaluationFailed"
 	PhasePlanning                = "Planning"

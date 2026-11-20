@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,10 +78,14 @@ const (
 	OutcomeCheckpointIrreversible Outcome = "CheckpointIrreversible"
 	// OutcomeNeedsInput means requiredInputs must be supplied before retrying.
 	OutcomeNeedsInput Outcome = "NeedsInput"
+	// OutcomeNeedsReview means Execute published a changed preview and stopped
+	// before cutover until the caller acknowledges that preview revision.
+	OutcomeNeedsReview Outcome = "NeedsReview"
 )
 
 // Result reports an explicit execution outcome. A zero outcome is invalid for handlers.
-// RequeueAfter applies only to InProgress; NeedsInput waits for an object update.
+// RequeueAfter applies only to InProgress; NeedsInput and NeedsReview wait for
+// an object update from the administrator or caller.
 type Result struct {
 	Outcome      Outcome
 	RequeueAfter time.Duration
@@ -183,6 +188,26 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 		Block(req.Status, req.Generation, "InvalidAction", "Requested action is not permitted by the last action and its execution state")
 		return Result{}, nil
 	}
+	if req.Stage == Namespaces && req.Action == api.ActionExecute {
+		if batch, ok := req.Object.(*api.NamespaceNetworkTransition); ok && batch.Status != nil && batch.Status.EvaluationPreview != nil && batch.Status.EvaluationPreview.ReviewRequired {
+			preview := batch.Status.EvaluationPreview
+			if preview.Generation != req.Generation {
+				Block(req.Status, req.Generation, "StaleReviewPreview", "The reviewed preview belongs to an older spec generation; Rollback and Evaluate the current inputs before retrying Execute")
+				return Result{}, nil
+			}
+			want := strconv.FormatInt(preview.ReviewRevision, 10)
+			got := batch.GetAnnotations()[api.AnnotationReviewedPreviewRevision]
+			if got != want {
+				req.Status.Phase = api.PhaseReviewRequired
+				req.Status.ActionState = api.ActionStateRunning
+				meta.SetStatusCondition(&req.Status.Conditions, ReviewCondition(req.Generation, true, preview.ReviewRevision))
+				condition(req.Status, req.Generation, metav1.ConditionFalse, "ReviewRequired", "The current evaluation preview revision has not been acknowledged")
+				return Result{}, nil
+			}
+			preview.ReviewRequired = false
+			meta.SetStatusCondition(&req.Status.Conditions, ReviewCondition(req.Generation, false, preview.ReviewRevision))
+		}
+	}
 	handler := e.Handlers[Key{Stage: req.Stage, Action: req.Action}]
 	if handler == nil {
 		Block(req.Status, req.Generation, "ActionNotImplemented", "Migration service for the requested action is not implemented")
@@ -191,6 +216,8 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	if req.Status.LastAction != req.Action || (req.Status.ActionState != api.ActionStateRunning && req.Status.ActionState != api.ActionStateFailed) || req.Status.ActionGeneration != req.Generation {
 		// Return before invoking the handler so the controller persists the
 		// checkpoint even if the process crashes during external provisioning.
+		// A previous preview may remain visible during a new Evaluate, but its
+		// Generation no longer matches the request and cannot authorize Execute.
 		updateRollbackCheckpoint(req)
 		req.Status.LastAction = req.Action
 		req.Status.ActionState = api.ActionStateRunning
@@ -216,8 +243,11 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 		req.Status.IrreversibleAction = irreversible
 		err = errors.Join(err, fmt.Errorf("handler must not mutate irreversibleAction; return CheckpointIrreversible to request persistence"))
 	}
-	if err == nil && result.Outcome != OutcomeSucceeded && result.Outcome != OutcomeInProgress && result.Outcome != OutcomeNeedsInput && result.Outcome != OutcomeCheckpointIrreversible {
+	if err == nil && result.Outcome != OutcomeSucceeded && result.Outcome != OutcomeInProgress && result.Outcome != OutcomeNeedsInput && result.Outcome != OutcomeNeedsReview && result.Outcome != OutcomeCheckpointIrreversible {
 		err = fmt.Errorf("handler returned invalid outcome %q", result.Outcome)
+	}
+	if err == nil && result.Outcome == OutcomeNeedsReview && (req.Stage != Namespaces || req.Action != api.ActionExecute) {
+		err = fmt.Errorf("action %s in stage %s cannot pause for a namespace execution review", req.Action, req.Stage)
 	}
 	if err == nil && result.Outcome == OutcomeCheckpointIrreversible && req.Action != api.ActionCommit && req.Action != api.ActionFinalize {
 		err = fmt.Errorf("action %s cannot establish an irreversible checkpoint", req.Action)
@@ -262,6 +292,21 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 		}
 		condition(req.Status, req.Generation, metav1.ConditionFalse, "NeedsInput", "Supply the administrator inputs listed in requiredInputs")
 		return Result{Outcome: OutcomeNeedsInput}, nil
+	case OutcomeNeedsReview:
+		batch, ok := req.Object.(*api.NamespaceNetworkTransition)
+		if !ok || batch.Status == nil || batch.Status.EvaluationPreview == nil {
+			return Result{}, fmt.Errorf("namespace Execute requested review without an evaluation preview")
+		}
+		preview := batch.Status.EvaluationPreview
+		if preview.Generation != req.Generation || preview.ReviewRevision < 1 {
+			return Result{}, fmt.Errorf("namespace Execute requested review for a stale or unversioned evaluation preview")
+		}
+		preview.ReviewRequired = true
+		req.Status.ActionState = api.ActionStateRunning
+		req.Status.Phase = api.PhaseReviewRequired
+		meta.SetStatusCondition(&req.Status.Conditions, ReviewCondition(req.Generation, true, preview.ReviewRevision))
+		condition(req.Status, req.Generation, metav1.ConditionFalse, "ReviewRequired", "Review the updated migration preview, then update the reviewed-preview-revision annotation")
+		return Result{Outcome: OutcomeNeedsReview}, nil
 	case OutcomeInProgress:
 		req.Status.ActionState = api.ActionStateRunning
 		req.Status.Phase = activePhase(req.Action)

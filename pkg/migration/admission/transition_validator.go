@@ -46,6 +46,7 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	var currentUID types.UID
 	isNamespace := false
 	var namespaceBatch []string
+	hasCurrentEvaluationPreview := false
 	hasAcceptedSNATAllocation := false
 	rollbackComplete := false
 	switch req.Resource.Resource {
@@ -70,6 +71,10 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 		if oldObj.Status != nil {
 			status = &oldObj.Status.TransitionStatus
 			rollbackComplete = oldObj.Status.RollbackComplete
+			hasCurrentEvaluationPreview = oldObj.Status.EvaluationPreview != nil &&
+				oldObj.Status.EvaluationPreview.Generation == oldGeneration &&
+				oldObj.Status.EvaluationPreview.ReviewRevision > 0 &&
+				!oldObj.Status.EvaluationPreview.ReviewRequired
 		}
 	default:
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unexpected migration resource %q", req.Resource.Resource))
@@ -140,6 +145,9 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	if oldAction == api.ActionEvaluate && newAction == api.ActionExecute {
 		if !currentSuccessfulCheckpoint(status, oldGeneration, api.ActionEvaluate) || status.ObservedGeneration != oldGeneration || len(status.RequiredInputs) != 0 {
 			return admission.Denied("Complete Evaluate successfully for the current inputs before requesting Execute")
+		}
+		if isNamespace && !hasCurrentEvaluationPreview {
+			return admission.Denied("Complete a current Evaluate that publishes status.evaluationPreview before requesting Execute")
 		}
 		if v.Reader == nil {
 			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("migration Execute exclusivity reader is not configured"))

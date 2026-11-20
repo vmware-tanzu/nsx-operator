@@ -49,9 +49,14 @@ func setupWithTopologyDiscoverer(mgr ctrl.Manager, discoverer topology.Discovere
 }
 
 func newEngine(reader client.Reader, workflows transition.WorkflowDeleter) *transition.Engine {
+	var nsxService *migrationservice.Service
+	if service, ok := workflows.(*migrationservice.Service); ok {
+		nsxService = service
+	}
 	return &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
 		{Stage: transition.Infrastructure, Action: api.ActionEvaluate}: transition.EvaluateInputs{},
 		{Stage: transition.Namespaces, Action: api.ActionEvaluate}:     transition.EvaluateInputs{},
+		{Stage: transition.Namespaces, Action: api.ActionExecute}:      transition.NamespaceExecute{NSXService: nsxService},
 		{Stage: transition.Namespaces, Action: api.ActionCommit}:       &transition.NamespaceCommitHandler{Reader: reader, Workflows: workflows},
 	}}
 }

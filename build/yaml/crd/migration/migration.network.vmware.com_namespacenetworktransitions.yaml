@@ -331,6 +331,286 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              evaluationPreview:
+                description: |-
+                  EvaluationPreview is the source-based, caller-facing result of the latest
+                  successful Evaluate. Generation must match metadata.generation and the
+                  successful Evaluate actionGeneration before a caller presents it for review.
+                  Target-dependent checks remain pending until Execute prepares target resources.
+                properties:
+                  generation:
+                    description: Generation identifies the spec generation evaluated
+                      to produce this preview.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  materialChanges:
+                    description: |-
+                      MaterialChanges records differences between the reviewed proposal and the
+                      target-specific Execute result.
+                    items:
+                      description: |-
+                        NamespacePreviewChange reports a material target-resource difference that
+                        requires another user review before cutover.
+                      properties:
+                        current:
+                          description: |-
+                            Current is the decision found by target-specific validation; it is nil
+                            when the reviewed target resource is no longer present in the result.
+                          properties:
+                            decision:
+                              description: |-
+                                Decision reports whether the resource will be reused, created, or still
+                                requires target-side resolution during Execute.
+                              enum:
+                              - Reuse
+                              - Create
+                              - Pending
+                              type: string
+                            kind:
+                              description: Kind identifies the target resource type.
+                              enum:
+                              - TGW
+                              - VPC
+                              - DVC
+                              - Subnet
+                              type: string
+                            name:
+                              description: Name is the proposed or reused resource
+                                name when known.
+                              maxLength: 255
+                              type: string
+                            path:
+                              description: Path is the exact existing target path
+                                when a compatible resource is reused.
+                              maxLength: 1024
+                              type: string
+                            reason:
+                              description: Reason explains the decision or why it
+                                remains pending.
+                              maxLength: 2048
+                              type: string
+                          required:
+                          - decision
+                          - kind
+                          type: object
+                        kind:
+                          description: Kind identifies the target resource type that
+                            changed.
+                          enum:
+                          - TGW
+                          - VPC
+                          - DVC
+                          - Subnet
+                          type: string
+                        previous:
+                          description: |-
+                            Previous is the reviewed decision; it is nil when the target resource was
+                            not proposed by Evaluate.
+                          properties:
+                            decision:
+                              description: |-
+                                Decision reports whether the resource will be reused, created, or still
+                                requires target-side resolution during Execute.
+                              enum:
+                              - Reuse
+                              - Create
+                              - Pending
+                              type: string
+                            kind:
+                              description: Kind identifies the target resource type.
+                              enum:
+                              - TGW
+                              - VPC
+                              - DVC
+                              - Subnet
+                              type: string
+                            name:
+                              description: Name is the proposed or reused resource
+                                name when known.
+                              maxLength: 255
+                              type: string
+                            path:
+                              description: Path is the exact existing target path
+                                when a compatible resource is reused.
+                              maxLength: 1024
+                              type: string
+                            reason:
+                              description: Reason explains the decision or why it
+                                remains pending.
+                              maxLength: 2048
+                              type: string
+                          required:
+                          - decision
+                          - kind
+                          type: object
+                        vdnName:
+                          description: VDNName identifies the source network whose
+                            target decision changed.
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                      required:
+                      - kind
+                      - vdnName
+                      type: object
+                    maxItems: 5000
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  networks:
+                    description: Networks contains one entry per discovered source
+                      VDN in the batch.
+                    items:
+                      description: |-
+                        NamespaceNetworkPreview groups source topology and source-only validation
+                        facts by the VDN key shared with networkConfiguration and nsxWorkflows.
+                      properties:
+                        dvpgs:
+                          description: DVPGs contains the validated source DVPGs and
+                            compatibility results.
+                          items:
+                            description: NamespaceDVPGPreview describes one source
+                              DVPG returned by NSX validation.
+                            properties:
+                              compatibility:
+                                description: Compatibility is SUPPORTED or PARTIALLY_SUPPORTED.
+                                enum:
+                                - SUPPORTED
+                                - PARTIALLY_SUPPORTED
+                                type: string
+                              name:
+                                description: Name is the discovered display name,
+                                  falling back to Reference when absent.
+                                maxLength: 256
+                                minLength: 1
+                                type: string
+                              reference:
+                                description: Reference is the source DVPG identity.
+                                maxLength: 1024
+                                minLength: 1
+                                type: string
+                              vlanId:
+                                description: VLANID is the validated VLAN identifier.
+                                maxLength: 32
+                                minLength: 1
+                                type: string
+                              warnings:
+                                description: Warnings contains non-blocking source
+                                  validation findings.
+                                items:
+                                  type: string
+                                maxItems: 100
+                                type: array
+                                x-kubernetes-list-type: set
+                            required:
+                            - compatibility
+                            - name
+                            - reference
+                            - vlanId
+                            type: object
+                          maxItems: 1000
+                          type: array
+                          x-kubernetes-list-map-keys:
+                          - reference
+                          x-kubernetes-list-type: map
+                        namespaces:
+                          description: Namespaces identifies the batch members discovered
+                            on this VDN.
+                          items:
+                            type: string
+                          maxItems: 1000
+                          type: array
+                          x-kubernetes-list-type: set
+                        sourceVdsRef:
+                          description: SourceVDSRef is the source VDS identity used
+                            for NSX source-only validation.
+                          maxLength: 1024
+                          type: string
+                        targetResources:
+                          description: |-
+                            TargetResources contains target resource reuse or creation decisions made
+                            during Evaluate. Empty means Evaluate could not yet resolve target choices.
+                          items:
+                            description: |-
+                              NamespaceTargetResourcePreview describes a proposed target resource decision
+                              available from Evaluate. It is a review summary, not an NSX conversion payload.
+                            properties:
+                              decision:
+                                description: |-
+                                  Decision reports whether the resource will be reused, created, or still
+                                  requires target-side resolution during Execute.
+                                enum:
+                                - Reuse
+                                - Create
+                                - Pending
+                                type: string
+                              kind:
+                                description: Kind identifies the target resource type.
+                                enum:
+                                - TGW
+                                - VPC
+                                - DVC
+                                - Subnet
+                                type: string
+                              name:
+                                description: Name is the proposed or reused resource
+                                  name when known.
+                                maxLength: 255
+                                type: string
+                              path:
+                                description: Path is the exact existing target path
+                                  when a compatible resource is reused.
+                                maxLength: 1024
+                                type: string
+                              reason:
+                                description: Reason explains the decision or why it
+                                  remains pending.
+                                maxLength: 2048
+                                type: string
+                            required:
+                            - decision
+                            - kind
+                            type: object
+                          maxItems: 5000
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        vdnName:
+                          description: VDNName identifies the source VDN.
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                      required:
+                      - vdnName
+                      type: object
+                    maxItems: 1000
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - vdnName
+                    x-kubernetes-list-type: map
+                  pendingChecks:
+                    description: PendingChecks identifies target-dependent checks
+                      that Execute must complete.
+                    items:
+                      type: string
+                    maxItems: 100
+                    type: array
+                    x-kubernetes-list-type: set
+                  reviewRequired:
+                    description: |-
+                      ReviewRequired is true when Execute discovered a material difference and
+                      paused before cutover. The caller acknowledges this revision by updating
+                      metadata.annotations[reviewed-preview-revision] to its decimal value.
+                    type: boolean
+                  reviewRevision:
+                    description: |-
+                      ReviewRevision increases whenever a new preview is published, including a
+                      material target difference discovered during Execute.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                required:
+                - generation
+                type: object
               irreversibleAction:
                 description: |-
                   IrreversibleAction identifies the action whose point of no return has been persisted.
