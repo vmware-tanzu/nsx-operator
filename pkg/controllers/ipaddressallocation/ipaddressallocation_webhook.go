@@ -5,6 +5,7 @@ package ipaddressallocation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -46,6 +47,9 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	if req.Operation != admissionv1.Delete {
+		if err := validateIPv4AllocationSpec(req.Object.Raw, ipAddressAllocation); err != nil {
+			return admission.Denied(err.Error())
+		}
 		// For IPv6 allocations, ipAddressBlockVisibility is not applicable and should be omitted.
 		// For IPv4 allocations, if ipAddressBlockVisibility is omitted, default to Private for validation.
 		visibility := string(ipAddressAllocation.Spec.IPAddressBlockVisibility)
@@ -96,6 +100,39 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		return v.validateServiceVIP(ctx, req, ipAddressAllocation)
 	}
 	return admission.Allowed("")
+}
+
+func validateIPv4AllocationSpec(raw []byte, allocation *v1alpha1.IPAddressAllocation) error {
+	if allocation.Spec.IPAddressType == v1alpha1.IPAllocationIPAddressTypeIPv6 {
+		return nil
+	}
+
+	var object struct {
+		Spec map[string]json.RawMessage `json:"spec"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return fmt.Errorf("failed to inspect IPAddressAllocation spec: %w", err)
+	}
+	_, hasSize := object.Spec["allocationSize"]
+	_, hasIPs := object.Spec["allocationIPs"]
+	if hasSize == hasIPs {
+		return errors.New("IPv4 allocations require exactly one of allocationSize or allocationIPs")
+	}
+	if !hasSize {
+		return nil
+	}
+
+	var size int32
+	if err := json.Unmarshal(object.Spec["allocationSize"], &size); err != nil {
+		return fmt.Errorf("allocationSize must be within the NSX signed 32-bit integer range: %w", err)
+	}
+	if size < 1 {
+		return errors.New("allocationSize must be at least 1")
+	}
+	if size&(size-1) != 0 {
+		return errors.New("allocationSize must be a power of 2")
+	}
+	return nil
 }
 
 func (v *IPAddressAllocationValidator) validateServiceVIP(ctx context.Context, req admission.Request, ipAlloc *v1alpha1.IPAddressAllocation) admission.Response {
