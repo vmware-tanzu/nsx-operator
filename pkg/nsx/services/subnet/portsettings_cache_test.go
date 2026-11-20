@@ -51,33 +51,33 @@ func TestPortSettingsCacheSnapshotIsolationAndForce(t *testing.T) {
 	service := newPortSettingsCacheService(func(_ *string) (model.VpcSubnetPortSettingListResult, error) {
 		calls++
 		return model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{
-			{}, {Id: common.String("")}, {Id: &sdkID},
+			{Id: &sdkID},
 		}}, nil
 	})
-	require.Nil(t, service.portSettingsCache, "the ID cache is initialized lazily")
+	require.Nil(t, service.portSettingsCache, "the identity cache is initialized lazily")
 
-	ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
-	require.Equal(t, []string{"setting-original"}, ids)
-	ids[0] = "caller-mutated"
+	require.Equal(t, portSettingIdentitiesForTest("setting-original"), settings)
+	*settings[0].Id = "caller-mutated"
 	sdkID = "sdk-mutated"
 
 	for range 3 {
-		ids, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+		settings, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 		require.NoError(t, err)
-		require.Equal(t, []string{"setting-original"}, ids)
-		ids[0] = "cache-hit-mutated"
+		require.Equal(t, portSettingIdentitiesForTest("setting-original"), settings)
+		*settings[0].Id = "cache-hit-mutated"
 	}
 	assert.Equal(t, 1, calls)
 
-	ids, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, true)
+	settings, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, true)
 	require.NoError(t, err)
-	require.Equal(t, []string{"sdk-mutated"}, ids)
+	require.Equal(t, portSettingIdentitiesForTest("sdk-mutated"), settings)
 	assert.Equal(t, 2, calls)
-	ids[0] = "forced-result-mutated"
-	ids, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	*settings[0].Id = "forced-result-mutated"
+	settings, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"sdk-mutated"}, ids)
+	assert.Equal(t, portSettingIdentitiesForTest("sdk-mutated"), settings)
 	assert.Equal(t, 2, calls)
 }
 
@@ -88,9 +88,9 @@ func TestPortSettingsCacheEmptySnapshot(t *testing.T) {
 		return model.VpcSubnetPortSettingListResult{}, nil
 	})
 	for range 3 {
-		ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+		settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 		require.NoError(t, err)
-		assert.Empty(t, ids)
+		assert.Empty(t, settings)
 	}
 	assert.Equal(t, 1, calls, "an empty successful enumeration is a cache hit")
 }
@@ -101,19 +101,19 @@ func TestPortSettingsCacheExpiry(t *testing.T) {
 		calls++
 		return portSettingsListWithID(fmt.Sprintf("setting-%d", calls)), nil
 	})
-	_, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
 	service.nsxSubnetCacheMutex.Lock()
 	service.portSettingsCache[portSettingsCacheSource].fetchedAt = time.Now().Add(-SharedSubnetRefreshInterval)
 	service.nsxSubnetCacheMutex.Unlock()
 
 	beforeFetch := time.Now()
-	ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"setting-2"}, ids)
+	assert.Equal(t, portSettingIdentitiesForTest("setting-2"), settings)
 	assert.Equal(t, 2, calls)
 	assert.False(t, service.portSettingsCache[portSettingsCacheSource].fetchedAt.Before(beforeFetch))
-	_, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
 	assert.Equal(t, 2, calls)
 }
@@ -128,17 +128,17 @@ func TestPortSettingsCacheForceFailureDiscardsSnapshot(t *testing.T) {
 		}
 		return portSettingsListWithID(fmt.Sprintf("setting-%d", calls)), nil
 	})
-	_, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
-	ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, true)
+	settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, true)
 	require.ErrorIs(t, err, listErr)
 	assert.Same(t, listErr, err, "the original List error must be preserved")
-	assert.Nil(t, ids)
+	assert.Nil(t, settings)
 	assert.Empty(t, service.portSettingsCache)
 
-	ids, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	settings, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"setting-3"}, ids)
+	assert.Equal(t, portSettingIdentitiesForTest("setting-3"), settings)
 	assert.Equal(t, 3, calls)
 }
 
@@ -162,14 +162,14 @@ func TestPortSettingsCachePaginationFailureIsNotCached(t *testing.T) {
 			return portSettingsListWithID("complete-setting"), nil
 		}
 	})
-	ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.ErrorIs(t, err, listErr)
-	assert.Nil(t, ids)
+	assert.Nil(t, settings)
 	assert.Empty(t, service.GetNSXSubnetCacheKeys())
 
-	ids, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	settings, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"complete-setting"}, ids)
+	assert.Equal(t, portSettingIdentitiesForTest("complete-setting"), settings)
 	assert.Equal(t, 3, calls)
 }
 
@@ -186,9 +186,9 @@ func TestPortSettingsCacheCompletePagination(t *testing.T) {
 		return portSettingsListWithID("last-setting"), nil
 	})
 	for range 2 {
-		ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+		settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"first-setting", "last-setting"}, ids)
+		assert.Equal(t, portSettingIdentitiesForTest("first-setting", "last-setting"), settings)
 	}
 	assert.Equal(t, 2, calls, "all pages are read once and the complete enumeration is cached")
 }
@@ -198,9 +198,9 @@ func TestPortSettingsCacheInvalidSource(t *testing.T) {
 		t.Fatal("an invalid source must not reach the NSX API")
 		return model.VpcSubnetPortSettingListResult{}, nil
 	})
-	ids, err := service.GetPortSettingIDsFromCacheOrAPI("invalid-source", false)
+	settings, err := service.GetPortSettingsFromCacheOrAPI("invalid-source", false)
 	require.Error(t, err)
-	assert.Nil(t, ids)
+	assert.Nil(t, settings)
 	assert.Empty(t, service.portSettingsCache)
 }
 
@@ -210,19 +210,19 @@ func TestPortSettingsCacheLifecycle(t *testing.T) {
 		calls++
 		return portSettingsListWithID("setting-1"), nil
 	})
-	_, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
 	entry := service.portSettingsCache[portSettingsCacheSource]
 	service.UpdateNSXSubnetCache(portSettingsCacheSource, &model.VpcSubnet{}, nil)
 	assert.Same(t, entry, service.portSettingsCache[portSettingsCacheSource])
-	_, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls, "updating the parent subnet preserves the PortSettings snapshot")
 
 	service.InvalidatePortSettingsCache(portSettingsCacheSource)
 	assert.Contains(t, service.NSXSubnetCache, portSettingsCacheSource)
 	assert.Empty(t, service.portSettingsCache)
-	_, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
 	service.RemoveSubnetFromCache(portSettingsCacheSource, "deleted")
 	assert.Empty(t, service.NSXSubnetCache)
@@ -230,7 +230,7 @@ func TestPortSettingsCacheLifecycle(t *testing.T) {
 	assert.Empty(t, service.GetNSXSubnetCacheKeys())
 
 	// Exercise unshared cleanup of a source with only PortSettings cached.
-	_, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
 	sharedName := types.NamespacedName{Namespace: "test-namespace", Name: "shared-subnet"}
 	service.AddSharedSubnetToResourceMap(portSettingsCacheSource, sharedName)
@@ -243,7 +243,7 @@ func TestPortSettingsCacheLifecycle(t *testing.T) {
 	assert.Empty(t, service.portSettingsCache)
 	assert.False(t, service.RemoveSubnetFromCacheIfUnshared(portSettingsCacheSource))
 
-	_, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+	_, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 	require.NoError(t, err)
 	assert.Empty(t, service.NSXSubnetCache)
 	assert.True(t, service.RemoveSubnetFromCacheIfUnshared(portSettingsCacheSource))
@@ -259,7 +259,7 @@ func TestPortSettingsCacheKeyUnion(t *testing.T) {
 	service.UpdateNSXSubnetCache(parentOnlySource, &model.VpcSubnet{}, nil)
 	service.UpdateNSXSubnetCache(portSettingsCacheSource, &model.VpcSubnet{}, nil)
 	for _, source := range []string{portOnlySource, portSettingsCacheSource} {
-		_, err := service.GetPortSettingIDsFromCacheOrAPI(source, false)
+		_, err := service.GetPortSettingsFromCacheOrAPI(source, false)
 		require.NoError(t, err)
 	}
 	keys := service.GetNSXSubnetCacheKeys()
@@ -271,8 +271,8 @@ func TestPortSettingsCacheKeyUnion(t *testing.T) {
 }
 
 type portSettingsFetchResult struct {
-	ids []string
-	err error
+	settings []model.VpcSubnetPortSetting
+	err      error
 }
 
 func TestPortSettingsCacheInvalidatesInFlightFetch(t *testing.T) {
@@ -289,8 +289,8 @@ func TestPortSettingsCacheInvalidatesInFlightFetch(t *testing.T) {
 			})
 			resultCh := make(chan portSettingsFetchResult, 1)
 			go func() {
-				ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
-				resultCh <- portSettingsFetchResult{ids: ids, err: err}
+				settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
+				resultCh <- portSettingsFetchResult{settings: settings, err: err}
 			}()
 			<-started
 			keysWhileFetching := service.GetNSXSubnetCacheKeys()
@@ -310,7 +310,7 @@ func TestPortSettingsCacheInvalidatesInFlightFetch(t *testing.T) {
 				assert.True(t, removed)
 			}
 			require.ErrorIs(t, result.err, errPortSettingsCacheInvalidated)
-			assert.Nil(t, result.ids, "an invalidated response must not reach a CR writer")
+			assert.Nil(t, result.settings, "an invalidated response must not reach a CR writer")
 			assert.Empty(t, service.portSettingsCache)
 			assert.Empty(t, service.GetNSXSubnetCacheKeys())
 		})
@@ -340,26 +340,67 @@ func TestPortSettingsCacheSupersededFetchPreservesNewSnapshot(t *testing.T) {
 			})
 			resultCh := make(chan portSettingsFetchResult, 1)
 			go func() {
-				ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
-				resultCh <- portSettingsFetchResult{ids: ids, err: err}
+				settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
+				resultCh <- portSettingsFetchResult{settings: settings, err: err}
 			}()
 			<-started
-			ids, err := service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, true)
+			settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, true)
 			releaseFetch()
 			oldResult := <-resultCh
 			require.NoError(t, err)
-			assert.Equal(t, []string{"new-setting"}, ids)
+			assert.Equal(t, portSettingIdentitiesForTest("new-setting"), settings)
 			if oldErr == nil {
 				require.ErrorIs(t, oldResult.err, errPortSettingsCacheInvalidated)
 			} else {
 				require.ErrorIs(t, oldResult.err, oldErr)
 				assert.Same(t, oldErr, oldResult.err)
 			}
-			assert.Nil(t, oldResult.ids)
-			ids, err = service.GetPortSettingIDsFromCacheOrAPI(portSettingsCacheSource, false)
+			assert.Nil(t, oldResult.settings)
+			settings, err = service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"new-setting"}, ids)
+			assert.Equal(t, portSettingIdentitiesForTest("new-setting"), settings)
 			assert.EqualValues(t, 2, calls.Load(), "the obsolete fetch must neither replace nor delete the new snapshot")
 		})
 	}
+}
+
+func portSettingIdentitiesForTest(ids ...string) []model.VpcSubnetPortSetting {
+	result := make([]model.VpcSubnetPortSetting, len(ids))
+	for i, id := range ids {
+		result[i].Id = common.String(id)
+	}
+	return result
+}
+
+func TestPortSettingsCachePreservesNamingIdentityAcrossPages(t *testing.T) {
+	id, uniqueID, isDefault := "Invalid_ID", "stable-unique-id", false
+	calls := 0
+	service := newPortSettingsCacheService(func(cursor *string) (model.VpcSubnetPortSettingListResult, error) {
+		calls++
+		if cursor == nil {
+			return model.VpcSubnetPortSettingListResult{
+				Results: []model.VpcSubnetPortSetting{{Id: &id, UniqueId: &uniqueID, IsDefault: &isDefault}},
+				Cursor:  common.String("next"),
+			}, nil
+		}
+		return model.VpcSubnetPortSettingListResult{Results: []model.VpcSubnetPortSetting{
+			{Id: common.String("default-setting"), IsDefault: common.Bool(true)},
+			{}, // Missing identities must reach reconciliation, not silently disappear.
+		}}, nil
+	})
+	settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
+	require.NoError(t, err)
+	require.Len(t, settings, 3)
+	*settings[0].Id, *settings[0].UniqueId, *settings[0].IsDefault = "caller", "caller-uid", true
+	*settings[1].IsDefault = false
+	id, uniqueID, isDefault = "sdk", "sdk-uid", true
+	cached, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
+	require.NoError(t, err)
+	require.Len(t, cached, 3)
+	assert.Equal(t, "Invalid_ID", *cached[0].Id)
+	assert.Equal(t, "stable-unique-id", *cached[0].UniqueId)
+	assert.False(t, *cached[0].IsDefault)
+	assert.True(t, *cached[1].IsDefault)
+	assert.Nil(t, cached[2].Id)
+	assert.Equal(t, 2, calls)
 }

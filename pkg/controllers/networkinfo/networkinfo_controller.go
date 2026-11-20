@@ -304,6 +304,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "Unable to fetch Namespace", "Namespace", req.Namespace)
 		return common.ResultNormal, err
 	}
+	// Namespace cleanup can delete default SubnetSets before the NetworkInfo is
+	// marked for deletion. Do not recreate them while the namespace is terminating.
+	if !ns.DeletionTimestamp.IsZero() || ns.Status.Phase == corev1.NamespaceTerminating {
+		log.Debug("Skip NetworkInfo create/update for terminating Namespace", "Namespace", req.Namespace)
+		return common.ResultNormal, nil
+	}
 	namespaceType := common.GetNamespaceType(ns, nc)
 	log.Debug("Fetch Namespace for NetworkInfo", "Namespace", ns, "type", namespaceType)
 
@@ -601,6 +607,10 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	// AKO needs to know the AVI subnet path created by NSX
 	if err := setVPCNetworkConfigurationStatusWithLBS(ctx, r.Client, ncName, state.Name, aviSubnetPath, nsxLBSPath, *createdVpc.Path); err != nil {
+		// Do not publish the newly created VPC into NetworkInfo until its
+		// VPCNetworkConfiguration status has been persisted. Reconcile will retry
+		// this status write and only then update NetworkInfo.
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to update VPCNetworkConfiguration status", nil)
 		return common.ResultRequeue, err
 	}
 	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state, allowedDNSRecordDomains)

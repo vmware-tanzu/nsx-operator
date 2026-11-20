@@ -7,6 +7,7 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 // NamespaceNetworkTransitionSpec requests a batch of Supervisor Namespace transitions.
 // +kubebuilder:validation:XValidation:rule="self.namespaces == oldSelf.namespaces",message="Namespaces is immutable"
+// +kubebuilder:validation:XValidation:rule="self.action in ['Evaluate', 'Execute', 'Commit', 'Rollback']",message="namespace action must be Evaluate, Execute, Commit, or Rollback"
 // +kubebuilder:validation:XValidation:rule="self.action != 'Finalize'",message="Finalize is an infrastructure operation"
 type NamespaceNetworkTransitionSpec struct {
 	TransitionSpec `json:",inline"`
@@ -106,6 +107,7 @@ type NamespaceNetworkTransitionStatus struct {
 }
 
 // NamespaceNetworkTransition requests Stage 2 migration of an explicit Namespace batch.
+// +kubebuilder:validation:XValidation:rule="!has(self.status) || !has(self.status.lastAction) || self.status.lastAction in ['Evaluate', 'Execute', 'Rollback', 'Commit'] || (has(oldSelf.status) && has(oldSelf.status.lastAction) && self.status.lastAction == oldSelf.status.lastAction && has(self.status.actionState) == has(oldSelf.status.actionState) && (!has(self.status.actionState) || self.status.actionState == oldSelf.status.actionState) && has(self.status.actionGeneration) == has(oldSelf.status.actionGeneration) && (!has(self.status.actionGeneration) || self.status.actionGeneration == oldSelf.status.actionGeneration))",message="namespace lastAction must be Evaluate, Execute, Rollback, or Commit unless an existing checkpoint is unchanged"
 // +kubebuilder:validation:XValidation:rule="!has(self.status) || !has(self.status.namespaceStatuses) || [self.spec.namespaces.transformMapEntry(i, name, {name: true})].all(names, self.status.namespaceStatuses.all(ns, ns.name in names))",message="namespaceStatuses entries must belong to spec.namespaces"
 // +kubebuilder:validation:XValidation:rule="self.spec.action == 'Evaluate' || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration may only change with Evaluate"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.status) || !has(oldSelf.status.lastAction) || !(oldSelf.status.lastAction in ['Execute', 'Rollback', 'Commit', 'Finalize']) || (self.spec.action == 'Evaluate' && oldSelf.status.lastAction == 'Rollback' && has(oldSelf.status.actionState) && oldSelf.status.actionState == 'Succeeded' && !has(oldSelf.status.irreversibleAction)) || (has(self.spec.networkConfiguration) == has(oldSelf.spec.networkConfiguration) && (!has(oldSelf.spec.networkConfiguration) || self.spec.networkConfiguration == oldSelf.spec.networkConfiguration))",message="networkConfiguration cannot change after execution starts unless Evaluate follows a successful Rollback without an irreversible checkpoint"

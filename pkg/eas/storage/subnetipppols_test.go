@@ -50,7 +50,7 @@ func TestSubnetIPPoolsStorage_Get_SubnetNotFound(t *testing.T) {
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
 	_, err := s.Get(context.Background(), "ns1", "sub1")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestSubnetIPPoolsStorage_Get_OK(t *testing.T) {
 	subnetID := "subnet-1"
@@ -62,7 +62,11 @@ func TestSubnetIPPoolsStorage_Get_OK(t *testing.T) {
 	}
 	c := &nsx.Client{}
 	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
-	c.IPPoolClient = &fakeIPPoolClient{}
+	c.IPPoolClient = &fakeIPPoolClient{
+		result: model.IpAddressPoolListResult{
+			Results: []model.IpAddressPool{{}},
+		},
+	}
 	subnetCR := &vpcv1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
 		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
@@ -70,7 +74,8 @@ func TestSubnetIPPoolsStorage_Get_OK(t *testing.T) {
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
 	result, err := s.Get(context.Background(), "ns1", "sub1")
 	require.NoError(t, err)
-	assert.Equal(t, "sub1", result.Name)
+	assert.Equal(t, 1, len(result.Items))
+	assert.Equal(t, "sub1", result.Items[0].Name)
 }
 func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 	subnetID := "subnet-1"
@@ -80,7 +85,8 @@ func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 			{Id: &subnetID, Tags: subnetOwnershipTags(crName, "sub1-uid", "ns1")},
 		},
 	}
-	ipType := "IPv4"
+	ipType := "IPV4"
+	ipv6Type := "IPV6"
 	total := int64(256)
 	avail := int64(200)
 	alloc := int64(50)
@@ -96,6 +102,7 @@ func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 					RequestedIpAllocations: &req,
 				},
 			},
+			{IpAddressType: &ipv6Type},
 		},
 	}
 	c := &nsx.Client{}
@@ -108,12 +115,15 @@ func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
 	result, err := s.Get(context.Background(), "ns1", "sub1")
 	require.NoError(t, err)
-	assert.Equal(t, "IPv4", result.IPAddressType)
-	require.NotNil(t, result.PoolUsage)
-	assert.Equal(t, int64(256), result.PoolUsage.TotalIPs)
-	assert.Equal(t, int64(200), result.PoolUsage.AvailableIPs)
-	assert.Equal(t, int64(50), result.PoolUsage.AllocatedIPAllocations)
-	assert.Equal(t, int64(55), result.PoolUsage.RequestedIPAllocations)
+	require.Equal(t, 2, len(result.Items))
+	assert.Equal(t, "IPv6", result.Items[1].IPAddressType)
+	item := result.Items[0]
+	assert.Equal(t, "IPv4", item.IPAddressType)
+	require.NotNil(t, item.PoolUsage)
+	assert.Equal(t, int64(256), item.PoolUsage.TotalIPs)
+	assert.Equal(t, int64(200), item.PoolUsage.AvailableIPs)
+	assert.Equal(t, int64(50), item.PoolUsage.AllocatedIPAllocations)
+	assert.Equal(t, int64(55), item.PoolUsage.RequestedIPAllocations)
 }
 func TestSubnetIPPoolsStorage_Get_FetchPoolError(t *testing.T) {
 	subnetID := "subnet-1"

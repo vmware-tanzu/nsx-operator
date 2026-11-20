@@ -1,0 +1,193 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: vpcserviceprofiles.eas.nsx.vmware.com
+spec:
+  group: eas.nsx.vmware.com
+  names:
+    kind: VPCServiceProfile
+    listKind: VPCServiceProfileList
+    plural: vpcserviceprofiles
+    singular: vpcserviceprofile
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          description:
+            description: The description of the VPCServiceProfile.
+            type: string
+          dhcpConfig:
+            description: Common DHCP config for VPC Subnet.
+            properties:
+              dhcpRelayConfig:
+                description: DHCP relay configuration
+                properties:
+                  serverAddresses:
+                    description: |-
+                      DHCP server IP addresses for DHCP relay configuration.
+                      Both IPv4 and IPv6 addresses are supported.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              dhcpServerConfig:
+                description: DHCP server configuration
+                properties:
+                  advancedConfig:
+                    description: DHCP Advanced configuration
+                    properties:
+                      isDistributedDHCP:
+                        description: |-
+                          Flag indicating the DHCP mode.
+                          - When set to true (default), the DHCP server dynamically assigns an IP address per VM network interface.
+                          - When set to false, the DHCP server operates in traditional mode, allocating IPs based on the VM's MAC address.
+                            This mode requires the VPC to be attached to a TransitGateway connected to a Provider Gateway.
+                        type: boolean
+                    type: object
+                  dnsClientConfig:
+                    description: DNS client configuration
+                    properties:
+                      dnsServerIPs:
+                        description: IPs of the DNS servers which need to be configured
+                          on the workload VMs
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  leaseTime:
+                    description: DHCP lease time in seconds. Value range is [60, 4294967295],
+                      default value is 86400.
+                    format: int64
+                    type: integer
+                  ntpServers:
+                    description: Hostname/IP list of NTP servers
+                    items:
+                      type: string
+                    type: array
+                required:
+                - leaseTime
+                type: object
+            type: object
+          dhcpv6Config:
+            description: Common DHCPv6 config for VPC Subnets.
+            properties:
+              dhcpv6RelayConfig:
+                description: DHCPv6 relay configuration
+                properties:
+                  serverAddresses:
+                    description: |-
+                      DHCP server IP addresses for DHCP relay configuration.
+                      Both IPv4 and IPv6 addresses are supported.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              dhcpv6ServerConfig:
+                description: DHCPv6 server configuration
+                properties:
+                  advancedConfig:
+                    description: VPC DHCPv6 advanced configuration
+                    properties:
+                      isDistributedDHCP:
+                        description: |-
+                          Flag indicating the DHCP mode.
+                          - When set to true (default), the DHCP server dynamically assigns an IP address per VM network interface.
+                          - When set to false, the DHCP server operates in traditional mode, allocating IPs based on the VM's MAC address.
+                            This mode requires the VPC to be attached to a TransitGateway connected to a Provider Gateway.
+                        type: boolean
+                    type: object
+                  dnsClientConfig:
+                    description: |-
+                      DNS client configuration includes the DNS servers that DHCPv6 clients use to resolve
+                      domain names into IPv6 addresses.
+                    properties:
+                      dnsServerIPs:
+                        description: IPs of the DNS servers which need to be configured
+                          on the workload VMs
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  leaseTime:
+                    default: 86400
+                    description: DHCPv6 lease time in seconds. Value range is [60,
+                      4294967295], default value is 86400.
+                    format: int64
+                    maximum: 4294967295
+                    minimum: 60
+                    type: integer
+                  ntpServers:
+                    description: NTP servers as FQDN or IPv6 address. Supports unicast,
+                      multicast, and FQDN formats.
+                    items:
+                      type: string
+                    maxItems: 2
+                    type: array
+                  preferredTime:
+                    description: Preferred time in seconds. Value range is [48, 4294967295].
+                    format: int64
+                    maximum: 4294967295
+                    minimum: 48
+                    type: integer
+                  sntpServers:
+                    description: SNTP server IPv6 addresses for VPC Subnets.
+                    items:
+                      type: string
+                    maxItems: 2
+                    type: array
+                type: object
+            type: object
+          dnsConfig:
+            description: DNS configuration
+            properties:
+              ipv4ResolverIP:
+                description: |-
+                  IPv4 address of the DNS resolver that VPC workloads use for
+                  DNS resolution. Optional, but at least one of IPv4ResolverIP or IPv6ResolverIP
+                  must be provided.
+                type: string
+              ipv6ResolverIP:
+                description: |-
+                  IPv6 address of the DNS resolver that VPC workloads use for
+                  DNS resolution. Optional, but at least one of IPv4ResolverIP or IPv6ResolverIP
+                  must be provided.
+                type: string
+            type: object
+          isDefault:
+            description: |-
+              Flag to indicate that the VPC Service Profile is a default profile.
+              If true, then this VPC Service Profile is the default system created profile.
+            type: boolean
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          serviceSubnetCIDRs:
+            description: An array of service subnet CIDRs. CIDRs should be in ip/prefix_length
+              format.
+            items:
+              type: string
+            type: array
+        required:
+        - isDefault
+        type: object
+    served: true
+    storage: true

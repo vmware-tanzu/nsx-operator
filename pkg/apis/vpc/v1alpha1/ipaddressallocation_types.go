@@ -92,10 +92,9 @@ type IPAddressAllocationSpec struct {
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
 	IPBlockName string `json:"ipBlockName,omitempty"`
-	// DNSHostName specifies the DNS name used when auto-creating DNS records.
+	// DNSHostName specifies the DNS host name used when auto-creating DNS records.
 	// It must be a valid DNS label or domain, with labels up to 63 characters
-	// and a total length of at most 253 characters. The operator normalizes it
-	// to lowercase before sending it to NSX.
+	// and a total length of at most 253 characters.
 	// +optional
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?)*$`

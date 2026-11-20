@@ -6,6 +6,7 @@ package nsx
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
 )
@@ -67,6 +69,52 @@ func TestRoundTripRetry(t *testing.T) {
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	_, err = tr.RoundTrip(req)
 	assert.Equal(err, nil)
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func TestRoundTripRetryRestoresRequestBody(t *testing.T) {
+	var calls int
+	var requestBodies []string
+	base := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		body, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		requestBodies = append(requestBodies, string(body))
+		statusCode, responseBody := http.StatusOK, `{}`
+		if calls == 1 {
+			statusCode = http.StatusInternalServerError
+			responseBody = `{"error_code":98,"error_message":"retry"}`
+		}
+		return &http.Response{StatusCode: statusCode, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(responseBody))}, nil
+	})
+	ep := &Endpoint{status: UP, provider: &address{host: "nsx.test", scheme: "http"}, ratelimiter: ratelimiter.NewFixRateLimiter(1000)}
+	transport := &Transport{Base: base, endpoints: []*Endpoint{ep}, config: &Config{}}
+	request, err := http.NewRequest(http.MethodPut, "http://nsx.test/policy", strings.NewReader("replay this body"))
+	require.NoError(t, err)
+	_, err = transport.RoundTrip(request)
+	require.NoError(t, err)
+	require.Equal(t, 2, calls)
+	require.Equal(t, []string{"replay this body", "replay this body"}, requestBodies)
+}
+
+func TestRoundTripDoesNotRetryNonReplayableRequestBody(t *testing.T) {
+	calls := 0
+	base := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusInternalServerError, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error_code":98,"error_message":"retry"}`))}, nil
+	})
+	ep := &Endpoint{status: UP, provider: &address{host: "nsx.test", scheme: "http"}, ratelimiter: ratelimiter.NewFixRateLimiter(1000)}
+	transport := &Transport{Base: base, endpoints: []*Endpoint{ep}, config: &Config{}}
+	request, err := http.NewRequest(http.MethodPut, "http://nsx.test/policy", io.NopCloser(strings.NewReader("not replayable")))
+	require.NoError(t, err)
+	_, err = transport.RoundTrip(request)
+	require.ErrorContains(t, err, "non-replayable body")
+	require.Equal(t, 1, calls)
 }
 
 func TestSelectEndpoint(t *testing.T) {

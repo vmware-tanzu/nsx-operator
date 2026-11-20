@@ -5,8 +5,12 @@
 package migration
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
+
+	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -24,7 +28,7 @@ type Service struct {
 
 // NewService defers reading configuration and contacting NSX until a handler needs it.
 func NewService() *Service {
-	return &Service{loadConfig: config.NewNSXOperatorConfigFromFile, newClient: nsx.NewClient}
+	return &Service{loadConfig: config.NewNSXOperatorConfigFromFile, newClient: nsx.NewMigrationClient}
 }
 
 // Client returns the shared client for this migration process. It does not share
@@ -51,4 +55,32 @@ func (s *Service) Client() (*nsx.Client, error) {
 	}
 	s.client = client
 	return client, nil
+}
+
+// DeleteWorkflow removes a migration workflow by its persisted NSX identity.
+// A missing workflow is idempotent success during Commit/Finalize recovery: the
+// transition records the exact target ID and persists its irreversible action
+// before invoking this method.
+func (s *Service) DeleteWorkflow(ctx context.Context, workflowID string) error {
+	if workflowID == "" {
+		return fmt.Errorf("workflow ID is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	client, err := s.Client()
+	if err != nil {
+		return err
+	}
+	if client.WorkflowsClient == nil {
+		return fmt.Errorf("NSX workflow client is unavailable")
+	}
+	if err := client.WorkflowsClient.Delete(workflowID); err != nil {
+		var notFound *vapierrors.NotFound
+		if errors.As(err, &notFound) {
+			return nil
+		}
+		return fmt.Errorf("deleting NSX workflow %q: %w", workflowID, err)
+	}
+	return nil
 }

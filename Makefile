@@ -2,7 +2,7 @@
 IMG ?= controller:latest
 MIGRATION_IMG ?= supervisor-network-migration-operator:latest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.22
+ENVTEST_K8S_VERSION ?= 1.33.0
 LDFLAGS            :=
 GOFLAGS            :=
 COVERAGE	       ?= false
@@ -48,9 +48,10 @@ changecrd: manifests generate generate-api-docs
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1" output:crd:artifacts:config=build/yaml/crd/legacy/
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1" output:crd:artifacts:config=build/yaml/crd/vpc/
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:allowDangerousTypes=true webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1" output:crd:artifacts:config=build/yaml/crd/eas/
 	$(CONTROLLER_GEN) crd paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1" output:crd:artifacts:config=build/yaml/crd/migration/
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1" output:crd:artifacts:config=build/yaml/crd/eas/
 	$(MAKE) manifests-migration
+
 # NOTE: EAS types are served by the generic API server (via APIService), NOT as CRDs.
 # Do NOT run controller-gen crd for pkg/apis/eas/v1alpha1 — installing EAS CRDs alongside
 # the APIService causes duplicate-resource conflicts in kube-apiserver.
@@ -91,7 +92,7 @@ golangci-fix: $(GOLANGCI_LINT_BIN)
 
 .PHONY: test
 test: manifests generate fmt vet envtest .coverage ## Run tests with clean output (only pass/fail results)
-	./hack/test-unit.sh
+	ENVTEST_K8S_VERSION="$(ENVTEST_K8S_VERSION)" ./hack/test-unit.sh
 
 .PHONY: test-snaps-update
 test-snaps-update: ## Run unit tests and cleanly regenerate snapshots without orphan blocks (Usage: make test-snaps-update [FEATURE=subnet | ALL=true])
@@ -220,16 +221,19 @@ generated: code-generator
 	./hack/update-codegen.sh
 
 OPENAPI_GEN = $(shell pwd)/bin/openapi-gen
+# Use go.mod's Go version for package loading: a newer Go on PATH may expose
+# standard-library syntax that the generator's parser does not support.
+OPENAPI_GOTOOLCHAIN ?= $(shell awk '$$1 == "go" {print "go" $$2; exit}' go.mod)
 # openapi-gen moved from k8s.io/code-generator to k8s.io/kube-openapi (since ~v0.27).
 # We install it directly via "go install" in the project root so it uses the
 # version already pinned in go.mod without needing to create a throw-away module.
 .PHONY: openapi-gen
 openapi-gen: ## Build openapi-gen binary into bin/ (uses k8s.io/kube-openapi version from go.mod).
-	@[ -f $(OPENAPI_GEN) ] || GOBIN=$(CURDIR)/bin go install k8s.io/kube-openapi/cmd/openapi-gen
+	@[ -f $(OPENAPI_GEN) ] || GOTOOLCHAIN=$(OPENAPI_GOTOOLCHAIN) GOBIN=$(CURDIR)/bin go install k8s.io/kube-openapi/cmd/openapi-gen
 
 .PHONY: generate-eas-openapi
 generate-eas-openapi: openapi-gen ## Generate OpenAPI definitions for EAS types plus the apimachinery meta/v1 and version types they reference.
-	$(OPENAPI_GEN) \
+	GOTOOLCHAIN=$(OPENAPI_GOTOOLCHAIN) $(OPENAPI_GEN) \
 	  --output-dir     pkg/apis/eas/v1alpha1 \
 	  --output-pkg     github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1 \
 	  --output-file    zz_generated.openapi.go \

@@ -6,14 +6,19 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 )
@@ -26,7 +31,27 @@ type startupManager struct {
 	readyNames  []string
 	started     bool
 	ctx         context.Context
+	hook        webhook.Server
+	apiReader   client.Reader
 }
+
+func (m *startupManager) GetWebhookServer() webhook.Server { return m.hook }
+func (m *startupManager) GetAPIReader() client.Reader      { return m.apiReader }
+
+type fakeAdmissionServer struct {
+	handlers map[string]http.Handler
+}
+
+func (s *fakeAdmissionServer) Register(path string, handler http.Handler) {
+	if s.handlers == nil {
+		s.handlers = make(map[string]http.Handler)
+	}
+	s.handlers[path] = handler
+}
+func (*fakeAdmissionServer) Start(context.Context) error     { return nil }
+func (*fakeAdmissionServer) StartedChecker() healthz.Checker { return healthz.Ping }
+func (*fakeAdmissionServer) NeedLeaderElection() bool        { return false }
+func (*fakeAdmissionServer) WebhookMux() *http.ServeMux      { return http.NewServeMux() }
 
 func (m *startupManager) AddHealthzCheck(name string, check healthz.Checker) error {
 	if m.failAt == "health" {
@@ -167,6 +192,51 @@ func TestDisabledStartupSkipsUnhealthyAPI(t *testing.T) {
 	require.True(t, mgr.started)
 	require.Equal(t, []string{"healthz"}, mgr.healthNames)
 	require.Equal(t, []string{"readyz"}, mgr.readyNames)
+}
+
+func TestAdmissionCanStartWithoutMigrationControllers(t *testing.T) {
+	server := &fakeAdmissionServer{}
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	mgr := &startupManager{hook: server, apiReader: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	deps := managerDependencies{
+		loadConfig: func() (*rest.Config, error) { return &rest.Config{}, nil },
+		newManager: func(_ *rest.Config, opts ctrl.Options) (ctrl.Manager, error) {
+			require.False(t, opts.LeaderElection)
+			require.NotNil(t, opts.WebhookServer)
+			return mgr, nil
+		},
+		setupControllers: func(ctrl.Manager) error { t.Fatal("controllers must stay disabled"); return nil },
+	}
+	err := startManager(context.Background(), &options{admissionEnabled: true, admissionPort: 9982, admissionCertDir: "/certs"}, deps)
+	require.NoError(t, err)
+	for _, path := range []string{"/validate-migration-transition", "/validate-migration-namespace", "/validate-migration-workload"} {
+		require.NotNil(t, server.handlers[path], path)
+	}
+	require.Contains(t, mgr.readyNames, "migration-admission")
+}
+
+func TestAdmissionReportsInvalidConfigurationValues(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		port        int
+		certDir     string
+		wantMessage string
+	}{
+		{name: "invalid port", port: 0, certDir: "/certs", wantMessage: `port=0 (expected 1-65535), certDir="/certs"`},
+		{name: "empty certificate directory", port: 9982, certDir: "", wantMessage: `port=9982 (expected 1-65535), certDir=""`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := startManager(context.Background(), &options{
+				admissionEnabled: true,
+				admissionPort:    test.port,
+				admissionCertDir: test.certDir,
+			}, managerDependencies{
+				loadConfig: func() (*rest.Config, error) { return &rest.Config{}, nil },
+			})
+			require.ErrorContains(t, err, test.wantMessage)
+		})
+	}
 }
 
 func TestDisabledStartupReportsInvalidLocalConfig(t *testing.T) {

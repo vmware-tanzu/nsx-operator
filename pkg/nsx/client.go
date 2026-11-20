@@ -43,6 +43,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/vpc_endpoints"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/vpc_service_endpoints"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/workflows"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/ratelimiter"
@@ -79,12 +80,14 @@ type Client struct {
 	RestConnector client.Connector
 	Cluster       *Cluster
 
-	QueryClient    search.QueryClient
-	GroupClient    domains.GroupsClient
-	SecurityClient domains.SecurityPoliciesClient
-	RuleClient     security_policies.RulesClient
-	InfraClient    nsx_policy.InfraClient
-	StatusClient   restore.StatusClient
+	QueryClient                     search.QueryClient
+	GroupClient                     domains.GroupsClient
+	SecurityClient                  domains.SecurityPoliciesClient
+	RuleClient                      security_policies.RulesClient
+	InfraClient                     nsx_policy.InfraClient
+	StatusClient                    restore.StatusClient
+	WorkflowsClient                 nsx_policy.WorkflowsClient
+	WorkflowValidationResultsClient workflows.Dvpg_validation_resultsClient
 
 	ClusterControlPlanesClient enforcement_points.ClusterControlPlanesClient
 	HostTransPortNodesClient   enforcement_points.HostTransportNodesClient
@@ -100,55 +103,57 @@ type Client struct {
 	VPCSecurityClient vpcs.SecurityPoliciesClient
 	VPCRuleClient     vpc_sp.RulesClient
 
-	OrgRootClient                     nsx_policy.OrgRootClient
-	OrgsClient                        nsx_policy.OrgsClient
-	ProjectInfraClient                projects.InfraClient
-	VPCClient                         projects.VpcsClient
-	VPCStateClient                    vpcs.StateClient
-	VPCConnectivityProfilesClient     projects.VpcConnectivityProfilesClient
-	VpcServiceProfileClient           projects.VpcServiceProfilesClient
-	Ipv6NdraProfileClient             infra.Ipv6NdraProfilesClient
-	ProjectIpv6NdraProfileClient      project_infra.Ipv6NdraProfilesClient
-	IPBlockClient                     project_infra.IpBlocksClient
-	InfraIPBlockClient                infra.IpBlocksClient
-	StaticRouteClient                 vpcs.StaticRoutesClient
-	NATRuleClient                     nat.NatRulesClient
-	VpcGroupClient                    vpcs.GroupsClient
-	PortClient                        subnets.PortsClient
-	PortStateClient                   ports.StateClient
-	IPPoolClient                      subnets.IpPoolsClient
-	IPAllocationClient                ip_pools.IpAllocationsClient
-	DhcpServerConfigStatsClient       dhcp_server_config.StatsClient
-	IPAddressUsageClient              vpcs.IpAddressUsageClient
-	VPCIPBlockUsageClient             vpc_ip_blocks.UsageClient
-	InfraIPBlockUsageClient           infra_ip_blocks.UsageClient
-	SubnetsClient                     vpcs.SubnetsClient
-	IPAddressAllocationClient         vpcs.IpAddressAllocationsClient
-	VpcEndpointClient                 vpcs.VpcEndpointsClient
-	VpcEndpointStatusClient           vpc_endpoints.StatusClient
-	VpcServiceEndpointClient          vpcs.VpcServiceEndpointsClient
-	VpcServiceEndpointStatusClient    vpc_service_endpoints.StatusClient
-	VPCLBSClient                      vpcs.VpcLbsClient
-	VpcLbVirtualServersClient         vpcs.VpcLbVirtualServersClient
-	VpcLbPoolsClient                  vpcs.VpcLbPoolsClient
-	VpcAttachmentClient               vpcs.AttachmentsClient
-	ProjectClient                     orgs.ProjectsClient
-	TransitGatewayClient              projects.TransitGatewaysClient
-	TransitGatewayAttachmentClient    transit_gateways.AttachmentsClient
-	TransitGatewayStateClient         transit_gateways.StateClient
-	ShareClient                       infra.SharesClient
-	LbAppProfileClient                infra.LbAppProfilesClient
-	LbPersistenceProfilesClient       infra.LbPersistenceProfilesClient
-	LbMonitorProfilesClient           infra.LbMonitorProfilesClient
-	SubnetConnectionBindingMapsClient subnets.SubnetConnectionBindingMapsClient
-	DynamicIPReservationsClient       subnets.DynamicIpReservationsClient
-	StaticIPReservationsClient        subnets.StaticIpReservationsClient
-	PortSettingsClient                subnets.PortSettingsClient
-	NsxApiClient                      *nsxt.APIClient
-	VifsClient                        fabric.VifsClient
-	DnsZoneClient                     dns_services.ZonesClient
-	DnsAutoRecordConfigsClient        projects.DnsAutoRecordConfigsClient
-	DnsRecordsClient                  projects.DnsRecordsClient
+	OrgRootClient                      nsx_policy.OrgRootClient
+	OrgsClient                         nsx_policy.OrgsClient
+	ProjectInfraClient                 projects.InfraClient
+	VPCClient                          projects.VpcsClient
+	VPCStateClient                     vpcs.StateClient
+	VPCConnectivityProfilesClient      projects.VpcConnectivityProfilesClient
+	VpcServiceProfileClient            projects.VpcServiceProfilesClient
+	Ipv6NdraProfileClient              infra.Ipv6NdraProfilesClient
+	ProjectIpv6NdraProfileClient       project_infra.Ipv6NdraProfilesClient
+	IPBlockClient                      project_infra.IpBlocksClient
+	InfraIPBlockClient                 infra.IpBlocksClient
+	StaticRouteClient                  vpcs.StaticRoutesClient
+	NATRuleClient                      nat.NatRulesClient
+	VpcGroupClient                     vpcs.GroupsClient
+	PortClient                         subnets.PortsClient
+	PortStateClient                    ports.StateClient
+	IPPoolClient                       subnets.IpPoolsClient
+	IPAllocationClient                 ip_pools.IpAllocationsClient
+	DhcpServerConfigStatsClient        dhcp_server_config.StatsClient
+	IPAddressUsageClient               vpcs.IpAddressUsageClient
+	VPCIPBlockUsageClient              vpc_ip_blocks.UsageClient
+	InfraIPBlockUsageClient            infra_ip_blocks.UsageClient
+	SubnetsClient                      vpcs.SubnetsClient
+	IPAddressAllocationClient          vpcs.IpAddressAllocationsClient
+	VpcEndpointClient                  vpcs.VpcEndpointsClient
+	VpcEndpointStatusClient            vpc_endpoints.StatusClient
+	VPCEndpointStatisticsClient        vpc_endpoints.StatisticsClient
+	VpcServiceEndpointClient           vpcs.VpcServiceEndpointsClient
+	VpcServiceEndpointStatusClient     vpc_service_endpoints.StatusClient
+	VPCServiceEndpointStatisticsClient vpc_service_endpoints.StatisticsClient
+	VPCLBSClient                       vpcs.VpcLbsClient
+	VpcLbVirtualServersClient          vpcs.VpcLbVirtualServersClient
+	VpcLbPoolsClient                   vpcs.VpcLbPoolsClient
+	VpcAttachmentClient                vpcs.AttachmentsClient
+	ProjectClient                      orgs.ProjectsClient
+	TransitGatewayClient               projects.TransitGatewaysClient
+	TransitGatewayAttachmentClient     transit_gateways.AttachmentsClient
+	TransitGatewayStateClient          transit_gateways.StateClient
+	ShareClient                        infra.SharesClient
+	LbAppProfileClient                 infra.LbAppProfilesClient
+	LbPersistenceProfilesClient        infra.LbPersistenceProfilesClient
+	LbMonitorProfilesClient            infra.LbMonitorProfilesClient
+	SubnetConnectionBindingMapsClient  subnets.SubnetConnectionBindingMapsClient
+	DynamicIPReservationsClient        subnets.DynamicIpReservationsClient
+	StaticIPReservationsClient         subnets.StaticIpReservationsClient
+	PortSettingsClient                 subnets.PortSettingsClient
+	NsxApiClient                       *nsxt.APIClient
+	VifsClient                         fabric.VifsClient
+	DnsZoneClient                      dns_services.ZonesClient
+	DnsAutoRecordConfigsClient         projects.DnsAutoRecordConfigsClient
+	DnsRecordsClient                   projects.DnsRecordsClient
 
 	NSXChecker    NSXHealthChecker
 	NSXVerChecker NSXVersionChecker
@@ -200,6 +205,18 @@ func GetClient(cf *config.NSXOperatorConfig) *Client {
 		log.Error(err, "Failed to initialize NSX client")
 	}
 	return client
+}
+
+// NewMigrationClient opts into workflow clients for migration handlers. Ordinary
+// NSX operator clients do not initialize these migration-only clients.
+func NewMigrationClient(cf *config.NSXOperatorConfig) (*Client, error) {
+	client, err := NewClient(cf)
+	if err != nil {
+		return nil, err
+	}
+	client.WorkflowsClient = nsx_policy.NewWorkflowsClient(client.RestConnector)
+	client.WorkflowValidationResultsClient = workflows.NewDvpg_validation_resultsClient(client.RestConnector)
+	return client, nil
 }
 
 // NewClient initializes NSX connectivity and reports configuration/constructor errors.
@@ -282,6 +299,8 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 	vpcServiceEndpointClient := vpcs.NewVpcServiceEndpointsClient(connectorAllowOverwrite)
 	vpcServiceEndpointStatusClient := vpc_service_endpoints.NewStatusClient(connector)
 	vpcLBSClient := vpcs.NewVpcLbsClient(connector)
+	vpcEndpointStatisticsClient := vpc_endpoints.NewStatisticsClient(connector)
+	vpcServiceEndpointStatisticsClient := vpc_service_endpoints.NewStatisticsClient(connector)
 	vpcLbVirtualServersClient := vpcs.NewVpcLbVirtualServersClient(connector)
 	vpcLbPoolsClient := vpcs.NewVpcLbPoolsClient(connector)
 	vpcAttachmentClient := vpcs.NewAttachmentsClient(connector)
@@ -341,59 +360,61 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 
 		// Health clients are now using REST API directly
 
-		OrgRootClient:                     orgRootClient,
-		OrgsClient:                        orgsClient,
-		ProjectInfraClient:                projectInfraClient,
-		VPCClient:                         vpcClient,
-		VPCStateClient:                    vpcStateClient,
-		VPCConnectivityProfilesClient:     vpcConnectivityProfilesClient,
-		VpcServiceProfileClient:           vpcServiceProfileClient,
-		Ipv6NdraProfileClient:             ipv6NdraProfileClient,
-		ProjectIpv6NdraProfileClient:      projectIpv6NdraProfileClient,
-		IPBlockClient:                     ipBlockClient,
-		InfraIPBlockClient:                infraIPBlockClient,
-		StaticRouteClient:                 staticRouteClient,
-		NATRuleClient:                     natRulesClient,
-		VpcGroupClient:                    vpcGroupClient,
-		PortClient:                        portClient,
-		PortStateClient:                   portStateClient,
-		SubnetStatusClient:                subnetStatusClient,
-		VPCSecurityClient:                 vpcSecurityClient,
-		VPCRuleClient:                     vpcRuleClient,
-		VPCLBSClient:                      vpcLBSClient,
-		VpcLbVirtualServersClient:         vpcLbVirtualServersClient,
-		VpcLbPoolsClient:                  vpcLbPoolsClient,
-		VpcAttachmentClient:               vpcAttachmentClient,
-		ProjectClient:                     projectClient,
-		NSXChecker:                        *nsxChecker,
-		NSXVerChecker:                     *nsxVersionChecker,
-		IPPoolClient:                      ipPoolClient,
-		IPAllocationClient:                ipAllocationClient,
-		DhcpServerConfigStatsClient:       statsClient,
-		IPAddressUsageClient:              ipAddressUsageClient,
-		VPCIPBlockUsageClient:             vpcIpBlockUsageClient,
-		InfraIPBlockUsageClient:           infraIPBlockUsageClient,
-		SubnetsClient:                     subnetsClient,
-		IPAddressAllocationClient:         ipAddressAllocationClient,
-		VpcEndpointClient:                 vpcEndpointClient,
-		VpcEndpointStatusClient:           vpcEndpointStatusClient,
-		VpcServiceEndpointClient:          vpcServiceEndpointClient,
-		VpcServiceEndpointStatusClient:    vpcServiceEndpointStatusClient,
-		TransitGatewayClient:              transitGatewayClient,
-		TransitGatewayAttachmentClient:    transitGatewayAttachmentClient,
-		TransitGatewayStateClient:         transitGatewayStateClient,
-		SubnetConnectionBindingMapsClient: subnetConnectionBindingMapsClient,
-		DynamicIPReservationsClient:       DynamicIPReservationsClient,
-		StaticIPReservationsClient:        StaticIPReservationsClient,
-		PortSettingsClient:                portSettingsClient,
-		LbAppProfileClient:                lbAppProfileClient,
-		LbPersistenceProfilesClient:       lbPersistenceProfilesClient,
-		LbMonitorProfilesClient:           lbMonitorProfilesClient,
-		NsxApiClient:                      nsxApiClient,
-		VifsClient:                        vifsClient,
-		DnsZoneClient:                     dnsZoneClient,
-		DnsAutoRecordConfigsClient:        dnsAutoRecordConfigsClient,
-		DnsRecordsClient:                  dnsRecordsClient,
+		OrgRootClient:                      orgRootClient,
+		OrgsClient:                         orgsClient,
+		ProjectInfraClient:                 projectInfraClient,
+		VPCClient:                          vpcClient,
+		VPCStateClient:                     vpcStateClient,
+		VPCConnectivityProfilesClient:      vpcConnectivityProfilesClient,
+		VpcServiceProfileClient:            vpcServiceProfileClient,
+		Ipv6NdraProfileClient:              ipv6NdraProfileClient,
+		ProjectIpv6NdraProfileClient:       projectIpv6NdraProfileClient,
+		IPBlockClient:                      ipBlockClient,
+		InfraIPBlockClient:                 infraIPBlockClient,
+		StaticRouteClient:                  staticRouteClient,
+		NATRuleClient:                      natRulesClient,
+		VpcGroupClient:                     vpcGroupClient,
+		PortClient:                         portClient,
+		PortStateClient:                    portStateClient,
+		SubnetStatusClient:                 subnetStatusClient,
+		VPCSecurityClient:                  vpcSecurityClient,
+		VPCRuleClient:                      vpcRuleClient,
+		VPCLBSClient:                       vpcLBSClient,
+		VpcLbVirtualServersClient:          vpcLbVirtualServersClient,
+		VpcLbPoolsClient:                   vpcLbPoolsClient,
+		VpcAttachmentClient:                vpcAttachmentClient,
+		ProjectClient:                      projectClient,
+		NSXChecker:                         *nsxChecker,
+		NSXVerChecker:                      *nsxVersionChecker,
+		IPPoolClient:                       ipPoolClient,
+		IPAllocationClient:                 ipAllocationClient,
+		DhcpServerConfigStatsClient:        statsClient,
+		IPAddressUsageClient:               ipAddressUsageClient,
+		VPCIPBlockUsageClient:              vpcIpBlockUsageClient,
+		InfraIPBlockUsageClient:            infraIPBlockUsageClient,
+		SubnetsClient:                      subnetsClient,
+		IPAddressAllocationClient:          ipAddressAllocationClient,
+		VpcEndpointClient:                  vpcEndpointClient,
+		VpcEndpointStatusClient:            vpcEndpointStatusClient,
+		VPCEndpointStatisticsClient:        vpcEndpointStatisticsClient,
+		VpcServiceEndpointClient:           vpcServiceEndpointClient,
+		VpcServiceEndpointStatusClient:     vpcServiceEndpointStatusClient,
+		VPCServiceEndpointStatisticsClient: vpcServiceEndpointStatisticsClient,
+		TransitGatewayClient:               transitGatewayClient,
+		TransitGatewayAttachmentClient:     transitGatewayAttachmentClient,
+		TransitGatewayStateClient:          transitGatewayStateClient,
+		SubnetConnectionBindingMapsClient:  subnetConnectionBindingMapsClient,
+		DynamicIPReservationsClient:        DynamicIPReservationsClient,
+		StaticIPReservationsClient:         StaticIPReservationsClient,
+		PortSettingsClient:                 portSettingsClient,
+		LbAppProfileClient:                 lbAppProfileClient,
+		LbPersistenceProfilesClient:        lbPersistenceProfilesClient,
+		LbMonitorProfilesClient:            lbMonitorProfilesClient,
+		NsxApiClient:                       nsxApiClient,
+		VifsClient:                         vifsClient,
+		DnsZoneClient:                      dnsZoneClient,
+		DnsAutoRecordConfigsClient:         dnsAutoRecordConfigsClient,
+		DnsRecordsClient:                   dnsRecordsClient,
 	}
 	nsxClient.Cluster.SetOnProductVersionChanged(func(oldVer, newVer string) {
 		nsxClient.resetNSXVersionFeatureCache()

@@ -89,19 +89,29 @@ func UpdateNamespace(ctx context.Context, c client.Client, snapshot *api.Namespa
 	return updated, nil
 }
 
-// Preserve unchanged historical checkpoints for diagnosis, but never accept or
-// advance an action that is outside this CR kind's scope.
+// Preserve an unchanged historical checkpoint for diagnosis, while rejecting
+// new or advanced checkpoints outside the transition CR kind's scope.
 func validateActionScope(status, previous *api.TransitionStatus, infrastructure bool) error {
 	if previous != nil && status.LastAction == previous.LastAction && status.ActionState == previous.ActionState && status.ActionGeneration == previous.ActionGeneration {
 		return nil
 	}
-	if infrastructure && (status.LastAction == api.ActionRollback || status.LastAction == api.ActionCommit) {
-		return fmt.Errorf("infrastructure checkpoints cannot accept or advance %s; infrastructure reversion uses WCP backup and restore", status.LastAction)
+	if status.LastAction == "" {
+		return nil
 	}
-	if !infrastructure && status.LastAction == api.ActionFinalize {
-		return fmt.Errorf("namespace checkpoints cannot accept or advance Finalize")
+	if infrastructure {
+		switch status.LastAction {
+		case api.ActionEvaluate, api.ActionExecute, api.ActionFinalize:
+			return nil
+		default:
+			return fmt.Errorf("infrastructure checkpoints cannot accept or advance %s; infrastructure reversion uses WCP backup and restore", status.LastAction)
+		}
 	}
-	return nil
+	switch status.LastAction {
+	case api.ActionEvaluate, api.ActionExecute, api.ActionRollback, api.ActionCommit:
+		return nil
+	default:
+		return fmt.Errorf("namespace checkpoints cannot accept or advance %s", status.LastAction)
+	}
 }
 
 func validateGenerations(status, previous *api.TransitionStatus, generation int64) error {

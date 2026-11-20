@@ -114,6 +114,24 @@ func TestInputAdmission(t *testing.T) {
 					}
 				})
 			}
+			legacyAction := "Rollback"
+			if stage == "namespaces" {
+				legacyAction = "Finalize"
+			}
+			legacy := runtime.DeepCopyJSON(example)
+			legacy["status"] = map[string]any{"lastAction": legacyAction, "actionState": "Failed", "actionGeneration": int64(1), "observedGeneration": int64(1)}
+			check("preserve historical checkpoint while reporting blocked", legacy, func(o map[string]any) {
+				o["status"].(map[string]any)["phase"] = "Blocked"
+			}, true)
+			check("cannot advance historical checkpoint", legacy, func(o map[string]any) {
+				o["status"].(map[string]any)["actionState"] = "Succeeded"
+			}, false)
+			check("cannot introduce unsupported checkpoint", example, func(o map[string]any) {
+				o["status"] = map[string]any{"lastAction": legacyAction, "actionState": "Running", "actionGeneration": int64(1)}
+			}, false)
+			check("explicit empty lastAction is invalid", example, func(o map[string]any) {
+				o["status"] = map[string]any{"lastAction": ""}
+			}, false)
 			// Supported release examples must also pass admission.
 			for _, path := range []string{"testdata/" + stage + ".yaml", "../../../../build/yaml/samples/migration/" + stage + ".yaml"} {
 				data, err := os.ReadFile(path)
@@ -463,8 +481,13 @@ func TestInputAdmission(t *testing.T) {
 				}
 				for _, state := range []ActionState{ActionStateRunning, ActionStateSucceeded, ActionStateFailed} {
 					locked := runtime.DeepCopyJSON(example)
+					object(locked["metadata"], "metadata")["generation"] = int64(1)
 					spec(locked)["action"] = string(action)
-					locked["status"] = map[string]any{"lastAction": string(action), "actionState": string(state)}
+					lockedStatus := map[string]any{"lastAction": string(action), "actionState": string(state), "actionGeneration": int64(1), "observedGeneration": int64(1)}
+					if action == ActionRollback && state == ActionStateSucceeded {
+						lockedStatus["phase"] = "RolledBack"
+					}
+					locked["status"] = lockedStatus
 					label := string(action) + "/" + string(state)
 					canReopen := stage == "namespaces" && action == ActionRollback && state == ActionStateSucceeded
 					for _, correction := range corrections {
@@ -493,10 +516,14 @@ func TestInputAdmission(t *testing.T) {
 			if stage == "namespaces" {
 				for _, state := range []ActionState{"", ActionStateRunning, ActionStateFailed, ActionStateSucceeded} {
 					rolledBack := runtime.DeepCopyJSON(example)
+					object(rolledBack["metadata"], "metadata")["generation"] = int64(1)
 					spec(rolledBack)["action"] = "Rollback"
-					rolledBack["status"] = map[string]any{"lastAction": "Rollback"}
+					rolledBack["status"] = map[string]any{"lastAction": "Rollback", "actionGeneration": int64(1), "observedGeneration": int64(1), "phase": "RolledBack"}
 					if state != "" {
 						rolledBack["status"].(map[string]any)["actionState"] = string(state)
+					}
+					if state != ActionStateSucceeded {
+						delete(rolledBack["status"].(map[string]any), "phase")
 					}
 					label := "rollback recovery/" + string(state)
 					check(label+" add network during Evaluate", rolledBack, func(o map[string]any) {

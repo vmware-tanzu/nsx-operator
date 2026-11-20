@@ -80,6 +80,22 @@ func (m *MockVPCServiceProvider) GetLBProvider() (common.LBProvider, error) {
 	return args.Get(0).(common.LBProvider), args.Error(1)
 }
 
+func (m *MockVPCServiceProvider) GetSubnetPortVPCConfigByVPCPath(vpcPath string) (bool, []string, error) {
+	for _, expected := range m.ExpectedCalls {
+		if expected.Method == "GetSubnetPortVPCConfigByVPCPath" {
+			args := m.Called(vpcPath)
+			var resolverIPs []string
+			if configuredIPs := args.Get(1); configuredIPs != nil {
+				resolverIPs, _ = configuredIPs.([]string)
+			}
+			return args.Bool(0), resolverIPs, args.Error(2)
+		}
+	}
+
+	raDeactivated, err := m.IsRADeactivatedByVPCPath(vpcPath)
+	return raDeactivated, nil, err
+}
+
 type MockSubnetServiceProvider struct {
 	mock.Mock
 }

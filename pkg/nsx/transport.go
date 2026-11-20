@@ -6,6 +6,7 @@ package nsx
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -31,9 +32,23 @@ type Transport struct {
 func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	var resp *http.Response
 	var resul error
+	sentRequest := false
 
 	retry.Do(
 		func() error {
+			if sentRequest && r.Body != nil {
+				if r.GetBody == nil {
+					resul = errors.New("cannot retry NSX request with a non-replayable body")
+					return retry.Unrecoverable(resul)
+				}
+				r.Body.Close()
+				body, err := r.GetBody()
+				if err != nil {
+					resul = fmt.Errorf("restore NSX request body for retry: %w", err)
+					return retry.Unrecoverable(resul)
+				}
+				r.Body = body
+			}
 			ep, err := t.selectEndpoint()
 			if err != nil {
 				log.Error(err, "Endpoint is unavailable")
@@ -49,6 +64,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			ep.wait()
 			util.DumpHttpRequest(r)
 			waitTime := time.Since(start)
+			sentRequest = true
 			if resp, resul = t.base().RoundTrip(r); resul != nil {
 				ep.setStatus(DOWN)
 				return handleRoundTripError(resul, ep)
@@ -80,6 +96,9 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 			}
 			return err
 		}, retry.RetryIf(func(err error) bool {
+			if !retry.IsRecoverable(err) {
+				return false
+			}
 			if util.ShouldGroundPoint(err) {
 				return true
 			} else if util.ShouldRetry(err) {

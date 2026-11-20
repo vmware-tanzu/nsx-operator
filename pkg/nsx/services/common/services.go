@@ -26,6 +26,7 @@ type VPCServiceProvider interface {
 	GetNetworkStackFromNC(nc *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error)
 	IsRADeactivatedByVPCPath(vpcPath string) (bool, error)
 	GetLBProvider() (LBProvider, error)
+	GetSubnetPortVPCConfigByVPCPath(vpcPath string) (bool, []string, error)
 }
 
 type SubnetServiceProvider interface {

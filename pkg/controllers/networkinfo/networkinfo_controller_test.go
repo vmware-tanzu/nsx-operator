@@ -175,6 +175,50 @@ func createNetworkInfoReconciler(objs []client.Object) *NetworkInfoReconciler {
 	return r
 }
 
+func TestNetworkInfoReconciler_SkipTerminatingNamespace(t *testing.T) {
+	now := metav1.Now()
+	for _, tc := range []struct {
+		name              string
+		deletionTimestamp *metav1.Time
+		phase             corev1.NamespacePhase
+	}{
+		{name: "deletion timestamp", deletionTimestamp: &now, phase: corev1.NamespaceActive},
+		{name: "terminating phase", phase: corev1.NamespaceTerminating},
+		{name: "both", deletionTimestamp: &now, phase: corev1.NamespaceTerminating},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := createNetworkInfoReconciler(nil)
+			c := mock_client.NewMockClient(gomock.NewController(t))
+			r.Client = c
+			key := types.NamespacedName{Namespace: "test-ns", Name: "test-ns"}
+			// Only reads are expected: no SubnetSet creates/deletes or status writes.
+			c.EXPECT().Get(gomock.Any(), key, gomock.AssignableToTypeOf(&v1alpha1.NetworkInfo{})).DoAndReturn(
+				func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					obj.SetName(key.Name)
+					obj.SetNamespace(key.Namespace)
+					return nil
+				})
+			c.EXPECT().Get(gomock.Any(), types.NamespacedName{Name: key.Namespace}, gomock.AssignableToTypeOf(&corev1.Namespace{})).DoAndReturn(
+				func(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
+					ns := obj.(*corev1.Namespace)
+					ns.Name = key.Namespace
+					ns.DeletionTimestamp = tc.deletionTimestamp
+					ns.Status.Phase = tc.phase
+					return nil
+				})
+			patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(r), "getNetworkConfig",
+				func(_ *NetworkInfoReconciler, _ context.Context, _ *v1alpha1.NetworkInfo) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return &v1alpha1.VPCNetworkConfiguration{}, nil
+				})
+			defer patches.Reset()
+
+			result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: key})
+			require.NoError(t, err)
+			assert.Equal(t, common.ResultNormal, result)
+		})
+	}
+}
+
 func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 	// These cases exercise VPC reconciliation with successful status persistence.
 	// Persistence failures and recovery are covered by TestSystemAVIStatusWriteRetriesUntilRecovery.
@@ -188,12 +232,13 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 		req: controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns1", Name: "name"}},
 	}
 	tests := []struct {
-		name        string
-		prepareFunc func(*testing.T, *NetworkInfoReconciler, context.Context) *gomonkey.Patches
-		verifyFunc  func(*testing.T, *NetworkInfoReconciler)
-		args        args
-		want        controllerruntime.Result
-		wantErr     bool
+		name              string
+		prepareFunc       func(*testing.T, *NetworkInfoReconciler, context.Context) *gomonkey.Patches
+		verifyFunc        func(*testing.T, *NetworkInfoReconciler)
+		customStatusWrite bool
+		args              args
+		want              controllerruntime.Result
+		wantErr           bool
 	}{
 		{
 			name: "Empty",
@@ -982,7 +1027,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Pre-create VPC without attachment",
+			name:              "Pre-create VPC without attachment",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1043,7 +1089,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Pre-create VPC without attachment with AVILB enabled",
+			name:              "Pre-create VPC without attachment with AVILB enabled",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1114,7 +1161,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "Pre-create VPC without attachment with NSXLB",
+			name:              "Pre-create VPC without attachment with NSXLB",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1272,7 +1320,8 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "DNS zones in VpcNetworkConfiguration",
+			name:              "DNS zones in VpcNetworkConfiguration",
+			customStatusWrite: true,
 			prepareFunc: func(t *testing.T, r *NetworkInfoReconciler, ctx context.Context) (patches *gomonkey.Patches) {
 				assert.NoError(t, r.Client.Create(ctx, &v1alpha1.NetworkInfo{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1573,10 +1622,16 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 			r := createNetworkInfoReconciler([]client.Object{ns1})
 			v1alpha1.AddToScheme(r.Scheme)
 			ctx := context.TODO()
+			patches := &gomonkey.Patches{}
 			if tt.prepareFunc != nil {
-				patches := tt.prepareFunc(t, r, ctx)
-				defer patches.Reset()
+				patches = tt.prepareFunc(t, r, ctx)
 			}
+			if !tt.customStatusWrite {
+				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS, func(context.Context, client.Client, string, string, string, string, string) error {
+					return nil
+				})
+			}
+			defer patches.Reset()
 			got, err := r.Reconcile(ctx, tt.args.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Reconcile() error = %v, wantErr %v", err, tt.wantErr)
@@ -1630,6 +1685,9 @@ func TestNetworkInfoReconciler_Reconcile_ExternalIPBlockInSystemVPC(t *testing.T
 				return servicecommon.SystemVPCNetworkConfigurationName, nil
 			})
 			defer patches.Reset()
+			patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS, func(context.Context, client.Client, string, string, string, string, string) error {
+				return nil
+			})
 
 			patches.ApplyMethod(reflect.TypeOf(r.Service), "GetVPCNetworkConfig", func(_ *vpc.VPCService, _ string) (*v1alpha1.VPCNetworkConfiguration, bool, error) {
 				return &v1alpha1.VPCNetworkConfiguration{

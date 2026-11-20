@@ -247,6 +247,8 @@ spec:
             x-kubernetes-validations:
             - message: Namespaces is immutable
               rule: self.namespaces == oldSelf.namespaces
+            - message: namespace action must be Evaluate, Execute, Commit, or Rollback
+              rule: self.action in ['Evaluate', 'Execute', 'Commit', 'Rollback']
             - message: Finalize is an infrastructure operation
               rule: self.action != 'Finalize'
           status:
@@ -504,6 +506,16 @@ spec:
         - spec
         type: object
         x-kubernetes-validations:
+        - message: namespace lastAction must be Evaluate, Execute, Rollback, or Commit
+            unless an existing checkpoint is unchanged
+          rule: '!has(self.status) || !has(self.status.lastAction) || self.status.lastAction
+            in [''Evaluate'', ''Execute'', ''Rollback'', ''Commit''] || (has(oldSelf.status)
+            && has(oldSelf.status.lastAction) && self.status.lastAction == oldSelf.status.lastAction
+            && has(self.status.actionState) == has(oldSelf.status.actionState) &&
+            (!has(self.status.actionState) || self.status.actionState == oldSelf.status.actionState)
+            && has(self.status.actionGeneration) == has(oldSelf.status.actionGeneration)
+            && (!has(self.status.actionGeneration) || self.status.actionGeneration
+            == oldSelf.status.actionGeneration))'
         - message: namespaceStatuses entries must belong to spec.namespaces
           rule: '!has(self.status) || !has(self.status.namespaceStatuses) || [self.spec.namespaces.transformMapEntry(i,
             name, {name: true})].all(names, self.status.namespaceStatuses.all(ns,

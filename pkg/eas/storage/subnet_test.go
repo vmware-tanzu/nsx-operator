@@ -32,7 +32,14 @@ func getSubnetEAS(ctx context.Context, dhcp bool, c *nsx.Client, k8s k8sclient.C
 	if dhcp {
 		return NewSubnetDHCPStatsStorage(c, k8s).Get(ctx, namespace, name)
 	}
-	return NewSubnetIPPoolsStorage(c, k8s).Get(ctx, namespace, name)
+	pools, err := NewSubnetIPPoolsStorage(c, k8s).Get(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(pools.Items) != 1 {
+		return nil, fmt.Errorf("expected one pool in ownership test, got %d", len(pools.Items))
+	}
+	return &pools.Items[0], nil
 }
 
 func TestSubnetEAS_SharedVPCSameCRName(t *testing.T) {
@@ -58,7 +65,7 @@ func TestSubnetEAS_SharedVPCSameCRName(t *testing.T) {
 						SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: strPtr(mode)},
 					})
 				}
-				pools, stats := &fakeIPPoolClient{}, &fakeDHCPStatsClient{}
+				pools, stats := &fakeIPPoolClient{result: model.IpAddressPoolListResult{Results: []model.IpAddressPool{{}}}}, &fakeDHCPStatsClient{}
 				c := &nsx.Client{SubnetsClient: &fakeSubnetsClient{results: model.VpcSubnetListResult{Results: subnets}}, IPPoolClient: pools, DhcpServerConfigStatsClient: stats}
 				namespace := fmt.Sprintf("ns-%d", target)
 				result, err := getSubnetEAS(context.Background(), dhcp, c, newFakeK8sClient(objects...), namespace, "shared-name")
@@ -126,7 +133,7 @@ func TestSubnetEAS_PaginationAndOwnershipBeforeDHCPMode(t *testing.T) {
 					SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: strPtr(mode)},
 				}}}, nil
 			}}
-			pools, stats := &fakeIPPoolClient{}, &fakeDHCPStatsClient{}
+			pools, stats := &fakeIPPoolClient{result: model.IpAddressPoolListResult{Results: []model.IpAddressPool{{}}}}, &fakeDHCPStatsClient{}
 			c := &nsx.Client{SubnetsClient: list, IPPoolClient: pools, DhcpServerConfigStatsClient: stats}
 			_, err := getSubnetEAS(context.Background(), dhcp, c, newFakeK8sClient(cr), "ns1", "sub1")
 			require.NoError(t, err)
