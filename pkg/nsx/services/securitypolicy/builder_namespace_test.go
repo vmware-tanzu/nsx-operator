@@ -479,6 +479,11 @@ func TestNativeNamespaceMemberType(t *testing.T) {
 	service := &SecurityPolicyService{}
 	assert.Equal(t, common.MemberTypeNamespace, service.nativeNamespaceMemberType())
 
+	// NSXConfig set but NsxConfig nil: VpcWcpEnhanceEnabled guards a nil
+	// receiver, so this must not panic and falls back to "Namespace".
+	service.NSXConfig = &config.NSXOperatorConfig{}
+	assert.Equal(t, common.MemberTypeNamespace, service.nativeNamespaceMemberType())
+
 	// vpc_wcp_enhance explicitly disabled: still "Namespace".
 	service.NSXConfig = &config.NSXOperatorConfig{NsxConfig: &config.NsxConfig{VpcWcpEnhance: &fs}}
 	assert.Equal(t, common.MemberTypeNamespace, service.nativeNamespaceMemberType())

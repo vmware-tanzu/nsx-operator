@@ -202,8 +202,8 @@ const (
 	// conditions in a NestedExpression.
 	MemberTypeSupervisorNamespace = "SupervisorNamespace"
 	MemberTypeVirtualMachine      = "VirtualMachine"
-	VMTypePod                = "POD"
-	VMTypeRegular            = "REGULAR"
+	VMTypePod                     = "POD"
+	VMTypeRegular                 = "REGULAR"
 )
 
 var (
