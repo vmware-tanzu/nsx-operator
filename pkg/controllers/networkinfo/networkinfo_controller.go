@@ -304,6 +304,12 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Error(err, "Unable to fetch Namespace", "Namespace", req.Namespace)
 		return common.ResultNormal, err
 	}
+	// Namespace cleanup can delete default SubnetSets before the NetworkInfo is
+	// marked for deletion. Do not recreate them while the namespace is terminating.
+	if !ns.DeletionTimestamp.IsZero() || ns.Status.Phase == corev1.NamespaceTerminating {
+		log.Debug("Skip NetworkInfo create/update for terminating Namespace", "Namespace", req.Namespace)
+		return common.ResultNormal, nil
+	}
 	namespaceType := common.GetNamespaceType(ns, nc)
 	log.Debug("Fetch Namespace for NetworkInfo", "Namespace", ns, "type", namespaceType)
 
