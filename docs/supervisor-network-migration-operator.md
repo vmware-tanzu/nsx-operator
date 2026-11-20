@@ -4,129 +4,67 @@ The Supervisor migration framework runs as a separate process/container in the
 NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` resources
 `ControlPlaneNetworkTransition` and `NamespaceNetworkTransition`.
 
-## Branch scope
-
-This branch, `topic/xl018891/UBMWM-12405`, builds on
-`topic/xl018891/supervisor-network-migration-operator`. It adds action dispatch,
-persisted execution checkpoints, namespace readiness and infrastructure finalization dependency gates,
-action dispatch with separately enforced admission and resource-driven restart reconciliation,
-and irreversible commit/finalize guards for
-[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
-The base branch retains the manager, observational watches, lazy NSX connectivity,
-CRD definitions, and packaging. Concrete external migration handlers are still pending.
-
 ## Framework and services
 
-- `cmd_migration`: independent controller manager; no normal NSX controllers,
-  `electMaster` calls, or `nsx-operator-role` label changes. A migration
-  admission server can be enabled independently of the transition controllers.
-- `pkg/apis/migration/v1alpha1`: Shared orchestration APIs in migration.network.vmware.com/v1alpha1.
-- `pkg/migration/controllers` and `pkg/migration/transition`: live dependency gates,
-  action checkpoints, namespace rollback, infrastructure forward retry, and
-  irreversible commit/finalize recovery.
-- `pkg/migration.SetupWithManager`: registers both stages with a shared dispatcher
-  when enabled; no intermediate Operator or unused NSX service is constructed.
-- `pkg/nsx/services/migration.Service`: lazy NSX connectivity available for future
-  handlers. Connections are process-local, not shared between containers.
+- `cmd_migration` runs an independent controller manager without starting the
+  normal NSX controllers, calling `electMaster`, or changing `nsx-operator-role`.
+  The admission server can be enabled independently of transition controllers.
+- `pkg/apis/migration/v1alpha1` defines the cluster-scoped transition APIs.
+- `pkg/migration/controllers` and `pkg/migration/transition` provide action
+  dispatch, durable checkpoints, dependency gates, and restart recovery.
+- `pkg/nsx/services/migration.Service` initializes NSX connectivity lazily for
+  handlers; connections are process-local.
 
-Migration dispatch defaults to disabled: no transition controllers, watches, or
-leader election are started. Disabled startup loads local Kubernetes REST
-configuration without probing API-server health. Valid local REST configuration
-is still required. Enabled startup retains the API health check and loopback
-fallback. `--enable-network-migration` enables dispatch and the independent lease;
-valid actions report `ActionNotImplemented` because external handlers are not yet
-wired. This flag does not implement the vCenter FSS/HTTP authorization gate.
-Startup does not load NSX configuration or contact NSX. Future handlers can retry
-missing configuration or failed client initialization. Migration startup must not
-rely solely on `HasVPCNamespaces()`, since a VDS Supervisor may have none.
-  handlers, reusing `pkg/config` and `nsx.GetClient`. The framework does not
-  construct or inject an unused service. Sessions and connection pools are
-  process-local, not shared between containers.
+Migration dispatch defaults to disabled. Disabled startup does not start
+transition controllers, watches, or leader election and does not probe API-server
+health, though valid local REST configuration is still required. Enabling
+`--enable-network-migration` starts dispatch and its independent lease; it does
+not implement the vCenter FSS/HTTP authorization gate. Startup does not contact
+NSX. `HasVPCNamespaces()` is not a valid startup prerequisite because a VDS
+Supervisor may not yet have VPC namespaces.
 
-Migration observation defaults to disabled: no transition controllers, watches,
-or leader election are started. Disabled startup loads local Kubernetes REST
-configuration without probing API-server health, so an API `/healthz` failure
-does not prevent the process health/readiness endpoints from starting. Valid
-local REST configuration is still required. Enabled startup retains the existing
-API health check and loopback fallback. `--enable-network-migration` enables
-controller observation and the independent lease. This startup flag does not implement the vCenter FSS/HTTP
-authorization gate; a disabled reconciler does not return HTTP 403.
-The registered framework controllers do not dispatch actions, update
-status, checkpoint execution, or enforce cross-resource dependencies. WBS 1.1.3
-adds explicit status-reporting and persistence helpers. This branch adds action
-dispatch and dependency gates but has no concrete migration handlers, for
-[UBMWM-12405](https://vmw-jira.broadcom.net/browse/UBMWM-12405).
-Startup does not load NSX configuration or contact NSX. Missing configuration or
-failed client initialization can be retried by future handlers. Migration startup
-must not depend solely on `HasVPCNamespaces()`, because a VDS Supervisor may not
-have any VPC Namespaces before migration preparation.
+Both CRDs accept `Evaluate` and `Execute`. Namespace batches also accept
+`Rollback` and `Commit`; infrastructure accepts `Finalize` and rejects
+`Rollback`. The dispatcher persists action/generation checkpoints before
+invoking handlers. Namespace `Commit` validates completed per-Namespace status
+and shared workflow references, then asks the controller to persist
+`status.irreversibleAction: Commit` before deleting the recorded workflow IDs.
+Retries reuse those IDs, including after partial deletion. Failed infrastructure
+actions retain checkpoints for forward recovery. Infrastructure reversion uses
+WCP backup and restore outside this migration API.
 
-Both CRDs accept `Evaluate` and `Execute`. Namespace batches
-additionally support `Rollback` and `Commit`; infrastructure supports `Finalize`.
-The infrastructure CRD rejects `Rollback` at every phase. Failed infrastructure
-actions retain checkpoints for diagnosis and forward retry. Infrastructure
-reversion uses the user-operated WCP backup-and-restore procedure outside the
-migration API; arrange a usable backup and recovery procedure before migration.
-Namespace rollback remains subject to dependency checks and the Commit boundary.
-`lastAction`, `actionState`, and `actionGeneration` record accepted work. A handler
-returns `CheckpointIrreversible` only after prerequisite checks, then waits for
-persisted `status.irreversibleAction` before irreversible external changes. That
-checkpoint is immutable and closes namespace rollback at Commit.
-Infrastructure Rollback is rejected independently of any irreversible checkpoint. Exact workflow IDs remain durable.
-Namespace status contains `name`, `phase`, `reason`, and `message`; milestones are batch
-conditions, and counters are derived using batch membership from spec.
-Status fields define the contract for future execution and recovery, including
-`lastAction`, `actionState`, `actionGeneration`, and `irreversibleAction`. CRD
-validation remains part of the API definitions. `RecordAction` can record an
-execution checkpoint when called by a handler; the observational controllers do
-not call it. Namespace status defines `name`, `phase`, `reason`, and
-`message`; milestones are batch conditions, and counters follow spec membership.
+`lastAction`, `actionState`, and `actionGeneration` identify the accepted work.
+`irreversibleAction` records a point of no return and cannot be cleared. A
+successful namespace Rollback sets `rollbackComplete`; this checkpoint survives
+subsequent Evaluate so infrastructure Finalize can recognize the restored batch.
+A new Execute, Rollback, or Commit clears it. Namespace status records progress
+per member of the immutable batch; aggregate counts are derived from
+`spec.namespaces` and `namespaceStatuses`.
 
 ## Status contract (WBS 1.1.3)
 
 The status foundation follows [WBS 1.1.3, version 77](https://vmw-confluence.broadcom.net/pages/viewpage.action?pageId=3003298182)
-and the current status contract in detailed design version 187, Sections 4.1/4.2.
-`pkg/apis/migration/v1alpha1` exports phase and condition names for callers.
-`pkg/migration/status` supplies reporting and status-subresource persistence helpers:
+and detailed design version 187, Sections 4.1/4.2. `pkg/apis/migration/v1alpha1`
+exports phase and condition names. `pkg/migration/status` provides reporting and
+status-subresource persistence helpers:
 
-- `Observe` updates phase, a condition, and `observedGeneration`. It retains
-  the checkpointed action and unrelated milestone conditions. Repeating a
-  condition preserves its transition timestamp when its truth value is unchanged.
+- `Observe` updates phase, a condition, and `observedGeneration`, retaining the
+  checkpointed action and unrelated milestone conditions.
 - `RecordAction` records `lastAction`, `actionState`, and `actionGeneration`
-  together. Reporting a newer blocked request does not promote the older action
-  to success. Neither this helper nor per-namespace progress advances an action
-  or establishes the irreversible checkpoint. Callers must verify whole-batch
-  restoration before recording Rollback/Succeeded; require a new Evaluate before Execute;
-  that checkpoint permits Evaluate-time input corrections in the namespace CRD.
-- `RecordWorkflow` records one exact workflow handle per VDN. Repeated reports
-  are idempotent; replacing an accepted handle requires a separately defined
-  recovery/reset flow.
-- `RecordNamespace` updates `name`, `phase`, `reason`, and `message` for one
-  member of the immutable batch. Other records and the CR-level phase survive.
-  Admission rejects namespace status records outside `spec.namespaces`.
+  together. A blocked request does not promote older work to success.
+- `RecordWorkflow` records one exact workflow handle per VDN. Replacing an
+  accepted handle requires a separately defined recovery/reset flow.
+- `RecordNamespace` updates one member of the immutable batch while preserving
+  other records. Admission rejects progress entries outside `spec.namespaces`.
 - `UpdateControlPlane` and `UpdateNamespace` patch only status from a persisted
   snapshot. Resource-version preconditions protect concurrent progress and spec
-  changes. Callers must read again and recompute on conflict; mutations must
-  have no external side effects. No-op reports issue no patch. Writers reject
-  regressed generation checkpoints and CR-inappropriate actions: infrastructure
-  cannot accept or advance Rollback/Commit; namespaces cannot accept or advance
-  Finalize. Unchanged historical checkpoints remain available for diagnosis.
-  Shared rollback phase names describe namespace progress only.
+  changes; callers must recompute after conflicts and avoid external side effects
+  inside patch mutations.
 
-Clients call `NamespacePhaseCounts()` to derive counts from batch membership and
-per-namespace records. Missing records and empty phases count as `Pending`;
-future phase names retain separate buckets. `Completed`, `Committed`,
-`RolledBack`, and evaluation failures remain distinct. Counts describe recorded
-progress, and do not prove that the current action/generation succeeded. Check
-`lastAction`, `actionState`, `actionGeneration`, and the relevant conditions for
-that decision. No redundant counter fields or extra status CRs are introduced.
-
-The framework controllers remain observational. The orchestration workstream
-can use these helpers when reporting handler outcomes; this branch does not
-install concrete handlers or grant additional controller permissions. Status
-persistence tests exercise both CR kinds, conflicts and retries, retained
-workflow/condition history, and namespace counts. API tests validate the full
-1,000-namespace batch and the checked-in design output examples.
+`NamespacePhaseCounts()` derives counts from the batch membership and per-namespace
+records. Missing records and empty phases count as `Pending`. Counts describe
+recorded progress and do not prove that the current action/generation succeeded;
+check the checkpoint and relevant conditions for that decision.
 
 ## NSX resource recovery contract
 

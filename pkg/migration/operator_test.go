@@ -4,11 +4,14 @@
 package migration
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
@@ -46,4 +49,56 @@ func TestRegisterMigrationControllers(t *testing.T) {
 		require.ErrorIs(t, err, failure)
 		require.Equal(t, 1, calls, "do not continue after failed registration")
 	}
+}
+
+func TestNewEngineRegistersNamespaceCommitHandler(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	deler := workflowDeleterForTest(func(context.Context, string) error { return nil })
+	engine := newEngine(reader, deler)
+	commit := engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionCommit}]
+	require.IsType(t, &transition.NamespaceCommitHandler{}, commit)
+	require.NotContains(t, engine.Handlers, transition.Key{Stage: transition.Infrastructure, Action: api.ActionFinalize})
+	require.NotContains(t, engine.Handlers, transition.Key{Stage: transition.Namespaces, Action: api.ActionRollback})
+}
+
+func TestSetupWithManagerWiresReaderClientAndEngine(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	mgr := testManager{client: c, reader: reader}
+	var registered []transition.Stage
+
+	err := setupWithManager(mgr, func(r *controllers.Reconciler) error {
+		require.Same(t, c, r.Client)
+		require.Same(t, reader, r.APIReader)
+		require.True(t, r.Engine.Enabled)
+		handler, ok := r.Engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionCommit}].(*transition.NamespaceCommitHandler)
+		require.True(t, ok)
+		require.Same(t, reader, handler.Reader)
+		require.NotNil(t, handler.Workflows)
+		registered = append(registered, r.Stage)
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []transition.Stage{transition.Infrastructure, transition.Namespaces}, registered)
+}
+
+type testManager struct {
+	ctrl.Manager
+	client client.Client
+	reader client.Reader
+}
+
+func (m testManager) GetClient() client.Client { return m.client }
+
+func (m testManager) GetAPIReader() client.Reader { return m.reader }
+
+type workflowDeleterForTest func(context.Context, string) error
+
+func (f workflowDeleterForTest) DeleteWorkflow(ctx context.Context, id string) error {
+	return f(ctx, id)
 }
