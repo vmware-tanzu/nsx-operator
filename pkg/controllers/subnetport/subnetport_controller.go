@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"reflect"
 	"slices"
@@ -364,11 +365,20 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// newly recreated CR. Keep the original network data for the NSX restore.
 			subnetPort.Status = *old_status.DeepCopy()
 		}
-		raDeactivated, err := r.VPCService.IsRADeactivatedByVPCPath(nsxSubnetPath)
+		raDeactivated, dnsResolverIPs, err := r.VPCService.GetSubnetPortVPCConfigByVPCPath(nsxSubnetPath)
 		if err != nil {
-			log.Error(err, "Failed to determine RA mode for SubnetPort's VPC", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
-			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to determine RA mode for SubnetPort's VPC", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
+			log.Error(err, "Failed to get VPC configuration (RA mode and DNS resolver IPs) for SubnetPort", "SubnetPort", subnetPort, "nsxSubnetPath", nsxSubnetPath)
+			r.StatusUpdater.UpdateFail(ctx, subnetPort, err, "Failed to get VPC configuration (RA mode and DNS resolver IPs) for SubnetPort", setSubnetPortReadyStatusFalse, r.SubnetPortService, r.restoreMode, isPublicSubnet)
 			return common.ResultNormal, err
+		}
+		if !subnetPortSupportsDNS(subnetPort) {
+			dnsResolverIPs = nil
+		} else if old_status.Attachment.ID != "" {
+			// The attachment ID was already present in persisted status. Keep the
+			// resolver list stable instead of backfilling or refreshing it later.
+			dnsResolverIPs = slices.Clone(old_status.NetworkInterfaceConfig.DNSResolverIPs)
+		} else {
+			dnsResolverIPs = filterDNSResolverIPsByIPType(dnsResolverIPs, interfaceIPType)
 		}
 
 		var ab *v1alpha1.AddressBinding
@@ -385,7 +395,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			nsxSubnetPortState, err = r.SubnetPortService.ReuseSubnetPort(subnetPort, reusedPort, nsxSubnet, labels)
 		} else {
 			var dnsHostName string
-			if nsx.DNSAutoRecordFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && subnetPortSupportsDNSAutoRecord(subnetPort) {
+			if nsx.DNSAutoRecordFeatureEnabled(r.SubnetPortService.NSXClient, r.SubnetPortService.NSXConfig) && subnetPortSupportsDNS(subnetPort) {
 				dnsHostName = subnetPortDNSHostname(subnetPort)
 			}
 			nsxSubnetPortState, err = r.SubnetPortService.CreateOrUpdateSubnetPort(subnetPort, nsxSubnet, contextID, labels, isVmSubnetPort, r.restoreMode, interfaceIPType, dnsHostName)
@@ -433,6 +443,7 @@ func (r *SubnetPortReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				DHCPDeactivatedOnSubnet:   !util.NSXSubnetDHCPEnabled(nsxSubnet),
 				DHCPv6DeactivatedOnSubnet: !util.NSXSubnetDHCPv6Enabled(nsxSubnet),
 				RADeactivated:             raDeactivated,
+				DNSResolverIPs:            dnsResolverIPs,
 			}
 			if subnetPort.Spec.StaticIPAllocationType != v1alpha1.StaticIPAllocationTypeNone || len(subnetPort.Spec.AddressBindings) > 0 {
 				if len(nsxSubnetPortState.RealizedBindings) > 0 {
@@ -2072,6 +2083,48 @@ func realizedBindingsCoverStaticFamilies(realizedBindings []model.AddressBinding
 	}
 }
 
+func filterDNSResolverIPsByIPType(resolverIPs []string, ipType v1alpha1.IPAddressType) []string {
+	if len(resolverIPs) == 0 {
+		return nil
+	}
+	switch ipType {
+	case v1alpha1.IPAddressTypeIPv4, v1alpha1.IPAddressTypeIPv6, v1alpha1.IPAddressTypeIPv4IPv6:
+	default:
+		log.Warn("Skipping DNS resolver IPs for unsupported SubnetPort IP address type", "ipAddressType", ipType)
+		return nil
+	}
+	filtered := make([]string, 0, len(resolverIPs))
+	for _, resolverIP := range resolverIPs {
+		ip, err := netip.ParseAddr(resolverIP)
+		if err != nil {
+			log.Warn("Skipping invalid DNS resolver IP from VPC service profile", "resolverIP", resolverIP)
+			continue
+		}
+		if ip.Is4In6() {
+			log.Warn("Skipping IPv4-mapped IPv6 DNS resolver IP from VPC service profile", "resolverIP", resolverIP)
+			continue
+		}
+		switch ipType {
+		case v1alpha1.IPAddressTypeIPv4:
+			if ip.Is4() {
+				filtered = append(filtered, resolverIP)
+			}
+		case v1alpha1.IPAddressTypeIPv6:
+			if ip.Is6() {
+				filtered = append(filtered, resolverIP)
+			}
+		case v1alpha1.IPAddressTypeIPv4IPv6:
+			if ip.Is4() || ip.Is6() {
+				filtered = append(filtered, resolverIP)
+			}
+		}
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
 // networkInterfaceIPAddressesFromRealizedBindings builds one status entry per
 // realized binding, plus the shared MAC address. A realized address is kept only
 // if its family is statically allocated (staticIPAllocationType) or explicitly
@@ -2232,7 +2285,7 @@ func (r *SubnetPortReconciler) getVirtualMachine(ctx context.Context, subnetPort
 }
 
 func subnetPortDNSHostname(subnetPort *v1alpha1.SubnetPort) string {
-	if !subnetPortSupportsDNSAutoRecord(subnetPort) {
+	if !subnetPortSupportsDNS(subnetPort) {
 		return ""
 	}
 	vmName, interfaceName, err := common.GetVirtualMachineNameForSubnetPort(subnetPort)
