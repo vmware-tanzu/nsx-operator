@@ -21,7 +21,7 @@ func TestActionPrerequisites(t *testing.T) {
 	for _, resource := range []string{"controlplanenetworktransitions", "namespacenetworktransitions"} {
 		t.Run(resource, func(t *testing.T) {
 			isNamespace := resource == "namespacenetworktransitions"
-			request := func(op admissionv1.Operation, oldAction, action, last, state string, generation, actionGeneration int64, irreversible string) admission.Request {
+			request := func(op admissionv1.Operation, oldAction, action, last, state string, generation, actionGeneration int64, irreversible string, rollbackComplete bool) admission.Request {
 				t.Helper()
 				phase := ""
 				if state == "Succeeded" {
@@ -42,6 +42,9 @@ func TestActionPrerequisites(t *testing.T) {
 					}
 				}
 				old := map[string]any{"metadata": map[string]any{"uid": "current-uid", "generation": generation}, "spec": map[string]any{"action": oldAction}, "status": map[string]any{"lastAction": last, "actionState": state, "actionGeneration": actionGeneration, "observedGeneration": actionGeneration, "phase": phase}}
+				if rollbackComplete {
+					old["status"].(map[string]any)["rollbackComplete"] = true
+				}
 				if irreversible != "" {
 					old["status"].(map[string]any)["irreversibleAction"] = irreversible
 				}
@@ -58,23 +61,25 @@ func TestActionPrerequisites(t *testing.T) {
 				old, action, last, state string
 				gen, checkpoint          int64
 				irreversible             string
+				rollbackComplete         bool
 				allowed                  bool
 			}{
-				{"create Evaluate", admissionv1.Create, "", "Evaluate", "", "", 0, 0, "", true},
-				{"create legacy Plan", admissionv1.Create, "", "Plan", "", "", 0, 0, "", false},
-				{"create Execute", admissionv1.Create, "", "Execute", "", "", 0, 0, "", false},
-				{"Evaluate requires fresh successful checkpoint", admissionv1.Update, "Evaluate", "Execute", "Evaluate", "Succeeded", 2, 1, "", false},
-				{"current Evaluate permits Execute", admissionv1.Update, "Evaluate", "Execute", "Evaluate", "Succeeded", 2, 2, "", true},
-				{"changed inputs require reevaluation", admissionv1.Update, "Evaluate", "Execute", "Evaluate", "Succeeded", 3, 2, "", false},
-				{"illegal direct Finalize", admissionv1.Update, "Evaluate", "Finalize", "Evaluate", "Succeeded", 2, 2, "", false},
-				{"unchanged failed Execute retry", admissionv1.Update, "Execute", "Execute", "Execute", "Failed", 4, 4, "", true},
-				{"namespace rollback from running Execute", admissionv1.Update, "Execute", "Rollback", "Execute", "Running", 4, 4, "", isNamespace},
-				{"namespace rollback requires Execute checkpoint", admissionv1.Update, "Execute", "Rollback", "Evaluate", "Succeeded", 2, 2, "", false},
-				{"rollback blocked by irreversible checkpoint", admissionv1.Update, "Execute", "Rollback", "Execute", "Failed", 4, 4, "Commit", false},
-				{"namespace successful rollback reopens Evaluate", admissionv1.Update, "Rollback", "Evaluate", "Rollback", "Succeeded", 5, 5, "", isNamespace},
-				{"namespace failed rollback cannot reopen Evaluate", admissionv1.Update, "Rollback", "Evaluate", "Rollback", "Failed", 5, 5, "", false},
-				{"namespace Execute to Commit", admissionv1.Update, "Execute", "Commit", "Execute", "Succeeded", 4, 4, "", isNamespace},
-				{"infrastructure Execute to Finalize", admissionv1.Update, "Execute", "Finalize", "Execute", "Succeeded", 4, 4, "", !isNamespace},
+				{"create Evaluate", admissionv1.Create, "", "Evaluate", "", "", 0, 0, "", false, true},
+				{"create legacy Plan", admissionv1.Create, "", "Plan", "", "", 0, 0, "", false, false},
+				{"create Execute", admissionv1.Create, "", "Execute", "", "", 0, 0, "", false, false},
+				{"Evaluate requires fresh successful checkpoint", admissionv1.Update, "Evaluate", "Execute", "Evaluate", "Succeeded", 2, 1, "", false, false},
+				{"current Evaluate permits Execute", admissionv1.Update, "Evaluate", "Execute", "Evaluate", "Succeeded", 2, 2, "", false, true},
+				{"changed inputs require reevaluation", admissionv1.Update, "Evaluate", "Execute", "Evaluate", "Succeeded", 3, 2, "", false, false},
+				{"illegal direct Finalize", admissionv1.Update, "Evaluate", "Finalize", "Evaluate", "Succeeded", 2, 2, "", false, false},
+				{"unchanged failed Execute retry", admissionv1.Update, "Execute", "Execute", "Execute", "Failed", 4, 4, "", false, true},
+				{"namespace rollback from running Execute", admissionv1.Update, "Execute", "Rollback", "Execute", "Running", 4, 4, "", false, isNamespace},
+				{"namespace rollback requires Execute checkpoint", admissionv1.Update, "Execute", "Rollback", "Evaluate", "Succeeded", 2, 2, "", false, false},
+				{"rollback blocked by irreversible checkpoint", admissionv1.Update, "Execute", "Rollback", "Execute", "Failed", 4, 4, "Commit", false, false},
+				{"namespace successful rollback reopens Evaluate", admissionv1.Update, "Rollback", "Evaluate", "Rollback", "Succeeded", 5, 5, "", true, isNamespace},
+				{"namespace unverified rollback cannot reopen Evaluate", admissionv1.Update, "Rollback", "Evaluate", "Rollback", "Succeeded", 5, 5, "", false, false},
+				{"namespace failed rollback cannot reopen Evaluate", admissionv1.Update, "Rollback", "Evaluate", "Rollback", "Failed", 5, 5, "", false, false},
+				{"namespace Execute to Commit", admissionv1.Update, "Execute", "Commit", "Execute", "Succeeded", 4, 4, "", false, isNamespace},
+				{"infrastructure Execute to Finalize", admissionv1.Update, "Execute", "Finalize", "Execute", "Succeeded", 4, 4, "", false, !isNamespace},
 			}
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
@@ -82,7 +87,7 @@ func TestActionPrerequisites(t *testing.T) {
 					if isNamespace {
 						validator = newTestTransitionValidator(t, readyInfrastructureTransition())
 					}
-					res := validator.Handle(context.Background(), request(tc.op, tc.old, tc.action, tc.last, tc.state, tc.gen, tc.checkpoint, tc.irreversible))
+					res := validator.Handle(context.Background(), request(tc.op, tc.old, tc.action, tc.last, tc.state, tc.gen, tc.checkpoint, tc.irreversible, tc.rollbackComplete))
 					require.Equal(t, tc.allowed, res.Allowed, "response: %+v", res.Result)
 				})
 			}

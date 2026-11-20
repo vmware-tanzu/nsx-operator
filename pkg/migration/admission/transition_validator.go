@@ -44,6 +44,7 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	var currentUID types.UID
 	isNamespace := false
 	hasAcceptedSNATAllocation := false
+	rollbackComplete := false
 	switch req.Resource.Resource {
 	case "controlplanenetworktransitions":
 		var oldObj, newObj api.ControlPlaneNetworkTransition
@@ -64,6 +65,7 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 		oldAction, newAction, oldGeneration, currentUID = oldObj.Spec.Action, newObj.Spec.Action, oldObj.Generation, oldObj.UID
 		if oldObj.Status != nil {
 			status = &oldObj.Status.TransitionStatus
+			rollbackComplete = oldObj.Status.RollbackComplete
 		}
 	default:
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unexpected migration resource %q", req.Resource.Resource))
@@ -79,7 +81,17 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Denied("Resolve the requested migration action before deleting the transition")
 		}
 		if status.LastAction == api.ActionEvaluate {
-			if !currentSuccessfulCheckpoint(status, oldGeneration, api.ActionEvaluate) || len(status.RequiredInputs) != 0 || hasAcceptedSNATAllocation {
+			if hasAcceptedSNATAllocation {
+				return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
+			}
+			if status.Phase == api.PhaseEvaluationFailed && status.ActionState != api.ActionStateRunning {
+				// Evaluate failures before Execute can be abandoned when no SNAT
+				// allocation was accepted. Refine this check when SNAT allocation
+				// handling and the cleanup finalizer are wired, so in-flight or
+				// unrecorded preparation resources are accounted for too.
+				return admission.Allowed("deleting after failed Evaluate with no accepted SNAT reservation")
+			}
+			if !currentSuccessfulCheckpoint(status, oldGeneration, api.ActionEvaluate) || len(status.RequiredInputs) != 0 {
 				return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
 			}
 			return admission.Allowed("current Evaluate completed without an accepted reservation")
@@ -158,10 +170,10 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 		}
 	}
 	if oldAction == api.ActionRollback && newAction == api.ActionEvaluate && isNamespace {
-		if currentSuccessfulCheckpoint(status, oldGeneration, api.ActionRollback) && status.Phase == api.PhaseRolledBack && status.IrreversibleAction == "" {
+		if currentSuccessfulCheckpoint(status, oldGeneration, api.ActionRollback) && status.Phase == api.PhaseRolledBack && rollbackComplete && status.IrreversibleAction == "" {
 			return admission.Allowed("whole-batch rollback succeeded; inputs may be evaluated again")
 		}
-		return admission.Denied("Complete and verify whole-batch Rollback before requesting Evaluate")
+		return admission.Denied("Complete and verify whole-batch Rollback, including rollbackComplete, before requesting Evaluate")
 	}
 	return admission.Denied(fmt.Sprintf("Illegal action change from %s to %s", oldAction, newAction))
 }
