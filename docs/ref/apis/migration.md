@@ -36,7 +36,7 @@ _Appears in:_
 
 | Field | Description |
 | --- | --- |
-| `Evaluate` | ActionEvaluate discovers and validates source configuration, identifies inputs and reserves the source LB SNAT address when required.<br /> |
+| `Evaluate` | ActionEvaluate discovers and validates source configuration, identifies inputs and selects an LB SNAT allocation source when required.<br /> |
 | `Execute` | ActionExecute prepares target resources and migrates workloads to the target network.<br /> |
 | `Rollback` | ActionRollback restores an eligible Namespace batch before its Commit checkpoint.<br />Infrastructure transitions do not support Rollback.<br /> |
 | `Commit` | ActionCommit commits a verified Namespace batch and closes its rollback window.<br /> |
@@ -78,7 +78,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `resourceNaming` _[ControlPlaneResourceNaming](#controlplaneresourcenaming)_ | ResourceNaming supplies optional IDs for NSX resources created for migration.<br />Omitted names use deterministic generated names. Naming inputs never rename<br />or implicitly adopt existing resources and are not requiredInputs. |  |  |
-| `lbSNATIPs` _string array_ | LBSNATIPs optionally supplies a backend IPv4 address for the shared NSX LB<br />service when the backend network is separate from VIP and workload networks.<br />Supervisor VDS source networks are IPv4-only in this release. Keep this as a<br />slice so a later release can add IPv6 without changing the field shape.<br />The migration service validates backend membership and checks for conflicts<br />where possible. The administrator is responsible for address availability<br />when exclusive ownership cannot be verified. After status.lbSNATIPAllocations<br />records an accepted address,<br />this list cannot be added, changed, or removed, including during Evaluate.<br />Requesting Execute prevents changes to the entire NetworkConfiguration. |  | MaxItems: 1 <br /> |
+| `lbSNATIPs` _string array_ | LBSNATIPs optionally supplies the IPv4 LB SNAT address when the discovered<br />backend is separate from the VIP and workload networks. Inspection validates<br />syntax and selects an allocation source; the allocation handler must validate<br />backend membership and check conflicts where authoritative data is available.<br />The administrator is responsible when address ownership cannot be verified.<br />If omitted, inspection selects the matching VIP/workload Network, or the VIP<br />pool for a separate backend and warns that reachability must be checked. Keep<br />this as a slice so a later release can add IPv6 without changing its shape.<br />After status.lbSNATIPAllocations records an accepted address, this list cannot<br />be added, changed, or removed, including during Evaluate. |  | MaxItems: 1 <br /> |
 | `controlPlaneAndServiceDHCPNetworks` _[DHCPNetworkConfiguration](#dhcpnetworkconfiguration) array_ | ControlPlaneAndServiceDHCPNetworks describes existing DHCP-backed networks used by<br />control-plane VMs and Supervisor Services. |  | MaxItems: 1000 <br /> |
 
 

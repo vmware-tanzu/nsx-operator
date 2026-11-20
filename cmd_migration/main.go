@@ -17,6 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	netop "github.com/vmware-tanzu/net-operator-api/api/v1alpha1"
+
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -84,6 +86,9 @@ func startManager(ctx context.Context, opts *options, deps managerDependencies) 
 		return err
 	}
 	if err := api.AddToScheme(scheme); err != nil {
+		return err
+	}
+	if err := netop.AddToScheme(scheme); err != nil {
 		return err
 	}
 	// Disabled startup only needs local REST configuration to construct the

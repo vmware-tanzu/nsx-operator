@@ -130,7 +130,7 @@ generate-migration: controller-gen ## Generate migration API deepcopy implementa
 
 manifests-migration: controller-gen ## Generate migration CRDs and RBAC for the shared NCP Pod.
 	$(CONTROLLER_GEN) crd:headerFile=hack/migration-boilerplate.yaml.txt paths="github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1" output:crd:artifacts:config=build/yaml/crd/migration/
-	$(CONTROLLER_GEN) rbac:roleName=supervisor-network-migration-operator,headerFile=hack/migration-boilerplate.yaml.txt paths="./pkg/migration/controllers/..." output:rbac:dir=build/yaml/migration/rbac/
+	$(CONTROLLER_GEN) rbac:roleName=supervisor-network-migration-operator,headerFile=hack/migration-boilerplate.yaml.txt paths="./pkg/migration/..." output:rbac:dir=build/yaml/migration/rbac/
 
 test-migration: generate-migration manifests-migration test-migration-api ## Test the migration framework, API admission, and shared configuration.
 	go test ./cmd_migration/... ./pkg/migration/... ./pkg/nsx/services/migration/... ./pkg/config
