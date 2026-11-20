@@ -462,6 +462,81 @@ spec:
                 maxLength: 1024
                 minLength: 1
                 type: string
+              namespaceIdentities:
+                description: |-
+                  NamespaceIdentities binds each protected namespace and its workload objects
+                  to one Kubernetes object incarnation. Names alone are not stable identities.
+                items:
+                  description: |-
+                    NamespaceIdentityStatus records the expected UID for a target Namespace and
+                    the workload object UIDs discovered in that namespace.
+                  properties:
+                    namespace:
+                      description: Namespace identifies the target namespace by name.
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    namespaceUID:
+                      description: NamespaceUID identifies this exact Namespace incarnation.
+                      maxLength: 128
+                      minLength: 1
+                      type: string
+                    supervisorNamespaceUID:
+                      description: |-
+                        SupervisorNamespaceUID identifies the matching SupervisorNamespace API object.
+                        It is distinct from NamespaceUID, which identifies the Kubernetes Namespace.
+                      maxLength: 128
+                      type: string
+                    workloads:
+                      description: |-
+                        Workloads records the expected UIDs of protected Pods, VirtualMachines and
+                        LoadBalancer Services. Resource/name identify one workload within this namespace.
+                      items:
+                        description: WorkloadIdentityStatus records the identity of
+                          one namespaced workload object.
+                        properties:
+                          group:
+                            description: Group is the API group; the core API group
+                              is the empty string.
+                            maxLength: 253
+                            type: string
+                          name:
+                            description: Name identifies the workload within its namespace.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          resource:
+                            description: Resource is the API resource name, such as
+                              pods, services or virtualmachines.
+                            maxLength: 63
+                            minLength: 1
+                            type: string
+                          uid:
+                            description: UID identifies this exact workload object
+                              incarnation.
+                            maxLength: 128
+                            minLength: 1
+                            type: string
+                        required:
+                        - group
+                        - name
+                        - resource
+                        - uid
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - group
+                      - resource
+                      - name
+                      x-kubernetes-list-type: map
+                  required:
+                  - namespace
+                  - namespaceUID
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - namespace
+                x-kubernetes-list-type: map
               nsxWorkflows:
                 description: NSXWorkflows records the exact external workflow handle
                   for each source VDN.

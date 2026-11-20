@@ -10,6 +10,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 )
@@ -117,5 +118,87 @@ func RecordNamespace(batch []string, status *api.NamespaceNetworkTransitionStatu
 		}
 	}
 	status.NamespaceStatuses = append(status.NamespaceStatuses, entry)
+	return nil
+}
+
+// RecordNamespaceIdentity persists the first observed Namespace incarnation and
+// merges workload identities without allowing a same-name object replacement to
+// inherit the transition's prior authorization.
+func RecordNamespaceIdentity(status *api.TransitionStatus, identity api.NamespaceIdentityStatus) error {
+	if status == nil {
+		return fmt.Errorf("transition status is required")
+	}
+	if identity.Namespace == "" || identity.NamespaceUID == "" {
+		return fmt.Errorf("namespace name and UID are required")
+	}
+	for _, workload := range identity.Workloads {
+		if workload.Resource == "" || workload.Name == "" || workload.UID == "" {
+			return fmt.Errorf("workload group, resource, name and UID are required")
+		}
+	}
+	for i := range status.NamespaceIdentities {
+		current := &status.NamespaceIdentities[i]
+		if current.Namespace != identity.Namespace {
+			continue
+		}
+		if current.NamespaceUID != identity.NamespaceUID {
+			return fmt.Errorf("namespace %q UID changed from %s to %s", identity.Namespace, current.NamespaceUID, identity.NamespaceUID)
+		}
+		next := *current
+		next.Workloads = append([]api.WorkloadIdentityStatus(nil), current.Workloads...)
+		if next.SupervisorNamespaceUID != "" && identity.SupervisorNamespaceUID != "" && next.SupervisorNamespaceUID != identity.SupervisorNamespaceUID {
+			return fmt.Errorf("SupervisorNamespace %q UID changed from %s to %s", identity.Namespace, current.SupervisorNamespaceUID, identity.SupervisorNamespaceUID)
+		}
+		if next.SupervisorNamespaceUID == "" {
+			next.SupervisorNamespaceUID = identity.SupervisorNamespaceUID
+		}
+		for _, workload := range identity.Workloads {
+			if err := recordWorkloadIdentity(&next, workload); err != nil {
+				return err
+			}
+		}
+		*current = next
+		return nil
+	}
+	copy := identity
+	copy.Workloads = append([]api.WorkloadIdentityStatus(nil), identity.Workloads...)
+	status.NamespaceIdentities = append(status.NamespaceIdentities, copy)
+	return nil
+}
+
+// RecordWorkloadIdentity binds a workload UID to its persisted Namespace UID.
+// Replacing an object with the same namespace/resource/name requires a new
+// transition identity rather than silently inheriting the old authorization.
+func RecordWorkloadIdentity(status *api.TransitionStatus, namespace string, namespaceUID types.UID, workload api.WorkloadIdentityStatus) error {
+	if status == nil {
+		return fmt.Errorf("transition status is required")
+	}
+	if namespace == "" || namespaceUID == "" || workload.Resource == "" || workload.Name == "" || workload.UID == "" {
+		return fmt.Errorf("namespace and workload identities are required")
+	}
+	for i := range status.NamespaceIdentities {
+		identity := &status.NamespaceIdentities[i]
+		if identity.Namespace != namespace {
+			continue
+		}
+		if identity.NamespaceUID != string(namespaceUID) {
+			return fmt.Errorf("namespace %q UID does not match the recorded identity", namespace)
+		}
+		return recordWorkloadIdentity(identity, workload)
+	}
+	return fmt.Errorf("namespace %q UID has not been recorded", namespace)
+}
+
+func recordWorkloadIdentity(identity *api.NamespaceIdentityStatus, workload api.WorkloadIdentityStatus) error {
+	for _, current := range identity.Workloads {
+		if current.Group != workload.Group || current.Resource != workload.Resource || current.Name != workload.Name {
+			continue
+		}
+		if current.UID != workload.UID {
+			return fmt.Errorf("workload %s/%s %q UID changed from %s to %s", workload.Group, workload.Resource, workload.Name, current.UID, workload.UID)
+		}
+		return nil
+	}
+	identity.Workloads = append(identity.Workloads, workload)
 	return nil
 }

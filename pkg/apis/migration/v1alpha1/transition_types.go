@@ -119,6 +119,12 @@ type RequiredInput struct {
 
 // TransitionStatus persists shared progress and resumable workflow state.
 type TransitionStatus struct {
+	// NamespaceIdentities binds each protected namespace and its workload objects
+	// to one Kubernetes object incarnation. Names alone are not stable identities.
+	// +optional
+	// +listType=map
+	// +listMapKey=namespace
+	NamespaceIdentities []NamespaceIdentityStatus `json:"namespaceIdentities,omitempty"`
 	// Conditions report the current operation's readiness and failures.
 	// +optional
 	// +listType=map
@@ -174,6 +180,57 @@ type TransitionStatus struct {
 	// +listMapKey=fieldName
 	// +kubebuilder:validation:MaxItems=5000
 	OptionalInputs []OptionalInput `json:"optionalInputs,omitempty"`
+}
+
+// NamespaceIdentityStatus records the expected UID for a target Namespace and
+// the workload object UIDs discovered in that namespace.
+type NamespaceIdentityStatus struct {
+	// Namespace identifies the target namespace by name.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Namespace string `json:"namespace"`
+	// NamespaceUID identifies this exact Namespace incarnation.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	NamespaceUID string `json:"namespaceUID"`
+	// SupervisorNamespaceUID identifies the matching SupervisorNamespace API object.
+	// It is distinct from NamespaceUID, which identifies the Kubernetes Namespace.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	SupervisorNamespaceUID string `json:"supervisorNamespaceUID,omitempty"`
+	// Workloads records the expected UIDs of protected Pods, VirtualMachines and
+	// LoadBalancer Services. Resource/name identify one workload within this namespace.
+	// +optional
+	// +listType=map
+	// +listMapKey=group
+	// +listMapKey=resource
+	// +listMapKey=name
+	Workloads []WorkloadIdentityStatus `json:"workloads,omitempty"`
+}
+
+// WorkloadIdentityStatus records the identity of one namespaced workload object.
+type WorkloadIdentityStatus struct {
+	// Group is the API group; the core API group is the empty string.
+	// +required
+	// +kubebuilder:validation:MaxLength=253
+	Group string `json:"group"`
+	// Resource is the API resource name, such as pods, services or virtualmachines.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Resource string `json:"resource"`
+	// Name identifies the workload within its namespace.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+	// UID identifies this exact workload object incarnation.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	UID string `json:"uid"`
 }
 
 // NSXWorkflowStatus records a resumable NSX conversion workflow for one source VDN.

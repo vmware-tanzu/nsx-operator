@@ -401,18 +401,17 @@ override these settings. The server is available on every configured Pod,
 including non-leaders, and the readiness check waits for it to start.
 
 The configuration also installs a `SupervisorNamespace` lifecycle validator for
-`iaas.vmware.com/v1alpha1` and `v1alpha2`. During Stage 1, implicit and
-explicit VDS creation is allowed, while an explicit VPC provider or
-`spec.vpcNetworkConfig` is rejected because VPC is not ready yet.
-After the control-plane transition reaches `InfraTransitionComplete` or
-`Finalized`, creation is rejected when the object explicitly selects VDS or has
-non-empty VDS network/portgroup fields. If provider selection is omitted, the
-Supervisor Namespace API defaults the new namespace to VPC.
+`iaas.vmware.com/v1alpha1` and `v1alpha2`. During Stage 1, new namespaces use VDS;
+an explicit VPC configuration is rejected because VPC is not ready yet. After
+the control-plane transition reaches `InfraTransitionComplete` or `Finalized`,
+new namespaces use VPC and an explicit VDS configuration is rejected. If the
+request omits provider configuration, Supervisor applies the default for the
+current stage: VDS during Stage 1 and VPC during coexistence.
 
 For namespaces named in an unresolved `NamespaceNetworkTransition`, create,
 delete and user updates are rejected. The shared NCP Pod identity
 `system:serviceaccount:<operator-namespace>:ncp-svc-account` may change only
-`spec.vpcNetworkConfig`, and only while the matching Execute or Rollback
+`spec.networking.vpcNetworkConfig`, and only while the matching Execute or Rollback
 checkpoint is Running or Failed. Protection is derived from the transition's
 namespace list, requested action and durable status; API read failures and
 multiple active transitions fail closed. Protection ends only after a current,
@@ -452,14 +451,20 @@ still call it. During Stage 1, a workload is in scope when its namespace is a
 system namespace identified by the existing WCP T1 or shared-VPC namespace
 markers and the `ControlPlaneNetworkTransition` has an unresolved Execute.
 This guard does not inspect or change `SupervisorNamespace.spec.networking`;
-the `vsphereNetworkConfig` to `vpcNetworkConfig` handoff belongs to WBS 1.4.6.
+the `spec.networking.vsphereNetworkConfig` to
+`spec.networking.vpcNetworkConfig` handoff belongs to WBS 1.4.6.
 During Stage 2, a workload is in scope when its namespace is listed in an
 unresolved `NamespaceNetworkTransition`. In either scope, users cannot create,
-update or delete protected workloads. Updates are allowed only for configured
-controller identities and only after the matching Execute checkpoint is
-Running or Failed; RBAC governs resource and verb access. The webhook does not
-maintain a controller-to-field diff matrix. The namespace lifecycle guard
-retains its specific NCP-only ownership rule for `spec.vpcNetworkConfig`.
+update or delete protected workloads. The API server skips the workload and LB
+Service webhooks for the trusted controller identities listed in their match
+conditions. These include the Kubernetes controller manager and the built-in
+controllers that recreate Pods, as well as the NCP, Net Operator, VM Operator
+and AKO identities. RBAC governs their resource and verb access. Confirm the
+actual controller identities in the target Supervisor deployment before enabling
+the webhook; an unlisted identity is subject to fail-closed admission. The
+namespace lifecycle guard
+retains its specific NCP-only ownership rule for
+`spec.networking.vpcNetworkConfig`.
 
 The fixed workload controller identities observed on TB1 are NCP
 (`vmware-system-nsx:ncp-svc-account`), Net Operator
@@ -468,9 +473,8 @@ The fixed workload controller identities observed on TB1 are NCP
 (`vmware-system-ako:vmware-system-ako-controller-manager`). WBS 1.6.2 does not
 require these identities to be configurable or checked during startup.
 **TODO:** Confirm whether Spherelet's `system:node:*` identity needs main-resource
-updates during migration and whether the current controller list matches the
-required write paths. Keep identities fixed while the package identity contract
-remains stable. The workload webhook configuration remains opt-in and must be
+updates during migration and whether the controller list matches the required
+write paths. The workload webhook configuration remains opt-in and must be
 installed before enabling migration handlers. The Execute inventory barrier and
 cutover handlers must reconcile requests admitted before protection took effect.
 Status subresources are outside this webhook; downstream packaging must verify

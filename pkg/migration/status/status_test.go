@@ -76,6 +76,22 @@ func TestNamespaceProgressRetainsOtherRecords(t *testing.T) {
 	require.Equal(t, entry, obj.Status.NamespaceStatuses[0])
 }
 
+func TestNamespaceAndWorkloadIdentityCannotBeReplaced(t *testing.T) {
+	s := &api.TransitionStatus{}
+	identity := api.NamespaceIdentityStatus{
+		Namespace: "tenant", NamespaceUID: "ns-uid", SupervisorNamespaceUID: "supervisor-ns-uid",
+		Workloads: []api.WorkloadIdentityStatus{{Group: "", Resource: "pods", Name: "app", UID: "pod-uid"}},
+	}
+	require.NoError(t, RecordNamespaceIdentity(s, identity))
+	require.NoError(t, RecordNamespaceIdentity(s, api.NamespaceIdentityStatus{Namespace: "tenant", NamespaceUID: "ns-uid"}))
+	require.Equal(t, "supervisor-ns-uid", string(s.NamespaceIdentities[0].SupervisorNamespaceUID), "replaying a partial observation must retain recorded SupervisorNamespace UID")
+	require.ErrorContains(t, RecordNamespaceIdentity(s, api.NamespaceIdentityStatus{Namespace: "tenant", NamespaceUID: "replacement"}), "UID changed")
+	require.ErrorContains(t, RecordNamespaceIdentity(s, api.NamespaceIdentityStatus{Namespace: "tenant", NamespaceUID: "ns-uid", SupervisorNamespaceUID: "replacement"}), "UID changed")
+	require.NoError(t, RecordWorkloadIdentity(s, "tenant", "ns-uid", api.WorkloadIdentityStatus{Group: "", Resource: "pods", Name: "app", UID: "pod-uid"}))
+	require.ErrorContains(t, RecordWorkloadIdentity(s, "tenant", "ns-uid", api.WorkloadIdentityStatus{Group: "", Resource: "pods", Name: "app", UID: "replacement"}), "UID changed")
+	require.ErrorContains(t, RecordWorkloadIdentity(s, "tenant", "replacement", api.WorkloadIdentityStatus{Group: "", Resource: "pods", Name: "other", UID: "pod-2"}), "does not match")
+}
+
 func TestInvalidReportsDoNotMutateStatus(t *testing.T) {
 	for _, update := range []func(*api.TransitionStatus) error{
 		func(s *api.TransitionStatus) error { return RecordAction(s, "INVALID", api.ActionStateRunning, 1) },

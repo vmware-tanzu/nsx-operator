@@ -73,12 +73,63 @@ func (v WorkloadCutoverValidator) Handle(ctx context.Context, req admission.Requ
 	if protection == nil {
 		return admission.Allowed("namespace is outside unresolved migration scope")
 	}
-	if req.Operation == admissionv1.Update &&
-		oldObject != nil && newObject != nil && oldObject.GetUID() != "" && oldObject.GetUID() == newObject.GetUID() &&
-		protection.controllerMayChange && v.isConfiguredController(req.UserInfo.Username) {
-		return admission.Allowed("configured controller may update workloads in this transition namespace")
+	if protection.controllerMayChange && v.isConfiguredController(req.UserInfo.Username) {
+		namespaceMatches, err := expectedNamespaceUIDMatches(ctx, v.Reader, req.Namespace, protection.identity)
+		if err != nil {
+			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking recorded namespace identity: %w", err))
+		}
+		if !namespaceMatches {
+			return admission.Denied(fmt.Sprintf("namespace %q UID does not match the migration's recorded namespace identity", req.Namespace))
+		}
+		if req.Operation == admissionv1.Update && oldObject != nil && newObject != nil {
+			expected := workloadIdentity(protection.identity, req.Resource.Group, resource, oldObject.GetName())
+			if expected != nil && oldObject.GetUID() != "" && string(oldObject.GetUID()) == expected.UID && string(newObject.GetUID()) == expected.UID {
+				return admission.Allowed("configured controller may update the recorded workload UID")
+			}
+		}
+
+		recoveryNamespace, err := isControllerRecoveryNamespace(ctx, v.Reader, req.Namespace)
+		if err != nil {
+			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking controller recovery namespace: %w", err))
+		}
+		if recoveryNamespace && req.Operation == admissionv1.Delete && oldObject != nil {
+			expected := workloadIdentity(protection.identity, req.Resource.Group, resource, oldObject.GetName())
+			if expected != nil && oldObject.GetUID() != "" && string(oldObject.GetUID()) == expected.UID {
+				return admission.Allowed("configured controller may delete the recorded workload UID for recovery")
+			}
+		}
+		if recoveryNamespace && req.Operation == admissionv1.Create && newObject != nil && controllerRecoveryOperation(req.Operation) {
+			if workloadIdentity(protection.identity, req.Resource.Group, resource, newObject.GetName()) == nil {
+				return admission.Allowed("configured controller may create a workload for recovery; its assigned UID must be recorded")
+			}
+		}
 	}
 	return admission.Denied(fmt.Sprintf("%s mutation in namespace %q is blocked by unresolved migration transition %s", resource, req.Namespace, protection.name))
+}
+
+func controllerRecoveryOperation(operation admissionv1.Operation) bool {
+	return operation == admissionv1.Create || operation == admissionv1.Delete
+}
+
+func isControllerRecoveryNamespace(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
+	if namespace == "vmware-system-nsx" {
+		return true, nil
+	}
+	return isControlPlaneSystemNamespace(ctx, reader, namespace)
+}
+
+func expectedNamespaceUIDMatches(ctx context.Context, reader client.Reader, name string, identity *api.NamespaceIdentityStatus) (bool, error) {
+	if identity == nil || identity.Namespace != name || identity.NamespaceUID == "" {
+		return false, nil
+	}
+	current := &corev1.Namespace{}
+	if err := reader.Get(ctx, types.NamespacedName{Name: name}, current); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return string(current.UID) == identity.NamespaceUID, nil
 }
 
 func (v WorkloadCutoverValidator) isConfiguredController(username string) bool {
@@ -175,9 +226,14 @@ func findControlPlaneWorkloadProtection(ctx context.Context, reader client.Reade
 		return nil, nil
 	}
 
+	var identity *api.NamespaceIdentityStatus
+	if transition.Status != nil {
+		identity = namespaceIdentity(&transition.Status.TransitionStatus, namespace)
+	}
 	return &namespaceProtection{
 		name:                "controlplanenetworktransitions/" + transition.Name,
 		controllerMayChange: controlPlaneControllerMayChange(transition),
+		identity:            identity,
 	}, nil
 }
 
@@ -242,10 +298,16 @@ func findNamespaceProtection(ctx context.Context, reader client.Reader, namespac
 		if found != nil {
 			return nil, fmt.Errorf("namespace %q is covered by multiple unresolved transitions %s and %s", namespace, found.transition.Name, transition.Name)
 		}
+		transitionCopy := transition.DeepCopy()
+		var identity *api.NamespaceIdentityStatus
+		if transitionCopy.Status != nil {
+			identity = namespaceIdentity(&transitionCopy.Status.TransitionStatus, namespace)
+		}
 		found = &namespaceProtection{
 			name:                transition.Name,
 			controllerMayChange: namespaceControllerMayChange(transition),
-			transition:          transition.DeepCopy(),
+			transition:          transitionCopy,
+			identity:            identity,
 		}
 	}
 	return found, nil
