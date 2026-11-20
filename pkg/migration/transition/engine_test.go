@@ -313,7 +313,14 @@ func TestNeedsInputResumesAfterInputUpdate(t *testing.T) {
 		{Infrastructure, api.ActionEvaluate}: handlerFunc(func(_ context.Context, req Request) (Result, error) {
 			calls++
 			if !inputsSupplied {
-				req.Status.RequiredInputs = []api.RequiredInput{{FieldName: "gatewayAddress", Description: "Supply the gateway"}}
+				req.Status.RequiredInputs = []api.RequiredInput{{
+					FieldName:   "spec.networkConfiguration.controlPlaneAndServiceDHCPNetworks[vdnName=cp-dhcp].gatewayAddress",
+					Description: "Supply the gateway address for DHCP-backed VDN cp-dhcp.",
+				}}
+				req.Status.OptionalInputs = []api.OptionalInput{{
+					FieldName:   "spec.networkConfiguration.resourceNaming.networks[vdnName=cp-dhcp].vpcName",
+					Description: "Optional VPC name; omitted names are generated.",
+				}}
 				return Result{Outcome: OutcomeNeedsInput, RequeueAfter: time.Second}, nil
 			}
 			return Result{Outcome: OutcomeSucceeded}, nil
@@ -350,6 +357,65 @@ func TestNeedsInputResumesAfterInputUpdate(t *testing.T) {
 	require.Equal(t, "Evaluated", status.Phase)
 	require.True(t, meta.IsStatusConditionTrue(status.Conditions, "Ready"))
 	require.Empty(t, status.RequiredInputs)
+}
+
+func TestOptionalNamesDoNotBlockEvaluation(t *testing.T) {
+	status := &api.TransitionStatus{}
+	request := Request{Stage: Infrastructure, Action: api.ActionEvaluate, Generation: 1, Status: status}
+	engine := Engine{Enabled: true, Handlers: map[Key]Handler{
+		{Infrastructure, api.ActionEvaluate}: handlerFunc(func(_ context.Context, req Request) (Result, error) {
+			req.Status.OptionalInputs = []api.OptionalInput{{
+				FieldName:   "spec.networkConfiguration.resourceNaming.networks[vdnName=static-vdn].vpcName",
+				Description: "Optional VPC name; omitted names are generated.",
+			}}
+			return Result{Outcome: OutcomeSucceeded}, nil
+		}),
+	}}
+	_, err := engine.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	result, err := engine.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, OutcomeSucceeded, result.Outcome)
+	require.Equal(t, api.ActionStateSucceeded, status.ActionState)
+	require.Equal(t, "Evaluated", status.Phase)
+	require.Empty(t, status.RequiredInputs)
+	require.Len(t, status.OptionalInputs, 1, "optional name hints remain advisory")
+}
+
+func TestSNATAllocationFailureIsActionableAndEvaluateCanRetry(t *testing.T) {
+	status := &api.TransitionStatus{}
+	request := Request{Stage: Infrastructure, Action: api.ActionEvaluate, Generation: 1, Status: status}
+	allocationErr := errors.New("allocating SNAT IP for backend VDN backend-a failed: Network vip-network has no available IPv4 addresses")
+	attempts := 0
+	engine := Engine{Enabled: true, Handlers: map[Key]Handler{
+		{Infrastructure, api.ActionEvaluate}: handlerFunc(func(context.Context, Request) (Result, error) {
+			attempts++
+			if attempts == 1 {
+				return Result{}, allocationErr
+			}
+			return Result{Outcome: OutcomeSucceeded}, nil
+		}),
+	}}
+	_, err := engine.Reconcile(context.Background(), request)
+	require.NoError(t, err, "the first reconcile persists the Evaluate checkpoint")
+	_, err = engine.Reconcile(context.Background(), request)
+	require.ErrorIs(t, err, allocationErr)
+	require.Equal(t, "EvaluationFailed", status.Phase)
+	require.Equal(t, api.ActionStateFailed, status.ActionState)
+	condition := meta.FindStatusCondition(status.Conditions, "Ready")
+	require.NotNil(t, condition)
+	require.Equal(t, "ActionFailed", condition.Reason)
+	require.Contains(t, condition.Message, "backend VDN backend-a")
+	require.Contains(t, condition.Message, "no available IPv4 addresses")
+	request.Generation = 2 // the user corrects inputs while keeping action=Evaluate
+	_, err = engine.Reconcile(context.Background(), request)
+	require.NoError(t, err, "the new input generation is checkpointed before retry")
+	result, err := engine.Reconcile(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, OutcomeSucceeded, result.Outcome)
+	require.Equal(t, api.ActionStateSucceeded, status.ActionState)
+	require.Equal(t, "Evaluated", status.Phase)
+	require.Equal(t, 2, attempts)
 }
 
 func TestHandlerMustDeclareOutcome(t *testing.T) {
