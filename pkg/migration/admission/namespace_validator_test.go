@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -184,23 +185,26 @@ func TestNamespaceLifecycleValidatorSupportsV1Alpha2NetworkingUnion(t *testing.T
 	t.Run("controller may switch the nested provider union only", func(t *testing.T) {
 		scheme := runtime.NewScheme()
 		require.NoError(t, api.AddToScheme(scheme))
+		require.NoError(t, corev1.AddToScheme(scheme))
 		transition := &api.NamespaceNetworkTransition{
 			ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 3},
 			Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
-			Status:     &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 3, ObservedGeneration: 3}},
+			Status:     &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 3, ObservedGeneration: 3, NamespaceIdentities: []api.NamespaceIdentityStatus{{Namespace: "tenant", NamespaceUID: "k8s-ns-uid", SupervisorNamespaceUID: "supervisor-ns-uid"}}}},
 		}
-		validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build(), ControllerUser: "controller"}
-		oldObject := `{"metadata":{"name":"tenant"},"spec":{"networking":{"vsphereNetworkConfig":{}},"other":"same"}}`
-		newObject := `{"metadata":{"name":"tenant"},"spec":{"networking":{"vpcNetworkConfig":{}},"other":"same"}}`
+		validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "k8s-ns-uid"}}).Build(), ControllerUser: "controller"}
+		oldObject := `{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"networking":{"vsphereNetworkConfig":{}},"other":"same"}}`
+		newObject := `{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"networking":{"vpcNetworkConfig":{}},"other":"same"}}`
 		request := supervisorNamespaceRequest(admissionv1.Update, newObject, "controller")
 		request.OldObject = runtime.RawExtension{Raw: []byte(oldObject)}
 		require.True(t, validator.Handle(context.Background(), request).Allowed)
+		request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant","uid":"replacement-uid"},"spec":{"networking":{"vpcNetworkConfig":{}} ,"other":"same"}}`)}
+		require.False(t, validator.Handle(context.Background(), request).Allowed, "a replacement SupervisorNamespace UID must not inherit authorization")
 
-		request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"},"spec":{"networking":{"vpcNetworkConfig":{}},"other":"changed"}}`)}
+		request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"networking":{"vpcNetworkConfig":{}},"other":"changed"}}`)}
 		require.False(t, validator.Handle(context.Background(), request).Allowed)
 
-		request.OldObject = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"},"spec":{"vsphereNetworkConfig":{},"other":"same"}}`)}
-		request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"},"spec":{"vpcNetworkConfig":{},"other":"same"}}`)}
+		request.OldObject = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"vsphereNetworkConfig":{},"other":"same"}}`)}
+		request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"vpcNetworkConfig":{},"other":"same"}}`)}
 		require.True(t, validator.Handle(context.Background(), request).Allowed, "the legacy provider fields remain mutable by the migration controller")
 	})
 }
@@ -322,8 +326,10 @@ func TestNamespaceLifecycleHandleValidationAndUnprotectedPaths(t *testing.T) {
 	require.EqualValues(t, 400, validator.Handle(context.Background(), request).Result.Code)
 	request.Resource.Group = SupervisorNamespaceGroup
 	request.Name = ""
+	request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{},"spec":{}}`)}
 	require.EqualValues(t, 400, validator.Handle(context.Background(), request).Result.Code)
 	request.Name = "tenant"
+	request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"},"spec":{}}`)}
 	require.EqualValues(t, 503, (NamespaceLifecycleValidator{}).Handle(context.Background(), request).Result.Code)
 
 	request.Operation = admissionv1.Update
@@ -336,6 +342,7 @@ func TestNamespaceLifecycleHandleValidationAndUnprotectedPaths(t *testing.T) {
 	require.False(t, validator.Handle(context.Background(), request).Allowed, "unprotected namespaces cannot request VPC before Stage 1 completes")
 
 	request.Operation = admissionv1.Delete
+	request.OldObject = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"},"spec":{"network":"dvpg-a"}}`)}
 	require.True(t, validator.Handle(context.Background(), request).Allowed, "unprotected namespaces may be deleted")
 }
 
@@ -343,10 +350,73 @@ func TestNamespaceLifecycleAcceptsVersionsForTheSupervisorNamespaceResource(t *t
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))
 	validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).Build()}
-	request := supervisorNamespaceRequest(admissionv1.Create, `{"metadata":{"name":"tenant"},"spec":{}}`, "")
+	request := supervisorNamespaceRequest(admissionv1.Create,
+		`{"metadata":{"name":"tenant"},"spec":{"network":"dvpg-a"}}`, "")
 	request.Resource.Version = "v1beta1"
 	response := validator.Handle(context.Background(), request)
 	require.True(t, response.Allowed, "the API version is not part of the stable group/resource identity")
+}
+
+func TestNamespaceLifecycleValidationEdgePaths(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	validator := NamespaceLifecycleValidator{Reader: reader}
+	ctx := context.Background()
+
+	t.Run("malformed create object is a bad request", func(t *testing.T) {
+		request := supervisorNamespaceRequest(admissionv1.Create, "{", "")
+		require.EqualValues(t, 400, validator.Handle(ctx, request).Result.Code)
+	})
+
+	t.Run("delete obtains the name from old object", func(t *testing.T) {
+		request := supervisorNamespaceRequest(admissionv1.Delete, "", "")
+		request.Name = ""
+		request.OldObject = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"}}`)}
+		require.True(t, validator.Handle(ctx, request).Allowed)
+	})
+
+	t.Run("provider may be omitted during Stage 1", func(t *testing.T) {
+		request := supervisorNamespaceRequest(admissionv1.Create,
+			`{"metadata":{"name":"tenant"},"spec":{}}`, "")
+		response := validator.Handle(ctx, request)
+		require.True(t, response.Allowed)
+		require.Contains(t, response.Result.Message, "defaults to VDS")
+	})
+
+	t.Run("provider may be omitted during coexistence", func(t *testing.T) {
+		infra := &api.ControlPlaneNetworkTransition{
+			ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName},
+			Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+				Phase: api.PhaseInfraTransitionComplete,
+			}},
+		}
+		reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(infra).Build()
+		request := supervisorNamespaceRequest(admissionv1.Create,
+			`{"metadata":{"name":"tenant"},"spec":{}}`, "")
+		response := (NamespaceLifecycleValidator{Reader: reader}).Handle(ctx, request)
+		require.True(t, response.Allowed)
+		require.Contains(t, response.Result.Message, "defaults to VPC")
+	})
+
+	t.Run("infrastructure reader failures fail closed", func(t *testing.T) {
+		request := supervisorNamespaceRequest(admissionv1.Create,
+			`{"metadata":{"name":"tenant"},"spec":{"network":"dvpg-a"}}`, "")
+		broken := getErrorReader{Reader: reader, err: errors.New("control plane read unavailable")}
+		response := (NamespaceLifecycleValidator{Reader: broken}).Handle(ctx, request)
+		require.EqualValues(t, 503, response.Result.Code)
+		require.Contains(t, response.Result.Message, "control plane read unavailable")
+	})
+
+	t.Run("provider update reader failures fail closed", func(t *testing.T) {
+		request := supervisorNamespaceRequest(admissionv1.Update,
+			`{"metadata":{"name":"tenant"},"spec":{"vpcNetworkConfig":{"target":"vpc-a"}}}`, "")
+		request.OldObject = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"},"spec":{"network":"dvpg-a"}}`)}
+		broken := getErrorReader{Reader: reader, err: errors.New("control plane read unavailable")}
+		response := (NamespaceLifecycleValidator{Reader: broken}).Handle(ctx, request)
+		require.EqualValues(t, 503, response.Result.Code)
+		require.Contains(t, response.Result.Message, "control plane read unavailable")
+	})
 }
 
 func TestNamespaceLifecycleProtectsUnmanagedProviderUpdates(t *testing.T) {

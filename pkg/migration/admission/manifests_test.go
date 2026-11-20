@@ -122,6 +122,8 @@ func TestWorkloadWebhookFiltersOnlyLoadBalancerServices(t *testing.T) {
 	require.Contains(t, serviceHook.MatchConditions[0].Expression, "object != null")
 	require.Contains(t, serviceHook.MatchConditions[0].Expression, "oldObject != null")
 	require.Contains(t, serviceHook.MatchConditions[0].Expression, "LoadBalancer")
+	require.Empty(t, workloadHook.MatchConditions, "pod requests must not bypass the migration validator by controller identity")
+	require.Empty(t, virtualMachineHook.MatchConditions, "VM requests must not bypass the migration validator by controller identity")
 	require.Len(t, workloadHook.Rules, 1)
 	require.Equal(t, []string{"pods"}, workloadHook.Rules[0].Resources)
 	require.NotNil(t, workloadHook.NamespaceSelector)
