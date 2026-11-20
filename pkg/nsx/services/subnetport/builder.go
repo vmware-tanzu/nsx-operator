@@ -440,6 +440,9 @@ func (service *SubnetPortService) buildExternalAddressBinding(sp *v1alpha1.Subne
 		if err != nil {
 			return nil, err
 		}
+		if ipAllocationModel == nil || ipAllocationModel.Path == nil || *ipAllocationModel.Path == "" {
+			return nil, fmt.Errorf("NSX IPAddressAllocation for %s/%s is unavailable", addressBinding.Namespace, addressBinding.Spec.IPAddressAllocationName)
+		}
 		portExternalAddressBinding.AllocatedExternalIpPath = ipAllocationModel.Path
 	} else if restoreMode && len(addressBinding.Status.IPAddress) > 0 {
 		ns := sp.Namespace

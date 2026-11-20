@@ -1229,6 +1229,41 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 			expectedError: fmt.Errorf("mock error"),
 		},
 		{
+			name: "non-restore-with-missing-nsx-ipaddressallocation",
+			sp:   &v1alpha1.SubnetPort{},
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "GetAddressBindingBySubnetPort",
+					func(_ *SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+						return &v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1"}, Spec: v1alpha1.AddressBindingSpec{IPAddressAllocationName: "ip1"}}
+					})
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Eq(types.NamespacedName{Namespace: "ns1", Name: "ip1"}), gomock.AssignableToTypeOf(&v1alpha1.IPAddressAllocation{})).Return(nil)
+				patches.ApplyMethod(reflect.TypeOf(service.IpAddressAllocationService), "GetIPAddressAllocationByOwner",
+					func(_ *mock.MockIPAddressAllocationProvider, _ metav1.Object) (*model.VpcIpAddressAllocation, error) {
+						return nil, nil
+					})
+				return patches
+			},
+			expectedError: fmt.Errorf("NSX IPAddressAllocation for ns1/ip1 is unavailable"),
+		},
+		{
+			name: "non-restore-with-nsx-ipaddressallocation-missing-path",
+			sp:   &v1alpha1.SubnetPort{},
+			preFunc: func(service *SubnetPortService, mockVPC *mock.MockVPCServiceProvider, mockIPAlloc *mock.MockIPAddressAllocationProvider) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "GetAddressBindingBySubnetPort",
+					func(_ *SubnetPortService, _ *v1alpha1.SubnetPort) *v1alpha1.AddressBinding {
+						return &v1alpha1.AddressBinding{ObjectMeta: metav1.ObjectMeta{Namespace: "ns1"}, Spec: v1alpha1.AddressBindingSpec{IPAddressAllocationName: "ip1"}}
+					})
+				k8sClient.EXPECT().Get(gomock.Any(), gomock.Eq(types.NamespacedName{Namespace: "ns1", Name: "ip1"}), gomock.AssignableToTypeOf(&v1alpha1.IPAddressAllocation{})).Return(nil)
+				patches.ApplyMethod(reflect.TypeOf(service.IpAddressAllocationService), "GetIPAddressAllocationByOwner",
+					func(_ *mock.MockIPAddressAllocationProvider, _ metav1.Object) (*model.VpcIpAddressAllocation, error) {
+						return &model.VpcIpAddressAllocation{}, nil
+					})
+				return patches
+			},
+			expectedError: fmt.Errorf("NSX IPAddressAllocation for ns1/ip1 is unavailable"),
+		},
+
+		{
 			name: "non-restore-with-restored-ipaddressallocation",
 			sp: &v1alpha1.SubnetPort{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1302,8 +1337,9 @@ func TestBuildExternalAddressBinding(t *testing.T) {
 			if patches != nil {
 				defer patches.Reset()
 			}
-			actualAb, _ := service.buildExternalAddressBinding(tt.sp, tt.nsxSubnet, tt.restoreMode)
+			actualAb, err := service.buildExternalAddressBinding(tt.sp, tt.nsxSubnet, tt.restoreMode)
 			assert.Equal(t, tt.expectedAb, actualAb)
+			assert.Equal(t, tt.expectedError, err)
 		})
 	}
 }
