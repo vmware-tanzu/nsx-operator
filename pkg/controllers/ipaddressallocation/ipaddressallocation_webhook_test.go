@@ -471,3 +471,107 @@ type errorListClient struct {
 func (e *errorListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	return errors.New("mock list error")
 }
+
+func TestValidateIPv4AllocationSpec(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         string
+		addressType v1alpha1.IPAllocationAddressType
+		wantError   string
+	}{
+		{
+			name:      "neither allocation field is set",
+			raw:       `{"spec":{}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
+			name:      "both allocation fields are set",
+			raw:       `{"spec":{"allocationSize":1,"allocationIPs":"10.0.0.1"}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
+			name:      "null allocation size is unset",
+			raw:       `{"spec":{"allocationSize":null}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
+			name:      "null allocation IPs is unset",
+			raw:       `{"spec":{"allocationIPs":null}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
+			name:      "empty allocation IPs is unset",
+			raw:       `{"spec":{"allocationIPs":""}}`,
+			wantError: "IPv4 allocations require exactly one of allocationSize or allocationIPs",
+		},
+		{
+			name:      "zero allocation size",
+			raw:       `{"spec":{"allocationSize":0}}`,
+			wantError: "allocationSize must be at least 1",
+		},
+		{
+			name:      "negative allocation size",
+			raw:       `{"spec":{"allocationSize":-1}}`,
+			wantError: "allocationSize must be at least 1",
+		},
+		{
+			name:      "allocation size is not a power of two",
+			raw:       `{"spec":{"allocationSize":3}}`,
+			wantError: "allocationSize must be a power of 2",
+		},
+		{
+			name:      "allocation size exceeds NSX int32 range",
+			raw:       `{"spec":{"allocationSize":2147483648}}`,
+			wantError: "allocationSize must be within the NSX signed 32-bit integer range",
+		},
+		{
+			name: "minimum valid allocation size",
+			raw:  `{"spec":{"allocationSize":1}}`,
+		},
+		{
+			name: "maximum valid power-of-two allocation size",
+			raw:  `{"spec":{"allocationSize":1073741824}}`,
+		},
+		{
+			name: "allocation IPs only",
+			raw:  `{"spec":{"allocationIPs":"10.0.0.1"}}`,
+		},
+		{
+			name: "null allocation size with allocation IPs",
+			raw:  `{"spec":{"allocationSize":null,"allocationIPs":"10.0.0.1"}}`,
+		},
+		{
+			name:        "IPv6 does not use IPv4 allocation fields",
+			raw:         `{"spec":{}}`,
+			addressType: v1alpha1.IPAllocationIPAddressTypeIPv6,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			allocation := &v1alpha1.IPAddressAllocation{}
+			assert.NoError(t, json.Unmarshal([]byte(tt.raw), allocation))
+			allocation.Spec.IPAddressType = tt.addressType
+			err := validateIPv4AllocationSpec([]byte(tt.raw), allocation)
+			if tt.wantError == "" {
+				assert.NoError(t, err)
+				return
+			}
+			if assert.Error(t, err) {
+				assert.Contains(t, err.Error(), tt.wantError)
+			}
+
+			scheme := runtime.NewScheme()
+			assert.NoError(t, v1alpha1.AddToScheme(scheme))
+			validator := &IPAddressAllocationValidator{decoder: admission.NewDecoder(scheme)}
+			response := validator.Handle(context.Background(), admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Object:    runtime.RawExtension{Raw: []byte(tt.raw)},
+			}})
+			assert.False(t, response.Allowed)
+			if assert.NotNil(t, response.Result) {
+				assert.Contains(t, response.Result.Message, tt.wantError)
+			}
+		})
+	}
+}

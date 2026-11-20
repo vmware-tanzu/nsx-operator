@@ -4,7 +4,9 @@
 package ipaddressallocation
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -46,6 +48,9 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		return admission.Errored(http.StatusBadRequest, err)
 	}
 	if req.Operation != admissionv1.Delete {
+		if err := validateIPv4AllocationSpec(req.Object.Raw, ipAddressAllocation); err != nil {
+			return admission.Denied(err.Error())
+		}
 		// For IPv6 allocations, ipAddressBlockVisibility is not applicable and should be omitted.
 		// For IPv4 allocations, if ipAddressBlockVisibility is omitted, default to Private for validation.
 		visibility := string(ipAddressAllocation.Spec.IPAddressBlockVisibility)
@@ -96,6 +101,50 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 		return v.validateServiceVIP(ctx, req, ipAddressAllocation)
 	}
 	return admission.Allowed("")
+}
+
+func validateIPv4AllocationSpec(raw []byte, allocation *v1alpha1.IPAddressAllocation) error {
+	const maxNSXAllocationSize = int64(1<<31 - 1)
+
+	if allocation.Spec.IPAddressType == v1alpha1.IPAllocationIPAddressTypeIPv6 {
+		return nil
+	}
+
+	// The decoded spec uses non-pointer scalar fields, so inspect the raw spec to
+	// distinguish omitted or null fields from explicit zero values.
+	var object struct {
+		Spec map[string]json.RawMessage `json:"spec"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return fmt.Errorf("failed to inspect IPAddressAllocation spec: %w", err)
+	}
+	sizeRaw, hasSize := object.Spec["allocationSize"]
+	hasSize = hasSize && hasJSONValue(sizeRaw)
+	ipsRaw, hasIPs := object.Spec["allocationIPs"]
+	hasIPs = hasIPs && hasJSONValue(ipsRaw) && allocation.Spec.AllocationIPs != ""
+	if hasSize == hasIPs {
+		return errors.New("IPv4 allocations require exactly one of allocationSize or allocationIPs")
+	}
+	if !hasSize {
+		return nil
+	}
+
+	size := allocation.Spec.AllocationSize
+	if int64(size) > maxNSXAllocationSize {
+		return errors.New("allocationSize must be within the NSX signed 32-bit integer range")
+	}
+	if size < 1 {
+		return errors.New("allocationSize must be at least 1")
+	}
+	if !util.IsPowerOfTwo(size) {
+		return errors.New("allocationSize must be a power of 2")
+	}
+	return nil
+}
+
+func hasJSONValue(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
 }
 
 func (v *IPAddressAllocationValidator) validateServiceVIP(ctx context.Context, req admission.Request, ipAlloc *v1alpha1.IPAddressAllocation) admission.Response {
