@@ -2003,3 +2003,22 @@ func TestSubnetReconciler_updateSubnetStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestNetworkMigrationDisabledSubnetKeepsLegacyPath(t *testing.T) {
+	subnetCR := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "subnet", Namespace: "ordinary-vpc"}}
+	r := createFakeSubnetReconciler([]client.Object{subnetCR})
+	patches := gomonkey.ApplyFunc(common2.CanReconcileSubnetResource, func(context.Context, client.Reader, client.Object) (bool, error) {
+		t.Error("disabled migration entered resource admission")
+		return true, nil
+	})
+	defer patches.Reset()
+	reachedLegacyLookup := false
+	patches.ApplyMethod(r.VPCService, "ListVPCInfo", func(*vpc.VPCService, string) []common.VPCResourceInfo {
+		reachedLegacyLookup = true
+		return nil
+	})
+	result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(subnetCR)})
+	assert.NoError(t, err)
+	assert.Equal(t, ResultRequeueAfter10sec, result)
+	assert.True(t, reachedLegacyLookup, "ordinary Subnet reconciliation must still reach its original VPC lookup")
+}

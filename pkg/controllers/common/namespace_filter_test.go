@@ -4,17 +4,43 @@
 package common
 
 import (
+	"context"
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
+	servicecommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
+
+type unavailableOwnerReader struct{ client.Reader }
+
+func (r unavailableOwnerReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if key.Name == "owner" {
+		return context.DeadlineExceeded
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
+}
+
+func TestSubnetPortOwnerLookupFailurePreservesEvent(t *testing.T) {
+	patches := gomonkey.ApplyFunc(config.IsPerNamespaceProvidersSupported, func() bool { return true })
+	defer patches.Reset()
+	child := vpcNamespace("staging", false)
+	child.Annotations = map[string]string{servicecommon.AnnotationSharedVPCNamespace: "owner"}
+	api := fake.NewClientBuilder().WithObjects(child, vpcNamespace("owner", true)).Build()
+	pred := SubnetPortNamespacePredicate(unavailableOwnerReader{api})
+	obj := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "port", Namespace: child.Name}}
+	assert.True(t, pred.Create(event.CreateEvent{Object: obj}))
+	assert.True(t, pred.Update(event.UpdateEvent{ObjectNew: obj}))
+	assert.True(t, pred.Generic(event.GenericEvent{Object: obj}))
+}
 
 func vpcNamespace(name string, vpc bool) *corev1.Namespace {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
@@ -22,6 +48,52 @@ func vpcNamespace(name string, vpc bool) *corev1.Namespace {
 		ns.Annotations = map[string]string{config.VPCNetworkConfigAnnotation: "default"}
 	}
 	return ns
+}
+
+func TestSubnetPortSharedVPCNamespacePredicate(t *testing.T) {
+	patches := gomonkey.ApplyFunc(config.IsPerNamespaceProvidersSupported, func() bool { return true })
+	defer patches.Reset()
+	config.SetMixedModeStateForTest(true, true)
+	t.Cleanup(func() { config.SetMixedModeStateForTest(false, false) })
+	for _, tc := range []struct {
+		name        string
+		shared      string
+		annotations map[string]string
+		allow       bool
+	}{
+		{name: "system shared VPC", shared: "kube-system", allow: true},
+		{name: "system prefix alone"},
+		{name: "missing shared namespace retries", shared: "missing", allow: true},
+		{name: "shared T1 namespace", shared: "t1-ns"},
+		{name: "self reference", shared: "vmware-system-net-staging"},
+		{name: "T1 default conflict", shared: "kube-system", annotations: map[string]string{config.T1DefaultConfigAnnotation: "true"}},
+		{name: "T1 shared conflict", shared: "kube-system", annotations: map[string]string{config.T1VmwareSystemSharedAnnotation: "true"}},
+		{name: "T1 network config conflict", shared: "kube-system", annotations: map[string]string{config.T1NsxNetworkConfigAnnotation: "legacy"}},
+		{name: "explicit VPC", annotations: map[string]string{config.VPCNetworkConfigAnnotation: "system"}, allow: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ns := vpcNamespace("vmware-system-net-staging", false)
+			ns.Annotations = map[string]string{}
+			for key, value := range tc.annotations {
+				ns.Annotations[key] = value
+			}
+			if tc.shared != "" {
+				ns.Annotations[servicecommon.AnnotationSharedVPCNamespace] = tc.shared
+			}
+			api := fake.NewClientBuilder().WithObjects(ns, vpcNamespace("kube-system", true), t1Namespace("t1-ns")).Build()
+			pred := SubnetPortNamespacePredicate(api)
+			obj := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "owner", Namespace: ns.Name}}
+			assert.Equal(t, tc.allow, pred.Create(event.CreateEvent{Object: obj}))
+			assert.Equal(t, tc.allow, pred.Update(event.UpdateEvent{ObjectNew: obj}))
+			assert.Equal(t, tc.allow, pred.Generic(event.GenericEvent{Object: obj}))
+			assert.True(t, pred.Delete(event.DeleteEvent{Object: obj}))
+			now := metav1.Now()
+			obj.DeletionTimestamp = &now
+			assert.True(t, pred.Update(event.UpdateEvent{ObjectNew: obj}))
+			// The exception does not admit the namespace to unrelated controllers.
+			assert.Equal(t, config.IsVPCNamespace(ns), VPCNamespacePredicate(api).Create(event.CreateEvent{Object: obj}))
+		})
+	}
 }
 
 func TestVPCNamespacePredicate(t *testing.T) {
@@ -122,4 +194,48 @@ func TestT1NamespacePredicate(t *testing.T) {
 			assert.True(t, pred.Delete(event.DeleteEvent{Object: obj(tt.ns)}))
 		})
 	}
+}
+
+// Disabled controller setup selects the original predicate. It must never
+// consult the extended shared-owner check, even for an ordinary VPC namespace.
+func TestVPCNamespacePredicateDoesNotUseSharedOwner(t *testing.T) {
+	previous := config.IsPerNamespaceProvidersSupported()
+	config.SetPerNamespaceProvidersSupportedForTest(true)
+	t.Cleanup(func() { config.SetPerNamespaceProvidersSupportedForTest(previous) })
+	config.SetMixedModeStateForTest(true, true)
+	t.Cleanup(func() { config.SetMixedModeStateForTest(false, false) })
+	patches := gomonkey.ApplyFunc(IsVPCNamespaceOrShared, func(context.Context, client.Reader, *corev1.Namespace) (bool, error) {
+		t.Error("legacy predicate entered shared namespace admission")
+		return false, nil
+	})
+	defer patches.Reset()
+	child := vpcNamespace("staging", false)
+	child.Annotations = map[string]string{servicecommon.AnnotationSharedVPCNamespace: "owner"}
+	reader := unavailableOwnerReader{fake.NewClientBuilder().WithObjects(child, vpcNamespace("normal", true)).Build()}
+	pred := VPCNamespacePredicate(reader)
+	for _, name := range []string{"staging", "normal"} {
+		obj := &v1alpha1.SubnetSet{ObjectMeta: metav1.ObjectMeta{Name: "set", Namespace: name}, Spec: v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"shared"}}}
+		assert.Equal(t, name == "normal", pred.Create(event.CreateEvent{Object: obj}))
+		assert.Equal(t, name == "normal", pred.Update(event.UpdateEvent{ObjectNew: obj}))
+		assert.Equal(t, name == "normal", pred.Generic(event.GenericEvent{Object: obj}))
+		assert.True(t, pred.Delete(event.DeleteEvent{Object: obj}), "cleanup must survive disabling migration")
+	}
+}
+
+func TestIsVPCNamespaceOrShared(t *testing.T) {
+	patches := gomonkey.ApplyFunc(config.IsPerNamespaceProvidersSupported, func() bool { return true })
+	defer patches.Reset()
+	owner := vpcNamespace("owner", true)
+	child := vpcNamespace("staging", false)
+	child.Annotations = map[string]string{servicecommon.AnnotationSharedVPCNamespace: owner.Name}
+	reader := fake.NewClientBuilder().WithObjects(owner).Build()
+	allowed, err := IsVPCNamespaceOrShared(context.Background(), reader, owner)
+	assert.NoError(t, err)
+	assert.True(t, allowed, "provider classification is independent of the migration switch")
+	allowed, err = IsVPCNamespaceOrShared(context.Background(), reader, child)
+	assert.NoError(t, err)
+	assert.True(t, allowed)
+	allowed, err = IsVPCNamespaceOrShared(context.Background(), unavailableOwnerReader{reader}, child)
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "owner lookup failures must remain retryable")
+	assert.False(t, allowed)
 }

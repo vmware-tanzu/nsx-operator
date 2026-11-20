@@ -18,6 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -50,6 +53,7 @@ type NamespaceReconciler struct {
 	SubnetPortService   types.SubnetPortServiceProvider
 	Recorder            record.EventRecorder
 	SubnetStatusUpdater common.StatusUpdater
+	namespaceEvents     chan event.GenericEvent
 }
 
 func (r *NamespaceReconciler) getDefaultNetworkConfigName() (string, error) {
@@ -237,16 +241,21 @@ func (r *NamespaceReconciler) namespaceError(ctx context.Context, k8sObj client.
 
 We suppose Namespace should have following annotations:
   - "nsx.vmware.com/shared_vpc_namespace": "<Namespace Name>"
-    If the Namespace contains this annotation, first check if the Namespace in annotation is the same as
-    the one in Namespace event, if yes, create an infra VPC for it. if	not, skip the whole Namespace event as the infra
-    VPC will be created its corresponding Namespace creation event.
+    If this points to another Namespace, that owner manages the VPC. This controller
+    still synchronizes the shared Subnet references and default SubnetSets locally.
   - "nsx.vmware.com/vpc_network_config":"<Supervisor ID>"
-    If Namespace does not contain "nsx.vmware.com/shared_vpc_namespace" annotation. Use this annotation to handle VPC creation.
-    VPC will locate the network config with the CR name, and create VPC using its config.
+    Use the explicit configuration when provided; otherwise a shared Namespace inherits
+    its owner's configuration.
   - If the Namespace do not have either of the annotation above, then we believe it is using default VPC, try to search
     default VPC in network config CR store. The default VPC network config CR's name is "default".
 */
 func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if req.Namespace == networkConfigDependency || req.Namespace == sharedOwnerDependency {
+		if r.NSXConfig.NetworkMigrationEnabled() {
+			return r.reconcileDependency(ctx, req)
+		}
+		return common.ResultNormal, nil
+	}
 	startTime := time.Now()
 	defer func() {
 		log.Info("Finished reconciling Namespace", "Namespace", req.NamespacedName, "duration(ms)", time.Since(startTime).Milliseconds())
@@ -261,13 +270,30 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	ns := obj.GetName()
 
-	// Only process VPC namespaces.  Migration destination is VPC strictly, so a non-VPC
-	// namespace never carries VPC infra and can safely be skipped on create and update.
-	// However, for delete events, we always process them to ensure cleanup
-	// even if the VPC annotation was removed prior to namespace deletion.
-	if !config.IsVPCNamespace(obj) && obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		log.Info("Skipping Namespace: not a VPC namespace", "Namespace", ns)
-		return common.ResultNormal, nil
+	// Shared namespaces need their Subnets and default SubnetSets synchronized too,
+	// even when the VPC provider is inherited from the owner. Always process deletion
+	// to clean up resources if provider annotations have already been removed.
+	if obj.ObjectMeta.DeletionTimestamp.IsZero() {
+		var allowed bool
+		var err error
+		if r.NSXConfig.NetworkMigrationEnabled() {
+			allowed, err = common.IsVPCNamespaceOrShared(ctx, r.Client, obj)
+		} else {
+			allowed = config.IsVPCNamespace(obj)
+		}
+		if err != nil {
+			var unavailable *common.SharedVPCOwnerUnavailableError
+			if errors.As(err, &unavailable) {
+				if statusErr := r.updateSharedOwnerResourceStatus(ctx, ns, true); statusErr != nil {
+					return common.ResultRequeueAfter10sec, errors.Join(err, statusErr)
+				}
+			}
+			return common.ResultRequeueAfter10sec, err
+		}
+		if !allowed {
+			log.Info("Skipping Namespace: not a VPC or shared VPC namespace", "Namespace", ns)
+			return common.ResultNormal, nil
+		}
 	}
 
 	// processing create/update event
@@ -309,9 +335,14 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		namespaceType := common.GetNamespaceType(obj, nc)
 
-		// create default SubnetSet for system Namespace or SVService Namespace
-		if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack); err != nil {
-			return common.ResultNormal, err
+		// Namespaces admitted only through their shared owner cannot manage
+		// Subnets. Let shared synchronization initialize their pre-created defaults
+		// from the effective configuration, including Supervisor Service namespaces.
+		inheritedProvider := r.NSXConfig.NetworkMigrationEnabled() && config.IsPerNamespaceProvidersSupported() && !config.IsVPCNamespace(obj)
+		if !inheritedProvider {
+			if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack); err != nil {
+				return common.ResultNormal, err
+			}
 		}
 
 		// Sync shared subnets, look into shared subnets in vpcnetworkconfigurations,
@@ -320,6 +351,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err := r.syncSharedSubnets(ctx, ns, nc); err != nil {
 			log.Error(err, "Failed to sync shared Subnets", "Namespace", ns)
 			return common.ResultRequeue, err
+		}
+		if r.NSXConfig.NetworkMigrationEnabled() {
+			if err := r.updateSharedOwnerResourceStatus(ctx, ns, false); err != nil {
+				return common.ResultRequeue, err
+			}
 		}
 
 		return common.ResultNormal, nil
@@ -338,12 +374,16 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1.Namespace{}).
-		WithOptions(
-			controller.Options{
-				MaxConcurrentReconciles: common.NumReconcile(),
-			}).
+	b := ctrl.NewControllerManagedBy(mgr).For(&v1.Namespace{})
+	if r.NSXConfig.NetworkMigrationEnabled() {
+		r.namespaceEvents = make(chan event.GenericEvent)
+		b = b.Watches(&v1.Namespace{}, handler.EnqueueRequestsFromMapFunc(sharedOwnerRequests), builder.WithPredicates(sharedOwnerPredicate)).
+			WatchesRawSource(source.Channel(r.namespaceEvents, &handler.EnqueueRequestForObject{}))
+	}
+	return b.WithOptions(
+		controller.Options{
+			MaxConcurrentReconciles: common.NumReconcile(),
+		}).
 		Watches(
 			&v1alpha1.VPCNetworkConfiguration{},
 			&EnqueueRequestForVPCNetworkConfiguration{Reconciler: r},

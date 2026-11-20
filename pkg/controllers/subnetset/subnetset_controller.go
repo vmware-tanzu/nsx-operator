@@ -54,6 +54,12 @@ type SubnetSetReconciler struct {
 	restoreMode       bool
 }
 
+// A member that is still initializing is a dependency wait, not a failed API
+// operation. Keep these waits independent of an earlier owner's error backoff.
+type subnetNotReadyError struct{ message string }
+
+func (e *subnetNotReadyError) Error() string { return e.message }
+
 func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context, subnetsetCR *v1alpha1.SubnetSet) error {
 	// Deduplicate the SubnetNames
 	dedupSubnetNames := []string{}
@@ -95,10 +101,10 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 			return err
 		}
 		if !common.IsObjectReady(subnet.Status.Conditions) {
-			return fmt.Errorf("Subnet %s/%s is not realized", subnet.Namespace, subnet.Name)
+			return &subnetNotReadyError{fmt.Sprintf("Subnet %s/%s is not realized", subnet.Namespace, subnet.Name)}
 		}
 		if len(subnet.Status.GatewayAddresses) == 0 {
-			return fmt.Errorf("Subnet %s/%s gateway is not updated", subnet.Namespace, subnet.Name)
+			return &subnetNotReadyError{fmt.Sprintf("Subnet %s/%s gateway is not updated", subnet.Namespace, subnet.Name)}
 		}
 		subnetInfo := v1alpha1.SubnetInfo{}
 		subnetInfo.NetworkAddresses = subnet.Status.NetworkAddresses
@@ -140,10 +146,26 @@ func (r *SubnetSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ResultRequeue, err
 	}
 
+	if subnetsetCR.DeletionTimestamp.IsZero() && r.SubnetService.NSXConfig.NetworkMigrationEnabled() {
+		allowed, err := common.CanReconcileSubnetResource(ctx, r.Client, subnetsetCR)
+		if err != nil {
+			return ResultRequeue, err
+		}
+		if !allowed {
+			return ResultNormal, nil
+		}
+	}
+
 	if subnetsetCR.Spec.SubnetNames != nil {
 		// For SubnetSet with pre-created Subnet, update the Status from Subnet CR
 		if err := r.UpdateSubnetSetForSubnetNames(ctx, subnetsetCR); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, subnetsetCR, err, "Failed to update SubnetSet", setSubnetSetReadyStatusFalse)
+			var pending *subnetNotReadyError
+			if r.SubnetService.NSXConfig.NetworkMigrationEnabled() && errors.As(err, &pending) {
+				// Returning nil error resets any outage backoff. Subnet status
+				// changes do not otherwise enqueue the referencing SubnetSets.
+				return common.ResultRequeueAfter10sec, nil
+			}
 			return ResultNormal, err
 		}
 		r.StatusUpdater.UpdateSuccess(ctx, subnetsetCR, setSubnetSetReadyStatusTrue)
@@ -435,9 +457,13 @@ func getExistingConditionOfType(conditionType v1alpha1.ConditionType, existingCo
 }
 
 func (r *SubnetSetReconciler) setupWithManager(mgr ctrl.Manager) error {
+	namespacePredicate := common.VPCNamespacePredicate(r.Client)
+	if r.SubnetService.NSXConfig.NetworkMigrationEnabled() {
+		namespacePredicate = common.SubnetResourceNamespacePredicate(r.Client)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.SubnetSet{}).
-		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
+		WithEventFilter(namespacePredicate).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: common.NumReconcile(),
 		}).

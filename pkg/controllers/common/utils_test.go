@@ -143,7 +143,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 		},
 	}
 	k8sclient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(subnetSet).Build()
-	patches := gomonkey.ApplyFunc(GetSubnetFromSubnetSet, func(client client.Client, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding) (string, v1alpha1.StaticIPAllocationType, error) {
+	patches := gomonkey.ApplyFunc(GetSubnetFromSubnetSet, func(reader client.Reader, subnetSet *v1alpha1.SubnetSet, vpcService servicecommon.VPCServiceProvider, subnetService servicecommon.SubnetServiceProvider, subnetPortService servicecommon.SubnetPortServiceProvider, interfaceIPType v1alpha1.IPAddressType, rawStaticIPAllocationType v1alpha1.StaticIPAllocationType, addressBindings []v1alpha1.PortAddressBinding, enableNetworkMigration bool, portUID ...types.UID) (string, v1alpha1.StaticIPAllocationType, error) {
 		return expectedSubnetPath, "", nil
 	})
 	defer patches.Reset()
@@ -242,7 +242,7 @@ func TestAllocateSubnetFromSubnetSet(t *testing.T) {
 			ssp := &pkg_mock.MockSubnetServiceProvider{}
 			spsp := &pkg_mock.MockSubnetPortServiceProvider{}
 			tt.prepareFunc(t, vps, ssp, spsp)
-			subnetPath, _, subnetSetUID, subnetSetLock, err := AllocateSubnetFromSubnetSet(k8sclient, k8sclient, tt.subnetSet, vps, ssp, spsp, "", "", nil)
+			subnetPath, _, subnetSetUID, subnetSetLock, err := AllocateSubnetFromSubnetSet(k8sclient, k8sclient, tt.subnetSet, vps, ssp, spsp, "", "", nil, false)
 			if subnetSetLock != nil {
 				RUnlockSubnetSet(*subnetSetUID, subnetSetLock)
 			}
@@ -917,7 +917,7 @@ func TestGetSubnetFromSubnetSet(t *testing.T) {
 			}
 
 			// Execute
-			result, _, err := GetSubnetFromSubnetSet(client, tt.subnetSet, mockVpcSvc, mockSubnetSvc, mockPortSvc, "", "", nil)
+			result, _, err := GetSubnetFromSubnetSet(client, tt.subnetSet, mockVpcSvc, mockSubnetSvc, mockPortSvc, "", "", nil, false)
 
 			// Assert
 			if tt.wantErr {

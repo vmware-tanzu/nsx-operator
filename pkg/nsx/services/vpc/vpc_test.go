@@ -1860,6 +1860,50 @@ func TestGetVPCNetworkConfigByNamespace(t *testing.T) {
 	}
 }
 
+func TestSharedNamespaceNetworkConfiguration(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, tc := range []struct {
+			name     string
+			shared   string
+			explicit string
+			want     string
+			wantErr  bool
+		}{
+			{name: "inherit system config", shared: "kube-system", want: "system"},
+			{name: "explicit config retained", shared: "kube-system", explicit: "custom", want: "custom"},
+			{name: "missing owner fails", shared: "missing", wantErr: true},
+			{name: "ordinary namespace uses default", want: "default"},
+			{name: "self reference uses default", shared: "vmware-system-net-staging", want: "default"},
+		} {
+			if !enabled && tc.explicit == "" {
+				tc.want, tc.wantErr = "default", false
+			}
+			t.Run(fmt.Sprintf("enabled=%t/%s", enabled, tc.name), func(t *testing.T) {
+				ns := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "vmware-system-net-staging", Annotations: map[string]string{}}}
+				if tc.shared != "" {
+					ns.Annotations[common.AnnotationSharedVPCNamespace] = tc.shared
+				}
+				if tc.explicit != "" {
+					ns.Annotations[common.AnnotationVPCNetworkConfig] = tc.explicit
+				}
+				owner := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", Annotations: map[string]string{common.AnnotationVPCNetworkConfig: "system"}}}
+				service := &VPCService{Service: common.Service{NSXConfig: &config.NSXOperatorConfig{CoeConfig: &config.CoeConfig{EnableNetworkMigration: enabled}}, Client: fake.NewClientBuilder().WithObjects(ns, owner).Build()}}
+				patches := gomonkey.ApplyMethod(service, "GetDefaultNetworkConfig", func(_ *VPCService) (*v1alpha1.VPCNetworkConfiguration, error) {
+					return &v1alpha1.VPCNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "default"}}, nil
+				})
+				defer patches.Reset()
+				name, err := service.GetNetworkconfigNameFromNS(context.Background(), ns.Name)
+				if tc.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, tc.want, name)
+				}
+			})
+		}
+	}
+}
+
 func TestVPCService_ListVPCInfo(t *testing.T) {
 	service, _, _, k8sClient, _ := createService(t)
 	tests := []struct {
