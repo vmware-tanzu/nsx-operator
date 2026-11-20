@@ -221,16 +221,19 @@ generated: code-generator
 	./hack/update-codegen.sh
 
 OPENAPI_GEN = $(shell pwd)/bin/openapi-gen
+# Use go.mod's Go version for package loading: a newer Go on PATH may expose
+# standard-library syntax that the generator's parser does not support.
+OPENAPI_GOTOOLCHAIN ?= $(shell awk '$$1 == "go" {print "go" $$2; exit}' go.mod)
 # openapi-gen moved from k8s.io/code-generator to k8s.io/kube-openapi (since ~v0.27).
 # We install it directly via "go install" in the project root so it uses the
 # version already pinned in go.mod without needing to create a throw-away module.
 .PHONY: openapi-gen
 openapi-gen: ## Build openapi-gen binary into bin/ (uses k8s.io/kube-openapi version from go.mod).
-	@[ -f $(OPENAPI_GEN) ] || GOBIN=$(CURDIR)/bin go install k8s.io/kube-openapi/cmd/openapi-gen
+	@[ -f $(OPENAPI_GEN) ] || GOTOOLCHAIN=$(OPENAPI_GOTOOLCHAIN) GOBIN=$(CURDIR)/bin go install k8s.io/kube-openapi/cmd/openapi-gen
 
 .PHONY: generate-eas-openapi
 generate-eas-openapi: openapi-gen ## Generate OpenAPI definitions for EAS types plus the apimachinery meta/v1 and version types they reference.
-	$(OPENAPI_GEN) \
+	GOTOOLCHAIN=$(OPENAPI_GOTOOLCHAIN) $(OPENAPI_GEN) \
 	  --output-dir     pkg/apis/eas/v1alpha1 \
 	  --output-pkg     github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1 \
 	  --output-file    zz_generated.openapi.go \
