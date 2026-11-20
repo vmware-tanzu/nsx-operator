@@ -139,6 +139,11 @@ func createNetworkInfoReconciler(objs []client.Object) *NetworkInfoReconciler {
 }
 
 func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
+	// These cases exercise VPC reconciliation with successful status persistence.
+	// Persistence failures and recovery are covered by TestSystemAVIStatusWriteRetriesUntilRecovery.
+	statusPatches := gomonkey.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
+		func(context.Context, client.Client, string, string, string, string, string) error { return nil })
+	defer statusPatches.Reset()
 	type args struct {
 		req controllerruntime.Request
 	}
@@ -1054,9 +1059,10 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 					return v1alpha1.FullStackVPC, nil
 				})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
-					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) {
+					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) error {
 						require.Equal(t, "", nsxLBSPath)
 						require.Equal(t, "vpc-name", vpcName)
+						return nil
 					})
 				return patches
 			},
@@ -1122,11 +1128,12 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
 					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
-					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) {
+					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) error {
 						// aviSubnetPath should be set even without connectivity profile
 						require.Equal(t, "/orgs/default/projects/project-quality/vpcs/fake-vpc/subnets/avi-subnet", aviSubnetPath)
 						require.Equal(t, "", nsxLBSPath)
 						require.Equal(t, "vpc-name", vpcName)
+						return nil
 					})
 				return patches
 			},
@@ -1195,10 +1202,11 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCIsReady.getNSNetworkCondition()))
 					})
 				patches.ApplyFunc(setVPCNetworkConfigurationStatusWithLBS,
-					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) {
+					func(ctx context.Context, client client.Client, ncName string, vpcName string, aviSubnetPath string, nsxLBSPath string, vpcPath string) error {
 						// nsxLBSPath should be empty since GetLBSsFromNSXByVPC was not called
 						require.Equal(t, "", nsxLBSPath)
 						require.Equal(t, "vpc-name", vpcName)
+						return nil
 					})
 				return patches
 			},
