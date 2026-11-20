@@ -1,6 +1,6 @@
 // e2e test for nsx-operator, in nsx_operator directory, run the command below:
 // e2e=true go test -v github.com/vmware-tanzu/nsx-operator/test/e2e -remote.sshconfig /root/.ssh/config -remote.kubeconfig /root/.kube/config
-// -operator-cfg-path /etc/nsx-ujo/ncp.ini -test.timeout 15m
+// -operator-cfg-path /etc/nsx-ujo/ncp.ini -test.timeout 35m
 // Note: set a reasonable timeout when running e2e tests, otherwise the test will be terminated by the framework.
 package e2e
 
@@ -19,6 +19,11 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
+)
+
+const (
+	e2eSuiteTimeout   = 30 * time.Minute
+	e2eCleanupReserve = 2 * time.Minute
 )
 
 // TestResult holds information about a single test result
@@ -244,6 +249,7 @@ func (tr *TestResultTracker) PrintSummary() {
 
 // testMain is meant to be called by TestMain and enables the use of defer statements.
 func testMain(m *testing.M) int {
+	testMainStart := time.Now()
 	flag.StringVar(&testOptions.providerName, "provider", "remote", "K8s test cluster provider")
 	flag.StringVar(&testOptions.providerConfigPath, "provider-cfg-path", "", "Optional config file for provider")
 	flag.StringVar(&testOptions.logsExportDir, "logs-export-dir", "", "Export directory for test logs")
@@ -254,6 +260,30 @@ func testMain(m *testing.M) int {
 	flag.BoolVar(&testOptions.debugLog, "debug", false, "")
 	flag.IntVar(&testOptions.logLevel, "log-level", 0, "")
 	flag.Parse()
+
+	suiteTimeout := e2eSuiteTimeout
+	if timeoutFlag := flag.Lookup("test.timeout"); timeoutFlag != nil {
+		outerTimeout, err := time.ParseDuration(timeoutFlag.Value.String())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid test timeout: %v\n", err)
+			return 1
+		}
+		suiteTimeout = outerTimeout
+		if outerTimeout > 0 {
+			// Keep the cleanup reserve inside the original go test timeout. Updating
+			// test.timeout only extends the test binary's alarm; the go test parent
+			// still enforces the timeout it received on the command line.
+			if err := flag.Set("test.timeout", (outerTimeout + e2eCleanupReserve).String()); err != nil {
+				fmt.Fprintf(os.Stderr, "cannot reserve cleanup time: %v\n", err)
+				return 1
+			}
+		}
+	}
+
+	var suiteDeadline time.Time
+	if suiteTimeout > 0 {
+		suiteDeadline = testMainStart.Add(suiteTimeout - e2eCleanupReserve)
+	}
 
 	log = logger.ZapCustomLogger(testOptions.debugLog, testOptions.logLevel)
 	logger.Log = log
@@ -271,6 +301,44 @@ func testMain(m *testing.M) int {
 		log.Error(err, "Error when creating client")
 		return 1
 	}
+	defer CleanupAllNamespaces()
+	if !suiteDeadline.IsZero() && !time.Now().Before(suiteDeadline) {
+		log.Error(nil, "E2E setup exhausted the test budget reserved for namespace cleanup")
+		return 1
+	}
+
+	// Install shutdown cleanup before initialization can create VC namespaces.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigChan
+		log.Info("Received signal, triggering cleanup", "signal", sig)
+		CleanupAllNamespaces()
+		os.Exit(1)
+	}()
+
+	// The deadline includes startup and initialization time so the cleanup
+	// reserve remains available before the original go test timeout.
+	testResultTracker.startTime = time.Now()
+	var timeoutChannel <-chan time.Time
+	if !suiteDeadline.IsZero() {
+		timeoutTimer := time.NewTimer(time.Until(suiteDeadline))
+		defer timeoutTimer.Stop()
+		timeoutChannel = timeoutTimer.C
+	}
+	timeoutDone := make(chan struct{})
+	defer close(timeoutDone)
+	go func() {
+		select {
+		case <-timeoutDone:
+			return
+		case <-timeoutChannel:
+		}
+		log.Info("⚠️  WARNING: E2E test suite exceeded timeout, forcing cleanup", "deadline", suiteDeadline)
+		testResultTracker.PrintSummary()
+		CleanupAllNamespaces()
+		os.Exit(1)
+	}()
 
 	log.Info("Collecting information about K8s cluster")
 	if err := collectClusterInfo(); err != nil {
@@ -284,31 +352,20 @@ func testMain(m *testing.M) int {
 		log.Info("Pod IPv6: ", "network", clusterInfo.podV6NetworkCIDR)
 	}
 
-	// Batch create all VC namespaces once
-	if err := InitAllNamespaces(); err != nil {
-		log.Error(err, "failed to init all e2e namespaces")
+	// Initialize VC namespace fixtures only for suites selected by the test flags.
+	if testFlagValue("list") == "" {
+		namespaces, err := VCNamespacesForTestSelection(testFlagValue("run"), testFlagValue("skip"))
+		if err != nil {
+			log.Error(err, "failed to select VC namespaces for test run")
+			CleanupAllNamespaces()
+			return 1
+		}
+		if err := InitVCNamespaces(namespaces...); err != nil {
+			log.Error(err, "failed to init selected e2e namespaces")
+			CleanupAllNamespaces()
+			return 1
+		}
 	}
-
-	// Handle Ctrl+C to trigger cleanup
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-sigChan
-		log.Info("Received signal, triggering cleanup", "signal", sig)
-		CleanupAllNamespaces()
-		os.Exit(1)
-	}()
-
-	// Set up a timeout for the entire e2e test suite (30 minutes)
-	const e2eTimeout = 30 * time.Minute
-	timeoutChan := time.After(e2eTimeout)
-	go func() {
-		<-timeoutChan
-		log.Info("⚠️  WARNING: E2E test suite exceeded timeout, forcing cleanup", "timeout", e2eTimeout)
-		testResultTracker.PrintSummary()
-		CleanupAllNamespaces()
-		os.Exit(1)
-	}()
 
 	// Print ASCII art banner
 	fmt.Println()
@@ -326,13 +383,15 @@ func testMain(m *testing.M) int {
 	fmt.Println("╚════════════════════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
 
-	testResultTracker.startTime = time.Now()
 	ret := m.Run()
 
 	// Print test summary at the end
 	testResultTracker.PrintSummary()
 
-	CleanupAllNamespaces()
+	if err := CleanupAllNamespaces(); err != nil {
+		log.Error(err, "Final namespace cleanup failed")
+		return 1
+	}
 	return ret
 }
 
@@ -340,4 +399,11 @@ func TestMain(m *testing.M) {
 	if os.Getenv("e2e") == "true" {
 		os.Exit(testMain(m))
 	}
+}
+
+func testFlagValue(name string) string {
+	if f := flag.Lookup("test." + name); f != nil {
+		return f.Value.String()
+	}
+	return ""
 }

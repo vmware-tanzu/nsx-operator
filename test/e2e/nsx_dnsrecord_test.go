@@ -31,7 +31,18 @@ func TestDNSRecord(t *testing.T) {
 	StartParallel(t)
 
 	// Also clean up if fixture discovery fails before it registers its own cleanup.
-	t.Cleanup(func() { CleanupVCNamespaces(NsDNSRecord) })
+	t.Cleanup(func() {
+		if t.Skipped() && !t.Failed() {
+			// A skipped test has no functional assertions left to run. Keep the
+			// namespace tracked for the suite's final deletion request instead of
+			// turning an unsupported testbed into a failure on deletion timeout.
+			log.Info("Deferring skipped DNSRecord namespace cleanup to suite cleanup", "namespace", NsDNSRecord)
+			return
+		}
+		if err := CleanupVCNamespaces(NsDNSRecord); err != nil {
+			t.Errorf("cleanup VC namespace: %v", err)
+		}
+	})
 
 	// Use pre-created namespace
 	ns := NsDNSRecord

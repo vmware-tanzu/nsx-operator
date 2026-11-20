@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"testing"
-	"time"
 )
 
 func setupTest(tb testing.TB, testNamespace string) {
@@ -12,9 +11,9 @@ func setupTest(tb testing.TB, testNamespace string) {
 	}
 }
 
-func teardownTest(tb testing.TB, testNamespace string, timeout time.Duration) {
+func teardownTest(tb testing.TB, testNamespace string) {
 	tb.Logf("Deleting '%s' K8s Namespace", testNamespace)
-	if err := testData.deleteNamespace(testNamespace, timeout); err != nil {
+	if err := testData.deleteNamespace(testNamespace); err != nil {
 		tb.Fatalf("Error when tearing down test: %v", err)
 	}
 }

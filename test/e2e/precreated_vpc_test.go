@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -31,7 +33,10 @@ const (
 	lbServicePort     = int32(8080)
 	podPort           = int32(80)
 	resourceReadyTime = 5 * time.Minute
-	nsDeleteTime      = 2 * time.Minute
+
+	vcNamespaceLookupTimeout        = 30 * time.Second
+	vcNamespaceLookupRequestTimeout = 10 * time.Second
+	vcNamespaceLookupInterval       = 2 * time.Second
 
 	nsPrivilegedLabel = "pod-security.kubernetes.io/enforce"
 )
@@ -122,12 +127,12 @@ func TestPreCreatedVPC(t *testing.T) {
 
 	err := testData.createVPCConnectivityProfileWithoutNat()
 	require.NoError(t, err, "Failed to create VPCConnectivityProfile without SNAT")
-	defer func() {
+	t.Cleanup(func() {
 		err := testData.nsxClient.VPCConnectivityProfilesClient.Delete(defaultOrg, defaultProject, noNatVPCProfile)
 		if err != nil {
 			log.Error(err, "Failed to delete VPC connectivity profile", "Name", noNatVPCProfile)
 		}
-	}()
+	})
 
 	// SequentialTests: These tests share VPC connectivity profile resources and MUST run sequentially
 	RunSubtest(t, "SequentialTests", func(t *testing.T) {
@@ -136,8 +141,13 @@ func TestPreCreatedVPC(t *testing.T) {
 				orgID, projectID, vpcID := setupVPC(t, tt.enableNat, tt.createLb, tt.noProfile)
 				nsName := fmt.Sprintf("test-prevpc-%s", getRandomString())
 				projectPath := fmt.Sprintf(projectPathFormat, orgID, projectID)
-				defer func() {
+				namespaceSafe := true
+				t.Cleanup(func() {
 					path := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
+					if !namespaceSafe {
+						t.Errorf("retain pre-created VPC %s because namespace cleanup failed", path)
+						return
+					}
 					log.Info("Deleting the created VPC from NSX", "path", path)
 					ctx := context.Background()
 					if pollErr := wait.PollUntilContextTimeout(ctx, 10*time.Second, resourceReadyTime, true, func(ctx context.Context) (done bool, err error) {
@@ -149,7 +159,7 @@ func TestPreCreatedVPC(t *testing.T) {
 					}); pollErr != nil {
 						log.Error(pollErr, "Failed to delete the pre-created VPC within 5m after the test", "path", path)
 					}
-				}()
+				})
 				var profilePath string
 				if tt.noProfile {
 					profilePath = ""
@@ -161,8 +171,34 @@ func TestPreCreatedVPC(t *testing.T) {
 				preCreatedVPCPath := fmt.Sprintf(common.VPCKey, orgID, projectID, vpcID)
 				log.Info("Created VPC on NSX", "path", preCreatedVPCPath)
 
-				err := createVPCNamespace(nsName, projectPath, profilePath, preCreatedVPCPath, nil, useVCAPI)
+				vpcConfigName, err := createVPCNamespace(nsName, projectPath, profilePath, preCreatedVPCPath, nil, useVCAPI)
+				if err != nil {
+					namespaceRegistry.Lock()
+					_, vcNamespaceTracked := namespaceRegistry.vc[nsName]
+					_, k8sNamespaceTracked := namespaceRegistry.k8s[nsName]
+					namespaceRegistry.Unlock()
+					namespaceSafe = !vcNamespaceTracked && !k8sNamespaceTracked
+					if namespaceSafe && vpcConfigName != "" {
+						configExists, checkErr := vpcNetworkConfigurationExists(vpcConfigName)
+						namespaceSafe = !configExists && checkErr == nil
+						if checkErr != nil {
+							log.Error(checkErr, "Cannot confirm VPCNetworkConfiguration cleanup; retaining pre-created VPC", "name", vpcConfigName)
+						}
+					}
+				} else {
+					namespaceSafe = false
+				}
 				require.NoError(t, err, "VPCNetworkConfiguration and Namespace should be created")
+				namespaceDeleted := false
+				t.Cleanup(func() {
+					if !namespaceDeleted {
+						if cleanupErr := deleteVPCNamespace(nsName, vpcConfigName, useVCAPI); cleanupErr != nil {
+							t.Errorf("cleanup pre-created VPC namespace %q: %v", nsName, cleanupErr)
+						} else {
+							namespaceSafe = true
+						}
+					}
+				})
 				log.Info("Created test Namespace", "Namespace", nsName)
 
 				// Wait until the created NetworkInfo is ready.
@@ -181,7 +217,9 @@ func TestPreCreatedVPC(t *testing.T) {
 					log.Info("Pod for the LoadBalancer Service in the Namespace is ready", "Namespace", nsName, "Pod", podName)
 				}
 
-				deleteVPCNamespace(nsName, useVCAPI)
+				require.NoError(t, deleteVPCNamespace(nsName, vpcConfigName, useVCAPI))
+				namespaceDeleted = true
+				namespaceSafe = true
 				_, err = testData.nsxClient.VPCClient.Get(orgID, projectID, vpcID)
 				require.NoError(t, err, "Pre-Created VPC should exist after the K8s Namespace is deleted")
 			})
@@ -257,26 +295,19 @@ func testPodToLBService(t *testing.T, nsName string) {
 	log.Info("NSX resources for the LoadBalancer Service are removed")
 }
 
-func deleteVPCNamespace(nsName string, usingVCAPI bool) {
+func deleteVPCNamespace(nsName, vpcConfigName string, usingVCAPI bool) error {
 	if usingVCAPI {
-		if err := testData.vcClient.deleteNamespace(nsName); err != nil {
-			log.Error(err, "Failed to delete Namespace on VCenter", "namespace", nsName)
-		}
-		return
+		return testData.deleteVCNamespace(nsName)
 	}
 
-	vpcConfigName := fmt.Sprintf("%s-vpcconfig-%s", nsName, getRandomString())
-	deleteVPCNamespaceOnK8s(nsName, vpcConfigName)
+	return deleteVPCNamespaceOnK8s(nsName, vpcConfigName)
 }
 
-func deleteVPCNamespaceOnK8s(nsName string, vpcConfigName string) {
-	ctx := context.Background()
-	if err := testData.deleteNamespace(nsName, nsDeleteTime); err != nil {
-		log.Error(err, "Failed to delete VPCNetworkConfiguration", "name", vpcConfigName)
+func deleteVPCNamespaceOnK8s(nsName, vpcConfigName string) error {
+	if err := testData.deleteNamespace(nsName); err != nil {
+		return fmt.Errorf("delete Kubernetes namespace %q before its VPCNetworkConfiguration: %w", nsName, err)
 	}
-	if err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(ctx, vpcConfigName, metav1.DeleteOptions{}); err != nil {
-		log.Error(err, "Failed to delete VPCNetworkConfiguration %s", "name", vpcConfigName)
-	}
+	return deleteVPCNetworkConfiguration(vpcConfigName)
 }
 
 func setupVPC(tb testing.TB, enableNat bool, createLb bool, noProfile bool) (string, string, string) {
@@ -297,17 +328,32 @@ func setupVPC(tb testing.TB, enableNat bool, createLb bool, noProfile bool) (str
 	return orgID, projectID, vpcID
 }
 
-func createVPCNamespace(nsName, projectPath, profilePath, vpcPath string, privateIPs []string, usingVCAPI bool) error {
+func createVPCNamespace(nsName, projectPath, profilePath, vpcPath string, privateIPs []string, usingVCAPI bool) (string, error) {
 	if usingVCAPI {
-		return testData.createPreVPCNamespaceByVCenter(nsName, vpcPath)
+		return "", testData.createPreVPCNamespaceByVCenter(nsName, vpcPath)
 	}
 
 	vpcConfigName := fmt.Sprintf("%s-vpcconfig-%s", nsName, getRandomString())
-	return createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vpcPath, privateIPs)
+	if err := createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vpcPath, privateIPs); err != nil {
+		return vpcConfigName, err
+	}
+	return vpcConfigName, nil
+}
+
+func vpcNetworkConfigurationExists(name string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	return true, nil
 }
 
 func createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vpcPath string, privateIPs []string) error {
-	ctx := context.Background()
 	vpcNetConfig := &v1alpha1.VPCNetworkConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: vpcConfigName,
@@ -320,7 +366,7 @@ func createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vp
 		},
 	}
 
-	if _, err := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Create(ctx, vpcNetConfig, metav1.CreateOptions{}); err != nil {
+	if err := createOwnedVPCNetworkConfiguration(vpcNetConfig); err != nil {
 		log.Error(err, "Failed to create VPCNetworkConfiguration", "name", vpcNetConfig)
 		return err
 	}
@@ -335,10 +381,45 @@ func createVPCNamespaceOnK8s(nsName, vpcConfigName, projectPath, profilePath, vp
 		}
 		ns.Labels[nsPrivilegedLabel] = "privileged"
 	}); err != nil {
-		// Clean up the created VPCNetworkConfiguration.
-		log.Error(err, "Failed to create Namespace", "name", nsName)
-		if delErr := testData.crdClientset.CrdV1alpha1().VPCNetworkConfigurations().Delete(ctx, vpcConfigName, metav1.DeleteOptions{}); delErr != nil {
-			log.Error(err, "Failed to delete VPCNetworkConfiguration", "name", vpcConfigName)
+		// The create response may be lost after the API server persisted the
+		// namespace. Keep its referenced configuration until that namespace is gone.
+		lookupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		var createdNamespace *corev1.Namespace
+		var lastGetErr error
+		getErr := wait.PollUntilContextTimeout(lookupCtx, time.Second, 30*time.Second, false, func(ctx context.Context) (bool, error) {
+			observedNamespace, err := testData.clientset.CoreV1().Namespaces().Get(ctx, nsName, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			if err != nil {
+				lastGetErr = err
+				return false, err
+			}
+			createdNamespace = observedNamespace
+			return true, nil
+		})
+		cancel()
+		if createdNamespace == nil && lastGetErr != nil {
+			return fmt.Errorf("namespace create failed (%v), cannot determine whether namespace exists: %w", err, lastGetErr)
+		}
+		if createdNamespace == nil && !errors.Is(getErr, context.DeadlineExceeded) {
+			if getErr != nil {
+				return fmt.Errorf("namespace create failed (%v), cannot confirm namespace %q is absent: %w", err, nsName, getErr)
+			}
+			return fmt.Errorf("namespace create failed (%v), lookup ended without finding namespace %q", err, nsName)
+		}
+		if createdNamespace != nil && createdNamespace.Annotations[common.AnnotationVPCNetworkConfig] == vpcConfigName {
+			if deleteErr := testData.deleteNamespace(nsName); deleteErr != nil {
+				return fmt.Errorf("namespace create failed (%v), and created namespace cleanup failed: %w", err, deleteErr)
+			}
+		}
+		if delErr := deleteVPCNetworkConfiguration(vpcConfigName); delErr != nil {
+			return fmt.Errorf("namespace create failed (%v), and VPCNetworkConfiguration cleanup failed: %w", err, delErr)
+		}
+		if createdNamespace == nil {
+			// The namespace stayed absent throughout the full observation window,
+			// and its VPCNetworkConfiguration has been removed successfully.
+			untrackK8sNamespace(nsName)
 		}
 		return err
 	}
@@ -533,29 +614,89 @@ func (data *TestData) waitForLBVSDeletion(timeout time.Duration, svcID string) e
 }
 
 func (data *TestData) createPreVPCNamespaceByVCenter(nsName, vpcPath string) error {
-	svID, err := data.vcClient.getSupervisorID()
+	createCtx, createCancel, accepted, wasTracked := beginNamespaceCreate(nsName, true)
+	if !accepted {
+		return fmt.Errorf("cannot create VC namespace %q after suite cleanup has started", nsName)
+	}
+	defer endNamespaceCreate(nsName, true, createCancel)
+
+	svID, err := data.vcClient.getSupervisorIDContext(createCtx)
 	if err != nil {
+		if !wasTracked {
+			untrackVCNamespace(nsName)
+		}
 		return fmt.Errorf("failed to get a valid supervisor ID: %v", err)
 	}
-	err = data.vcClient.createNamespaceWithPreCreatedVPC(nsName, vpcPath, svID)
+	if err := data.vcClient.ensureSessionContext(createCtx); err != nil {
+		if !wasTracked {
+			untrackVCNamespace(nsName)
+		}
+		return fmt.Errorf("failed to initialize vCenter session: %w", err)
+	}
+	if !trackNamespaceForCleanup(nsName, true) {
+		return fmt.Errorf("cannot create VC namespace %q after suite cleanup has started", nsName)
+	}
+	if err := createCtx.Err(); err != nil {
+		if !wasTracked {
+			untrackVCNamespace(nsName)
+		}
+		return fmt.Errorf("cannot create VC namespace %q after suite cleanup has started: %w", nsName, err)
+	}
+	// Final cleanup waits for this bounded API request before sending a delete.
+	requestCtx, requestCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer requestCancel()
+	statusCode, err := data.vcClient.createNamespaceWithPreCreatedVPCContext(requestCtx, nsName, vpcPath, svID)
 	if err != nil {
+		if !wasTracked && statusCode == http.StatusConflict {
+			untrackVCNamespace(nsName)
+		}
 		return fmt.Errorf("failed to create Namespace on VCenter: %v", err)
 	}
-	ctx := context.Background()
-	getErr := wait.PollUntilContextTimeout(ctx, 2*time.Second, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
-		_, statusCode, err := data.vcClient.getNamespaceInfoByName(nsName)
-		if statusCode == http.StatusNotFound {
-			return false, nil
-		}
-		if err != nil {
-			return true, err
-		}
-		return true, nil
-	})
+	namespaceRegistry.Lock()
+	namespaceRegistry.vc[nsName] = true
+	namespaceRegistry.Unlock()
+	getErr := data.waitForPreVPCNamespace(createCtx, nsName)
 	if getErr != nil {
-		data.vcClient.deleteNamespace(nsName)
-		return fmt.Errorf("failed to create Namespace on VCenter, delete it: %v", err)
+		if !errors.Is(getErr, context.Canceled) {
+			deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			deleteErr := data.vcClient.deleteNamespaceContext(deleteCtx, nsName)
+			deleteCancel()
+			if deleteErr != nil {
+				return fmt.Errorf("waiting for VC namespace %q failed (%v), and deletion failed: %w", nsName, getErr, deleteErr)
+			}
+		}
+		return fmt.Errorf("failed waiting for VC namespace %q: %w", nsName, getErr)
 	}
 
 	return nil
+}
+
+func (data *TestData) waitForPreVPCNamespace(ctx context.Context, namespace string) error {
+	var lastGetErr error
+	err := wait.PollUntilContextTimeout(ctx, vcNamespaceLookupInterval, vcNamespaceLookupTimeout, false, func(ctx context.Context) (bool, error) {
+		requestCtx, cancel := context.WithTimeout(ctx, vcNamespaceLookupRequestTimeout)
+		_, statusCode, err := data.vcClient.getNamespaceInfoByNameContext(requestCtx, namespace)
+		cancel()
+		if statusCode == http.StatusNotFound {
+			lastGetErr = nil
+			return false, nil
+		}
+		if err == nil {
+			return true, nil
+		}
+		lastGetErr = err
+		if isRetryableVCNamespaceLookupError(statusCode) {
+			log.Trace("Temporary error checking VC namespace; retrying", "namespace", namespace, "statusCode", statusCode, "error", err)
+			return false, nil
+		}
+		return false, err
+	})
+	if err != nil && errors.Is(err, context.DeadlineExceeded) && lastGetErr != nil {
+		return fmt.Errorf("timed out after %s; last VC namespace GET error: %v: %w", vcNamespaceLookupTimeout, lastGetErr, err)
+	}
+	return err
+}
+
+func isRetryableVCNamespaceLookupError(statusCode int) bool {
+	return statusCode == 0 || statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError
 }

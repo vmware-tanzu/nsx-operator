@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,18 @@ import (
 	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 	extdns "github.com/vmware-tanzu/nsx-operator/pkg/third_party/externaldns/endpoint"
 )
+
+func waitDNSResult[T any](t *testing.T, ch <-chan T, description string) T {
+	t.Helper()
+	select {
+	case result := <-ch:
+		return result
+	case <-time.After(10 * time.Second):
+		t.Fatalf("timed out waiting for %s", description)
+		var zero T
+		return zero
+	}
+}
 
 func TestZonePathForHostnameFromMap_table(t *testing.T) {
 	tests := []struct {
@@ -297,7 +310,7 @@ func TestSyncDNSZonesSkipsMissingZoneAndNotifies(t *testing.T) {
 	domains, err := env.SyncDNSZonesByVpcNetworkConfig(nc)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{testDNSZonePathT: "healthy.example"}, domains)
-	require.Equal(t, testDNSZonePathZ, <-notifications)
+	require.Equal(t, testDNSZonePathZ, waitDNSResult(t, notifications, "missing zone notification"))
 }
 
 func TestZoneRefreshSerializesNSXResponses(t *testing.T) {
@@ -306,6 +319,8 @@ func TestZoneRefreshSerializesNSXResponses(t *testing.T) {
 	zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
 	env.NSXClient.DnsZoneClient = zc
 	started, release, secondQuery := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
 	first := zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").DoAndReturn(func(_, _, _, _ string) (model.DnsZone, error) {
 		close(started)
 		<-release
@@ -318,17 +333,19 @@ func TestZoneRefreshSerializesNSXResponses(t *testing.T) {
 	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{DNSZones: []string{testDNSZonePathZ}}}
 	done := make(chan error, 2)
 	go func() { _, err := env.SyncDNSZonesByVpcNetworkConfig(nc); done <- err }()
-	<-started
-	go func() { _, err := env.RefreshDNSZone(testDNSZonePathZ, false); done <- err }()
+	waitDNSResult(t, started, "first zone query")
+	secondStarted := make(chan struct{})
+	go func() { close(secondStarted); _, err := env.RefreshDNSZone(testDNSZonePathZ, false); done <- err }()
+	waitDNSResult(t, secondStarted, "second zone refresh to start")
 	select {
 	case <-secondQuery:
-		close(release)
+		releaseOnce.Do(func() { close(release) })
 		t.Fatal("second NSX GET overlapped an unpublished response")
 	case <-time.After(50 * time.Millisecond):
 	}
-	close(release)
-	require.NoError(t, <-done)
-	require.NoError(t, <-done)
+	releaseOnce.Do(func() { close(release) })
+	require.NoError(t, waitDNSResult(t, done, "first zone refresh to finish"))
+	require.NoError(t, waitDNSResult(t, done, "second zone refresh to finish"))
 	cached, ok := env.DNSZoneMap.get(testDNSZonePathZ)
 	require.True(t, ok)
 	require.Equal(t, "new.example", cached)
@@ -350,6 +367,8 @@ func TestZoneRefreshCoordinatesRecordWrites(t *testing.T) {
 			zc := dnszonemocks.NewMockZonesClient(gomock.NewController(t))
 			env.NSXClient.DnsZoneClient = zc
 			started, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			defer releaseOnce.Do(func() { close(release) })
 			zc.EXPECT().Get("org1", "proj1", "ds1", "zone-z").DoAndReturn(func(_, _, _, _ string) (model.DnsZone, error) {
 				close(started)
 				<-release
@@ -357,8 +376,10 @@ func TestZoneRefreshCoordinatesRecordWrites(t *testing.T) {
 			})
 			readDone, writeDone := make(chan error, 1), make(chan error, 1)
 			go func() { _, err := env.RefreshDNSZone(testDNSZonePathZ, false); readDone <- err }()
-			<-started
+			waitDNSResult(t, started, "zone query")
+			writeStarted := make(chan struct{})
 			go func() {
+				close(writeStarted)
 				var err error
 				switch operation {
 				case "create":
@@ -368,16 +389,17 @@ func TestZoneRefreshCoordinatesRecordWrites(t *testing.T) {
 				}
 				writeDone <- err
 			}()
+			waitDNSResult(t, writeStarted, "record operation to start")
 			select {
 			case err := <-writeDone:
-				close(release)
-				<-readDone
+				releaseOnce.Do(func() { close(release) })
+				waitDNSResult(t, readDone, "zone refresh to finish")
 				t.Fatalf("record write completed during zone GET: %v", err)
 			case <-time.After(50 * time.Millisecond):
 			}
-			close(release)
-			require.NoError(t, <-readDone)
-			require.NoError(t, <-writeDone)
+			releaseOnce.Do(func() { close(release) })
+			require.NoError(t, waitDNSResult(t, readDone, "zone refresh to finish"))
+			require.NoError(t, waitDNSResult(t, writeDone, "record operation to finish"))
 			require.Equal(t, operation == "create", env.DNSRecordStore.HasActiveRecordsForZone(testDNSZonePathZ))
 		})
 	}

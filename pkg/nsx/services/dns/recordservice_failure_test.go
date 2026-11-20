@@ -295,15 +295,15 @@ func TestPrimaryDeletionSerializesContributorReconcile(t *testing.T) {
 		_, err := env.CreateOrUpdateRecords(ctx, NewOwnerScopedAggregatedRouteDNS(contributor, []EndpointRow{*row}))
 		reconcileDone <- err
 	}()
-	<-reconcileStarted
+	waitDNSResult(t, reconcileStarted, "contributor reconcile to start")
 	select {
 	case err := <-reconcileDone:
 		t.Fatalf("contributor reconciled before the primary deletion finished: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 	releaseOnce.Do(func() { close(releasePatch) })
-	require.NoError(t, <-deleteDone)
-	require.NoError(t, <-reconcileDone)
+	require.NoError(t, waitDNSResult(t, deleteDone, "primary deletion to finish"))
+	require.NoError(t, waitDNSResult(t, reconcileDone, "contributor reconcile to finish"))
 	records := store.ListDNSRecords()
 	require.Len(t, records, 1)
 	require.Equal(t, existingPath, *records[0].Path)
