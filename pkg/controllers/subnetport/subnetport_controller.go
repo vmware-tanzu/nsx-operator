@@ -1571,16 +1571,19 @@ func (r *SubnetPortReconciler) getRestoreList() ([]types.NamespacedName, error) 
 		if !subnetport.ObjectMeta.DeletionTimestamp.IsZero() {
 			continue
 		}
-		subnetCR, _, err := r.getSubnetCR(context.TODO(), &subnetport)
-		if err != nil {
-			return restoreList, err
-		}
-		if subnetCR != nil && subnetCR.Annotations[servicecommon.AnnotationSegmentPath] != "" {
-			if !nsxSegmentPortCRIDs.Has(string(subnetport.UID)) &&
-				subnetport.Status.Attachment.ID != "" && subnetport.Status.NetworkInterfaceConfig.LogicalSwitchUUID != "" {
-				restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+		// Only look up the parent Subnet for realized SubnetPorts.
+		if common.IsObjectReady(subnetport.Status.Conditions) {
+			subnetCR, _, err := r.getSubnetCR(context.TODO(), &subnetport)
+			if err != nil {
+				return restoreList, err
 			}
-			continue
+			if subnetCR != nil && subnetCR.Annotations[servicecommon.AnnotationSegmentPath] != "" {
+				if !nsxSegmentPortCRIDs.Has(string(subnetport.UID)) &&
+					subnetport.Status.Attachment.ID != "" && subnetport.Status.NetworkInterfaceConfig.LogicalSwitchUUID != "" {
+					restoreList = append(restoreList, types.NamespacedName{Namespace: subnetport.Namespace, Name: subnetport.Name})
+				}
+				continue
+			}
 		}
 		isPodOwned := common.GetPodNameForSubnetPort(&subnetport) != ""
 		if isPodOwned {

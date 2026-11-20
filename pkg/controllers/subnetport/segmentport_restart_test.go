@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/infra"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -336,15 +337,21 @@ func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
 		hasIP         bool
 		missingParent bool
 		wantRestore   bool
+		readyStatus   v1.ConditionStatus
+		wantError     bool
 	}{
-		{name: "missing segment port", segment: true, attachmentID: "attachment", logicalSwitch: "switch", wantRestore: true},
-		{name: "cached segment port", segment: true, cached: true, attachmentID: "attachment", logicalSwitch: "switch", hasIP: true},
-		{name: "missing attachment", segment: true, logicalSwitch: "switch", hasIP: true},
-		{name: "missing logical switch", segment: true, attachmentID: "attachment", hasIP: true},
-		{name: "missing status", segment: true, hasIP: true},
+		{name: "missing segment port", readyStatus: v1.ConditionTrue, segment: true, attachmentID: "attachment", logicalSwitch: "switch", wantRestore: true},
+		{name: "cached segment port", readyStatus: v1.ConditionTrue, segment: true, cached: true, attachmentID: "attachment", logicalSwitch: "switch", hasIP: true},
+		{name: "missing attachment", readyStatus: v1.ConditionTrue, segment: true, logicalSwitch: "switch", hasIP: true},
+		{name: "missing logical switch", readyStatus: v1.ConditionTrue, segment: true, attachmentID: "attachment", hasIP: true},
+		{name: "missing status", readyStatus: v1.ConditionTrue, segment: true, hasIP: true},
 		{name: "normal port uses saved IP", hasIP: true, wantRestore: true},
 		{name: "normal port without saved IP", attachmentID: "attachment", logicalSwitch: "switch"},
-		{name: "missing parent", missingParent: true},
+		{name: "ready port with missing parent", readyStatus: v1.ConditionTrue, missingParent: true, wantError: true},
+		{name: "missing Ready condition and parent", missingParent: true},
+		{name: "not-ready port with missing parent", readyStatus: v1.ConditionFalse, missingParent: true},
+		{name: "unknown readiness with missing parent", readyStatus: v1.ConditionUnknown, missingParent: true},
+		{name: "not-ready restore retry", readyStatus: v1.ConditionFalse, missingParent: true, hasIP: true, wantRestore: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			sp := &v1alpha1.SubnetPort{
@@ -357,6 +364,9 @@ func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
 			}
 			if tt.hasIP {
 				sp.Status.NetworkInterfaceConfig.IPAddresses = []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}}
+			}
+			if tt.readyStatus != "" {
+				sp.Status.Conditions = []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: tt.readyStatus}}
 			}
 			parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: sp.Namespace}}
 			if tt.segment {
@@ -386,7 +396,7 @@ func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
 				},
 			}
 			restoreList, err := r.getRestoreList()
-			if tt.missingParent {
+			if tt.wantError {
 				require.Error(t, err)
 				assert.Empty(t, restoreList)
 				return
@@ -399,4 +409,37 @@ func TestGetRestoreListSegmentTrackingSubnet(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetRestoreListUnreadyPortDoesNotBlockRestore(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	parent := &v1alpha1.Subnet{ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: "ns"}}
+	unready := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{Name: "a-unready", Namespace: "ns", UID: "unready-uid"},
+		Spec:       v1alpha1.SubnetPortSpec{Subnet: "missing-parent"},
+	}
+	realized := &v1alpha1.SubnetPort{
+		ObjectMeta: metav1.ObjectMeta{Name: "b-realized", Namespace: "ns", UID: "realized-uid"},
+		Spec:       v1alpha1.SubnetPortSpec{Subnet: parent.Name},
+		Status: v1alpha1.SubnetPortStatus{
+			Conditions: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: v1.ConditionTrue}},
+			NetworkInterfaceConfig: v1alpha1.NetworkInterfaceConfig{
+				IPAddresses: []v1alpha1.NetworkInterfaceIPAddress{{IPAddress: "10.0.0.2/24"}},
+			},
+		},
+	}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(parent, unready, realized).Build()
+	r := &SubnetPortReconciler{
+		Client: k8sClient, APIReader: k8sClient,
+		SubnetPortService: &subnetport.SubnetPortService{
+			Service:          servicecommon.Service{Client: k8sClient},
+			SubnetPortStore:  newPodRestorePortStore(),
+			SegmentPortStore: newSegmentRestorePortStore(),
+		},
+	}
+
+	restoreList, err := r.getRestoreList()
+	require.NoError(t, err)
+	assert.Equal(t, []types.NamespacedName{client.ObjectKeyFromObject(realized)}, restoreList)
 }
