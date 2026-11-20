@@ -618,20 +618,20 @@ func TestInputAdmission(t *testing.T) {
 					delete(spec(o), "targetLBProvider")
 					inputs(o)["lbSNATIPs"] = []any{ipv4}
 				}, true)
-				fallback := runtime.DeepCopyJSON(example)
-				spec(fallback)["targetLBProvider"] = "NSX_LB"
-				check("add IPv4 LB SNAT fallback during evaluation", fallback, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, true)
+				withSNATInput := runtime.DeepCopyJSON(example)
+				spec(withSNATInput)["targetLBProvider"] = "NSX_LB"
+				check("add IPv4 LB SNAT input during evaluation", withSNATInput, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, true)
 				for _, action := range []string{"Execute"} {
-					check("cannot add LB SNAT fallback with "+action, fallback, func(o map[string]any) {
+					check("cannot add LB SNAT input with "+action, withSNATInput, func(o map[string]any) {
 						spec(o)["action"] = action
 						inputs(o)["lbSNATIPs"] = []any{ipv4}
 					}, false)
 				}
-				inputs(fallback)["lbSNATIPs"] = []any{ipv4}
-				check("correct LB SNAT fallback before reservation", fallback, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{"10.2.1.51"} }, true)
-				check("remove LB SNAT fallback before reservation", fallback, func(o map[string]any) { delete(inputs(o), "lbSNATIPs") }, true)
+				inputs(withSNATInput)["lbSNATIPs"] = []any{ipv4}
+				check("correct LB SNAT input before reservation", withSNATInput, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{"10.2.1.51"} }, true)
+				check("remove LB SNAT input before reservation", withSNATInput, func(o map[string]any) { delete(inputs(o), "lbSNATIPs") }, true)
 				ipv4Allocation := map[string]any{"ipAddress": ipv4, "allocationRef": map[string]any{"namespace": "vmware-system-netop", "name": "lb-snat-ipv4"}}
-				accepted := runtime.DeepCopyJSON(fallback)
+				accepted := runtime.DeepCopyJSON(withSNATInput)
 				inputs(accepted)["lbSNATIPs"] = []any{ipv4}
 				accepted["status"] = map[string]any{"lbSNATIPAllocations": []any{ipv4Allocation}}
 				check("user-supplied address allocation may omit source reference", nil, func(o map[string]any) {
@@ -649,18 +649,18 @@ func TestInputAdmission(t *testing.T) {
 					r := object(o["status"], "status")["lbSNATIPAllocations"].([]any)[0].(map[string]any)
 					r["allocationRef"].(map[string]any)["name"] = "replacement-allocation"
 				}, false)
-				automatic := runtime.DeepCopyJSON(fallback)
+				automatic := runtime.DeepCopyJSON(withSNATInput)
 				delete(inputs(automatic), "lbSNATIPs")
 				automatic["status"] = accepted["status"]
-				check("automatic IPv4 allocation prevents later IPv4 fallback", automatic, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, false)
-				check("automatic IPv4 allocation rejects IPv6 fallback", automatic, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv6} }, false)
+				check("automatic IPv4 allocation prevents later IPv4 input", automatic, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, false)
+				check("automatic IPv4 allocation rejects IPv6 input", automatic, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv6} }, false)
 				missingProject := runtime.DeepCopyJSON(accepted)
 				delete(spec(missingProject), "nsxProjectID")
 				check("accepted allocation cannot select project", missingProject, func(o map[string]any) { spec(o)["nsxProjectID"] = "other" }, false)
 				unresolved := runtime.DeepCopyJSON(accepted)
 				delete(spec(unresolved), "targetLBProvider")
 				check("accepted allocation cannot select provider", unresolved, func(o map[string]any) { spec(o)["targetLBProvider"] = "NSX_LB" }, false)
-				planned := runtime.DeepCopyJSON(fallback)
+				planned := runtime.DeepCopyJSON(withSNATInput)
 				delete(inputs(planned), "lbSNATIPs")
 				planned["status"] = map[string]any{"lastAction": "Execute", "actionState": "Succeeded"}
 				check("cannot add LB SNAT input after Execute", planned, func(o map[string]any) { inputs(o)["lbSNATIPs"] = []any{ipv4} }, false)

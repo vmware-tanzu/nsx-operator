@@ -118,9 +118,10 @@ optional `loadBalancerVPCName` for the dedicated LB VPC.
 
 For each VDN, Evaluate must:
 
-1. Resolve all backing DVPGs and their VDSes. Derive the zone-based span from the
-   full set of those VDSes, with canonical zone identities and order-independent
-   comparison. Do not assume a VDN has only one DVPG or VDS.
+1. Resolve all backing DVPGs and their VDSes. Derive the zone-based span from
+   Supervisor-enabled clusters attached to those VDSes, with canonical zone
+   identities and order-independent comparison. Do not assume a VDN has only one
+   DVPG or VDS.
 2. Search for a compatible TGW with the same span in the resolved NSX scope.
    Validate the associated VPC and attachment before reusing them. A matching
    span alone does not authorize adoption or select one arbitrary VPC. Multiple
@@ -129,18 +130,15 @@ For each VDN, Evaluate must:
    or generate omitted names using the naming pattern. Validate supplied names
    and collisions before preparation. VDNs sharing topology must resolve the same
    identities, including when one entry supplies names and another omits them.
-4. Verify that **all DVPGs in a VDN use the same VLAN**. Derive the VLAN from
-   source inventory; users do not supply a VLAN ID for naming. Mixed-VLAN backing
-   is an invalid VDN for migration and must produce a diagnostic before creating
-   resources, rather than being split into multiple VLAN subnets.
-5. Under the resolved VPC/span, find the VDN's single compatible VLAN extension
-   subnet and DVC. Reuse valid existing resources without requesting their names.
-   If creation is required, use supplied `dvcName`/`subnetName` overrides and
-   generate any omitted names. Preserve existing identities when only one resource
-   is missing. Verify
-   source bindings, VLAN, addressing, span and attachment; a CIDR or display name
-   match alone is insufficient. Incompatible addressing/backing must be reported,
-   not resolved by silently creating another subnet.
+4. For each backing DVPG, find a PortSetting tagged as created by migration for
+   that DVPG. Resolve its subnet, DVC and VPC and reuse the conversion. Report
+   ambiguous or incomplete matches instead of starting another conversion.
+5. If no tagged PortSetting exists, the handler invokes the DVPG conversion
+   workflow, which derives the VLAN. Apply the migration tag to the resulting
+   PortSetting and use its resolved subnet and DVC when creating the
+   VDNSubnetLink. Use supplied `dvcName`/`subnetName` overrides or generate names.
+   Private VLAN networks remain unsupported. The workflow integration must
+   validate any remaining VLAN eligibility and multi-DVPG consistency.
 
 VDNSubnetLink is a source of existing mapping information, not the sole test for
 reusable topology. Validate source identity, target subnet/VPC, readiness and live
@@ -214,6 +212,50 @@ Handlers revalidate topology, sharing, action/input-edit guards and creation sta
 before accepting values; a status hint is advisory, not an authorization to rename
 resources. An absent list is not proof that discovery is complete.
 
+The inspection implementation is in `pkg/migration/inspection`. For the
+currently supported single-DVPG VDN, it reads the observed VLAN type from
+`VSphereDistributedNetwork.status.defaultPortConfig.vlan`. Missing status is
+retried; trunk and private VLANs are rejected. This is the DVPG's default
+port configuration and does not describe individual port overrides. VLAN ID
+discovery and validation are delegated to the conversion workflow. Inspection
+intersects each VDS cluster span with the current Supervisor topology and resolves
+zones only for the Supervisor-enabled clusters. Other VDS clusters do not affect
+the TGW/VPC span or cause missing-zone diagnostics. Inspection compares zone spans independent of order before considering a
+TGW/VPC pair reusable. The target inventory must also resolve the TGW's effective
+VDS attachments, including any custom VDS attachments, to vCenter VDS UUIDs; an
+unknown or different attachment set blocks reuse. Reuse also requires a ready
+VPC and a valid TGW attachment. Conversion reuse requires a migration-tagged
+PortSetting with verified DVPG identity and resolved subnet/DVC. A DVC created by DVPG conversion does not provide
+effective zone availability, so inspection validates the TGW/VPC span and VDS
+attachments without requiring DVC zone data. A second VDN using the same DVPG
+may reuse that pair. Ambiguous or incomplete candidates fail
+Evaluate; they do not trigger a second subnet creation. Evaluate
+publishes optional name paths alongside missing DHCP inputs, including while
+the DHCP values are still missing.
+
+`VCenterZoneResolver` reads the specific Supervisor's zone/cluster topology and maps the zone to its
+NSX-discovered external ID using the NSX compute-manager ID. A vCenter zone not
+yet discovered by NSX is retried, not reported as a missing vCenter zone.
+`NSXTargetInventory` reads the project TGWs, VPCs, connectivity profiles,
+attachments, VLAN subnets and migration-tagged PortSettings. `NewService` wires
+these readers to authenticated clients; the controller must initialize and
+own those clients. Setup also supplies the authoritative Supervisor ID. It supplies a direct Kubernetes reader and a status client
+once at setup; the Namespace handler then calls
+`inspector.EvaluateNamespaces(ctx, transition)`. The package acceptance tests
+exercise unsupported trunk VLANs, missing zone data,
+order-independent multi-zone reuse, tagged PortSetting reuse, and
+optional name reporting. They use test inventories; a live NSX testbed result
+is separate acceptance evidence and is not implied by these tests.
+
+`NSXPortSettingReader` lists migration-tagged PortSettings in one NSX subnet,
+including all pages. The shared `DVPGTag` helper uses scope
+`migration.network.vmware.com/dvpg` and value `<vCenter UUID>:<DVPG MoID>`;
+the conversion handler must apply this tag to the converted PortSetting.
+The target inventory resolves explicitly configured custom VDS attachments via
+NSX inventory. Effective default VDS attachments are not yet resolved; a TGW
+without explicit attachments is therefore not considered verified for reuse.
+The conversion handler must still write the tag and reconcile VDNSubnetLinks.
+
 Evaluate reports optional naming diagnostics without creating target resources. Users
 can supply overrides during Evaluate or in the initial spec; Execute uses generated
 names where overrides are omitted. Runtime diagnostic publication,
@@ -241,6 +283,72 @@ to accept and preserve the supplied IDs and display names. The published detaile
 the optional-override, topology-reuse and `status.optionalInputs` UI contract,
 including a validated two-VDN example with required DHCP data for only one VDN.
 Runtime integration and acceptance tests remain handler work.
+## Network inspection (WBS 1.4.2)
+
+`pkg/migration/inspection` implements the read-only network inspection shared
+service from WBS version 66 and detailed design version 158:
+
+- `KubernetesInventory` resolves namespaced Net Operator `Network` provider
+  references to cluster-scoped `VSphereDistributedNetwork` resources. Shared
+  VDNs are deduplicated. The reader uses the official `net-operator-api/v1alpha1`
+  Network, VDN, and IPPool Go types, registered in the manager scheme.
+  DHCP is determined from `spec.ipAssignmentMode`; absent
+  mode uses Net Operator's documented `staticpool` default, and unsupported
+  modes fail inspection. Net Operator enforces the mode's IPPool contract;
+  inspection reads the referenced static IPPools to derive migration addressing.
+- `VCenterTopology` uses a govmomi property collector to resolve the vCenter
+  UUID, DVPG managed-object ID, DVS identity/UUID, and attached clusters. The
+  vCenter UUID plus DVPG ID is the source network identity used for migration
+  tags and network comparisons. `Topology.SameBacking` compares this identity;
+  VLAN ID or CIDR alone does not prove shared backing. Missing topology fails
+  closed. Callers
+  provide the authenticated vCenter session and a direct Kubernetes API reader.
+- `VCenterFLBNetworkReader` reads the Supervisor edge list from
+  `/api/vcenter/namespace-management/supervisors/{supervisor}/networks/edges`.
+  It keeps only the vSphere Foundation edge's `FRONTEND` and `WORKLOAD`
+  interface network IDs and VIP ranges; credential-bearing edge fields are not
+  decoded. Since the edge API may identify a DVPG by name while Net Operator
+  supplies its managed-object ID, `VCenterTopology` also records the DVPG name
+  for the same-vCenter match.
+- `Service.Inspect` validates administrator entries against discovered VDNs,
+  rejects duplicate/unknown entries and conflicting shared-DVPG configurations,
+  and returns normalized source addressing. Validation covers contiguous IPv4
+  masks, address families, ordered usable ranges, gateway membership and pool
+  overlap, deriving CIDR from range start and mask without a separate CIDR input. Source subnet inputs remain IPv4
+  under the current dotted-decimal mask contract; this does not change IPv6 LB
+  SNAT input support. Existing workload addresses may lie outside the DHCP pool
+  while remaining inside the subnet. `Service.Inspect` does not allocate
+  addresses; the Evaluate SNAT selector reports the source from which the
+  handler should reserve the LB SNAT address when required.
+  Static VDNs on the same DVPG may use different IPPool ranges when their CIDR
+  and gateway match and the ranges do not overlap.
+- `EvaluateControlPlane` and `EvaluateNamespaces` persist diagnostics through
+  the optimistic status writers. Missing DHCP fields produce `NeedsInput`, a
+  false `NetworkInputsValidated` condition, and one stable `requiredInputs`
+  entry per VDN naming the missing fields and the applicable
+  `spec.networkConfiguration` DHCP list. Each field name identifies the list
+  and VDN, for example `spec.networkConfiguration.namespaceDHCPNetworks[vdnName=workload]`.
+  Invalid supplied configuration takes
+  precedence and produces `EvaluationFailed`; unavailable discovery produces
+  `Blocked`/Unknown and returns the error for retry. Unrelated inputs and action
+  checkpoints are preserved. Success records only this inspection milestone,
+  leaving the phase `Evaluating` until the other Evaluate work completes.
+
+The control-plane handler must pass the authoritative CPVM/Supervisor Service
+VDN set obtained from WCP configuration; administrator inputs never determine
+inspection scope. Namespace discovery uses the selected namespaces' source
+Network resources. Re-run discovery after a status conflict and before later
+mutation; returned topology is an observation, not a lock or reservation.
+Cross-batch ownership, NSX fabric validation, and final reservation/consumer
+rechecks belong to the respective orchestration and coordination services.
+This package does not create a separate resolved-subnet status inventory.
+
+The framework controllers still only observe CRs. Wiring these service methods
+into Evaluate and supplying the WCP scope/vCenter session belongs to the stage
+handlers. RBAC includes source inventory reads and transition status patches,
+but no source-network writes. Tests cover the live govmomi simulator, Kubernetes
+inventory reads, validation failures, both CR status writers, stale snapshots,
+missing-input recovery, and preservation of unrelated status.
 
 ## Design contract
 
@@ -317,30 +425,43 @@ examples. Apply the samples under `build/yaml/samples/migration` to begin with
 
 Supervisor networks backed by VDS are IPv4-only. For an NSX_LB target,
 `networkConfiguration.lbSNATIPs` is an array that currently accepts at most one
-plain IPv4 backend address when the backend is separate from the VIP and workload
-networks. During Evaluate, the service selects the source address as follows:
+plain IPv4 address. Evaluate resolves the FLB backend Network and compares its
+actual identity and backing with the VIP/frontend and workload networks:
 
-1. When the backend is the VIP network or a workload network, allocate from that
-   managed Network using Net Operator IPAddressAllocation.
-2. For a separate backend with a user-supplied address, validate backend membership
-   and check conflicts where authoritative information is available. If exclusive
-   ownership cannot be verified, record the administrator's responsibility.
-3. For a separate backend without a user-supplied address, allocate from the VIP
-   pool and report a warning to verify backend routing and reachability. Allocation
-   failure is reported without selecting an unallocated address.
+1. If the backend is the VIP or a workload network, select that managed Network
+   as the allocation source.
+2. If the backend is separate and the user supplies `lbSNATIPs`, validate its
+   IPv4 syntax. The allocation handler must also verify backend membership and
+   check conflicts where authoritative information is available. The
+   administrator is responsible for availability if exclusive ownership cannot
+   be verified.
+3. If the backend is separate and no address is supplied, select the VIP pool
+   as the allocation source and report a non-blocking warning to verify backend
+   reachability. The allocation handler must fail Evaluate if it cannot reserve
+   an address.
 
-Identify networks by their resolved identity and backing, not VLAN or CIDR alone.
-The array shape is retained so a future release can
-add IPv6 support if Supervisor VDS supports it. The input may be added, corrected,
-or removed during Evaluate until its allocation is accepted. Once
+The inspection result carries the selected source and any VIP ranges in
+`Result.LBSNAT`. The Evaluate handler must perform the allocation and record the
+accepted address in `status.lbSNATIPAllocations`; that handler is not part of
+this inspection package. The warning for VIP-pool fallback is included in the
+`NetworkInputsValidated` condition message. Namespace inspection exposes
+`Result.SourceTopologies` even while DHCP inputs are missing; the control-plane
+handler can pass those topologies to `EvaluateControlPlane` so backend/workload
+matching does not wait for DHCP corrections.
+
+Do not infer network identity from VLAN ID or CIDR alone. The array shape is
+retained so a future release can add IPv6 support if Supervisor VDS supports it.
+The input may be added, corrected, or removed during Evaluate until its allocation
+is accepted. Once
 `status.lbSNATIPAllocations` records an accepted allocation,
 `spec.networkConfiguration.lbSNATIPs` cannot be added, changed, or removed
 during Evaluate. Requesting Execute freezes all inputs even before its checkpoint
 is recorded. DHCP range bounds and gateways for VDS-backed source networks are
 also IPv4-only. See
 `build/yaml/samples/migration/controlplane-nsx-lb.yaml`.
-The CRD validates syntax and family; availability checks, early reservation,
-reservation ownership, and cancellation cleanup require execution handlers.
+The CRD validates syntax and family. The Evaluate handler must perform source
+allocation, validate allocation ownership/readiness, and retain the selected
+address on retries; cancellation cleanup requires handler implementation.
 Before recording `status.lbSNATIPAllocations`, a handler must confirm the address
 and, when it came from a source IPAddressAllocation, that allocation's ownership,
 readiness, and Namespace/name. `allocationRef` is omitted for an administrator-
@@ -352,11 +473,12 @@ replaced or removed. These records do not allocate addresses; post-execution
 revision/reset handling remains separate service work. Infrastructure has no
 rollback-based reset path.
 
-The design explicitly marks post-execution input revisions/reset, SNAT fallback confirmation,
-reviewed plan snapshots, resolved inventories, fabric provenance, rollback domains,
-cutover protection, operation checkpoints and detailed commit/approval recovery
-contracts as proposed
-extensions requiring finalized schemas and concrete handlers. This API alignment
+The design explicitly marks post-execution input revisions/reset, reviewed plan
+snapshots, resolved inventories, fabric provenance, rollback domains, cutover
+protection, operation checkpoints and detailed commit/approval recovery contracts
+as proposed extensions requiring finalized schemas and concrete handlers. LB
+SNAT selection is an Evaluate responsibility; `lbSNATIPs` is optional for a
+separate backend and is not requested through `status.requiredInputs`. This API alignment
 does not implement those execution paths or remove the irreversible checkpoint
 guards. The Namespace CRD now permits corrected inputs during Evaluate after a
 stored successful rollback. Before recording that success, the concrete rollback

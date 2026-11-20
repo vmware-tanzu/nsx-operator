@@ -48,15 +48,16 @@ type ControlPlaneNetworkConfiguration struct {
 	// +optional
 	ResourceNaming *ControlPlaneResourceNaming `json:"resourceNaming,omitempty"`
 
-	// LBSNATIPs optionally supplies a backend IPv4 address for the shared NSX LB
-	// service when the backend network is separate from VIP and workload networks.
-	// Supervisor VDS source networks are IPv4-only in this release. Keep this as a
-	// slice so a later release can add IPv6 without changing the field shape.
-	// The migration service validates backend membership and checks for conflicts
-	// where possible. The administrator is responsible for address availability
-	// when exclusive ownership cannot be verified. After status.lbSNATIPAllocations
-	// records an accepted address,
-	// this list cannot be added, changed, or removed, including during Evaluate.
+	// LBSNATIPs optionally supplies the IPv4 LB SNAT address when the discovered
+	// backend is separate from the VIP and workload networks. Inspection validates
+	// syntax and selects an allocation source; the allocation handler must validate
+	// backend membership and check conflicts where authoritative data is available.
+	// The administrator is responsible when address ownership cannot be verified.
+	// If omitted, inspection selects the matching VIP/workload Network, or the VIP
+	// pool for a separate backend and warns that reachability must be checked.
+	// Keep this as a slice so a later release can add IPv6 without changing its shape.
+	// After status.lbSNATIPAllocations records an accepted address, this list cannot
+	// be added, changed, or removed, including during Evaluate.
 	// Requesting Execute prevents changes to the entire NetworkConfiguration.
 	// +optional
 	// +listType=set

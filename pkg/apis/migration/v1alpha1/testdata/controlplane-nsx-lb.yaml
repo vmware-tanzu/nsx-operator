@@ -11,7 +11,10 @@ spec:
   targetLBProvider: NSX_LB
   action: Evaluate
   networkConfiguration:
-    # Supply only when evaluation requests fallback addresses for exhausted VIP pools.
+    # Optional: provide only when the discovered backend network is separate from
+    # both the VIP and workload networks. Otherwise Evaluate reserves from the
+    # matching managed Network. If omitted for a separate backend, Evaluate uses
+    # the VIP pool and reports a reachability warning.
     # Supervisor VDS source networks are IPv4-only in this release.
     # The field remains a list so a future release can add IPv6 support.
     lbSNATIPs: ["10.2.1.50"]
