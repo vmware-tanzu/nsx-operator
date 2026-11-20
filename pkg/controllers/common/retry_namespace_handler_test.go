@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -47,4 +49,29 @@ func TestRetryNamespaceHandlerRetriesFailedLists(t *testing.T) {
 	cancel()
 	require.NoError(t, <-done)
 	require.EqualValues(t, 3, attempts.Load())
+}
+
+func TestRetryNamespaceHandlerExtractor(t *testing.T) {
+	target := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer target.ShutDown()
+	h := &retryNamespaceHandler{
+		queue: workqueue.NewTypedRateLimitingQueue(workqueue.NewTypedItemExponentialFailureRateLimiter[string](time.Millisecond, time.Millisecond)),
+		list: func(_ context.Context, namespace string) ([]reconcile.Request, error) {
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: namespace, Name: "owner"}}}, nil
+		},
+		// Cluster-scoped sources such as Namespace map on their name.
+		nsOf: client.Object.GetName,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- h.Start(ctx) }()
+	h.Create(ctx, event.CreateEvent{Object: &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "team"}}}, target)
+	require.Eventually(t, func() bool { return target.Len() == 1 }, 5*time.Second, 10*time.Millisecond)
+	req, shutdown := target.Get()
+	require.False(t, shutdown)
+	require.Equal(t, types.NamespacedName{Namespace: "team", Name: "owner"}, req.NamespacedName)
+	target.Done(req)
+	cancel()
+	require.NoError(t, <-done)
 }
