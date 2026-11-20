@@ -55,8 +55,13 @@ func SelectLBSNATSource(flb FLBNetworks, workloadTopologies []Topology, configur
 	if flb.FrontendNetwork == "" || flb.BackendNetwork == "" {
 		return LBSNATDecision{}, fmt.Errorf("FLB frontend and backend networks are required")
 	}
-	if flb.BackendNetwork == flb.FrontendNetwork || networkIsWorkload(flb.VCenterUUID, flb.BackendNetwork, workloadTopologies) {
-		return LBSNATDecision{Selection: AllocateFromBackendNetwork, AllocationSource: flb.BackendNetwork}, nil
+	workloadBackingID := matchingWorkloadBacking(flb.VCenterUUID, flb.BackendNetwork, workloadTopologies)
+	if flb.BackendNetwork == flb.FrontendNetwork || workloadBackingID != "" {
+		allocationSource := flb.BackendNetwork
+		if workloadBackingID != "" {
+			allocationSource = workloadBackingID
+		}
+		return LBSNATDecision{Selection: AllocateFromBackendNetwork, AllocationSource: allocationSource}, nil
 	}
 	if len(configuredIPs) > 1 {
 		return LBSNATDecision{}, fmt.Errorf("at most one LB SNAT IP is supported")
@@ -65,7 +70,7 @@ func SelectLBSNATSource(flb FLBNetworks, workloadTopologies []Topology, configur
 		if _, err := ipv4(configuredIPs[0]); err != nil {
 			return LBSNATDecision{}, fmt.Errorf("configured LB SNAT IP must be IPv4")
 		}
-		return LBSNATDecision{Selection: UseConfiguredLBSNATIP, IPAddress: configuredIPs[0]}, nil
+		return LBSNATDecision{Selection: UseConfiguredLBSNATIP, IPAddress: configuredIPs[0], AllocationSource: flb.BackendNetwork}, nil
 	}
 	if len(flb.VIPRanges) == 0 {
 		return LBSNATDecision{}, fmt.Errorf("FLB has no VIP range for LB SNAT fallback")
@@ -74,13 +79,13 @@ func SelectLBSNATSource(flb FLBNetworks, workloadTopologies []Topology, configur
 	return LBSNATDecision{Selection: AllocateFromVIPRange, AllocationSource: flb.FrontendNetwork, VIPRanges: append([]VIPRange(nil), flb.VIPRanges...), Warning: warning}, nil
 }
 
-func networkIsWorkload(vCenterUUID, networkID string, workloadTopologies []Topology) bool {
+func matchingWorkloadBacking(vCenterUUID, networkID string, workloadTopologies []Topology) string {
 	for _, topology := range workloadTopologies {
 		if topology.VCenterUUID == vCenterUUID && (topology.PortGroupID == networkID || topology.PortGroupName == networkID) {
-			return true
+			return topology.PortGroupID
 		}
 	}
-	return false
+	return ""
 }
 
 type FLBNetworkReader interface {

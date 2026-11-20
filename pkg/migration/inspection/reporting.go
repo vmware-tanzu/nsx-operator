@@ -29,6 +29,19 @@ func (service Service) EvaluateControlPlane(ctx context.Context, snapshot *api.C
 	if service.StatusClient == nil {
 		return Result{}, fmt.Errorf("status client is required")
 	}
+	inspectionResult, discoveryErr := service.InspectControlPlane(ctx, snapshot, sourceVDNs, workloadTopologies...)
+	_, err := migrationstatus.UpdateControlPlane(ctx, service.StatusClient, snapshot, func(target *api.ControlPlaneNetworkTransitionStatus) error {
+		return ApplyEvaluation(inspectionResult, discoveryErr, &target.TransitionStatus, snapshot.Generation)
+	})
+	return inspectionResult, errors.Join(discoveryErr, err)
+}
+
+// InspectControlPlane returns source findings without writing status. Action
+// handlers use this form because their controller persists the whole result.
+func (service Service) InspectControlPlane(ctx context.Context, snapshot *api.ControlPlaneNetworkTransition, sourceVDNs []string, workloadTopologies ...Topology) (Result, error) {
+	if snapshot == nil || snapshot.Spec.Action != api.ActionEvaluate {
+		return Result{}, fmt.Errorf("Evaluate snapshot is required")
+	}
 	var dhcpInputs []api.DHCPNetworkConfiguration
 	var resourceNames []api.VDNResourceNaming
 	if snapshot.Spec.NetworkConfiguration != nil {
@@ -78,10 +91,7 @@ func (service Service) EvaluateControlPlane(ctx context.Context, snapshot *api.C
 		}
 	}
 	inspectionResult.qualifyInputs("controlPlaneAndServiceDHCPNetworks")
-	_, err := migrationstatus.UpdateControlPlane(ctx, service.StatusClient, snapshot, func(target *api.ControlPlaneNetworkTransitionStatus) error {
-		return report(inspectionResult, discoveryErr, &target.TransitionStatus, snapshot.Generation)
-	})
-	return inspectionResult, errors.Join(discoveryErr, err)
+	return inspectionResult, discoveryErr
 }
 
 func acceptedLBSNATDecision(allocations []api.IPAllocationStatus) (LBSNATDecision, error) {
@@ -170,6 +180,12 @@ func report(result Result, discoveryErr error, target *api.TransitionStatus, gen
 	// server responses. The returned error is available to the handler's logger.
 	clearInspectionInputs(target)
 	return migrationstatus.Observe(target, generation, api.PhaseBlocked, metav1.Condition{Type: ConditionNetworkInputsValidated, Status: metav1.ConditionUnknown, Reason: "NetworkDiscoveryUnavailable", Message: "Source network discovery is unavailable; retry inspection"})
+}
+
+// ApplyEvaluation reports inspection findings to status persisted by a
+// transition action handler.
+func ApplyEvaluation(result Result, discoveryErr error, target *api.TransitionStatus, generation int64) error {
+	return report(result, discoveryErr, target, generation)
 }
 
 func clearInspectionInputs(target *api.TransitionStatus) {

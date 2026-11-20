@@ -56,7 +56,7 @@ func TestSelectLBSNATSource(t *testing.T) {
 		decision, err := SelectLBSNATSource(flb, workloads, nil)
 		require.NoError(t, err)
 		require.Equal(t, AllocateFromBackendNetwork, decision.Selection)
-		require.Equal(t, flb.BackendNetwork, decision.AllocationSource)
+		require.Equal(t, "dvportgroup-1", decision.AllocationSource)
 		decision, err = SelectLBSNATSource(flb, []Topology{{VCenterUUID: "different-vc", PortGroupID: flb.BackendNetwork}}, nil)
 		require.NoError(t, err)
 		require.Equal(t, AllocateFromVIPRange, decision.Selection)
@@ -66,6 +66,7 @@ func TestSelectLBSNATSource(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, UseConfiguredLBSNATIP, decision.Selection)
 		require.Equal(t, "192.0.2.25", decision.IPAddress)
+		require.Equal(t, flb.BackendNetwork, decision.AllocationSource)
 	})
 	t.Run("separate backend without user address falls back to VIP range", func(t *testing.T) {
 		decision, err := SelectLBSNATSource(flb, nil, nil)
