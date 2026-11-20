@@ -390,6 +390,9 @@ func (v *SubnetSetValidator) validateSubnets(ctx context.Context, ns string, sub
 		if err != nil {
 			return false, fmt.Errorf("failed to get Subnet %s/%s: %v", ns, subnetName, err)
 		}
+		if crdSubnet.Annotations[common.AnnotationSegmentPath] != "" {
+			return true, fmt.Errorf("opaque Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)
+		}
 		dhcpMode := getEffectiveDHCPMode(crdSubnet)
 		if dhcpMode == v1alpha1.DHCPConfigMode(v1alpha1.DHCPConfigModeRelay) {
 			return true, fmt.Errorf("DHCPRelay Subnet %s/%s is not supported in SubnetSet", crdSubnet.Namespace, crdSubnet.Name)

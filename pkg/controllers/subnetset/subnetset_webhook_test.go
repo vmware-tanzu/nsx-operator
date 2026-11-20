@@ -136,6 +136,12 @@ func TestSubnetSetValidator(t *testing.T) {
 			SubnetNames: &[]string{"subnet-1"},
 		},
 	}
+	opaqueSubnetSet := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "validator-set", Namespace: "ns-1"},
+		Spec:       v1alpha1.SubnetSetSpec{SubnetNames: &[]string{"opaque-subnet"}},
+	}
+	mixedSubnetSet := opaqueSubnetSet.DeepCopy()
+	mixedSubnetSet.Spec.SubnetNames = &[]string{"subnet-1", "opaque-subnet"}
 
 	fakeClient.Create(context.TODO(), &v1alpha1.SubnetPort{
 		ObjectMeta: metav1.ObjectMeta{Name: "subnetport-1", Namespace: "ns-1"},
@@ -163,6 +169,13 @@ func TestSubnetSetValidator(t *testing.T) {
 			Namespace: "ns-1",
 		},
 	})
+	assert.NoError(t, fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "opaque-subnet",
+			Namespace:   "ns-1",
+			Annotations: map[string]string{common.AnnotationSegmentPath: "/infra/segments/segment-1"},
+		},
+	}))
 	fakeClient.Create(context.TODO(), &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "subnet-4",
@@ -483,6 +496,40 @@ func TestSubnetSetValidator(t *testing.T) {
 			user:            "fake-user",
 			isAllowed:       true,
 			accessModeCheck: true,
+		},
+		{
+			name:      "Create SubnetSet with opaque Subnet",
+			op:        admissionv1.Create,
+			subnetSet: opaqueSubnetSet,
+			user:      "fake-user",
+			isAllowed: false,
+			msg:       "opaque Subnet ns-1/opaque-subnet is not supported in SubnetSet",
+		},
+		{
+			name:      "Create mixed SubnetSet with NSXOperatorSA user",
+			op:        admissionv1.Create,
+			subnetSet: mixedSubnetSet,
+			user:      NSXOperatorSA,
+			isAllowed: false,
+			msg:       "opaque Subnet ns-1/opaque-subnet is not supported in SubnetSet",
+		},
+		{
+			name:         "Update SubnetSet adding opaque Subnet",
+			op:           admissionv1.Update,
+			oldSubnetSet: newSubnetSetWithSubnets,
+			subnetSet:    mixedSubnetSet,
+			user:         "fake-user",
+			isAllowed:    false,
+			msg:          "opaque Subnet ns-1/opaque-subnet is not supported in SubnetSet",
+		},
+		{
+			name:         "Update SubnetSet retaining opaque Subnet",
+			op:           admissionv1.Update,
+			oldSubnetSet: opaqueSubnetSet,
+			subnetSet:    opaqueSubnetSet,
+			user:         NSXOperatorSA,
+			isAllowed:    false,
+			msg:          "opaque Subnet ns-1/opaque-subnet is not supported in SubnetSet",
 		},
 		{
 			name: "Create SubnetSet with Subnets belong to 2 VPCs",
