@@ -104,6 +104,8 @@ func (v *IPAddressAllocationValidator) Handle(ctx context.Context, req admission
 }
 
 func validateIPv4AllocationSpec(raw []byte, allocation *v1alpha1.IPAddressAllocation) error {
+	const maxNSXAllocationSize = int64(1<<31 - 1)
+
 	if allocation.Spec.IPAddressType == v1alpha1.IPAllocationIPAddressTypeIPv6 {
 		return nil
 	}
@@ -125,14 +127,14 @@ func validateIPv4AllocationSpec(raw []byte, allocation *v1alpha1.IPAddressAlloca
 		return nil
 	}
 
-	var size int32
-	if err := json.Unmarshal(object.Spec["allocationSize"], &size); err != nil {
-		return fmt.Errorf("allocationSize must be within the NSX signed 32-bit integer range: %w", err)
+	size := allocation.Spec.AllocationSize
+	if int64(size) > maxNSXAllocationSize {
+		return errors.New("allocationSize must be within the NSX signed 32-bit integer range")
 	}
 	if size < 1 {
 		return errors.New("allocationSize must be at least 1")
 	}
-	if size&(size-1) != 0 {
+	if !util.IsPowerOfTwo(size) {
 		return errors.New("allocationSize must be a power of 2")
 	}
 	return nil
