@@ -536,15 +536,21 @@ func CleanupAllNamespaces() error {
 				}
 				if !confirmed {
 					queryCtx, queryCancel := context.WithTimeout(context.Background(), 30*time.Second)
+					notFound := false
 					err := wait.PollUntilContextCancel(queryCtx, time.Second, true, func(ctx context.Context) (bool, error) {
 						_, status, err := testData.vcClient.getNamespaceInfoByNameContext(ctx, namespace)
 						if status == http.StatusNotFound {
+							notFound = true
 							return false, nil
 						}
+						notFound = false
 						return err == nil, err
 					})
 					queryCancel()
 					if err != nil {
+						if notFound && stderrors.Is(err, context.DeadlineExceeded) {
+							return nil
+						}
 						return fmt.Errorf("cannot resolve uncertain creation of VC namespace %q: %w", namespace, err)
 					}
 				}

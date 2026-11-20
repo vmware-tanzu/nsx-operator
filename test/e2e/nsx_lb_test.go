@@ -278,9 +278,8 @@ func testIngress(t *testing.T, lbNs, podNs, sourcePodName string) {
 	createPodAndWaitingRunning(t, teaSvc.podName, teaSvc.namespace)
 	createPodAndWaitingRunning(t, defaultSvc.podName, defaultSvc.namespace)
 
-	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, teaSvcIP, teaSvc.port, true), "Service traffic should work")
-
-	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, defaultSvcIP, defaultSvc.port, true), "Service traffic should work")
+	assertLoadBalancerTraffic(t, podNs, sourcePodName, teaSvc, teaSvcIP)
+	assertLoadBalancerTraffic(t, podNs, sourcePodName, defaultSvc, defaultSvcIP)
 
 	// Create Ingress
 	coffeeIngress := ingress{

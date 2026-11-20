@@ -249,6 +249,7 @@ func (tr *TestResultTracker) PrintSummary() {
 
 // testMain is meant to be called by TestMain and enables the use of defer statements.
 func testMain(m *testing.M) int {
+	testMainStart := time.Now()
 	flag.StringVar(&testOptions.providerName, "provider", "remote", "K8s test cluster provider")
 	flag.StringVar(&testOptions.providerConfigPath, "provider-cfg-path", "", "Optional config file for provider")
 	flag.StringVar(&testOptions.logsExportDir, "logs-export-dir", "", "Export directory for test logs")
@@ -267,15 +268,21 @@ func testMain(m *testing.M) int {
 			fmt.Fprintf(os.Stderr, "invalid test timeout: %v\n", err)
 			return 1
 		}
+		suiteTimeout = outerTimeout
 		if outerTimeout > 0 {
-			if outerTimeout < suiteTimeout {
-				suiteTimeout = outerTimeout
-			}
+			// Keep the cleanup reserve inside the original go test timeout. Updating
+			// test.timeout only extends the test binary's alarm; the go test parent
+			// still enforces the timeout it received on the command line.
 			if err := flag.Set("test.timeout", (outerTimeout + e2eCleanupReserve).String()); err != nil {
 				fmt.Fprintf(os.Stderr, "cannot reserve cleanup time: %v\n", err)
 				return 1
 			}
 		}
+	}
+
+	var suiteDeadline time.Time
+	if suiteTimeout > 0 {
+		suiteDeadline = testMainStart.Add(suiteTimeout - e2eCleanupReserve)
 	}
 
 	log = logger.ZapCustomLogger(testOptions.debugLog, testOptions.logLevel)
@@ -295,6 +302,10 @@ func testMain(m *testing.M) int {
 		return 1
 	}
 	defer CleanupAllNamespaces()
+	if !suiteDeadline.IsZero() && !time.Now().Before(suiteDeadline) {
+		log.Error(nil, "E2E setup exhausted the test budget reserved for namespace cleanup")
+		return 1
+	}
 
 	// Install shutdown cleanup before initialization can create VC namespaces.
 	sigChan := make(chan os.Signal, 1)
@@ -306,19 +317,24 @@ func testMain(m *testing.M) int {
 		os.Exit(1)
 	}()
 
-	// Give test execution its requested time, then reserve time for cleanup.
+	// The deadline includes startup and initialization time so the cleanup
+	// reserve remains available before the original go test timeout.
 	testResultTracker.startTime = time.Now()
-	timeoutTimer := time.NewTimer(suiteTimeout)
-	defer timeoutTimer.Stop()
+	var timeoutChannel <-chan time.Time
+	if !suiteDeadline.IsZero() {
+		timeoutTimer := time.NewTimer(time.Until(suiteDeadline))
+		defer timeoutTimer.Stop()
+		timeoutChannel = timeoutTimer.C
+	}
 	timeoutDone := make(chan struct{})
 	defer close(timeoutDone)
 	go func() {
 		select {
 		case <-timeoutDone:
 			return
-		case <-timeoutTimer.C:
+		case <-timeoutChannel:
 		}
-		log.Info("⚠️  WARNING: E2E test suite exceeded timeout, forcing cleanup", "timeout", suiteTimeout)
+		log.Info("⚠️  WARNING: E2E test suite exceeded timeout, forcing cleanup", "deadline", suiteDeadline)
 		testResultTracker.PrintSummary()
 		CleanupAllNamespaces()
 		os.Exit(1)
