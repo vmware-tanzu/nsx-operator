@@ -10,12 +10,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 const portSettingsCacheSource = "project-1:vpc-1:subnet-1"
@@ -171,6 +174,62 @@ func TestPortSettingsCachePaginationFailureIsNotCached(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, portSettingIdentitiesForTest("complete-setting"), settings)
 	assert.Equal(t, 3, calls)
+}
+
+func TestPortSettingsCacheNotFoundIsUnavailable(t *testing.T) {
+	for _, secondPage := range []bool{false, true} {
+		for _, withData := range []bool{false, true} {
+			t.Run(fmt.Sprintf("second-page=%t/with-data=%t", secondPage, withData), func(t *testing.T) {
+				notFound := apierrors.NewNotFound()
+				if withData {
+					notFound.Data = data.NewStructValue("test", map[string]data.DataValue{
+						"error_code":    data.NewIntegerValue(500090),
+						"error_message": data.NewStringValue("PortSettings endpoint unavailable"),
+					})
+				}
+				calls, unavailable := 0, false
+				service := newPortSettingsCacheService(func(cursor *string) (model.VpcSubnetPortSettingListResult, error) {
+					calls++
+					if !unavailable {
+						return portSettingsListWithID("old"), nil
+					}
+					if secondPage && cursor == nil {
+						result := portSettingsListWithID("partial")
+						result.Cursor = common.String("next")
+						return result, nil
+					}
+					return portSettingsListWithID("partial-error-page"), *notFound
+				})
+				_, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
+				require.NoError(t, err)
+				unavailable = true
+				for _, force := range []bool{true, false} {
+					settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, force)
+					require.Error(t, err)
+					if withData {
+						var translated *nsxutil.NSXApiError
+						require.ErrorAs(t, err, &translated)
+						assert.Equal(t, apierrors.ErrorType_NOT_FOUND, translated.Type())
+					} else {
+						var raw apierrors.NotFound
+						require.ErrorAs(t, err, &raw)
+					}
+					assert.Nil(t, settings, "404 must discard every page and the previous snapshot")
+					assert.Empty(t, service.portSettingsCache)
+				}
+				wantCalls := 3
+				if secondPage {
+					wantCalls = 5
+				}
+				assert.Equal(t, wantCalls, calls, "a 404 must not suppress later probes")
+				unavailable = false
+				settings, err := service.GetPortSettingsFromCacheOrAPI(portSettingsCacheSource, false)
+				require.NoError(t, err)
+				assert.Equal(t, portSettingIdentitiesForTest("old"), settings)
+				assert.Equal(t, wantCalls+1, calls)
+			})
+		}
+	}
 }
 
 func TestPortSettingsCacheCompletePagination(t *testing.T) {
