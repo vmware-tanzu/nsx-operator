@@ -547,6 +547,28 @@ func (r *Reconciler) validateVpcSubnetsBySubnetSetCR(ctx context.Context, namesp
 		}
 	}
 
+	if subnetSetCR.Spec.SubnetNames != nil {
+		// A pre-created SubnetSet references existing Subnet CRs. Their NSX
+		// VpcSubnets are indexed by the Subnet CR UID, not by the SubnetSet CR UID.
+		subnetPaths := make([]string, 0, len(*subnetSetCR.Spec.SubnetNames))
+		for _, subnetName := range *subnetSetCR.Spec.SubnetNames {
+			paths, err := r.validateVpcSubnetsBySubnetCR(ctx, namespace, subnetName, true)
+			if err != nil {
+				return nil, err
+			}
+			subnetPaths = append(subnetPaths, paths...)
+		}
+		if len(subnetPaths) == 0 {
+			log.Info("NSX VpcSubnets by pre-created SubnetSet CR do not exist", "SubnetSet", subnetSetKey.String())
+			return nil, &errorWithRetry{
+				message: fmt.Sprintf("SubnetSet CR %s is not realized on NSX", name),
+				error:   fmt.Errorf("no existing NSX VpcSubnet referenced by pre-created SubnetSet CR '%s/%s'", namespace, name),
+				retry:   false,
+			}
+		}
+		return subnetPaths, nil
+	}
+
 	subnets := r.SubnetService.ListSubnetCreatedBySubnetSet(string(subnetSetCR.UID))
 	if len(subnets) == 0 {
 		log.Info("NSX VpcSubnets by SubnetSet CR do not exist", "SubnetSet", subnetSetKey.String())
