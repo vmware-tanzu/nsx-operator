@@ -483,6 +483,41 @@ an explicitly selected project or a find-or-create project named after the
 Namespace. These mappings are not additional transition CR inputs. VC-only
 migration uses the same Namespace transition API without VCFA onboarding.
 
+## WBS 1.2.1 infrastructure start and resume checks
+
+Before infrastructure actions run, `pkg/migration/infrastructure` verifies the
+platform-published VPC provider and readiness of the normal `nsx-operator`
+container in `vmware-system-nsx`. It resolves the explicit `spec.nsxProjectID`, or
+the `default` Project when omitted, using a read-only NSX GET. It does not register
+providers, create Projects, create migration resources, or mark Evaluate complete.
+
+The chosen Project path is recorded in the existing `status.targetNSXProjectPath`
+field. On each retry, the service rechecks readiness and the same project identity;
+existing status fields are preserved if those checks fail. VPC may be the active
+provider only when an Execute or Finalize checkpoint already exists. Once an action
+has started or infrastructure resources are recorded, changing the selected
+Project is rejected. Existing CR status and observed Kubernetes/NSX resources are
+the recovery source; no journal or additional checkpoint object is introduced.
+
+The provider check reads the typed
+`WorkloadNetworkConfiguration/default` and requires one ready VPC provider whose
+configured project matches the transition. NCP readiness requires exactly one
+active Pod labelled `nsx-operator-role=master` with a running, ready
+`nsx-operator` container. Migration-sidecar readiness or the presence of VPC
+namespaces alone is insufficient. Failures are surfaced through the
+`InfrastructurePrerequisitesReady` condition and block dispatch for retry.
+
+The check consumes provider registration published by the platform/net-operator;
+it does not call the vCenter provider registration endpoint or install NCP. Unit
+tests use fake Kubernetes and NSX responses and cover readiness gating, project
+selection, correction before action start, project immutability after the action
+checkpoint, and status preservation on lookup failures. This branch does not yet
+provide concrete action handlers, so it does not itself prove that retries reuse
+existing conversion workflows, target containers, or IP allocations. Each handler
+must use the recorded workflow/resource identities and live state before creating
+anything; that end-to-end reuse acceptance remains pending with handler work. No
+live infrastructure migration is performed by these checks.
+
 ## WBS 1.4.9 action dispatch and restart reconciliation
 
 Restart progress is reconstructed from existing Kubernetes resources and NSX

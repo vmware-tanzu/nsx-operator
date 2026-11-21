@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -100,9 +101,20 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 		}
 	}
 	require.Equal(t, "vmware-system-nsx", leaseRole.Namespace)
-	require.Len(t, leaseRole.Rules, 1)
-	require.Equal(t, []string{"leases"}, leaseRole.Rules[0].Resources)
-	require.ElementsMatch(t, []string{"get", "create", "update"}, leaseRole.Rules[0].Verbs)
+	require.Len(t, leaseRole.Rules, 2)
+	var leaseRule, podRule *rbacv1.PolicyRule
+	for _, rule := range leaseRole.Rules {
+		switch {
+		case slices.Contains(rule.Resources, "leases"):
+			leaseRule = &rule
+		case slices.Contains(rule.Resources, "pods"):
+			podRule = &rule
+		}
+	}
+	require.NotNil(t, leaseRule)
+	require.NotNil(t, podRule)
+	require.ElementsMatch(t, []string{"get", "create", "update"}, leaseRule.Verbs)
+	require.Equal(t, []string{"list"}, podRule.Verbs)
 	bindings := 0
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/bindings.yaml") {
 		var resource struct{ Kind string }
