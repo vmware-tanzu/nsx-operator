@@ -5,6 +5,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -13,9 +14,11 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
+	nsxcommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 func TestSubnetIPPoolsStorage_Get_SubnetCRNotFound(t *testing.T) {
@@ -125,6 +128,46 @@ func TestSubnetIPPoolsStorage_Get_WithPoolData(t *testing.T) {
 	assert.Equal(t, int64(50), item.PoolUsage.AllocatedIPAllocations)
 	assert.Equal(t, int64(55), item.PoolUsage.RequestedIPAllocations)
 }
+func TestSubnetIPPoolsStorage_ReservedIPs(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		ipType   string
+		reserved *string
+	}{
+		{name: "omitted", ipType: "IPV4"},
+		{name: "zero", ipType: "IPV4", reserved: ptr.To("0")},
+		{name: "IPv4", ipType: "IPV4", reserved: ptr.To("16")},
+		{name: "IPv6 exceeds int64", ipType: "IPV6", reserved: ptr.To("18446744073709551616")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &nsx.Client{IPPoolClient: &fakeIPPoolClient{result: model.IpAddressPoolListResult{
+				Results: []model.IpAddressPool{{
+					IpAddressType: &tc.ipType,
+					PoolUsage:     &model.PolicyPoolUsage{ReservedIps: tc.reserved},
+				}},
+			}}}
+			s := NewSubnetIPPoolsStorage(c, nil)
+			result, err := s.fetchIPPools("ns1", "subnet-1", "sub1", nsxcommon.VPCResourceInfo{
+				OrgID: "default", ProjectID: "p1", VPCID: "vpc1",
+			})
+			require.NoError(t, err)
+			require.Len(t, result.Items, 1)
+			require.NotNil(t, result.Items[0].PoolUsage)
+			encoded, err := json.Marshal(result.Items[0].PoolUsage)
+			require.NoError(t, err)
+			var usage map[string]interface{}
+			require.NoError(t, json.Unmarshal(encoded, &usage))
+			if tc.reserved == nil {
+				assert.Empty(t, result.Items[0].PoolUsage.ReservedIPs)
+				assert.NotContains(t, usage, "reservedIPs")
+			} else {
+				assert.Equal(t, *tc.reserved, result.Items[0].PoolUsage.ReservedIPs)
+				assert.Equal(t, *tc.reserved, usage["reservedIPs"])
+			}
+		})
+	}
+}
+
 func TestSubnetIPPoolsStorage_Get_FetchPoolError(t *testing.T) {
 	subnetID := "subnet-1"
 	crName := "sub1"

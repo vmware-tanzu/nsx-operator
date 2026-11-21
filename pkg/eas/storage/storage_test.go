@@ -34,10 +34,14 @@ type fakeSubnetsClient struct {
 	results model.VpcSubnetListResult
 	err     error
 	list    func(orgID, projectID, vpcID string, cursor *string) (model.VpcSubnetListResult, error)
+	get     func(orgID, projectID, vpcID, subnetID string) (model.VpcSubnet, error)
 }
 
 func (f *fakeSubnetsClient) Delete(string, string, string, string) error { return nil }
-func (f *fakeSubnetsClient) Get(string, string, string, string) (model.VpcSubnet, error) {
+func (f *fakeSubnetsClient) Get(orgID, projectID, vpcID, subnetID string) (model.VpcSubnet, error) {
+	if f.get != nil {
+		return f.get(orgID, projectID, vpcID, subnetID)
+	}
 	return model.VpcSubnet{}, nil
 }
 func (f *fakeSubnetsClient) List(orgID, projectID, vpcID string, cursor *string, _ *bool, _ *bool, _ *string, _ *int64, _ *bool, _ *string) (model.VpcSubnetListResult, error) {

@@ -735,6 +735,13 @@ func schema_pkg_apis_eas_v1alpha1_PoolUsage(ref common.ReferenceCallback) common
 							Format:      "int64",
 						},
 					},
+					"reservedIPs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Number of IPs reserved through dynamic or static IP reservations and unavailable for workload allocation, as a decimal string.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"totalIPs", "availableIPs", "allocatedIPAllocations", "requestedIPAllocations"},
 			},

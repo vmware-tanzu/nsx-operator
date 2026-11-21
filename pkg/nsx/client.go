@@ -42,6 +42,7 @@ import (
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/dhcp_server_config"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ip_pools"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/ports"
+	subnet_state "github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/subnets/state"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/vpc_endpoints"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/orgs/projects/vpcs/vpc_service_endpoints"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
@@ -127,8 +128,10 @@ type Client struct {
 	IPPoolClient                       subnets.IpPoolsClient
 	IPAllocationClient                 ip_pools.IpAllocationsClient
 	DhcpServerConfigStatsClient        dhcp_server_config.StatsClient
+	SubnetDHCPServerLeasesClient       subnet_state.DhcpServerLeasesClient
 	IPAddressUsageClient               vpcs.IpAddressUsageClient
 	VPCIPBlockUsageClient              vpc_ip_blocks.UsageClient
+	VPCIPBlockAllocationStateClient    vpc_ip_blocks.AllocationStateClient
 	InfraIPBlockUsageClient            infra_ip_blocks.UsageClient
 	SubnetsClient                      vpcs.SubnetsClient
 	IPAddressAllocationClient          vpcs.IpAddressAllocationsClient
@@ -296,8 +299,10 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 	ipPoolClient := subnets.NewIpPoolsClient(connector)
 	ipAllocationClient := ip_pools.NewIpAllocationsClient(connector)
 	statsClient := dhcp_server_config.NewStatsClient(connector)
+	subnetDHCPServerLeasesClient := subnet_state.NewDhcpServerLeasesClient(connector)
 	ipAddressUsageClient := vpcs.NewIpAddressUsageClient(connector)
 	vpcIpBlockUsageClient := vpc_ip_blocks.NewUsageClient(connector)
+	vpcIPBlockAllocationStateClient := vpc_ip_blocks.NewAllocationStateClient(connector)
 	infraIPBlockUsageClient := infra_ip_blocks.NewUsageClient(connector)
 	subnetsClient := vpcs.NewSubnetsClient(connector)
 	subnetStatusClient := subnets.NewStatusClient(connector)
@@ -400,8 +405,10 @@ func NewClient(cf *config.NSXOperatorConfig) (*Client, error) {
 		IPPoolClient:                       ipPoolClient,
 		IPAllocationClient:                 ipAllocationClient,
 		DhcpServerConfigStatsClient:        statsClient,
+		SubnetDHCPServerLeasesClient:       subnetDHCPServerLeasesClient,
 		IPAddressUsageClient:               ipAddressUsageClient,
 		VPCIPBlockUsageClient:              vpcIpBlockUsageClient,
+		VPCIPBlockAllocationStateClient:    vpcIPBlockAllocationStateClient,
 		InfraIPBlockUsageClient:            infraIPBlockUsageClient,
 		SubnetsClient:                      subnetsClient,
 		IPAddressAllocationClient:          ipAddressAllocationClient,
