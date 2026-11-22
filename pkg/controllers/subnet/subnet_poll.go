@@ -285,6 +285,10 @@ func (r *SubnetReconciler) pollAndSyncPortConfigs(ctx context.Context, associate
 
 	log.Info("Polling NSX PortSettings for shared Subnet", "AssociatedResource", associatedResource, "SubnetCount", len(namespacedNames))
 	portSettings, err := r.SubnetService.GetPortSettingsFromCacheOrAPI(associatedResource, true)
+	if isPortSettingsNotFound(err) {
+		log.Info("PortSettings snapshot unavailable; skipping this poll", "AssociatedResource", associatedResource)
+		return
+	}
 	if err != nil {
 		log.Warn("Failed to list PortConfigs for shared Subnet during polling", "AssociatedResource", associatedResource, "err", err)
 		return

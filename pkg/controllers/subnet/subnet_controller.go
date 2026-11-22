@@ -732,8 +732,22 @@ func (r *SubnetReconciler) syncPortConfigsOnDemand(ctx context.Context, subnetCR
 	}
 
 	portSettings, err := r.SubnetService.GetPortSettingsFromCacheOrAPI(associatedResource, false)
+	if isPortSettingsNotFound(err) {
+		log.Info("PortSettings snapshot unavailable; skipping on-demand sync", "AssociatedResource", associatedResource)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	return r.syncPortConfigsForNamespaceSubnet(ctx, subnetCR, portSettings, associatedResource)
+}
+
+// isPortSettingsNotFound is only used for PortSettings List failures. A 404 is
+// an unavailable snapshot, not a complete empty list that can drive cleanup.
+func isPortSettingsNotFound(err error) bool {
+	var nsxErr *nsxutil.NSXApiError
+	var notFound stderrors.NotFound
+	var notFoundPtr *stderrors.NotFound
+	return (errors.As(err, &nsxErr) && nsxErr.Type() == stderrors.ErrorType_NOT_FOUND) ||
+		errors.As(err, &notFound) || errors.As(err, &notFoundPtr)
 }
