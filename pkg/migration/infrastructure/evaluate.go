@@ -56,7 +56,7 @@ type EvaluateHandler struct {
 
 func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition.Request) (transition.Result, error) {
 	resource, ok := request.Object.(*api.ControlPlaneNetworkTransition)
-	if !ok || request.Stage != transition.Infrastructure || request.Action != api.ActionEvaluate || resource.Status == nil {
+	if !ok || request.Stage != transition.Infrastructure || request.Action != api.ActionEvaluate || resource.Status == nil || request.Status == nil {
 		return transition.Result{}, fmt.Errorf("control-plane Evaluate transition is required")
 	}
 	if handler.Scope == nil || handler.Inspector == nil || handler.DVPGValidator == nil || handler.SNAT == nil {

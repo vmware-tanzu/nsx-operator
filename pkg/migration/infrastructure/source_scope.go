@@ -25,6 +25,8 @@ const (
 	vsphereNetworkType = "VSPHERE_NETWORK"
 )
 
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list
+
 // SupervisorNetworkAPI returns the DVPG backings used by CPVMs and
 // Supervisor Service Namespaces.
 type SupervisorNetworkAPI interface {

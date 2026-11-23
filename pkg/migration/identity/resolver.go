@@ -20,6 +20,8 @@ import (
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 )
 
+const ConditionSourceIdentityResolved = "SourceIdentityResolved"
+
 // SupervisorZone is one zone returned by the authenticated vCenter Supervisor API.
 type SupervisorZone struct {
 	Zone     string   `json:"zone"`
@@ -212,7 +214,9 @@ func ValidateReuse(source *api.ResolvedSourceContext, action api.Action, current
 	if action != api.ActionExecute {
 		return fmt.Errorf("resolved source context cannot be reused for action %q", action)
 	}
-	if !conditionSucceededAt(conditions, "NetworkInputsValidated", source.EvaluatedGeneration) || !conditionSucceededAt(conditions, "DVPGConversionValidated", source.EvaluatedGeneration) {
+	if !conditionSucceededAt(conditions, ConditionSourceIdentityResolved, source.EvaluatedGeneration) ||
+		!conditionSucceededAt(conditions, "NetworkInputsValidated", source.EvaluatedGeneration) ||
+		!conditionSucceededAt(conditions, "DVPGConversionValidated", source.EvaluatedGeneration) {
 		return fmt.Errorf("resolved source context is not backed by successful Evaluate checks for generation %d", source.EvaluatedGeneration)
 	}
 	return nil
