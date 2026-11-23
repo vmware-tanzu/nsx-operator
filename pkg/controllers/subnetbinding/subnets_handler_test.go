@@ -135,14 +135,59 @@ func TestPredicateFuncsSubnetSets(t *testing.T) {
 			},
 		},
 	}
+	// net4 and net5 have the same status subnets in different orders. Order-only
+	// changes must not trigger the reconciliation of dependent SubnetConnectionBindingMaps.
+	net4 := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Status: v1alpha1.SubnetSetStatus{
+			Subnets: []v1alpha1.SubnetInfo{
+				{
+					NetworkAddresses: []string{"172.20.20.96/27"},
+					GatewayAddresses: []string{"172.20.20.97/27"},
+				},
+				{
+					NetworkAddresses: []string{"172.20.20.128/27"},
+					GatewayAddresses: []string{"172.20.20.129/27"},
+				},
+			},
+		},
+	}
+	net5 := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Status: v1alpha1.SubnetSetStatus{
+			Subnets: []v1alpha1.SubnetInfo{
+				{
+					NetworkAddresses: []string{"172.20.20.128/27"},
+					GatewayAddresses: []string{"172.20.20.129/27"},
+				},
+				{
+					NetworkAddresses: []string{"172.20.20.96/27"},
+					GatewayAddresses: []string{"172.20.20.97/27"},
+				},
+			},
+		},
+	}
+	// net6 has the same subnets as net4 with a changed gateway address.
+	net6 := net4.DeepCopy()
+	net6.Status.Subnets[0].GatewayAddresses = []string{"172.20.20.98/27"}
 	createEvent := event.CreateEvent{Object: net1}
 	updateEvent1 := event.UpdateEvent{ObjectOld: net1, ObjectNew: net2}
 	updateEvent2 := event.UpdateEvent{ObjectOld: net1, ObjectNew: net3}
+	updateEventOrderOnly := event.UpdateEvent{ObjectOld: net4, ObjectNew: net5}
+	updateEventContentChanged := event.UpdateEvent{ObjectOld: net4, ObjectNew: net6}
 	deleteEvent := event.DeleteEvent{Object: net1}
 	genericEvent := event.GenericEvent{Object: net1}
 	assert.False(t, PredicateFuncsForSubnetSets.CreateFunc(createEvent))
 	assert.False(t, PredicateFuncsForSubnetSets.Update(updateEvent1))
 	assert.True(t, PredicateFuncsForSubnetSets.Update(updateEvent2))
+	assert.False(t, PredicateFuncsForSubnetSets.Update(updateEventOrderOnly))
+	assert.True(t, PredicateFuncsForSubnetSets.Update(updateEventContentChanged))
 	assert.False(t, PredicateFuncsForSubnetSets.Delete(deleteEvent))
 	assert.False(t, PredicateFuncsForSubnetSets.GenericFunc(genericEvent))
 }

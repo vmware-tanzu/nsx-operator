@@ -4723,3 +4723,66 @@ func TestSharedSubnetResourceMapLifecycle(t *testing.T) {
 		})
 	}
 }
+
+func TestSortSubnetInfoList(t *testing.T) {
+	// The sort is lexicographic: it only needs to be deterministic, not numeric.
+	tests := []struct {
+		name     string
+		input    []v1alpha1.SubnetInfo
+		expected []v1alpha1.SubnetInfo
+	}{
+		{
+			name: "sorts by network addresses",
+			input: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.96/27"}, GatewayAddresses: []string{"172.20.20.97/27"}},
+				{NetworkAddresses: []string{"172.20.20.128/27"}, GatewayAddresses: []string{"172.20.20.129/27"}},
+			},
+			expected: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.128/27"}, GatewayAddresses: []string{"172.20.20.129/27"}},
+				{NetworkAddresses: []string{"172.20.20.96/27"}, GatewayAddresses: []string{"172.20.20.97/27"}},
+			},
+		},
+		{
+			name: "already sorted list stays unchanged",
+			input: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.128/27"}},
+				{NetworkAddresses: []string{"172.20.20.96/27"}},
+			},
+			expected: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.128/27"}},
+				{NetworkAddresses: []string{"172.20.20.96/27"}},
+			},
+		},
+		{
+			name: "falls back to gateway addresses on equal network addresses",
+			input: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.96/27"}, GatewayAddresses: []string{"172.20.20.99/27"}},
+				{NetworkAddresses: []string{"172.20.20.96/27"}, GatewayAddresses: []string{"172.20.20.97/27"}},
+			},
+			expected: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.96/27"}, GatewayAddresses: []string{"172.20.20.97/27"}},
+				{NetworkAddresses: []string{"172.20.20.96/27"}, GatewayAddresses: []string{"172.20.20.99/27"}},
+			},
+		},
+		{
+			name:     "nil list stays nil",
+			input:    nil,
+			expected: nil,
+		},
+		{
+			name: "single element list stays unchanged",
+			input: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.96/27"}},
+			},
+			expected: []v1alpha1.SubnetInfo{
+				{NetworkAddresses: []string{"172.20.20.96/27"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sortSubnetInfoList(tt.input)
+			assert.Equal(t, tt.expected, tt.input)
+		})
+	}
+}

@@ -22,6 +22,8 @@ var (
 		DisplayName:    String("binding1"),
 		SubnetPath:     String(parentSubnetPath1),
 		VlanTrafficTag: Int64(201),
+		// SubnetAssociation defaults to TRUNK when unset in the CR.
+		SubnetAssociation: String(model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK),
 		Tags: []model.Tag{
 			{
 				Scope: String(common.TagScopeCluster),
@@ -50,6 +52,8 @@ var (
 		DisplayName:    String("binding1"),
 		SubnetPath:     String(parentSubnetPath2),
 		VlanTrafficTag: Int64(201),
+		// SubnetAssociation defaults to TRUNK when unset in the CR.
+		SubnetAssociation: String(model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK),
 		Tags: []model.Tag{
 			{
 				Scope: String(common.TagScopeCluster),
@@ -96,6 +100,18 @@ func TestBuildSubnetBindings(t *testing.T) {
 		bindingMap1, bindingMap2,
 	}
 	require.ElementsMatch(t, expBindingMaps, bindingMaps)
+}
+
+func TestBuildSubnetBindingsDefaultTrunkAssociation(t *testing.T) {
+	service := mockService()
+	parentSubnetPaths := []string{parentSubnetPath1}
+	bindingMaps := service.buildSubnetBindings(binding1, 201, parentSubnetPaths)
+	require.Len(t, bindingMaps, 1)
+	// An unset subnetAssociation in the CR must be defaulted to TRUNK so that the
+	// desired object matches the realized NSX object (NSX defaults the omitted
+	// field to TRUNK), avoiding redundant PATCH requests on every reconciliation.
+	require.NotNil(t, bindingMaps[0].SubnetAssociation)
+	assert.Equal(t, model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK, *bindingMaps[0].SubnetAssociation)
 }
 
 func TestBuildSubnetBindingsBranch(t *testing.T) {

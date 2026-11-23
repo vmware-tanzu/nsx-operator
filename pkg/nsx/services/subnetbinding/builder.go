@@ -20,14 +20,13 @@ var (
 
 func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, targetSubnetPaths []string) []*model.SubnetConnectionBindingMap {
 	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
-	var subnetAssociation *string
-	if binding.Spec.SubnetAssociation != "" {
-		sa := model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK
-		if binding.Spec.IsBranchAssociation() {
-			sa = model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH
-		}
-		subnetAssociation = String(sa)
+	// SubnetAssociation defaults to TRUNK when unset in the CR, aligning with the
+	// NSX API default so that the desired object matches the realized object.
+	sa := model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK
+	if binding.Spec.IsBranchAssociation() {
+		sa = model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH
 	}
+	subnetAssociation := String(sa)
 	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(targetSubnetPaths))
 	for i := range targetSubnetPaths {
 		path := targetSubnetPaths[i]

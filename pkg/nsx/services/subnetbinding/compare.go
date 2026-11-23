@@ -16,12 +16,19 @@ func (m *SubnetConnectionBindingMap) Key() string {
 }
 
 func (m *SubnetConnectionBindingMap) Value() data.DataValue {
+	// NSX defaults SubnetAssociation to TRUNK when it is omitted in the request.
+	// Normalize an unset association to the default so that comparing the desired
+	// object with the realized object does not produce a false difference.
+	subnetAssociation := m.SubnetAssociation
+	if subnetAssociation == nil {
+		subnetAssociation = common.String(model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK)
+	}
 	s := &SubnetConnectionBindingMap{
 		Id:                m.Id,
 		DisplayName:       m.DisplayName,
 		Tags:              m.Tags,
 		SubnetPath:        m.SubnetPath,
-		SubnetAssociation: m.SubnetAssociation,
+		SubnetAssociation: subnetAssociation,
 		VlanTrafficTag:    m.VlanTrafficTag,
 	}
 	dataValue, _ := ComparableToSubnetConnectionBindingMap(s).GetDataValue__()

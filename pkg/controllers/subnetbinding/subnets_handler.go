@@ -3,6 +3,8 @@ package subnetbinding
 import (
 	"context"
 	"reflect"
+	"sort"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -47,7 +49,10 @@ var PredicateFuncsForSubnetSets = predicate.Funcs{
 		if !oldOK || !newOK {
 			return false
 		}
-		return !reflect.DeepEqual(oldObj.Status.Subnets, newObj.Status.Subnets)
+		// Compare the status subnets ignoring the order, as the order of the SubnetSet
+		// status subnets is not significant and order-only changes should not trigger
+		// the reconciliation of the dependent SubnetConnectionBindingMaps.
+		return !isSubnetInfoListEqual(oldObj.Status.Subnets, newObj.Status.Subnets)
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		return false
@@ -55,6 +60,28 @@ var PredicateFuncsForSubnetSets = predicate.Funcs{
 	GenericFunc: func(e event.GenericEvent) bool {
 		return false
 	},
+}
+
+// isSubnetInfoListEqual compares two SubnetInfo lists ignoring the order of entries.
+func isSubnetInfoListEqual(a, b []v1alpha1.SubnetInfo) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sortSubnetInfos := func(list []v1alpha1.SubnetInfo) []v1alpha1.SubnetInfo {
+		sorted := make([]v1alpha1.SubnetInfo, len(list))
+		copy(sorted, list)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			return subnetInfoKey(sorted[i]) < subnetInfoKey(sorted[j])
+		})
+		return sorted
+	}
+	return reflect.DeepEqual(sortSubnetInfos(a), sortSubnetInfos(b))
+}
+
+func subnetInfoKey(info v1alpha1.SubnetInfo) string {
+	return strings.Join(info.NetworkAddresses, ",") + "|" +
+		strings.Join(info.GatewayAddresses, ",") + "|" +
+		strings.Join(info.DHCPServerAddresses, ",")
 }
 
 func requeueBindingMapsBySubnetUpdate(ctx context.Context, c client.Client, _, objNew client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
