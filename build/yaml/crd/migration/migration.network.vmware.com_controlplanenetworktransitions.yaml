@@ -570,6 +570,36 @@ spec:
                 x-kubernetes-list-map-keys:
                 - fieldName
                 x-kubernetes-list-type: map
+              resolvedSourceContext:
+                description: |-
+                  ResolvedSourceContext records the non-secret source identity confirmed by Evaluate.
+                  It is tied to the Evaluate generation and reused by Execute retries. SupervisorID
+                  remains in the external VCFA/WCP context and is never persisted here.
+                properties:
+                  evaluatedGeneration:
+                    description: |-
+                      EvaluatedGeneration identifies the desired transition generation whose source
+                      context was successfully resolved.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  nsxComputeManagerId:
+                    description: NSXComputeManagerID is the NSX identity corresponding
+                      to that vCenter.
+                    maxLength: 255
+                    minLength: 1
+                    type: string
+                  vCenterInstanceUUID:
+                    description: VCenterInstanceUUID identifies the vCenter authenticated
+                      by the manager.
+                    maxLength: 128
+                    minLength: 1
+                    type: string
+                required:
+                - evaluatedGeneration
+                - nsxComputeManagerId
+                - vCenterInstanceUUID
+                type: object
               sourceLBProvider:
                 description: |-
                   SourceLBProvider identifies the discovered source load balancer provider.
