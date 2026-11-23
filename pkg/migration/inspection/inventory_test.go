@@ -118,14 +118,17 @@ func TestKubernetesInventory(t *testing.T) {
 	require.Equal(t, "dvportgroup-1", resolvedSource.Topologies[0].PortGroupID)
 	_, err = inventory.NamespaceVDNs(ctx, []string{"missing"})
 	require.ErrorAs(t, err, new(*ConfigurationError))
-	vdnResource.Spec = netop.VSphereDistributedNetworkSpec{PortGroupID: "dvportgroup-1", Gateway: "192.168.10.1", SubnetMask: "255.255.255.0", IPPools: []netop.IPPoolReference{{Name: "pool"}}}
+	vdnResource.Spec = netop.VSphereDistributedNetworkSpec{PortGroupID: "dvportgroup-1", Gateway: "192.168.10.1", SubnetMask: "255.255.255.0", IPPools: []netop.IPPoolReference{{Name: "pool-high"}, {Name: "pool-low"}}}
 	require.NoError(t, kubeClient.Update(ctx, vdnResource))
-	ipPool := &netop.IPPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}, Spec: netop.IPPoolSpec{StartingAddress: "192.168.10.100", AddressCount: 101}}
+	ipPool := &netop.IPPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-high"}, Spec: netop.IPPoolSpec{StartingAddress: "192.168.10.100", AddressCount: 101}}
+	lowPool := &netop.IPPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-low"}, Spec: netop.IPPoolSpec{StartingAddress: "192.168.10.20", AddressCount: 5}}
 	require.NoError(t, kubeClient.Create(ctx, ipPool))
+	require.NoError(t, kubeClient.Create(ctx, lowPool))
 	resolvedSource, err = inventory.Resolve(ctx, "a")
 	require.NoError(t, err)
+	require.Equal(t, []string{"192.168.10.20", "192.168.10.100"}, []string{resolvedSource.Ranges[0].Start, resolvedSource.Ranges[1].Start})
 	require.False(t, resolvedSource.DHCP)
-	require.Equal(t, "192.168.10.200", resolvedSource.Ranges[0].End)
+	require.Equal(t, "192.168.10.200", resolvedSource.Ranges[1].End)
 	inspectionResult, err := (Service{Inventory: inventory}).InspectNamespaces(ctx, []string{"ns1", "ns2"}, nil)
 	require.NoError(t, err)
 	require.True(t, inspectionResult.Ready())

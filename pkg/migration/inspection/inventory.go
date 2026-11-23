@@ -151,7 +151,9 @@ func (inventory KubernetesInventory) Resolve(ctx context.Context, vdnName string
 			resolvedSource.Ranges = append(resolvedSource.Ranges, api.IPAddressRange{Start: firstAddress.String(), End: netip.AddrFrom4(lastAddressBytes).String()})
 		}
 		sort.Slice(resolvedSource.Ranges, func(leftIndex, rightIndex int) bool {
-			return resolvedSource.Ranges[leftIndex].Start < resolvedSource.Ranges[rightIndex].Start
+			left := netip.MustParseAddr(resolvedSource.Ranges[leftIndex].Start)
+			right := netip.MustParseAddr(resolvedSource.Ranges[rightIndex].Start)
+			return left.Compare(right) < 0
 		})
 	default:
 		return resolvedSource, invalid("unsupported IP assignment mode %q", vdnSpec.IPAssignmentMode)
