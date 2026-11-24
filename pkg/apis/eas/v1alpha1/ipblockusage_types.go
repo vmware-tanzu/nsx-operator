@@ -38,10 +38,10 @@ type IPBlockUsage struct {
 	Visibility IPAddressVisibility `json:"visibility,omitempty"`
 	// IP address type of the IPBlock.
 	// Must be IPv4 or IPv6.
-	// +kubebuilder:validation:Enum=IPv4;IPv6
 	AddressType IPAddressType `json:"addressType,omitempty"`
 }
 
+// +kubebuilder:validation:Enum=IPv4;IPv6
 type IPAddressType string
 
 const (

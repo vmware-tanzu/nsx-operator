@@ -13,6 +13,7 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/search"
 	pkg_log "sigs.k8s.io/controller-runtime/pkg/log"
@@ -138,6 +139,138 @@ func TestGetClient(t *testing.T) {
 	assert.True(t, client.NSXCheckVersion(ServiceAccount))
 	assert.True(t, client.NSXCheckVersion(ServiceAccountRestore))
 	assert.True(t, client.NSXCheckVersion(ServiceAccountCertRotation))
+}
+
+func newLocalNSXClient(t *testing.T, handler http.HandlerFunc) *Client {
+	t.Helper()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/create":
+			w.Header().Set("X-XSRF-TOKEN", "test-session-token")
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{}`)
+		case "/api/v1/reverse-proxy/node/health":
+			fmt.Fprint(w, `{"healthy":true,"components_health":"MANAGER:UP, SEARCH:UP, UI:UP, NODE_MGMT:UP"}`)
+		case "/api/v1/node/version":
+			fmt.Fprint(w, `{"node_version":"9.2.0","product_version":"9.2.0"}`)
+		default:
+			handler(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	cf := &config.NSXOperatorConfig{
+		NsxConfig: &config.NsxConfig{
+			NsxApiManagers: []string{strings.TrimPrefix(server.URL, "https://")},
+			NsxApiUser:     "test-user",
+			NsxApiPassword: "test-password",
+			Insecure:       true,
+			HttpTimeout:    5,
+		},
+		VCConfig: &config.VCConfig{},
+	}
+	client, err := NewClient(cf)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for _, endpoint := range client.Cluster.endpoints {
+			close(endpoint.stop)
+		}
+		client.Cluster.noBalancerClient.CloseIdleConnections()
+		if transport, ok := client.Cluster.transport.Base.(*http.Transport); ok {
+			transport.CloseIdleConnections()
+		}
+	})
+	return client
+}
+
+func TestClientVPCIPBlockAllocationState(t *testing.T) {
+	const allocationStatePath = "/policy/api/v1/orgs/default/projects/project/vpcs/vpc/ip-blocks/allocation-state"
+	const blockPath = "/orgs/default/projects/project/infra/ip-blocks/block"
+	requests := make(chan string, 1)
+	client := newLocalNSXClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != allocationStatePath {
+			http.Error(w, "unexpected request path", http.StatusNotFound)
+			return
+		}
+		requests <- r.Method + " " + r.URL.RequestURI()
+		fmt.Fprintf(w, `{"results":[{"ip_block_path":%q,"visibility":"PRIVATE","ip_address_type":"IPV4","allocation_states":[{"cidr":"10.0.0.0/28"}]}]}`, blockPath)
+	})
+	require.NotNil(t, client.VPCIPBlockAllocationStateClient)
+	states, err := client.VPCIPBlockAllocationStateClient.List("default", "project", "vpc", nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, states.Results, 1)
+	require.NotNil(t, states.Results[0].IpBlockPath)
+	assert.Equal(t, blockPath, *states.Results[0].IpBlockPath)
+	require.Len(t, states.Results[0].AllocationStates, 1)
+	require.NotNil(t, states.Results[0].AllocationStates[0].Cidr)
+	assert.Equal(t, "10.0.0.0/28", *states.Results[0].AllocationStates[0].Cidr)
+	select {
+	case request := <-requests:
+		assert.Equal(t, "GET "+allocationStatePath, request, "nil filters must not add query parameters")
+	default:
+		t.Fatal("NSX allocation-state endpoint was not requested")
+	}
+}
+
+func TestClientSubnetDHCPServerLeases(t *testing.T) {
+	const leasesPath = "/policy/api/v1/orgs/default/projects/project/vpcs/vpc/subnets/subnet/state/dhcp-server-leases"
+	requests := make(chan string, 1)
+	client := newLocalNSXClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != leasesPath {
+			http.Error(w, "unexpected request path", http.StatusNotFound)
+			return
+		}
+		requests <- r.Method + " " + r.URL.RequestURI()
+		fmt.Fprint(w, `{
+			"leases":[{
+				"mac_address":"00:50:56:aa:bb:cc",
+				"ip_address":"10.0.0.10",
+				"subnet":"10.0.0.0/24",
+				"lease_time":"3600",
+				"start_time":"2026-11-18T08:00:00Z",
+				"expire_time":"2026-11-18T09:00:00Z"
+			}],
+			"ipv6_leases":[{
+				"duid":"00:01:00:01:12:34:56:78:00:50:56:aa:bb:cc",
+				"ia_type":"IA_NA",
+				"iaid":65537,
+				"ip_addresses":["2001:db8::10","2001:db8::11"],
+				"lease_time":"7200",
+				"start_time":"2026-11-18T08:00:00Z",
+				"expire_time":"2026-11-18T10:00:00Z"
+			}]
+		}`)
+	})
+	require.NotNil(t, client.SubnetDHCPServerLeasesClient)
+	leases, err := client.SubnetDHCPServerLeasesClient.List("default", "project", "vpc", "subnet", nil, nil, nil, nil, nil, nil, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, leases.Leases, 1)
+	require.Len(t, leases.Ipv6Leases, 1)
+	stringPtr := func(value string) *string { return &value }
+	assert.Equal(t, model.DhcpLeasePerIP{
+		MacAddress: stringPtr("00:50:56:aa:bb:cc"),
+		IpAddress:  stringPtr("10.0.0.10"),
+		Subnet:     stringPtr("10.0.0.0/24"),
+		LeaseTime:  stringPtr("3600"),
+		StartTime:  stringPtr("2026-11-18T08:00:00Z"),
+		ExpireTime: stringPtr("2026-11-18T09:00:00Z"),
+	}, leases.Leases[0])
+	iaid := int64(65537)
+	assert.Equal(t, model.DhcpV6Lease{
+		Duid:        stringPtr("00:01:00:01:12:34:56:78:00:50:56:aa:bb:cc"),
+		IaType:      stringPtr(model.DhcpV6Lease_IA_TYPE_NA),
+		Iaid:        &iaid,
+		IpAddresses: []string{"2001:db8::10", "2001:db8::11"},
+		LeaseTime:   stringPtr("7200"),
+		StartTime:   stringPtr("2026-11-18T08:00:00Z"),
+		ExpireTime:  stringPtr("2026-11-18T10:00:00Z"),
+	}, leases.Ipv6Leases[0])
+	select {
+	case request := <-requests:
+		assert.Equal(t, "GET "+leasesPath, request, "nil filters must not add query parameters")
+	default:
+		t.Fatal("NSX DHCP server leases endpoint was not requested")
+	}
 }
 
 func TestClient_resetNSXVersionFeatureCache(t *testing.T) {

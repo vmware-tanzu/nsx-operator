@@ -43,13 +43,17 @@ const (
 // Because EAS is read-only it does not need leader election; all replicas serve
 // concurrently and the Kubernetes Service load-balances across Ready pods.
 type EASServer struct {
-	vpcProvider             eas.VPCInfoProvider
-	vpcIPUsage              *storage.VPCIPAddressUsageStorage
-	ipBlockUsage            *storage.IPBlockUsageStorage
-	subnetIPPools           *storage.SubnetIPPoolsStorage
-	subnetDHCPStats         *storage.SubnetDHCPStatsStorage
-	vpcEndpointStats        *storage.VPCEndpointStatisticsStorage
-	vpcServiceEndpointStats *storage.ServiceEndpointStatisticsStorage
+	vpcProvider                eas.VPCInfoProvider
+	vpcIPUsage                 *storage.VPCIPAddressUsageStorage
+	ipBlockUsage               *storage.IPBlockUsageStorage
+	subnetIPPools              *storage.SubnetIPPoolsStorage
+	subnetDHCPStats            *storage.SubnetDHCPStatsStorage
+	vpcEndpointStats           *storage.VPCEndpointStatisticsStorage
+	vpcServiceEndpointStats    *storage.ServiceEndpointStatisticsStorage
+	subnetDHCPLeases           *storage.SubnetDHCPServerLeasesStorage
+	subnetStatuses             *storage.SubnetStatusStorage
+	vpcServiceProfiles         *storage.VPCServiceProfileStorage
+	vpcIPBlockAllocationStates *storage.VPCIPBlockAllocationStateStorage
 	// nsxHealthChecker is added to the generic API server's /readyz endpoint
 	// so that the pod is removed from Service endpoints when NSX is unreachable.
 	nsxHealthChecker healthz.HealthChecker
@@ -87,13 +91,17 @@ func NewEASServer(
 	caCert []byte,
 ) *EASServer {
 	return &EASServer{
-		vpcProvider:             vpcProvider,
-		vpcIPUsage:              storage.NewVPCIPAddressUsageStorage(nsxClient, vpcProvider),
-		ipBlockUsage:            storage.NewIPBlockUsageStorage(nsxClient, vpcProvider),
-		subnetIPPools:           storage.NewSubnetIPPoolsStorage(nsxClient, k8sClient),
-		subnetDHCPStats:         storage.NewSubnetDHCPStatsStorage(nsxClient, k8sClient),
-		vpcEndpointStats:        storage.NewVPCEndpointStatisticsStorage(nsxClient, k8sClient),
-		vpcServiceEndpointStats: storage.NewServiceEndpointStatisticsStorage(nsxClient, k8sClient),
+		vpcProvider:                vpcProvider,
+		vpcIPUsage:                 storage.NewVPCIPAddressUsageStorage(nsxClient, vpcProvider),
+		ipBlockUsage:               storage.NewIPBlockUsageStorage(nsxClient, vpcProvider),
+		subnetIPPools:              storage.NewSubnetIPPoolsStorage(nsxClient, k8sClient),
+		subnetDHCPStats:            storage.NewSubnetDHCPStatsStorage(nsxClient, k8sClient),
+		vpcEndpointStats:           storage.NewVPCEndpointStatisticsStorage(nsxClient, k8sClient),
+		vpcServiceEndpointStats:    storage.NewServiceEndpointStatisticsStorage(nsxClient, k8sClient),
+		subnetDHCPLeases:           storage.NewSubnetDHCPServerLeasesStorage(nsxClient, k8sClient),
+		subnetStatuses:             storage.NewSubnetStatusStorage(nsxClient, k8sClient),
+		vpcServiceProfiles:         storage.NewVPCServiceProfileStorage(nsxClient, vpcProvider),
+		vpcIPBlockAllocationStates: storage.NewVPCIPBlockAllocationStateStorage(nsxClient, vpcProvider, k8sClient),
 		// /readyz reports not-ready when NSX is unreachable, causing kube-proxy
 		// to stop routing traffic to this pod until connectivity is restored.
 		nsxHealthChecker: healthz.NamedCheck("nsx", nsxClient.NSXChecker.CheckNSXHealth),
@@ -118,7 +126,7 @@ func (s *EASServer) Start(ctx context.Context) error {
 //   - TLS from the EAS cert files (same files used by the previous net/http server)
 //   - Delegated authentication via TokenReview to kube-apiserver (in-cluster)
 //   - Delegated authorization via SubjectAccessReview to kube-apiserver
-//   - The four EAS resource types registered as REST storage
+//   - The EAS resource types registered as REST storage
 func (s *EASServer) buildGenericAPIServer() (*genericapiserver.GenericAPIServer, error) {
 	port, bindAddr, certFile, keyFile := listenerConfig()
 
@@ -236,19 +244,27 @@ func (s *EASServer) buildGenericAPIServer() (*genericapiserver.GenericAPIServer,
 		parameterCodec,
 		codecs,
 	)
-	apiGroupInfo.VersionedResourcesStorageMap[easv1alpha1.GroupVersion.Version] = map[string]apirest.Storage{
-		"vpcipaddressusages":        rest.NewVPCIPUsageStorage(s.vpcIPUsage, s.vpcProvider),
-		"ipblockusages":             rest.NewIPBlockUsageStorage(s.ipBlockUsage, s.vpcProvider),
-		"subnetippools":             rest.NewSubnetIPPoolsStorage(s.subnetIPPools),
-		"subnetdhcpserverstats":     rest.NewSubnetDHCPStatsStorage(s.subnetDHCPStats),
-		"vpcendpointstatistics":     rest.NewVPCEndpointStatisticsREST(s.vpcEndpointStats),
-		"serviceendpointstatistics": rest.NewServiceEndpointStatisticsREST(s.vpcServiceEndpointStats),
-	}
+	apiGroupInfo.VersionedResourcesStorageMap[easv1alpha1.GroupVersion.Version] = s.restStorage()
 
 	if err := srv.InstallAPIGroup(&apiGroupInfo); err != nil {
 		return nil, fmt.Errorf("install EAS API group: %w", err)
 	}
 	return srv, nil
+}
+
+func (s *EASServer) restStorage() map[string]apirest.Storage {
+	return map[string]apirest.Storage{
+		"vpcipaddressusages":         rest.NewVPCIPUsageStorage(s.vpcIPUsage, s.vpcProvider),
+		"ipblockusages":              rest.NewIPBlockUsageStorage(s.ipBlockUsage, s.vpcProvider),
+		"subnetippools":              rest.NewSubnetIPPoolsStorage(s.subnetIPPools),
+		"subnetdhcpserverstats":      rest.NewSubnetDHCPStatsStorage(s.subnetDHCPStats),
+		"vpcendpointstatistics":      rest.NewVPCEndpointStatisticsREST(s.vpcEndpointStats),
+		"serviceendpointstatistics":  rest.NewServiceEndpointStatisticsREST(s.vpcServiceEndpointStats),
+		"subnetdhcpserverleases":     rest.NewSubnetDHCPServerLeasesStorage(s.subnetDHCPLeases),
+		"subnetstatuses":             rest.NewSubnetStatusStorage(s.subnetStatuses, s.vpcProvider),
+		"vpcserviceprofiles":         rest.NewVPCServiceProfileStorage(s.vpcServiceProfiles, s.vpcProvider),
+		"vpcipblockallocationstates": rest.NewVPCIPBlockAllocationStateStorage(s.vpcIPBlockAllocationStates),
+	}
 }
 
 // listenerConfig returns the port, optional bind address, and TLS cert paths
