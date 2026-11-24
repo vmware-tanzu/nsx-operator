@@ -213,6 +213,40 @@ func (s *VPCService) GetCurrentVPCsByNamespace(ctx context.Context, namespace st
 	return s.VpcStore.GetVPCsByNamespaceIDFromStore(string(sharedNamespace.UID))
 }
 
+// GetNamespaceVPCPath returns the namespace VPC when it can be identified uniquely.
+// An error causes callers to retry while the VPC is unavailable or ambiguous.
+func (s *VPCService) GetNamespaceVPCPath(ctx context.Context, namespace string) (string, error) {
+	config, err := s.GetVPCNetworkConfigByNamespace(namespace)
+	if err != nil {
+		return "", err
+	}
+	if config == nil {
+		return "", fmt.Errorf("VPC network configuration for namespace %s is not available", namespace)
+	}
+	if IsPreCreatedVPC(config) {
+		vpc, err := s.GetVPCFromNSXByPath(config.Spec.VPC)
+		if err != nil {
+			return "", err
+		}
+		if vpc == nil || vpc.Path == nil || *vpc.Path == "" {
+			return "", fmt.Errorf("VPC for namespace %s is not available", namespace)
+		}
+		return *vpc.Path, nil
+	}
+	ns, shared, err := s.resolveSharedVPCNamespace(ctx, namespace)
+	if err != nil {
+		return "", err
+	}
+	if shared != nil {
+		ns = shared
+	}
+	vpcs := s.VpcStore.GetVPCsByNamespaceIDFromStore(string(ns.UID))
+	if len(vpcs) != 1 || vpcs[0].Path == nil || *vpcs[0].Path == "" {
+		return "", fmt.Errorf("expected one VPC with a path for namespace %s, found %d", namespace, len(vpcs))
+	}
+	return *vpcs[0].Path, nil
+}
+
 func (s *VPCService) GetVPCsByNamespace(namespace string) []*model.Vpc {
 	return s.VpcStore.GetVPCsByNamespaceFromStore(namespace)
 }
