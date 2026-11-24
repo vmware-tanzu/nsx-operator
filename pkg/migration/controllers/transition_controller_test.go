@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -248,7 +249,7 @@ func TestParallelNamespaceExecuteRequestsAreSerialized(t *testing.T) {
 			defer wg.Done()
 			<-start
 			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: name}})
-			require.NoError(t, err)
+			assert.NoError(t, err)
 		}(name)
 	}
 	close(start)
