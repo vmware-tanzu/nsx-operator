@@ -51,9 +51,13 @@ spec:
             description: IP address type that will be allocated for VPC Subnets. The
               field is populated only for single-resource retrieval.
             items:
-              enum:
-              - IPv4
-              - IPv6
+              allOf:
+              - enum:
+                - IPv4
+                - IPv6
+              - enum:
+                - IPv4
+                - IPv6
               type: string
             type: array
           kind:
