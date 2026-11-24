@@ -96,8 +96,11 @@ func (resolver Resolver) Resolve(ctx context.Context, supervisorID string, gener
 			matchingIDs = append(matchingIDs, manager.ID)
 		}
 	}
-	if len(matchingIDs) != 1 || matchingIDs[0] == "" {
+	if len(matchingIDs) != 1 {
 		return api.ResolvedSourceContext{}, fmt.Errorf("expected one NSX vCenter compute manager for %q, found %d", resolver.VCenterServer, len(matchingIDs))
+	}
+	if matchingIDs[0] == "" {
+		return api.ResolvedSourceContext{}, fmt.Errorf("NSX vCenter compute manager for %q has an empty ID", resolver.VCenterServer)
 	}
 
 	return api.ResolvedSourceContext{

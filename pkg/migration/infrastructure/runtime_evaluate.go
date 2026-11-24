@@ -77,14 +77,14 @@ func (handler RuntimeEvaluateHandler) Reconcile(ctx context.Context, request tra
 		if statusErr := inspection.ApplyEvaluation(inspection.Result{}, err, request.Status, request.Generation); statusErr != nil {
 			return transition.Result{}, statusErr
 		}
-		return transition.Result{}, fmt.Errorf("initialize infrastructure inspection services")
+		return transition.Result{}, fmt.Errorf("initialize infrastructure inspection services: %w", err)
 	}
 	validationAPI, err := NewNSXDVPGValidationAPI(handler.Clients.NSX)
 	if err != nil {
 		if statusErr := inspection.ApplyEvaluation(inspection.Result{}, err, request.Status, request.Generation); statusErr != nil {
 			return transition.Result{}, statusErr
 		}
-		return transition.Result{}, fmt.Errorf("initialize NSX DVPG validation service")
+		return transition.Result{}, fmt.Errorf("initialize NSX DVPG validation service: %w", err)
 	}
 
 	scope := VCenterControlPlaneScope{

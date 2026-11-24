@@ -77,9 +77,6 @@ func (service NetOperatorSNAT) Ensure(ctx context.Context, transition *api.Contr
 		return api.IPAllocationStatus{}, false, fmt.Errorf("unsupported LB SNAT selection %q", decision.Selection)
 	}
 	if service.Networks == nil {
-		if configured {
-			return api.IPAllocationStatus{IPAddress: decision.IPAddress}, true, nil
-		}
 		return api.IPAllocationStatus{}, false, fmt.Errorf("source Network resolver is required")
 	}
 	networkKey, err := service.Networks.ForBacking(ctx, decision.AllocationSource)
