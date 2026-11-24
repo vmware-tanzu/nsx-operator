@@ -122,11 +122,11 @@ func vCenterCredentials(vcConfig *config.VCConfig) (string, string, error) {
 	}
 	username, err := readCredential(jwt.VC_SVCACCOUNT_USER_PATH)
 	if err != nil {
-		return "", "", fmt.Errorf("read vCenter service-account username")
+		return "", "", fmt.Errorf("read vCenter service-account username: %w", err)
 	}
 	password, err := readCredential(jwt.VC_SVCACCOUNT_PWD_PATH)
 	if err != nil {
-		return "", "", fmt.Errorf("read vCenter service-account password")
+		return "", "", fmt.Errorf("read vCenter service-account password: %w", err)
 	}
 	if username == "" || password == "" {
 		return "", "", fmt.Errorf("vCenter service-account credentials are empty")
