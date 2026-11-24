@@ -150,6 +150,7 @@ spec:
                       Keep this as a slice so a later release can add IPv6 without changing its shape.
                       After status.lbSNATIPAllocations records an accepted address, this list cannot
                       be added, changed, or removed, including during Evaluate.
+                      Requesting Execute prevents changes to the entire NetworkConfiguration.
                     items:
                       maxLength: 45
                       minLength: 1

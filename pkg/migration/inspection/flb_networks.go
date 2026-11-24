@@ -9,8 +9,9 @@ import (
 	"net/http"
 	"net/url"
 
-	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware/govmomi/vapi/rest"
+
+	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 )
 
 const flbProvider = "VSPHERE_FOUNDATION"
