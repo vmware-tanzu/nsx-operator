@@ -6,6 +6,8 @@ package controllers
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -209,6 +211,97 @@ func TestHandlerWaitsForPersistedCheckpoint(t *testing.T) {
 	require.NoError(t, c.Get(ctx, key, resource))
 	require.Equal(t, api.ActionStateSucceeded, resource.Status.ActionState)
 	require.Equal(t, api.ActionExecute, resource.Status.LastAction)
+}
+
+func TestParallelNamespaceExecuteRequestsAreSerialized(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 1},
+		Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 1, Phase: api.PhaseInfraTransitionComplete,
+			Conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue, Reason: "ActionCompleted", LastTransitionTime: metav1.Now()}},
+		}}}
+	makeBatch := func(name string) *api.NamespaceNetworkTransition {
+		return &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: name, Generation: 2},
+			Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}},
+			Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+				LastAction: api.ActionEvaluate, ActionState: api.ActionStateSucceeded, ActionGeneration: 1, Phase: api.PhaseEvaluated,
+			}},
+		}
+	}
+	first, second := makeBatch("batch-a"), makeBatch("batch-b")
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(infra, first, second).WithObjects(infra, first, second).Build()
+	var handlerCalls atomic.Int32
+	engine := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+		{Stage: transition.Namespaces, Action: api.ActionExecute}: actionHandlerFunc(func(context.Context, transition.Request) (transition.Result, error) {
+			handlerCalls.Add(1)
+			return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: time.Second}, nil
+		}),
+	}}
+	r := Reconciler{Client: c, Engine: engine, Stage: transition.Namespaces}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, name := range []string{first.Name, second.Name} {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			<-start
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: name}})
+			require.NoError(t, err)
+		}(name)
+	}
+	close(start)
+	wg.Wait()
+	require.Zero(t, handlerCalls.Load(), "both requests must persist their arbitration result before any handler runs")
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: first.Name}, first))
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: second.Name}, second))
+	require.Equal(t, api.ActionExecute, first.Status.LastAction, "stable first key must claim the Execute checkpoint")
+	require.Equal(t, api.ActionStateRunning, first.Status.ActionState)
+	require.Equal(t, api.ActionEvaluate, second.Status.LastAction, "the waiting request must not start Execute")
+	require.Equal(t, "ExecuteInProgress", meta.FindStatusCondition(second.Status.Conditions, api.ConditionReady).Reason)
+
+	result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: first.Name}})
+	require.NoError(t, err)
+	require.Positive(t, result.RequeueAfter)
+	require.EqualValues(t, 1, handlerCalls.Load())
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: second.Name}})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, handlerCalls.Load(), "the waiting request must remain blocked while the first Execute is active")
+}
+
+func TestNamespaceExecuteWaitsForPendingNewGeneration(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	previouslyCompleted := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch-a", Generation: 2},
+		Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}},
+		Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 1, Phase: api.PhaseCompleted,
+		}}}
+	current := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch-b", Generation: 2},
+		Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(previouslyCompleted, current).Build()
+	r := Reconciler{Client: c}
+	waiting, err := r.namespaceExecuteBlock(context.Background(), current, nil)
+	require.NoError(t, err)
+	require.Contains(t, waiting, "has priority under simultaneous Execute requests")
+}
+
+func TestNamespaceExecuteExclusivityIgnoresControlPlaneTransition(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 1},
+		Spec: api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}},
+		Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 1, Phase: api.PhaseExecuting,
+		}}}
+	current := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 2},
+		Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(infra, current).Build()
+	r := Reconciler{Client: c}
+	waiting, err := r.namespaceExecuteBlock(context.Background(), current, nil)
+	require.NoError(t, err)
+	require.Empty(t, waiting)
 }
 
 func TestInfrastructureGateUsesSingleton(t *testing.T) {

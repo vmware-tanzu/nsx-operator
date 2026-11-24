@@ -89,7 +89,21 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		if err := r.checkCurrentRequest(ctx, request); err != nil {
 			return ctrl.Result{}, err
 		}
-		result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		if r.Engine.Enabled && r.Stage == transition.Namespaces && action == api.ActionExecute &&
+			r.Engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionExecute}] != nil {
+			waiting, err := r.namespaceExecuteBlock(ctx, obj.(*api.NamespaceNetworkTransition), status)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if waiting != "" {
+				transition.Block(status, obj.GetGeneration(), "ExecuteInProgress", waiting)
+				result.RequeueAfter = 30 * time.Second
+			} else {
+				result, reconcileErr = r.Engine.Reconcile(ctx, request)
+			}
+		} else {
+			result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		}
 	}
 	if !equality.Semantic.DeepEqual(previous, obj) {
 		if err := r.Status().Update(ctx, obj); err != nil {
@@ -97,6 +111,69 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		}
 	}
 	return ctrl.Result{RequeueAfter: result.RequeueAfter}, reconcileErr
+}
+
+// namespaceExecuteBlock closes the race in admission's list check. The reconcile
+// lock stays held through this live read, the Execute checkpoint, and its status
+// write, so simultaneous requests cannot both claim the namespace Execute slot.
+func (r *Reconciler) namespaceExecuteBlock(ctx context.Context, current *api.NamespaceNetworkTransition, status *api.TransitionStatus) (string, error) {
+	currentStarted := namespaceExecuteStarted(status, current.Generation)
+	var namespaces api.NamespaceNetworkTransitionList
+	if err := r.reader().List(ctx, &namespaces); err != nil {
+		return "", fmt.Errorf("listing NamespaceNetworkTransition objects to check Execute exclusivity: %w", err)
+	}
+	for i := range namespaces.Items {
+		other := &namespaces.Items[i]
+		if other.Name == current.Name || !other.DeletionTimestamp.IsZero() || other.Spec.Action != api.ActionExecute {
+			continue
+		}
+		var otherStatus *api.TransitionStatus
+		if other.Status != nil {
+			otherStatus = &other.Status.TransitionStatus
+		}
+		if namespaceExecuteStarted(otherStatus, other.Generation) {
+			return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Execute; %q must wait", other.Name, current.Name), nil
+		}
+		if completedExecute(otherStatus, other.Generation) {
+			continue
+		}
+		// Both requests may have passed admission before either status checkpoint
+		// was written. Let exactly one stable name claim the slot.
+		if !currentStarted && canRequestExecute(otherStatus) && other.Name < current.Name {
+			return fmt.Sprintf("NamespaceNetworkTransition %q has priority under simultaneous Execute requests; %q must wait", other.Name, current.Name), nil
+		}
+	}
+	return "", nil
+}
+
+func canRequestExecute(status *api.TransitionStatus) bool {
+	if status == nil {
+		return false
+	}
+	if status.LastAction == api.ActionEvaluate && status.ActionState == api.ActionStateSucceeded {
+		return true
+	}
+	return status.LastAction == api.ActionExecute &&
+		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed || status.ActionState == api.ActionStateSucceeded)
+}
+
+func namespaceExecuteStarted(status *api.TransitionStatus, generation int64) bool {
+	return status != nil && status.LastAction == api.ActionExecute && status.ActionGeneration == generation &&
+		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed)
+}
+
+func completedExecute(status *api.TransitionStatus, generation int64) bool {
+	return status != nil && status.LastAction == api.ActionExecute && status.ActionState == api.ActionStateSucceeded &&
+		status.ActionGeneration == generation && terminalExecutePhase(status.Phase)
+}
+
+func terminalExecutePhase(phase string) bool {
+	switch phase {
+	case api.PhaseInfraTransitionComplete, api.PhaseFinalizing, api.PhaseCompleted, api.PhaseCommitted, api.PhaseRolledBack, api.PhaseFinalized:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Reconciler) reader() client.Reader {
