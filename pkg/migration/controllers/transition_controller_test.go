@@ -288,6 +288,25 @@ func TestNamespaceExecuteWaitsForPendingNewGeneration(t *testing.T) {
 	require.Contains(t, waiting, "has priority under simultaneous Execute requests")
 }
 
+func TestCompletedExecuteUsesNamespaceTerminalPhases(t *testing.T) {
+	for _, tc := range []struct {
+		phase     string
+		completed bool
+	}{
+		{api.PhaseCompleted, true},
+		{api.PhaseCommitted, true},
+		{api.PhaseRolledBack, true},
+		{api.PhaseInfraTransitionComplete, false},
+		{api.PhaseFinalizing, false},
+		{api.PhaseFinalized, false},
+	} {
+		t.Run(tc.phase, func(t *testing.T) {
+			status := &api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: tc.phase}
+			require.Equal(t, tc.completed, completedExecute(status, 4))
+		})
+	}
+}
+
 func TestNamespaceExecuteExclusivityIgnoresControlPlaneTransition(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))

@@ -164,12 +164,12 @@ func namespaceExecuteStarted(status *api.TransitionStatus, generation int64) boo
 
 func completedExecute(status *api.TransitionStatus, generation int64) bool {
 	return status != nil && status.LastAction == api.ActionExecute && status.ActionState == api.ActionStateSucceeded &&
-		status.ActionGeneration == generation && terminalExecutePhase(status.Phase)
+		status.ActionGeneration == generation && terminalNamespaceExecutePhase(status.Phase)
 }
 
-func terminalExecutePhase(phase string) bool {
+func terminalNamespaceExecutePhase(phase string) bool {
 	switch phase {
-	case api.PhaseInfraTransitionComplete, api.PhaseFinalizing, api.PhaseCompleted, api.PhaseCommitted, api.PhaseRolledBack, api.PhaseFinalized:
+	case api.PhaseCompleted, api.PhaseCommitted, api.PhaseRolledBack:
 		return true
 	default:
 		return false
