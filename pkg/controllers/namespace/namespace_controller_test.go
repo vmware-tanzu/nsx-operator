@@ -243,7 +243,7 @@ func TestNamespaceReconciler_Reconcile(t *testing.T) {
 				})
 				// Mock createDefaultSubnetSet to return nil (no error)
 				patches.ApplyPrivateMethod(reflect.TypeOf(r), "createDefaultSubnetSet", func(_ *NamespaceReconciler, _ context.Context, _ string,
-					_ *v1alpha1.VPCNetworkConfiguration, _ ctlcommon.NameSpaceType, _ v1alpha1.NetworkStackType) error {
+					_ *v1alpha1.VPCNetworkConfiguration, _ ctlcommon.NameSpaceType, _ v1alpha1.NetworkStackType, _ bool) error {
 					return nil
 				})
 				patches.ApplyMethod(reflect.TypeOf(&vpc.VPCService{}), "GetNetworkStackFromNC", func(_ *vpc.VPCService, _ *v1alpha1.VPCNetworkConfiguration) (v1alpha1.NetworkStackType, error) {
@@ -444,7 +444,7 @@ func TestCreateDefaultSubnetSet(t *testing.T) {
 				},
 			}
 			// Call the function being tested
-			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, nc, tt.nameSpaceType, tt.networkStack)
+			err := r.createDefaultSubnetSet(context.Background(), tt.namespace, nc, tt.nameSpaceType, tt.networkStack, false)
 
 			// Check the result
 			if tt.expectedError {

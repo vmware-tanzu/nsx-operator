@@ -1,0 +1,23 @@
+# Copyright © 2026 Broadcom, Inc. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nsx-operator-networksettings-reader
+rules:
+- apiGroups: ["netoperator.vmware.com"]
+  resources: ["networksettings"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nsx-operator-networksettings-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nsx-operator-networksettings-reader
+subjects:
+- kind: ServiceAccount
+  name: ncp-svc-account
+  namespace: vmware-system-nsx

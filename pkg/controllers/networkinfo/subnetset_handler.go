@@ -2,6 +2,7 @@ package networkinfo
 
 import (
 	"context"
+	"reflect"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -18,8 +19,10 @@ type SubnetSetHandler struct {
 	Client client.Client
 }
 
-func (h *SubnetSetHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.Debug("SubnetSet create event, do nothing")
+func (h *SubnetSetHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	for _, req := range networkInfosInNamespace(ctx, h.Client, e.Object.GetNamespace()) {
+		q.Add(req)
+	}
 }
 
 func (h *SubnetSetHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -37,16 +40,21 @@ func (h *SubnetSetHandler) Generic(_ context.Context, _ event.GenericEvent, _ wo
 	log.Debug("SubnetSet generic event, do nothing")
 }
 
-func (h *SubnetSetHandler) Update(_ context.Context, _ event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	log.Debug("SubnetSet update event, do nothing")
+func (h *SubnetSetHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	for _, req := range networkInfosInNamespace(ctx, h.Client, e.ObjectNew.GetNamespace()) {
+		q.Add(req)
+	}
 }
 
 var PredicateFuncsSubnetSet = predicate.Funcs{
 	CreateFunc: func(e event.CreateEvent) bool {
-		return false
+		return controllercommon.IsDefaultSubnetSet(e.Object.(*v1alpha1.SubnetSet))
 	},
 	UpdateFunc: func(e event.UpdateEvent) bool {
-		return false
+		oldSet, newSet := e.ObjectOld.(*v1alpha1.SubnetSet), e.ObjectNew.(*v1alpha1.SubnetSet)
+		return controllercommon.IsDefaultSubnetSet(newSet) &&
+			(controllercommon.IsObjectReady(oldSet.Status.Conditions) != controllercommon.IsObjectReady(newSet.Status.Conditions) ||
+				!reflect.DeepEqual(oldSet.Spec.SubnetNames, newSet.Spec.SubnetNames))
 	},
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		obj := e.Object.(*v1alpha1.SubnetSet)

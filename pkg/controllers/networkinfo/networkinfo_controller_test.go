@@ -1389,10 +1389,11 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						return nil
 					})
 				patches.ApplyFunc(setNetworkInfoVPCStatus,
-					func(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) {
+					func(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) error {
 						require.NotNil(t, args)
 						require.True(t, len(args) >= 2)
 						require.ElementsMatch(t, []string{"example.com"}, args[1])
+						return nil
 					})
 				patches.ApplyFunc(setNSNetworkReadyCondition,
 					func(ctx context.Context, client client.Client, nsName string, condition *corev1.NamespaceCondition) {
@@ -1474,7 +1475,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						require.True(t, nsConditionEquals(*condition, *nsMsgVPCDNSZonesSyncError.getNSNetworkCondition(fmt.Errorf("unable to query NSX DNS zone"))))
 					})
 				patches.ApplyFunc(setNetworkInfoVPCStatus,
-					func(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) {
+					func(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) error {
 						require.NotNil(t, args)
 						// Guard against architectural variances in gomonkey's variadic argument unpacking.
 						// In failure cases, 'args' only contains the state (len=1), so we bypass the domain slice check.
@@ -1484,6 +1485,7 @@ func TestNetworkInfoReconciler_Reconcile(t *testing.T) {
 						} else {
 							require.Equal(t, 1, len(args), "In failure case, only 'state' should be passed")
 						}
+						return nil
 					})
 				return patches
 			},
@@ -2914,7 +2916,7 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 				},
 			}
 			if len(tc.subnetSetList) == 0 {
-				err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType)
+				err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType, false)
 				if tc.expectErrStr != "" {
 					assert.ErrorContains(t, err, tc.expectErrStr)
 				} else {
@@ -2922,7 +2924,7 @@ func TestNetworkInfoReconciler_UpdateDefaultSubnetSet(t *testing.T) {
 				}
 			} else {
 				// Don't error out on "already exists" for existing tests
-				err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType)
+				err := r.updateDefaultSubnetSet(ctx, "pod", "ns-1", nc, tc.hasPrecreatedSubnet, tc.autoCreatedIPAddressType, false)
 				if tc.expectErrStr != "" {
 					assert.ErrorContains(t, err, tc.expectErrStr)
 				} else {

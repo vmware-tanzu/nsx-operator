@@ -92,11 +92,15 @@ func GetNSXSubnetsForSubnetSet(client k8sclient.Client, subnetSet *v1alpha1.Subn
 }
 
 func getSubnetFromVPCNetworkConfiguration(vpcService servicecommon.VPCServiceProvider, ns string, defaultSubnetSetFor string) (sets.Set[string], error) {
-	subnetPaths := sets.New[string]()
 	vpcNetworkConfig, err := GetVpcNetworkConfig(vpcService, ns)
 	if err != nil {
-		return subnetPaths, err
+		return sets.New[string](), err
 	}
+	return DefaultSubnetPaths(vpcNetworkConfig, defaultSubnetSetFor), nil
+}
+
+func DefaultSubnetPaths(vpcNetworkConfig *v1alpha1.VPCNetworkConfiguration, defaultSubnetSetFor string) sets.Set[string] {
+	subnetPaths := sets.New[string]()
 	for _, subnet := range vpcNetworkConfig.Spec.Subnets {
 		if defaultSubnetSetFor == servicecommon.DefaultPodNetwork && subnet.PodDefault {
 			subnetPaths.Insert(subnet.Path)
@@ -104,7 +108,7 @@ func getSubnetFromVPCNetworkConfiguration(vpcService servicecommon.VPCServicePro
 			subnetPaths.Insert(subnet.Path)
 		}
 	}
-	return subnetPaths, nil
+	return subnetPaths
 }
 
 // ResolveEffectiveStaticIPAllocationType returns the StaticIPAllocationType a SubnetPort

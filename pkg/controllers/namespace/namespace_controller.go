@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -43,6 +45,7 @@ var (
 type NamespaceReconciler struct {
 	Client              client.Client
 	APIReader           client.Reader
+	networkSettings     client.Reader
 	Scheme              *apimachineryruntime.Scheme
 	NSXConfig           *config.NSXOperatorConfig
 	VPCService          types.VPCServiceProvider
@@ -150,8 +153,18 @@ func getDefaultSubnetsets(namespaceType common.NameSpaceType) map[string]string 
 }
 
 // createDefaultSubnetSet only create default subnetset for system Namespace or SVService Namespace
-func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, nc *v1alpha1.VPCNetworkConfiguration, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType) error {
+func (r *NamespaceReconciler) createDefaultSubnetSet(ctx context.Context, ns string, nc *v1alpha1.VPCNetworkConfiguration, namespaceType common.NameSpaceType, networkStack v1alpha1.NetworkStackType, migrated bool) error {
 	defaultSubnetSets := getDefaultSubnetsets(namespaceType)
+	if migrated {
+		// A shared target will be materialized by syncSharedSubnets below.
+		vmShared, podShared := r.getVMPodSubnet(nc.Spec.Subnets)
+		if vmShared {
+			delete(defaultSubnetSets, types.DefaultVMSubnetSet)
+		}
+		if podShared {
+			delete(defaultSubnetSets, types.DefaultPodSubnetSet)
+		}
+	}
 	ipFamily := r.NSXConfig.K8sConfig.GetIPAddressType()
 	for name, subnetSetType := range defaultSubnetSets {
 		if err := retry.OnError(retry.DefaultRetry, func(err error) bool {
@@ -275,7 +288,10 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		metrics.CounterInc(r.NSXConfig, metrics.ControllerUpdateTotal, common.MetricResTypeNamespace)
 		log.Info("Start processing Namespace create/update event", "Namespace", ns)
 
-		ctx := context.Background()
+		provision, migrated, err := common.NamespaceDefaultNetworking(ctx, r.networkSettings, obj)
+		if err != nil || !provision {
+			return common.ResultNormal, err
+		}
 		ncName, err := r.VPCService.GetNetworkconfigNameFromNS(ctx, ns)
 		if err != nil {
 			log.Error(err, "Failed to get NetworkConfig name", "Namespace", ns)
@@ -291,6 +307,12 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			message := fmt.Sprintf("missing NetworkConfig %s for Namespace %s", ncName, ns)
 			r.namespaceError(ctx, obj, message, nil)
 			return common.ResultRequeueAfter10sec, errors.New(message)
+		}
+		if migrated {
+			if err := common.ValidateCutoverConfig(obj, nc); err != nil {
+				r.namespaceError(ctx, obj, err.Error(), err)
+				return common.ResultRequeueAfter10sec, err
+			}
 		}
 		if err = r.VPCService.ValidateNetworkConfig(nc); err != nil {
 			// if network config is not valid, no need to retry, skip processing
@@ -310,7 +332,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		namespaceType := common.GetNamespaceType(obj, nc)
 
 		// create default SubnetSet for system Namespace or SVService Namespace
-		if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack); err != nil {
+		if err := r.createDefaultSubnetSet(ctx, ns, nc, namespaceType, networkStack, migrated); err != nil {
 			return common.ResultNormal, err
 		}
 
@@ -338,7 +360,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Namespace{}).
 		WithOptions(
 			controller.Options{
@@ -348,8 +370,24 @@ func (r *NamespaceReconciler) setupWithManager(mgr ctrl.Manager) error {
 			&v1alpha1.VPCNetworkConfiguration{},
 			&EnqueueRequestForVPCNetworkConfiguration{Reconciler: r},
 			builder.WithPredicates(PredicateFuncsVPCNetworkConfig),
-		).
-		Complete(r)
+		)
+	var err error
+	r.networkSettings, err = common.WatchNetworkSettings(mgr, b, func(_ context.Context, obj client.Object) []ctrl.Request {
+		return []ctrl.Request{{NamespacedName: client.ObjectKey{Name: obj.GetNamespace()}}}
+	})
+	if err != nil {
+		return err
+	}
+	if r.networkSettings != nil {
+		onDelete := handler.Funcs{DeleteFunc: func(_ context.Context, e event.DeleteEvent, q ReconcileQueue) {
+			if ss, ok := e.Object.(*v1alpha1.SubnetSet); ok && !common.IsDefaultSubnetSet(ss) {
+				return
+			}
+			q.Add(ctrl.Request{NamespacedName: client.ObjectKey{Name: e.Object.GetNamespace()}})
+		}}
+		b.Watches(&v1alpha1.SubnetSet{}, onDelete).Watches(&v1alpha1.NetworkInfo{}, onDelete)
+	}
+	return b.Complete(r)
 }
 
 // Start setup manager and launch GC

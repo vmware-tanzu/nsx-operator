@@ -31,11 +31,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/controllers/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
@@ -121,6 +125,7 @@ type dnsZoneSyncer interface {
 // NetworkInfoReconciler NetworkInfoReconcile reconciles a NetworkInfo object
 // Actually it is more like a shell, which is used to manage nsx VPC
 type NetworkInfoReconciler struct {
+	networkSettings     client.Reader
 	Client              client.Client
 	Scheme              *apimachineryruntime.Scheme
 	Service             *vpc.VPCService
@@ -175,7 +180,12 @@ func (r *NetworkInfoReconciler) computeSubnetSetIPAddressType(hasIPv4CIDR, hasIP
 // autoCreatedIPAddressType: empty string means no compatible IP address type was found;
 //                           this triggers deletion of the auto-created SubnetSet if it exists.
 
-func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subnetSetType string, ns string, nc *v1alpha1.VPCNetworkConfiguration, hasPrecreatedSubnet bool, autoCreatedIPAddressType v1alpha1.IPAddressType) error {
+func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subnetSetType string, ns string, nc *v1alpha1.VPCNetworkConfiguration, hasPrecreatedSubnet bool, autoCreatedIPAddressType v1alpha1.IPAddressType, migrated bool) error {
+	if migrated && hasPrecreatedSubnet {
+		// Shared defaults are reconciled from their explicit subnet paths by the
+		// Namespace controller. A cutover does not authorize deleting an old set.
+		return nil
+	}
 	var name string
 	var accessMode v1alpha1.AccessMode
 	// TODO: remove this old Label when all other dependencies consume the new label
@@ -198,7 +208,11 @@ func (r *NetworkInfoReconciler) updateDefaultSubnetSet(ctx context.Context, subn
 		if subnetSetCR != nil {
 			// Delete the default SubnetSet if it is created with auto-created Subnets and the current supported IP address type is not a superset of the SubnetSet IP address type.
 			// e.g. if the current supported IP address type is IPv4 or IPv6, and the SubnetSet IP address type is IPv4IPv6, then the SubnetSet shall be deleted and recreated
-			if !common.IsSupersetIPAddressTypes(autoCreatedIPAddressType, subnetSetCR.Spec.IPAddressType) && subnetSetCR.Spec.SubnetNames == nil {
+			existingType := subnetSetCR.Spec.IPAddressType
+			if migrated {
+				existingType = existingSubnetSetFamily(subnetSetCR)
+			}
+			if !common.IsSupersetIPAddressTypes(autoCreatedIPAddressType, existingType) && subnetSetCR.Spec.SubnetNames == nil {
 				log.Info("Delete default SubnetSet", commonservice.LabelDefaultNetwork, subnetSetType, "Namespace", ns, "existingIPAddressType", subnetSetCR.Spec.IPAddressType, "desiredIPAddressType", autoCreatedIPAddressType)
 				err = r.Client.Delete(ctx, subnetSetCR)
 				if err != nil {
@@ -289,16 +303,6 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	r.StatusUpdater.IncreaseUpdateTotal()
 
-	nc, err := r.getNetworkConfig(ctx, networkInfoCR)
-	if err != nil {
-		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "", setNetworkInfoVPCStatusWithError, nil)
-		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
-		return common.ResultRequeueAfter10sec, err
-	}
-
-	ncName := nc.Name
-	log.Info("Fetched NetworkConfig from store", "NetworkConfig", ncName)
-
 	ns := &corev1.Namespace{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: req.Namespace}, ns); err != nil {
 		log.Error(err, "Unable to fetch Namespace", "Namespace", req.Namespace)
@@ -310,6 +314,26 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Debug("Skip NetworkInfo create/update for terminating Namespace", "Namespace", req.Namespace)
 		return common.ResultNormal, nil
 	}
+	provision, migrated, err := common.NamespaceDefaultNetworking(ctx, r.networkSettings, ns)
+	if err != nil || !provision {
+		return common.ResultNormal, err
+	}
+	nc, err := r.getNetworkConfig(ctx, networkInfoCR)
+	if err != nil {
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "", setNetworkInfoVPCStatusWithError, nil)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
+		return common.ResultRequeueAfter10sec, err
+	}
+
+	if migrated {
+		if err := common.ValidateCutoverConfig(ns, nc); err != nil {
+			setNSNetworkReadyCondition(ctx, r.Client, ns.Name, nsMsgVPCNetCfgGetError.getNSNetworkCondition(err))
+			return common.ResultRequeueAfter10sec, err
+		}
+	}
+	ncName := nc.Name
+	log.Info("Fetched NetworkConfig from store", "NetworkConfig", ncName)
+
 	namespaceType := common.GetNamespaceType(ns, nc)
 	log.Debug("Fetch Namespace for NetworkInfo", "Namespace", ns, "type", namespaceType)
 
@@ -498,6 +522,16 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	autoFamilies := make(map[string]v1alpha1.IPAddressType)
+	if migrated {
+		// Namespace reconciliation owns the dedicated defaults for these namespace types.
+		switch namespaceType {
+		case common.SystemNs:
+			autoFamilies[commonservice.DefaultVMNetwork] = r.Service.NSXConfig.K8sConfig.GetIPAddressType()
+		case common.SVServiceNs:
+			autoFamilies[commonservice.DefaultPodNetwork] = r.Service.NSXConfig.K8sConfig.GetIPAddressType()
+		}
+	}
 	if namespaceType == common.NormalNs {
 		// Check private cidr to determine if create default SubnetSet for VM
 		hasPrivateCidr := len(privateIPs) > 0
@@ -508,8 +542,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			hasIPv6Blocks = false
 		}
 		autoCreatedVMIPAddressType := r.computeSubnetSetIPAddressType(hasPrivateCidr, hasIPv6Blocks)
+		autoFamilies[commonservice.DefaultVMNetwork] = autoCreatedVMIPAddressType
 		log.Debug("IPAddressType for vm default SubnetSet is calculated", "autoCreatedVMIPAddressType", autoCreatedVMIPAddressType, "Namespace", req.Namespace)
-		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultVMNetwork, req.Namespace, nc, hasVMDefaultSubnets(nc.Spec.Subnets), autoCreatedVMIPAddressType); err != nil {
+		if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultVMNetwork, req.Namespace, nc, hasVMDefaultSubnets(nc.Spec.Subnets), autoCreatedVMIPAddressType, migrated); err != nil {
 			r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update default SubnetSet for VM", setNetworkInfoVPCStatusWithError, nil)
 			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 			return common.ResultNormal, err
@@ -518,8 +553,9 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if vpcConnectivityProfile != nil {
 			hasPrivateTgwCidr := len(vpcConnectivityProfile.PrivateTgwIpBlocks) > 0
 			autoCreatedPodIPAddressType := r.computeSubnetSetIPAddressType(hasPrivateTgwCidr, hasIPv6Blocks)
+			autoFamilies[commonservice.DefaultPodNetwork] = autoCreatedPodIPAddressType
 			log.Debug("IPAddressType for pod default SubnetSet is calculated", "autoCreatedPodIPAddressType", autoCreatedPodIPAddressType, "Namespace", req.Namespace)
-			if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultPodNetwork, req.Namespace, nc, hasPodDefaultSubnets(nc.Spec.Subnets), autoCreatedPodIPAddressType); err != nil {
+			if err := r.updateDefaultSubnetSet(ctx, commonservice.DefaultPodNetwork, req.Namespace, nc, hasPodDefaultSubnets(nc.Spec.Subnets), autoCreatedPodIPAddressType, migrated); err != nil {
 				r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to create or update default SubnetSet for Pod", setNetworkInfoVPCStatusWithError, nil)
 				setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
 				return common.ResultNormal, err
@@ -613,13 +649,28 @@ func (r *NetworkInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to update VPCNetworkConfiguration status", nil)
 		return common.ResultRequeue, err
 	}
-	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, setNetworkInfoVPCStatus, state, allowedDNSRecordDomains)
+	if err := setNetworkInfoVPCStatus(r.Client, ctx, networkInfoCR, metav1.Now(), state, allowedDNSRecordDomains); err != nil {
+		r.StatusUpdater.UpdateFail(ctx, networkInfoCR, err, "Failed to persist NetworkInfo VPC state", nil)
+		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
+		return common.ResultRequeue, err
+	}
+	r.StatusUpdater.UpdateSuccess(ctx, networkInfoCR, nil)
 
 	if retryWithSystemVPC {
 		setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, systemNSCondition)
 		return common.ResultRequeueAfter60sec, nil
 	}
 
+	if migrated {
+		if err := r.checkDefaultNetworks(ctx, req.Namespace, nc, *createdVpc.Path, autoFamilies); err != nil {
+			setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCCreateUpdateError.getNSNetworkCondition(err))
+			return common.ResultRequeueAfter10sec, err
+		}
+		if err := updateNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition()); err != nil {
+			return common.ResultRequeue, err
+		}
+		return common.ResultNormal, nil
+	}
 	setNSNetworkReadyCondition(ctx, r.Client, req.Namespace, nsMsgVPCIsReady.getNSNetworkCondition())
 	return common.ResultNormal, nil
 }
@@ -672,7 +723,10 @@ func primaryLBIP(ips []string) string {
 }
 
 func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	enqueue := func(ctx context.Context, obj client.Object) []ctrl.Request {
+		return networkInfosInNamespace(ctx, r.Client, obj.GetNamespace())
+	}
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.NetworkInfo{}).
 		WithEventFilter(common.VPCNamespacePredicate(r.Client)).
 		WithOptions(
@@ -694,8 +748,29 @@ func (r *NetworkInfoReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&v1alpha1.SubnetSet{},
 			&SubnetSetHandler{Client: mgr.GetClient()},
-			builder.WithPredicates(PredicateFuncsSubnetSet)).
-		Complete(r)
+			builder.WithPredicates(PredicateFuncsSubnetSet))
+	var err error
+	r.networkSettings, err = common.WatchNetworkSettings(mgr, b, enqueue)
+	if err != nil {
+		return err
+	}
+	if r.networkSettings != nil {
+		// The target binding may arrive after NetworkSettings, even when a NetworkInfo
+		// already exists. Wake that object without relying on another provider change.
+		b.Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []ctrl.Request {
+			return networkInfosInNamespace(ctx, r.Client, obj.GetName())
+		}), builder.WithPredicates(predicate.Funcs{
+			CreateFunc:  func(event.CreateEvent) bool { return false },
+			DeleteFunc:  func(event.DeleteEvent) bool { return false },
+			GenericFunc: func(event.GenericEvent) bool { return false },
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				oldBinding := e.ObjectOld.GetAnnotations()[commonservice.AnnotationVPCNetworkConfig]
+				newBinding := e.ObjectNew.GetAnnotations()[commonservice.AnnotationVPCNetworkConfig]
+				return newBinding != "" && oldBinding != newBinding && config.IsVPCNamespace(e.ObjectNew.(*corev1.Namespace))
+			},
+		}))
+	}
+	return b.Complete(r)
 }
 
 // Start setup manager and launch GC
