@@ -141,7 +141,9 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 		for _, resource := range rule.Resources {
 			if resource == "controlplanenetworktransitions/status" {
 				statusPatches = true
-				require.Equal(t, []string{"patch"}, rule.Verbs)
+				// The controller reads the CR and writes its status after
+				// inspection. Source Network Operator resources remain read-only.
+				require.ElementsMatch(t, []string{"get", "patch", "update"}, rule.Verbs)
 				require.Contains(t, rule.Resources, "namespacenetworktransitions/status")
 			}
 		}
