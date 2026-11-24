@@ -100,6 +100,11 @@ func (clients *AuthenticatedClients) Close(ctx context.Context) error {
 	if clients == nil {
 		return nil
 	}
+	if ctx == nil || ctx.Err() != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+	}
 	var restErr, soapErr error
 	if clients.VCenterREST != nil {
 		restErr = clients.VCenterREST.Logout(ctx)
