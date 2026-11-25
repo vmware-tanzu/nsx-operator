@@ -21,7 +21,7 @@ Package v1alpha1 defines the Supervisor network transition API.
 
 _Underlying type:_ _string_
 
-Action selects an explicit migration operation. Plan and Derive are internal Execute phases, not API actions.
+Action selects an explicit migration operation.
 
 _Validation:_
 - Enum: [Evaluate Execute Rollback Commit Finalize]
@@ -36,7 +36,7 @@ _Appears in:_
 
 | Field | Description |
 | --- | --- |
-| `Evaluate` | ActionEvaluate discovers and validates source configuration, identifies inputs and selects an LB SNAT allocation source when required.<br /> |
+| `Evaluate` | ActionEvaluate discovers and validates source configuration, identifies inputs and reserves the source LB SNAT address when required.<br /> |
 | `Execute` | ActionExecute prepares target resources and migrates workloads to the target network.<br /> |
 | `Rollback` | ActionRollback restores an eligible Namespace batch before its Commit checkpoint.<br />Infrastructure transitions do not support Rollback.<br /> |
 | `Commit` | ActionCommit commits a verified Namespace batch and closes its rollback window.<br /> |
@@ -78,7 +78,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `resourceNaming` _[ControlPlaneResourceNaming](#controlplaneresourcenaming)_ | ResourceNaming supplies optional IDs for NSX resources created for migration.<br />Omitted names use deterministic generated names. Naming inputs never rename<br />or implicitly adopt existing resources and are not requiredInputs. |  |  |
-| `lbSNATIPs` _string array_ | LBSNATIPs optionally supplies the IPv4 LB SNAT address when the discovered<br />backend is separate from the VIP and workload networks. Inspection validates<br />syntax and selects an allocation source; the allocation handler must validate<br />backend membership and check conflicts where authoritative data is available.<br />The administrator is responsible when address ownership cannot be verified.<br />If omitted, inspection selects the matching VIP/workload Network, or the VIP<br />pool for a separate backend and warns that reachability must be checked. Keep<br />this as a slice so a later release can add IPv6 without changing its shape.<br />After status.lbSNATIPAllocations records an accepted address, this list cannot<br />be added, changed, or removed, including during Evaluate. |  | MaxItems: 1 <br /> |
+| `lbSNATIPs` _string array_ | LBSNATIPs optionally supplies the IPv4 LB SNAT address when the discovered<br />backend is separate from the VIP and workload networks. Inspection validates<br />syntax and selects an allocation source; the allocation handler must validate<br />backend membership and check conflicts where authoritative data is available.<br />The administrator is responsible when address ownership cannot be verified.<br />If omitted, inspection selects the matching VIP/workload Network, or the VIP<br />pool for a separate backend and warns that reachability must be checked.<br />Keep this as a slice so a later release can add IPv6 without changing its shape.<br />After status.lbSNATIPAllocations records an accepted address, this list cannot<br />be added, changed, or removed, including during Evaluate.<br />Requesting Execute prevents changes to the entire NetworkConfiguration. |  | MaxItems: 1 <br /> |
 | `controlPlaneAndServiceDHCPNetworks` _[DHCPNetworkConfiguration](#dhcpnetworkconfiguration) array_ | ControlPlaneAndServiceDHCPNetworks describes existing DHCP-backed networks used by<br />control-plane VMs and Supervisor Services. |  | MaxItems: 1000 <br /> |
 
 
@@ -120,7 +120,7 @@ _Appears in:_
 | `targetMode` _string_ | TargetMode is the target network stack. |  | Enum: [NSX_VPC] <br />MinLength: 1 <br /> |
 | `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
 | `targetLBProvider` _[LoadBalancerProvider](#loadbalancerprovider)_ | TargetLBProvider selects the desired target load balancer provider.<br />In 9.2, only NSX_LB is supported as the target for FLB sources.<br />If omitted, evaluation resolves an unambiguous supported/configured target.<br />Evaluation resolves the target provider; the selection cannot change after execution starts. |  | Enum: [NSX_LB] <br />MaxLength: 32 <br />MinLength: 1 <br /> |
-| `nsxProjectID` _string_ | NSXProjectID selects a pre-existing NSX project; omission selects the default project.<br />Once supplied, the ID cannot be changed or removed. Omission is fixed when execution starts. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
+| `nsxProjectID` _string_ | NSXProjectID selects a pre-existing NSX project; omission selects the default project.<br />It may be added, corrected, or removed during Evaluate. It is frozen after Execute<br />starts and cannot change after an LB SNAT allocation has been accepted. |  | MaxLength: 256 <br />MinLength: 1 <br /> |
 | `networkConfiguration` _[ControlPlaneNetworkConfiguration](#controlplanenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed during Evaluate before execution.<br />After status.lbSNATIPAllocations records an accepted allocation, LBSNATIPs<br />cannot be added, changed, or removed, including during Evaluate.<br />Changes require requested action Evaluate; requesting Execute freezes inputs,<br />and a recorded execution checkpoint prevents reopening them. |  |  |
 
 
@@ -376,7 +376,7 @@ _Appears in:_
 | `targetMode` _string_ | TargetMode is the target network stack. |  | Enum: [NSX_VPC] <br />MinLength: 1 <br /> |
 | `action` _[Action](#action)_ | Action selects the operation to reconcile. Operations never auto-advance. |  | Enum: [Evaluate Execute Rollback Commit Finalize] <br /> |
 | `namespaces` _string array_ | Namespaces identifies the immutable set of target Namespaces. |  | MaxItems: 1000 <br />MinItems: 1 <br /> |
-| `networkConfiguration` _[NamespaceNetworkConfiguration](#namespacenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed while the requested action is<br />Evaluate and no execution checkpoint has been recorded, or after a successful<br />Rollback with no irreversible checkpoint. Execute otherwise freezes the configuration.<br />Rollback success requires verified restoration; a new Evaluate is required before another Execute. |  |  |
+| `networkConfiguration` _[NamespaceNetworkConfiguration](#namespacenetworkconfiguration)_ | NetworkConfiguration supplies administrator-provided migration parameters.<br />Values may be added, corrected, or removed while the requested action is<br />Evaluate and no execution checkpoint has been recorded. Execute freezes the<br />configuration. Namespace inputs may be edited again only after a verified,<br />successful whole-batch Rollback and a new Evaluate request. |  |  |
 
 
 #### NamespaceNetworkTransitionStatus
@@ -402,7 +402,7 @@ _Appears in:_
 | `nsxWorkflows` _[NSXWorkflowStatus](#nsxworkflowstatus) array_ | NSXWorkflows records the exact external workflow handle for each source VDN. |  | MaxItems: 1000 <br /> |
 | `requiredInputs` _[RequiredInput](#requiredinput) array_ | RequiredInputs describe administrator inputs required before proceeding. |  | MaxItems: 1000 <br /> |
 | `optionalInputs` _[OptionalInput](#optionalinput) array_ | OptionalInputs describe optional overrides the UI may offer during Evaluate.<br />Omitting these inputs uses defaults and does not block evaluation. Handlers<br />publish/clear them with RequiredInputs for ObservedGeneration, remove frozen<br />resource names, and revalidate live eligibility before accepting overrides.<br />This is advisory UI information, not a resource inventory or a review gate. |  | MaxItems: 5000 <br /> |
-| `rollbackComplete` _boolean_ | RollbackComplete records that a successful Rollback fully restored the batch.<br />It remains true during Evaluate so infrastructure Finalize can recognize the batch as closed while inputs are re-evaluated. A new Execute, Rollback, or<br />Commit action clears it. |  |  |
+| `rollbackComplete` _boolean_ | RollbackComplete records that a successful Rollback fully restored the batch.<br />It remains true during Evaluate so infrastructure Finalize can recognize the<br />batch as closed while inputs are re-evaluated. A new Execute, Rollback, or<br />Commit action clears it. |  |  |
 | `namespaceStatuses` _[NamespaceStatus](#namespacestatus) array_ | NamespaceStatuses records progress without creating separate status resources.<br />Entries must belong to spec.namespaces; missing entries and empty phases are Pending.<br />Clients derive aggregate counts with NamespacePhaseCounts; counters are not persisted. |  | MaxItems: 1000 <br /> |
 
 
@@ -739,3 +739,5 @@ _Appears in:_
 | `vpcName` _[NSXResourceName](#nsxresourcename)_ | VPCName overrides the generated name of a new VPC for this VDN. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
 | `dvcName` _[NSXResourceName](#nsxresourcename)_ | DVCName overrides the generated name when a new DVC is needed. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
 | `subnetName` _[NSXResourceName](#nsxresourcename)_ | SubnetName overrides the generated name of a new VLAN extension subnet.<br />All backing DVPGs must use the same discovered VLAN and share one subnet<br />under the resolved VPC/span. Evaluate must reject inconsistent VLANs.<br />Existing compatible resources are reused without creation names. |  | MaxLength: 255 <br />MinLength: 1 <br />Pattern: `^[A-Za-z0-9_.-]+$` <br /> |
+
+
