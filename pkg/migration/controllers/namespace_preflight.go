@@ -456,15 +456,15 @@ func findActiveNamespaceBatchConflicts(ctx context.Context, c client.Reader, cur
 
 func topologyResourcesOverlap(first, second topology.BatchSnapshot) bool {
 	type identity struct {
-		kind topology.ResourceKind
-		key  string
+		resourceType topology.ResourceType
+		key          string
 	}
 	resources := make(map[identity]struct{}, len(first.Resources))
 	for _, resource := range first.Resources {
-		resources[identity{kind: resource.Kind, key: resource.Key}] = struct{}{}
+		resources[identity{resourceType: resource.ResourceType, key: resource.Key}] = struct{}{}
 	}
 	for _, resource := range second.Resources {
-		if _, shared := resources[identity{kind: resource.Kind, key: resource.Key}]; shared {
+		if _, shared := resources[identity{resourceType: resource.ResourceType, key: resource.Key}]; shared {
 			return true
 		}
 	}

@@ -235,7 +235,10 @@ func ReadCoexistenceNetworkProvider(ctx context.Context, c client.Reader) (strin
 
 func supervisorNamespaceProvider(object *unstructured.Unstructured, name string) (string, error) {
 	_, found, err := unstructured.NestedMap(object.Object, "spec", "networking")
-	if err != nil || !found {
+	if err != nil {
+		return "", &invalidSupervisorNamespaceError{message: fmt.Sprintf("SupervisorNamespace %q has invalid spec.networking: %v", name, err)}
+	}
+	if !found {
 		return "", &invalidSupervisorNamespaceError{message: fmt.Sprintf("SupervisorNamespace %q has no valid spec.networking", name)}
 	}
 	_, vds, err := unstructured.NestedMap(object.Object, "spec", "networking", "vsphereNetworkConfig")
@@ -266,7 +269,10 @@ func ReadNetworkSettingsProvider(ctx context.Context, c client.Reader, namespace
 		return networkSettingsProvider{}, fmt.Errorf("read NetworkSettings/default in Namespace %q: %w", namespace, err)
 	}
 	provider, found, err := unstructured.NestedString(object.Object, "provider")
-	if err != nil || !found || provider == "" {
+	if err != nil {
+		return networkSettingsProvider{}, &invalidNetworkSettingsError{message: fmt.Sprintf("read NetworkSettings/default provider in Namespace %q: %v", namespace, err)}
+	}
+	if !found || provider == "" {
 		return networkSettingsProvider{}, &invalidNetworkSettingsError{message: fmt.Sprintf("NetworkSettings/default in Namespace %q has no valid provider", namespace)}
 	}
 	legacyProvider, found, err := unstructured.NestedString(object.Object, "legacyProvider")

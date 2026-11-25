@@ -120,6 +120,35 @@ func TestNamespaceExecuteRequiresStageOneCompletion(t *testing.T) {
 	}
 }
 
+func TestTransitionValidatorRejectsSystemNamespacesInNamespaceBatch(t *testing.T) {
+	for _, namespace := range []string{"kube-system", "vmware-system-nsx"} {
+		t.Run(namespace, func(t *testing.T) {
+			newObject, err := json.Marshal(map[string]any{
+				"metadata": map[string]any{"name": "batch"},
+				"spec": map[string]any{
+					"action":     "Evaluate",
+					"namespaces": []string{namespace},
+				},
+			})
+			require.NoError(t, err)
+			request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Resource: metav1.GroupVersionResource{
+					Group: api.GroupVersion.Group, Version: api.GroupVersion.Version,
+					Resource: "namespacenetworktransitions",
+				},
+				Object: runtime.RawExtension{Raw: newObject},
+			}}
+
+			response := newTestTransitionValidator(t).Handle(context.Background(), request)
+			require.False(t, response.Allowed)
+			require.Equal(t, int32(http.StatusForbidden), response.Result.Code)
+			require.Contains(t, response.Result.Message, namespace)
+			require.Contains(t, response.Result.Message, "cannot be included")
+		})
+	}
+}
+
 func TestNamespaceExecuteStageOneReadFailureFailsClosed(t *testing.T) {
 	reader := getErrorReader{Reader: newTestTransitionValidator(t).Reader, err: errors.New("API unavailable")}
 	response := (TransitionValidator{Reader: reader}).Handle(context.Background(), validExecuteRequest("namespacenetworktransitions", "current-uid"))

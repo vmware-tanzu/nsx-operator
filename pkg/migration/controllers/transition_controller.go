@@ -42,6 +42,7 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups=iaas.vmware.com,resources=supervisornamespaces,verbs=get
 // +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=supervisor-properties,verbs=get,namespace=vmware-system-vks-public
 // +kubebuilder:rbac:groups=netoperator.vmware.com,resources=networksettings,verbs=get
+// +kubebuilder:rbac:groups=vmoperator.vmware.com,resources=virtualmachines,verbs=get;list
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=vmware-system-nsx
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 

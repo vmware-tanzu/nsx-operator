@@ -371,7 +371,7 @@ func TestFindActiveNamespaceBatchConflictsOnSharedDVPG(t *testing.T) {
 			name = "network-b"
 		}
 		return topology.BatchSnapshot{Complete: true, Resources: []topology.ResourceIdentity{{
-			Kind: topology.ResourceDVPG, Key: "vcenter-uuid:dvpg-moid", VDNName: name,
+			ResourceType: topology.ResourceDVPG, Key: "vcenter-uuid:dvpg-moid", VDNName: name,
 		}}}, nil
 	}}
 	outcome, err := checkNamespaceBatchPrerequisites(context.Background(), c, current, discoverer)
