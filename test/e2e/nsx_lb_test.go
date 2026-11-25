@@ -46,7 +46,11 @@ func TestLoadBalancer(t *testing.T) {
 	podNs := NsLoadBalancerPod
 
 	// Clean up namespaces when test completes to release resources early
-	t.Cleanup(func() { CleanupVCNamespaces(lbNs, podNs) })
+	t.Cleanup(func() {
+		if err := CleanupVCNamespaces(lbNs, podNs); err != nil {
+			t.Errorf("cleanup VC namespaces: %v", err)
+		}
+	})
 	StartParallel(t)
 
 	// Note: Don't create a shared source pod here - each subtest creates its own
@@ -274,9 +278,8 @@ func testIngress(t *testing.T, lbNs, podNs, sourcePodName string) {
 	createPodAndWaitingRunning(t, teaSvc.podName, teaSvc.namespace)
 	createPodAndWaitingRunning(t, defaultSvc.podName, defaultSvc.namespace)
 
-	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, teaSvcIP, teaSvc.port, true), "Service traffic should work")
-
-	require.True(t, checkTrafficByCurl(podNs, sourcePodName, containerName, defaultSvcIP, defaultSvc.port, true), "Service traffic should work")
+	assertLoadBalancerTraffic(t, podNs, sourcePodName, teaSvc, teaSvcIP)
+	assertLoadBalancerTraffic(t, podNs, sourcePodName, defaultSvc, defaultSvcIP)
 
 	// Create Ingress
 	coffeeIngress := ingress{

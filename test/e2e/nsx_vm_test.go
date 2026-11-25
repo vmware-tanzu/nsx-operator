@@ -19,7 +19,11 @@ func TestCreateVM(t *testing.T) {
 	StartParallel(t)
 
 	// Clean up namespace when VM tests complete
-	t.Cleanup(func() { CleanupVCNamespaces(NsCreateVM) })
+	t.Cleanup(func() {
+		if err := CleanupVCNamespaces(NsCreateVM); err != nil {
+			t.Errorf("cleanup VC namespace: %v", err)
+		}
+	})
 
 	// ParallelTests: VM tests use independent resources and can run concurrently
 	RunSubtest(t, "ParallelTests", func(t *testing.T) {
