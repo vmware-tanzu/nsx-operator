@@ -382,9 +382,12 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 		}
 	} else {
 		log.Info("Updating the NSX segment port", "existingSegmentPort", existingSegmentPort, "desiredSegmentPort", nsxSegmentPort)
-		// SegmentPort VIF restore requires POST, which the SDK does not expose.
-		// Use HttpPost directly instead of the SDK's PATCH operation.
-		err = service.postSegmentPort(segmentID, nsxSegmentPort)
+		if nsxSegmentPort.InitState != nil && *nsxSegmentPort.InitState == model.SegmentPort_INIT_STATE_RESTORE_VIF {
+			// SegmentPort VIF restore requires POST, which the SDK does not expose.
+			err = service.postSegmentPort(segmentID, nsxSegmentPort)
+		} else {
+			err = service.NSXClient.SegmentPortsClient.Patch(segmentID, *nsxSegmentPort.Id, *nsxSegmentPort)
+		}
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update segment port", "nsxSegmentPort.Id", *nsxSegmentPort.Id, "segmentPath", segmentPath)
@@ -401,7 +404,7 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 		}
 	}
 
-	nsxSegmentPortState, err := service.CheckSegmentPortState(subnetPort, segmentPath)
+	nsxSegmentPortState, err := service.CheckSegmentPortState(subnetPort, segmentPath, restoreMode)
 	if err != nil {
 		if nsxutil.IsRealizeStateError(err) {
 			log.Error(err, "check and update NSX segment port state failed, would retry with delay", "nsxSegmentPort.Id", *nsxSegmentPort.Id, "segmentPath", segmentPath)
@@ -444,11 +447,10 @@ func (service *SubnetPortService) postSegmentPort(segmentID string, port *model.
 		return fmt.Errorf("encode segment port: %w", err)
 	}
 	url := fmt.Sprintf("policy/api/v1/infra/segments/%s/ports/%s", segmentID, *port.Id)
-	_, err = service.NSXClient.Cluster.HttpPost(url, json.RawMessage(body))
-	return err
+	return service.NSXClient.Cluster.HttpPostNoResponse(url, json.RawMessage(body))
 }
 
-func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.SubnetPort, segmentPath string) (*model.SegmentPortState, error) {
+func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.SubnetPort, segmentPath string, restoreMode bool) (*model.SegmentPortState, error) {
 	segmentID, err := parseSegmentPath(segmentPath)
 	if err != nil {
 		return nil, err
@@ -467,7 +469,8 @@ func (service *SubnetPortService) CheckSegmentPortState(subnetPort *v1alpha1.Sub
 	if err := realizeService.CheckRealizeState(util.NSXTRealizeRetry, *nsxSegmentPort.Path, []string{}); err != nil {
 		log.Error(err, "Failed to get realized status", "nsxSegmentPortPath", *nsxSegmentPort.Path)
 		// Preserve restored ports so their VIF attachment can be recovered on retry.
-		if nsxutil.IsRealizeStateError(err) && (nsxSegmentPort.InitState == nil || *nsxSegmentPort.InitState != model.SegmentPort_INIT_STATE_RESTORE_VIF) {
+		isVIFRestore := restoreMode && subnetPort.Status.Attachment.ID != ""
+		if nsxutil.IsRealizeStateError(err) && !isVIFRestore && (nsxSegmentPort.InitState == nil || *nsxSegmentPort.InitState != model.SegmentPort_INIT_STATE_RESTORE_VIF) {
 			log.Error(err, "The created SegmentPort is in error realization state, cleaning the resource", "SegmentPort", portID)
 			if err := service.DeleteSegmentPortById(segmentID, portID); err != nil {
 				log.Error(err, "Cleanup error SegmentPort failed", "SegmentPort", portID)

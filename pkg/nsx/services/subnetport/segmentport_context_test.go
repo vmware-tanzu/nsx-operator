@@ -52,12 +52,12 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 		contextID       string
 		existingContext string
 		expectedContext string
-		postCount       int
+		patchCount      int
 	}{
-		{name: "new port", newPort: true, contextID: "host-1", expectedContext: "host-1", postCount: 1},
-		{name: "changed context", contextID: "host-2", existingContext: "host-1", expectedContext: "host-2", postCount: 1},
+		{name: "new port", newPort: true, contextID: "host-1", expectedContext: "host-1", patchCount: 1},
+		{name: "changed context", contextID: "host-2", existingContext: "host-1", expectedContext: "host-2", patchCount: 1},
 		{name: "unchanged context", contextID: "host-1", existingContext: "host-1", expectedContext: "host-1"},
-		{name: "cleared context", existingContext: "host-1", postCount: 1},
+		{name: "cleared context", existingContext: "host-1", patchCount: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 				require.NoError(t, service.SegmentPortStore.Apply(port))
 				segmentClient.port = *port
 			}
-			patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "CheckSegmentPortState", func(_ *SubnetPortService, _ *v1alpha1.SubnetPort, _ string) (*model.SegmentPortState, error) {
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "CheckSegmentPortState", func(_ *SubnetPortService, _ *v1alpha1.SubnetPort, _ string, _ bool) (*model.SegmentPortState, error) {
 				return &model.SegmentPortState{}, nil
 			})
 			defer patches.Reset()
@@ -93,7 +93,8 @@ func TestCreateOrUpdateSegmentPortContextID(t *testing.T) {
 
 			_, err := service.CreateOrUpdateSegmentPort(sp, segmentPath, tt.contextID, nil, true, false)
 			require.NoError(t, err)
-			assert.Equal(t, tt.postCount, segmentClient.postCount)
+			assert.Equal(t, tt.patchCount, segmentClient.patchCount)
+			assert.Zero(t, segmentClient.postCount)
 			cached, err := service.SegmentPortStore.GetSegmentPortByUID(sp.UID)
 			require.NoError(t, err)
 			require.NotNil(t, cached)

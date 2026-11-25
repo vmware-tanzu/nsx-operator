@@ -42,6 +42,56 @@ func TestNewCluster(t *testing.T) {
 	assert.True(t, err == nil, fmt.Sprintf("Created cluster failed %v", err))
 }
 
+func TestHttpPostNoResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		status  int
+		body    string
+		wantErr bool
+	}{
+		{name: "empty OK", status: http.StatusOK},
+		{name: "empty created", status: http.StatusCreated},
+		{name: "empty accepted", status: http.StatusAccepted},
+		{name: "JSON response", status: http.StatusOK, body: `{"id":"port-1"}`},
+		{name: "bad request", status: http.StatusBadRequest, body: `{"error_message":"invalid port"}`, wantErr: true},
+		{name: "server error", status: http.StatusInternalServerError, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "/policy/api/v1/infra/segments/seg-1/ports/port-1", r.URL.Path)
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+				body, err := io.ReadAll(r.Body)
+				assert.NoError(t, err)
+				assert.JSONEq(t, `{"id":"port-1"}`, string(body))
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+
+			cluster := &Cluster{config: &Config{}, endpoints: []*Endpoint{{
+				provider: &address{host: strings.TrimPrefix(server.URL, "http://"), scheme: "http"},
+				client:   server.Client(),
+			}}}
+			err := cluster.HttpPostNoResponse("policy/api/v1/infra/segments/seg-1/ports/port-1", json.RawMessage(`{"id":"port-1"}`))
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+	t.Run("connection failure", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		server.Close()
+		cluster := &Cluster{config: &Config{}, endpoints: []*Endpoint{{
+			provider: &address{host: strings.TrimPrefix(server.URL, "http://"), scheme: "http"},
+			client:   server.Client(),
+		}}}
+		assert.Error(t, cluster.HttpPostNoResponse("policy/api/v1/infra/segments/seg-1/ports/port-1", json.RawMessage(`{"id":"port-1"}`)))
+	})
+}
+
 func TestCluster_getThumbprint(t *testing.T) {
 	// one api server, one thumbprint
 	thumbprint := []string{"123"}
