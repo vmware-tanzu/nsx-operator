@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -77,42 +78,6 @@ func TestWorkloadCutoverProtection(t *testing.T) {
 	})
 }
 
-func TestControllerIdentityWorkloadUpdateException(t *testing.T) {
-	scheme := runtime.NewScheme()
-	require.NoError(t, api.AddToScheme(scheme))
-	transition := &api.NamespaceNetworkTransition{
-		ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 2},
-		Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
-		Status:     &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ObservedGeneration: 2, ActionGeneration: 2}},
-	}
-	identity := "system:serviceaccount:vmware-system-netop:vmware-system-netop-controller-manager"
-	validator := WorkloadCutoverValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build(), ControllerUsers: []string{identity}}
-	old := `{"metadata":{"uid":"vm-uid"},"spec":{"cpu":2}}`
-	expected := `{"metadata":{"uid":"vm-uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"cpu":2}}`
-	for _, tc := range []struct {
-		name, user, object string
-		op                 admissionv1.Operation
-		allow              bool
-	}{
-		{"exact annotation", identity, expected, admissionv1.Update, true},
-		{"wrong identity", "someone-else", expected, admissionv1.Update, false},
-		{"extra spec change", identity, `{"metadata":{"uid":"vm-uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"cpu":4}}`, admissionv1.Update, true},
-		{"other annotation", identity, `{"metadata":{"uid":"vm-uid","annotations":{"other":"true"}},"spec":{"cpu":2}}`, admissionv1.Update, true},
-		{"changed uid", identity, `{"metadata":{"uid":"other","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"cpu":2}}`, admissionv1.Update, false},
-		{"delete is forbidden", identity, "", admissionv1.Delete, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Namespace: "tenant", Operation: tc.op, Resource: metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"}, OldObject: runtime.RawExtension{Raw: []byte(old)}, Object: runtime.RawExtension{Raw: []byte(tc.object)}}}
-			req.UserInfo.Username = tc.user
-			require.Equal(t, tc.allow, validator.Handle(context.Background(), req).Allowed)
-		})
-	}
-	validator.ControllerUsers = []string{""}
-	req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Namespace: "tenant", Operation: admissionv1.Update, Resource: metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"}, OldObject: runtime.RawExtension{Raw: []byte(old)}, Object: runtime.RawExtension{Raw: []byte(expected)}}}
-	req.UserInfo.Username = ""
-	require.False(t, validator.Handle(context.Background(), req).Allowed, "an empty identity never matches, even an empty username")
-}
-
 func TestControlPlaneWorkloadProtection(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))
@@ -122,10 +87,10 @@ func TestControlPlaneWorkloadProtection(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 4},
 		Spec:       api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}},
 	}
-	systemNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "system", Annotations: map[string]string{"vmware-system-shared-t1": "true"}}}
-	sharedVPCNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "system-vpc", Annotations: map[string]string{"nsx.vmware.com/shared_vpc_namespace": "kube-system"}}}
+	systemNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "system", UID: "system-ns-uid", Annotations: map[string]string{"vmware-system-shared-t1": "true"}}}
+	sharedVPCNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "system-vpc", UID: "system-vpc-ns-uid", Annotations: map[string]string{"nsx.vmware.com/shared_vpc_namespace": "kube-system"}}}
 	makeValidator := func(objects ...client.Object) WorkloadCutoverValidator {
-		return WorkloadCutoverValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build(), ControllerUsers: []string{NetOperatorControllerUser}}
+		return WorkloadCutoverValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()}
 	}
 	makeRequest := func(namespace string, operation admissionv1.Operation, user string, old, current string) admission.Request {
 		req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
@@ -136,31 +101,19 @@ func TestControlPlaneWorkloadProtection(t *testing.T) {
 		req.UserInfo.Username = user
 		return req
 	}
-	oldVM := `{"metadata":{"uid":"vm-uid"}}`
-	updatedVM := `{"metadata":{"uid":"vm-uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}}}`
+	oldVM := `{"metadata":{"name":"workload","uid":"vm-uid"}}`
+	updatedVM := `{"metadata":{"name":"workload","uid":"vm-uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}}}`
 
 	t.Run("protects VDS and VPC system namespaces from user writes", func(t *testing.T) {
 		validator := makeValidator(transition, systemNamespace, sharedVPCNamespace)
 		for _, namespace := range []string{"system", "system-vpc", "kube-system"} {
 			require.False(t, validator.Handle(context.Background(), makeRequest(namespace, admissionv1.Update, "user", oldVM, updatedVM)).Allowed, namespace)
+			require.False(t, validator.Handle(context.Background(), makeRequest(namespace, admissionv1.Update, NetOperatorControllerUser, oldVM, updatedVM)).Allowed, namespace)
 			require.False(t, validator.Handle(context.Background(), makeRequest(namespace, admissionv1.Delete, NetOperatorControllerUser, oldVM, "")).Allowed, namespace)
 		}
+		require.True(t, validator.Handle(context.Background(), makeRequest("vmware-system-nsx", admissionv1.Update, "user", oldVM, updatedVM)).Allowed,
+			"the NSX operator namespace is not a control-plane system namespace by name alone")
 		require.True(t, validator.Handle(context.Background(), makeRequest("tenant", admissionv1.Update, "user", oldVM, updatedVM)).Allowed)
-	})
-
-	t.Run("controller updates are allowed only after current Execute checkpoint", func(t *testing.T) {
-		current := transition.DeepCopy()
-		current.Status = &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
-			LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 4, ObservedGeneration: 4,
-		}}
-		validator := makeValidator(current, systemNamespace)
-		require.True(t, validator.Handle(context.Background(), makeRequest("system", admissionv1.Update, NetOperatorControllerUser, oldVM, updatedVM)).Allowed)
-		require.False(t, validator.Handle(context.Background(), makeRequest("system", admissionv1.Update, "user", oldVM, updatedVM)).Allowed)
-
-		stale := current.DeepCopy()
-		stale.Status.ActionGeneration = 3
-		validator = makeValidator(stale, systemNamespace)
-		require.False(t, validator.Handle(context.Background(), makeRequest("system", admissionv1.Update, NetOperatorControllerUser, oldVM, updatedVM)).Allowed)
 	})
 
 	t.Run("only verified infrastructure completion releases protection", func(t *testing.T) {
@@ -176,6 +129,91 @@ func TestControlPlaneWorkloadProtection(t *testing.T) {
 		validator = makeValidator(stale, systemNamespace)
 		require.False(t, validator.Handle(context.Background(), makeRequest("system", admissionv1.Update, "user", oldVM, updatedVM)).Allowed)
 	})
+}
+
+func TestDesignatedControllerWorkloadOperations(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	transition := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch"}, Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}}}
+	validator := WorkloadCutoverValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build()}
+	for _, resource := range []struct{ group, name, object string }{
+		{"", "pods", `{"metadata":{"name":"item","uid":"old"}}`},
+		{"vmoperator.vmware.com", "virtualmachines", `{"metadata":{"name":"item","uid":"old"}}`},
+		{"", "services", `{"metadata":{"name":"item","uid":"old"},"spec":{"type":"LoadBalancer"}}`},
+	} {
+		for _, user := range []string{NCPControllerUser, NetOperatorControllerUser, VMOperatorControllerUser, AKOControllerUser, "ordinary-user", ""} {
+			for _, op := range []admissionv1.Operation{admissionv1.Create, admissionv1.Update, admissionv1.Delete} {
+				req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Namespace: "tenant", Operation: op, Resource: metav1.GroupVersionResource{Group: resource.group, Version: "v1", Resource: resource.name}, OldObject: runtime.RawExtension{Raw: []byte(resource.object)}, Object: runtime.RawExtension{Raw: []byte(resource.object)}}}
+				req.UserInfo.Username = user
+				require.False(t, validator.Handle(context.Background(), req).Allowed, "%s %s %s", resource.name, user, op)
+			}
+		}
+	}
+	req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Namespace: "tenant", Operation: admissionv1.Update, Resource: metav1.GroupVersionResource{Version: "v1", Resource: "pods"}, OldObject: runtime.RawExtension{Raw: []byte(`{"metadata":{"uid":"old"}}`)}, Object: runtime.RawExtension{Raw: []byte(`{"metadata":{"uid":"new"}}`)}}}
+	req.UserInfo.Username = NCPControllerUser
+	require.False(t, validator.Handle(context.Background(), req).Allowed)
+}
+
+func TestWorkloadControllerCheckpointAndFields(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	old := `{"metadata":{"name":"vm","uid":"uid"},"spec":{"networkInterfaces":[{"name":"old"}]}}`
+	allowed := `{"metadata":{"name":"vm","uid":"uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"networkInterfaces":[{"name":"new"}]}}`
+	otherAnnotation := `{"metadata":{"name":"vm","uid":"uid","annotations":{"other":"value"}},"spec":{"networkInterfaces":[{"name":"new"}]}}`
+	otherSpec := `{"metadata":{"name":"vm","uid":"uid"},"spec":{"networkInterfaces":[{"name":"new"}],"powerState":"off"}}`
+	request := func(user, current string, op admissionv1.Operation) admission.Request {
+		return admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+			Namespace: "kube-system", Operation: op, Resource: metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"},
+			UserInfo: authenticationv1.UserInfo{Username: user}, OldObject: runtime.RawExtension{Raw: []byte(old)}, Object: runtime.RawExtension{Raw: []byte(current)},
+		}}
+	}
+	for _, stage := range []string{"namespace", "control-plane"} {
+		for _, state := range []api.ActionState{api.ActionStateRunning, api.ActionStateFailed} {
+			t.Run(stage+"/"+string(state), func(t *testing.T) {
+				status := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: state, ActionGeneration: 2, ObservedGeneration: 2}
+				var transition client.Object
+				if stage == "namespace" {
+					transition = &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 2}, Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"kube-system"}}, Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: status}}
+				} else {
+					transition = &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 2}, Spec: api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: status}}
+				}
+				validator := WorkloadCutoverValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build()}
+				check := func(user, object string, op admissionv1.Operation, want bool) {
+					t.Helper()
+					require.Equal(t, want, validator.Handle(context.Background(), request(user, object, op)).Allowed)
+				}
+				check(NetOperatorControllerUser, allowed, admissionv1.Update, true)
+				check(NetOperatorControllerUser, otherAnnotation, admissionv1.Update, false)
+				check(NetOperatorControllerUser, otherSpec, admissionv1.Update, false)
+				check(VMOperatorControllerUser, allowed, admissionv1.Update, false)
+				check(NetOperatorControllerUser, allowed, admissionv1.Create, false)
+				check(NetOperatorControllerUser, allowed, admissionv1.Delete, false)
+			})
+		}
+	}
+}
+
+func TestWorkloadControllerCheckpointGuards(t *testing.T) {
+	status := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 2, ObservedGeneration: 2}
+	infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Generation: 2}, Spec: api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: status}}
+	batch := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Generation: 2}, Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}}, Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: status}}
+	require.True(t, controlPlaneControllerMayChange(infra))
+	require.True(t, namespaceControllerMayChange(batch))
+	infra.Status.ObservedGeneration = 1
+	batch.Status.ObservedGeneration = 1
+	require.False(t, controlPlaneControllerMayChange(infra))
+	require.False(t, namespaceControllerMayChange(batch))
+	infra.Status.ObservedGeneration = 2
+	batch.Status.ObservedGeneration = 2
+	infra.Status.ActionState = api.ActionStateSucceeded
+	batch.Status.ActionState = api.ActionStateSucceeded
+	require.False(t, controlPlaneControllerMayChange(infra))
+	require.False(t, namespaceControllerMayChange(batch))
+	batch.Spec.Action = api.ActionRollback
+	batch.Status.LastAction = api.ActionRollback
+	batch.Status.ActionState = api.ActionStateRunning
+	require.True(t, namespaceControllerMayChange(batch))
 }
 
 func TestNamespaceProtectionActionHandoffs(t *testing.T) {
@@ -294,4 +332,47 @@ func TestWorkloadHandleValidationAndReaderFailure(t *testing.T) {
 	response := (WorkloadCutoverValidator{Reader: brokenReader}).Handle(context.Background(), request)
 	require.EqualValues(t, 503, response.Result.Code)
 	require.Contains(t, response.Result.Message, "transition list unavailable")
+}
+
+func TestWorkloadProtectionErrorAndNonSystemPaths(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	ctx := context.Background()
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	isControlPlaneNamespace, err := isControlPlaneSystemNamespace(ctx, reader, "vmware-system-nsx")
+	require.NoError(t, err)
+	require.False(t, isControlPlaneNamespace, "the NSX operator namespace is not a control-plane namespace by name alone")
+
+	t.Run("overlapping transition kinds fail closed", func(t *testing.T) {
+		namespaceTransition := &api.NamespaceNetworkTransition{
+			ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 2},
+			Spec: api.NamespaceNetworkTransitionSpec{
+				TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"kube-system"},
+			},
+		}
+		infraTransition := &api.ControlPlaneNetworkTransition{
+			ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName},
+			Spec:       api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}},
+		}
+		reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(namespaceTransition, infraTransition).Build()
+		_, err := findWorkloadProtection(ctx, reader, "kube-system")
+		require.ErrorContains(t, err, "covered by unresolved transitions")
+	})
+
+	t.Run("control plane reader errors are returned", func(t *testing.T) {
+		reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+		broken := getErrorReader{Reader: reader, err: errors.New("control plane read unavailable")}
+		_, err := findWorkloadProtection(ctx, broken, "kube-system")
+		require.ErrorContains(t, err, "control plane read unavailable")
+	})
+
+	t.Run("ordinary namespace is not a control plane system namespace", func(t *testing.T) {
+		reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+		isSystem, err := isControlPlaneSystemNamespace(ctx, reader, "tenant")
+		require.NoError(t, err)
+		require.False(t, isSystem)
+	})
+
+	require.False(t, controlPlaneTransitionProtectsWorkloads(nil))
 }

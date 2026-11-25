@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -39,8 +40,7 @@ const (
 // system namespaces with unresolved infrastructure Execute. Reads use the
 // direct API reader so protection is not based on a stale manager cache.
 type WorkloadCutoverValidator struct {
-	Reader          client.Reader
-	ControllerUsers []string
+	Reader client.Reader
 }
 
 func (v WorkloadCutoverValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
@@ -73,24 +73,43 @@ func (v WorkloadCutoverValidator) Handle(ctx context.Context, req admission.Requ
 	if protection == nil {
 		return admission.Allowed("namespace is outside unresolved migration scope")
 	}
-	if req.Operation == admissionv1.Update &&
-		oldObject != nil && newObject != nil && oldObject.GetUID() != "" && oldObject.GetUID() == newObject.GetUID() &&
-		protection.controllerMayChange && v.isConfiguredController(req.UserInfo.Username) {
-		return admission.Allowed("configured controller may update workloads in this transition namespace")
+	if req.Operation == admissionv1.Update && protection.controllerMayChange &&
+		isWorkloadController(req.UserInfo.Username) && oldObject.GetUID() != "" &&
+		oldObject.GetUID() == newObject.GetUID() &&
+		onlyAllowedWorkloadFieldsChanged(req.UserInfo.Username, resource, oldObject, newObject) {
+		return admission.Allowed("checkpoint-authorized controller workload update")
 	}
 	return admission.Denied(fmt.Sprintf("%s mutation in namespace %q is blocked by unresolved migration transition %s", resource, req.Namespace, protection.name))
 }
 
-func (v WorkloadCutoverValidator) isConfiguredController(username string) bool {
-	if username == "" {
+// The design specifies these Net Operator VM writes. Confirm the exact fields
+// needed by Net Operator for Pods and Services, VM Operator for VMs, NCP for
+// Pods/VMs/Services, and AKO for Services with their owners before allowing them.
+// In particular, do not allow all annotations or finalizers without identifying
+// the keys and values needed by each controller and its recovery operations.
+func onlyAllowedWorkloadFieldsChanged(username, resource string, oldObject, newObject *unstructured.Unstructured) bool {
+	if username != NetOperatorControllerUser || resource != "virtualmachines" {
 		return false
 	}
-	for _, user := range v.ControllerUsers {
-		if user != "" && username == user {
-			return true
+	oldValue, newValue := oldObject.DeepCopy().Object, newObject.DeepCopy().Object
+	for _, object := range []map[string]interface{}{oldValue, newValue} {
+		unstructured.RemoveNestedField(object, "metadata", "annotations", "migration.vmoperator.vmware.com/in-transition")
+		// Removing the only annotation can leave an empty map on one side.
+		if annotations, found, _ := unstructured.NestedMap(object, "metadata", "annotations"); found && len(annotations) == 0 {
+			unstructured.RemoveNestedField(object, "metadata", "annotations")
 		}
+		unstructured.RemoveNestedField(object, "spec", "networkInterfaces")
 	}
-	return false
+	return reflect.DeepEqual(oldValue, newValue)
+}
+
+func isWorkloadController(username string) bool {
+	switch username {
+	case NCPControllerUser, NetOperatorControllerUser, VMOperatorControllerUser, AKOControllerUser:
+		return true
+	default:
+		return false
+	}
 }
 
 func workloadResource(req admission.Request) (resource string, relevant bool) {
@@ -181,6 +200,16 @@ func findControlPlaneWorkloadProtection(ctx context.Context, reader client.Reade
 	}, nil
 }
 
+func controlPlaneControllerMayChange(transition *api.ControlPlaneNetworkTransition) bool {
+	if transition == nil || transition.Status == nil || transition.Spec.Action != api.ActionExecute {
+		return false
+	}
+	status := transition.Status
+	return status.ActionGeneration > 0 && status.ActionGeneration == transition.Generation &&
+		status.ObservedGeneration == transition.Generation && status.LastAction == api.ActionExecute &&
+		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed)
+}
+
 func controlPlaneTransitionProtectsWorkloads(transition *api.ControlPlaneNetworkTransition) bool {
 	if transition == nil {
 		return false
@@ -198,16 +227,6 @@ func controlPlaneTransitionProtectsWorkloads(transition *api.ControlPlaneNetwork
 	// Any unverified Execute checkpoint keeps protection active through failure
 	// and action changes until the InfraTransitionComplete checkpoint is current.
 	return transition.Spec.Action == api.ActionExecute || (status != nil && status.LastAction == api.ActionExecute)
-}
-
-func controlPlaneControllerMayChange(transition *api.ControlPlaneNetworkTransition) bool {
-	if transition == nil || transition.Spec.Action != api.ActionExecute || transition.Status == nil ||
-		transition.Status.ActionGeneration != transition.Generation || transition.Status.ObservedGeneration != transition.Generation {
-		return false
-	}
-	status := &transition.Status.TransitionStatus
-	return status.LastAction == api.ActionExecute &&
-		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed)
 }
 
 func isControlPlaneSystemNamespace(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
@@ -229,6 +248,10 @@ func isControlPlaneSystemNamespace(ctx context.Context, reader client.Reader, na
 }
 
 func findNamespaceProtection(ctx context.Context, reader client.Reader, namespace string) (*namespaceProtection, error) {
+	return findNamespaceProtectionFor(ctx, reader, namespace, namespaceTransitionProtects)
+}
+
+func findNamespaceProtectionFor(ctx context.Context, reader client.Reader, namespace string, protects func(*api.NamespaceNetworkTransition) bool) (*namespaceProtection, error) {
 	transitions := &api.NamespaceNetworkTransitionList{}
 	if err := reader.List(ctx, transitions); err != nil {
 		return nil, err
@@ -236,16 +259,17 @@ func findNamespaceProtection(ctx context.Context, reader client.Reader, namespac
 	var found *namespaceProtection
 	for i := range transitions.Items {
 		transition := &transitions.Items[i]
-		if !containsNamespace(transition.Spec.Namespaces, namespace) || !namespaceTransitionProtects(transition) {
+		if !containsNamespace(transition.Spec.Namespaces, namespace) || !protects(transition) {
 			continue
 		}
 		if found != nil {
 			return nil, fmt.Errorf("namespace %q is covered by multiple unresolved transitions %s and %s", namespace, found.transition.Name, transition.Name)
 		}
+		transitionCopy := transition.DeepCopy()
 		found = &namespaceProtection{
 			name:                transition.Name,
 			controllerMayChange: namespaceControllerMayChange(transition),
-			transition:          transition.DeepCopy(),
+			transition:          transitionCopy,
 		}
 	}
 	return found, nil

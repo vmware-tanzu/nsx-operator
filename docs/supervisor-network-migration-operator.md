@@ -523,22 +523,44 @@ override these settings. The server is available on every configured Pod,
 including non-leaders, and the readiness check waits for it to start.
 
 The configuration also installs a `SupervisorNamespace` lifecycle validator for
-`iaas.vmware.com/v1alpha1` and `v1alpha2`. During Stage 1, implicit and
-explicit VDS creation is allowed, while an explicit VPC provider or
-`spec.vpcNetworkConfig` is rejected because VPC is not ready yet.
-After the control-plane transition reaches `InfraTransitionComplete` or
-`Finalized`, creation is rejected when the object explicitly selects VDS or has
-non-empty VDS network/portgroup fields. If provider selection is omitted, the
-Supervisor Namespace API defaults the new namespace to VPC.
+`iaas.vmware.com/v1alpha1` and `v1alpha2`. During Stage 1, new namespaces use VDS;
+an explicit VPC configuration is rejected because VPC is not ready yet. After
+the control-plane transition reaches `InfraTransitionComplete` or `Finalized`,
+new namespaces use VPC and an explicit VDS configuration is rejected. If the
+request omits provider configuration, Supervisor applies the default for the
+current stage: VDS during Stage 1 and VPC during coexistence.
 
-For namespaces named in an unresolved `NamespaceNetworkTransition`, create,
-delete and user updates are rejected. The shared NCP Pod identity
+Namespace lifetime protection starts when a `NamespaceNetworkTransition` names
+its immutable members, including during Evaluate. The lifecycle webhook rejects
+CREATE and DELETE for both Kubernetes `Namespace` and `SupervisorNamespace`
+objects until that batch has a current successful Commit checkpoint with
+`phase: Committed` and `irreversibleAction: Commit`. Completed Execute and even
+successful Rollback retain this protection because the same NNT can still operate
+on its members. Delete an abandoned, safely closed NNT to release its members.
+Committed NNTs can remain for audit without blocking namespace deletion or
+same-name creation, and their irreversible checkpoint forbids Evaluate, Execute
+or Rollback from being requested again.
+
+Workload write protection has a separate lifetime: it ends after verified
+cutover or whole-batch restoration, so retaining namespace deletion protection
+does not freeze normal Pod, VM or Service operation after Execute completes.
+For namespaces in an unresolved cutover, user provider updates are rejected.
+The shared NCP Pod identity
 `system:serviceaccount:<operator-namespace>:ncp-svc-account` may change only
-`spec.vpcNetworkConfig`, and only while the matching Execute or Rollback
+`spec.networking.vpcNetworkConfig`, and only while the matching Execute or Rollback
 checkpoint is Running or Failed. Protection is derived from the transition's
 namespace list, requested action and durable status; API read failures and
-multiple active transitions fail closed. Protection ends only after a current,
-successful Completed/Committed or whole-batch RolledBack checkpoint.
+multiple active transitions fail closed. The provider-write restriction ends
+after a current successful Completed/Committed or whole-batch RolledBack checkpoint.
+
+No namespace UID snapshot is stored in transition status. Batch admission and
+Execute/Rollback dispatch read both member objects through the direct API reader
+and reject missing or terminating objects. Controller provider updates must
+preserve the request object's UID and cannot operate on a terminating object.
+These checks and webhook protection survive a process restart without local
+identity state. Namespace and NNT admission reads are separate API operations;
+they do not provide an atomic cross-resource admission protocol. The Execute
+inventory barrier must still settle requests admitted before protection began.
 
 `build/yaml/migration/admission/` supplies a Service and a cert-manager Issuer
 and Certificate. Its kustomization intentionally excludes both validating
@@ -574,14 +596,23 @@ still call it. During Stage 1, a workload is in scope when its namespace is a
 system namespace identified by the existing WCP T1 or shared-VPC namespace
 markers and the `ControlPlaneNetworkTransition` has an unresolved Execute.
 This guard does not inspect or change `SupervisorNamespace.spec.networking`;
-the `vsphereNetworkConfig` to `vpcNetworkConfig` handoff belongs to WBS 1.4.6.
+the `spec.networking.vsphereNetworkConfig` to
+`spec.networking.vpcNetworkConfig` handoff belongs to WBS 1.4.6.
 During Stage 2, a workload is in scope when its namespace is listed in an
 unresolved `NamespaceNetworkTransition`. In either scope, users cannot create,
-update or delete protected workloads. Updates are allowed only for configured
-controller identities and only after the matching Execute checkpoint is
-Running or Failed; RBAC governs resource and verb access. The webhook does not
-maintain a controller-to-field diff matrix. The namespace lifecycle guard
-retains its specific NCP-only ownership rule for `spec.vpcNetworkConfig`.
+update or delete protected workloads. The workload webhook denies create and
+delete in the protected scope. With a current Running or Failed Execute
+checkpoint (or namespace Rollback checkpoint), Net Operator may update a VM's
+transition annotation and networkInterfaces while preserving its UID. Other
+workload fields and controller writes remain denied pending confirmation of the
+required operations with their owners. This provisional allowlist can block
+cutover or recovery until those integrations are confirmed. It does not verify
+the workload UID against a recorded migration inventory. RBAC also governs
+resource and verb access. Confirm the actual controller identities in the target Supervisor
+deployment before enabling the webhook; an unlisted identity is subject to
+fail-closed admission. The namespace lifecycle guard
+retains its specific NCP-only ownership rule for
+`spec.networking.vpcNetworkConfig`.
 
 The fixed workload controller identities observed on TB1 are NCP
 (`vmware-system-nsx:ncp-svc-account`), Net Operator
@@ -590,9 +621,8 @@ The fixed workload controller identities observed on TB1 are NCP
 (`vmware-system-ako:vmware-system-ako-controller-manager`). WBS 1.6.2 does not
 require these identities to be configurable or checked during startup.
 **TODO:** Confirm whether Spherelet's `system:node:*` identity needs main-resource
-updates during migration and whether the current controller list matches the
-required write paths. Keep identities fixed while the package identity contract
-remains stable. The workload webhook configuration remains opt-in and must be
+updates during migration and whether the controller list matches the required
+write paths. The workload webhook configuration remains opt-in and must be
 installed before enabling migration handlers. The Execute inventory barrier and
 cutover handlers must reconcile requests admitted before protection took effect.
 Status subresources are outside this webhook; downstream packaging must verify

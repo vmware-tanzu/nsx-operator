@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/namespaces"
 )
 
 const TransitionValidationPath = "/validate-migration-transition"
@@ -45,6 +46,7 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	isNamespace := false
 	hasAcceptedSNATAllocation := false
 	rollbackComplete := false
+	var namespaceNames []string
 	switch req.Resource.Resource {
 	case "controlplanenetworktransitions":
 		var oldObj, newObj api.ControlPlaneNetworkTransition
@@ -63,6 +65,7 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		oldAction, newAction, oldGeneration, currentUID = oldObj.Spec.Action, newObj.Spec.Action, oldObj.Generation, oldObj.UID
+		namespaceNames = newObj.Spec.Namespaces
 		if oldObj.Status != nil {
 			status = &oldObj.Status.TransitionStatus
 			rollbackComplete = oldObj.Status.RollbackComplete
@@ -116,6 +119,14 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	if req.Operation == admissionv1.Create {
 		if newAction != api.ActionEvaluate {
 			return admission.Denied("A transition must start with Evaluate")
+		}
+		if isNamespace && len(namespaceNames) != 0 {
+			if v.Reader == nil {
+				return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("namespace lifecycle reader is not configured"))
+			}
+			if err := namespaces.Validate(ctx, v.Reader, namespaceNames); err != nil {
+				return admission.Denied(fmt.Sprintf("Namespace batch members are unavailable: %v", err))
+			}
 		}
 		return admission.Allowed("new transition starts with Evaluate")
 	}

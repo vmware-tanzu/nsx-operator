@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,23 +48,36 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 		CRDDirectoryPaths: []string{
 			abs("../../../build/yaml/crd/migration/migration.network.vmware.com_controlplanenetworktransitions.yaml"),
 			abs("../../../build/yaml/crd/migration/migration.network.vmware.com_namespacenetworktransitions.yaml"),
+			abs("testdata/supervisornamespace.yaml"),
 		},
-		WebhookInstallOptions: envtest.WebhookInstallOptions{Paths: []string{abs("../../../build/yaml/migration/admission/webhook.yaml")}},
+		WebhookInstallOptions: envtest.WebhookInstallOptions{Paths: []string{
+			abs("../../../build/yaml/migration/admission/webhook.yaml"),
+			abs("../../../build/yaml/migration/admission/namespace-webhook.yaml"),
+		}},
 	}
 	cfg, err := env.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, env.Stop()) })
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
 	c, err := client.New(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err)
 	server := webhook.NewServer(webhook.Options{Host: env.WebhookInstallOptions.LocalServingHost, Port: env.WebhookInstallOptions.LocalServingPort, CertDir: env.WebhookInstallOptions.LocalServingCertDir})
 	server.Register(TransitionValidationPath, &webhookadmission.Webhook{Handler: TransitionValidator{Reader: c}})
+	server.Register(NamespaceValidationPath, &webhookadmission.Webhook{Handler: NamespaceLifecycleValidator{Reader: c}})
 	ctx, cancel := context.WithCancel(context.Background())
 	serverDone := make(chan error, 1)
 	go func() { serverDone <- server.Start(ctx) }()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-serverDone) })
 	require.Eventually(t, func() bool { return server.StartedChecker()(nil) == nil }, 10*time.Second, 50*time.Millisecond)
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test-ns"}}
+	require.NoError(t, c.Create(ctx, namespace))
+	supervisorNamespace := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
+		"metadata": map[string]interface{}{"name": "test-ns"},
+	}}
+	require.NoError(t, c.Create(ctx, supervisorNamespace))
 	// The namespace action depends on the completed infrastructure transition
 	// created by the controlplane case below.
 	for _, stage := range []string{"controlplane", "namespaces"} {
@@ -82,6 +98,10 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 			}
 			require.ErrorContains(t, c.Create(ctx, initialExecute), "must start with Evaluate")
 			require.NoError(t, c.Create(ctx, obj))
+			if stage == "namespaces" {
+				require.ErrorContains(t, c.Delete(ctx, namespace), "remains uncommitted")
+				require.ErrorContains(t, c.Delete(ctx, supervisorNamespace), "remains uncommitted")
+			}
 			snapshot := func() client.Object {
 				v := obj.DeepCopyObject().(client.Object)
 				require.NoError(t, c.Get(ctx, types.NamespacedName{Name: obj.GetName()}, v))
@@ -409,6 +429,8 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 					Phase: "Committing", IrreversibleAction: string(api.ActionCommit),
 				}
 				require.NoError(t, c.Status().Update(ctx, namespace), "the controller persists PONR before workflow deletion")
+				require.ErrorContains(t, c.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test-ns"}}), "remains uncommitted")
+				require.ErrorContains(t, c.Delete(ctx, supervisorNamespace), "remains uncommitted")
 				for _, action := range []api.Action{api.ActionRollback, api.ActionEvaluate, api.ActionExecute} {
 					reset := snapshot()
 					setAction(reset, action)
@@ -417,6 +439,39 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 				actionReset := snapshot()
 				setAction(actionReset, "")
 				require.Error(t, c.Update(ctx, actionReset), "the action cannot be cleared after Commit crosses its PONR")
+
+				// Retain the terminal NNT for audit, but release namespace lifetime
+				// protection only after Commit has actually succeeded.
+				namespace = snapshot().(*api.NamespaceNetworkTransition)
+				namespace.Status.ActionState = api.ActionStateSucceeded
+				namespace.Status.Phase = api.PhaseCommitted
+				require.NoError(t, c.Status().Update(ctx, namespace))
+				require.NoError(t, c.Delete(ctx, supervisorNamespace))
+				recreatedSupervisor := &unstructured.Unstructured{Object: map[string]interface{}{
+					"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
+					"metadata": map[string]interface{}{"name": "test-ns"},
+				}}
+				require.NoError(t, c.Create(ctx, recreatedSupervisor))
+				require.NotEqual(t, supervisorNamespace.GetUID(), recreatedSupervisor.GetUID())
+				coreNamespace := &corev1.Namespace{}
+				require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "test-ns"}, coreNamespace))
+				previousUID := coreNamespace.UID
+				require.NoError(t, c.Delete(ctx, coreNamespace))
+				// Envtest has no namespace controller to finish deletion.
+				require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "test-ns"}, coreNamespace))
+				coreNamespace.Spec.Finalizers = nil
+				require.NoError(t, c.SubResource("finalize").Update(ctx, coreNamespace))
+				require.Eventually(t, func() bool {
+					return apierrors.IsNotFound(c.Get(ctx, types.NamespacedName{Name: "test-ns"}, &corev1.Namespace{}))
+				}, 5*time.Second, 20*time.Millisecond)
+				recreatedNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test-ns"}}
+				require.NoError(t, c.Create(ctx, recreatedNamespace))
+				require.NotEqual(t, previousUID, recreatedNamespace.UID)
+				for _, action := range []api.Action{api.ActionEvaluate, api.ActionExecute, api.ActionRollback} {
+					oldBatch := snapshot()
+					setAction(oldBatch, action)
+					require.ErrorContains(t, c.Update(ctx, oldBatch), "irreversible checkpoint")
+				}
 			}
 		})
 	}

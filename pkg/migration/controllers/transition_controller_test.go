@@ -10,9 +10,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -95,6 +98,99 @@ func TestNamespaceInfrastructureGate(t *testing.T) {
 			require.Equal(t, !ready, result.RequeueAfter > 0)
 		})
 	}
+}
+
+func TestNamespaceExecuteValidatesMembersBeforeDispatch(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	supervisorGVK := schema.GroupVersion{Group: "iaas.vmware.com", Version: "v1alpha2"}.WithKind("SupervisorNamespace")
+	scheme.AddKnownTypeWithName(supervisorGVK, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(supervisorGVK.GroupVersion().WithKind("SupervisorNamespaceList"), &unstructured.UnstructuredList{})
+
+	infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 5},
+		Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			Phase: "InfraTransitionComplete", LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 5,
+			Conditions: []metav1.Condition{{Type: "InfraTransitionComplete", Status: metav1.ConditionTrue, Reason: "ActionCompleted", ObservedGeneration: 5}},
+		}}}
+	batch := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 3},
+		Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
+		Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionEvaluate, ActionState: api.ActionStateSucceeded, ActionGeneration: 2,
+		}}}
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "namespace-uid", Finalizers: []string{"test.example/retain"}}}
+	supervisorNamespace := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
+		"metadata": map[string]interface{}{"name": "tenant", "uid": "supervisor-uid"},
+	}}
+	supervisorNamespace.SetGroupVersionKind(supervisorGVK)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(infra, batch).
+		WithObjects(infra, batch, namespace, supervisorNamespace).Build()
+	key := types.NamespacedName{Name: batch.Name}
+	calls := 0
+	engine := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+		{Stage: transition.Namespaces, Action: api.ActionExecute}: actionHandlerFunc(func(_ context.Context, req transition.Request) (transition.Result, error) {
+			calls++
+			return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: time.Second}, nil
+		}),
+	}}
+	r := Reconciler{Client: c, APIReader: c, Engine: engine, Stage: transition.Namespaces}
+
+	result, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	require.Positive(t, result.RequeueAfter, "the first reconcile persists Running before dispatch")
+	require.Zero(t, calls)
+	require.NoError(t, c.Get(ctx, key, batch))
+	require.Equal(t, api.ActionExecute, batch.Status.LastAction)
+	require.Equal(t, api.ActionStateRunning, batch.Status.ActionState)
+
+	// The controller restarts with no process-local namespace identity cache.
+	r = Reconciler{Client: c, APIReader: c, Engine: engine, Stage: transition.Namespaces}
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	// A deletion already admitted before protection must stop further dispatch.
+	// The fake client bypasses admission to model that in-flight request.
+	require.NoError(t, c.Delete(ctx, namespace))
+	_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+	require.ErrorContains(t, err, "is terminating")
+	require.Equal(t, 1, calls)
+
+}
+
+func TestNamespaceReadFailureIsReportedWithoutRunningCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	supervisorGVK := schema.GroupVersion{Group: "iaas.vmware.com", Version: "v1alpha2"}.WithKind("SupervisorNamespace")
+	scheme.AddKnownTypeWithName(supervisorGVK, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(supervisorGVK.GroupVersion().WithKind("SupervisorNamespaceList"), &unstructured.UnstructuredList{})
+	infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 5},
+		Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			Phase: "InfraTransitionComplete", LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 5,
+			Conditions: []metav1.Condition{{Type: "InfraTransitionComplete", Status: metav1.ConditionTrue, Reason: "ActionCompleted", ObservedGeneration: 5}},
+		}}}
+	batch := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 3},
+		Spec:   api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
+		Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionEvaluate, ActionState: api.ActionStateSucceeded, ActionGeneration: 2}}}
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "namespace-uid"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(infra, batch).WithObjects(infra, batch, namespace).Build()
+	calls := 0
+	engine := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+		{Stage: transition.Namespaces, Action: api.ActionExecute}: actionHandlerFunc(func(context.Context, transition.Request) (transition.Result, error) {
+			calls++
+			return transition.Result{Outcome: transition.OutcomeSucceeded}, nil
+		}),
+	}}
+	r := Reconciler{Client: c, APIReader: c, Engine: engine, Stage: transition.Namespaces}
+	_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: batch.Name}})
+	require.ErrorContains(t, err, "reading SupervisorNamespace \"tenant\"")
+	require.Zero(t, calls)
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: batch.Name}, batch))
+	require.Equal(t, "NamespaceUnavailable", meta.FindStatusCondition(batch.Status.Conditions, "Ready").Reason)
+	require.Equal(t, api.ActionEvaluate, batch.Status.LastAction, "namespace read failure must not publish an Execute checkpoint")
 }
 
 func TestCompletedNamespaceBatchPreserved(t *testing.T) {
