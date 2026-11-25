@@ -311,12 +311,23 @@ func TestBuildSegmentPortIdAndNameLookupError(t *testing.T) {
 
 type fakeSegmentPortsClient struct {
 	infra_segments.PortsClient
-	port      model.SegmentPort
-	postCount int
+	port       model.SegmentPort
+	postCount  int
+	patchCount int
+	patchErr   error
 }
 
 func (c *fakeSegmentPortsClient) Get(segmentID, portID string) (model.SegmentPort, error) {
 	return c.port, nil
+}
+
+func (c *fakeSegmentPortsClient) Patch(segmentID, portID string, port model.SegmentPort) error {
+	c.patchCount++
+	if c.patchErr != nil {
+		return c.patchErr
+	}
+	c.port = port
+	return nil
 }
 
 func (c *fakeSegmentPortsClient) post(port *model.SegmentPort) error {
@@ -435,6 +446,7 @@ func TestCreateOrUpdateSegmentPortExisting(t *testing.T) {
 			require.NoError(t, err)
 			assert.Zero(t, restoreVifChecks)
 			assert.Equal(t, tt.postCount, segmentClient.postCount)
+			assert.Zero(t, segmentClient.patchCount)
 			assert.Len(t, service.SegmentPortStore.List(), 1)
 			cached := service.SegmentPortStore.GetByKey(*port.Id)
 			require.NotNil(t, cached)
