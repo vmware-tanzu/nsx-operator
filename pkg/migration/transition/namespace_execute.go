@@ -53,7 +53,7 @@ func (h NamespaceExecute) Reconcile(ctx context.Context, req Request) (Result, e
 		return Result{}, fmt.Errorf("namespace Execute requires the Stage 1 target NSX project path")
 	}
 	preview := batch.Status.EvaluationPreview
-	if preview.Generation != req.Generation || preview.ReviewRequired {
+	if !namespacePreviewMatchesExecute(preview, req.Generation) || preview.ReviewRequired {
 		return Result{}, fmt.Errorf("namespace Execute requires a current preview that has passed review")
 	}
 	networks, err := batchSourceNetworks(req)
@@ -105,6 +105,14 @@ func (h NamespaceExecute) Reconcile(ctx context.Context, req Request) (Result, e
 			return Result{}, err
 		}
 		current := *prior.DeepCopy()
+		// Rebuild PLAN-owned resources each time so removed resources are
+		// visible to the comparison instead of surviving from the old preview.
+		current.TargetResources = nil
+		for _, resource := range prior.TargetResources {
+			if resource.Kind == "VPC" || resource.Decision == "Pending" {
+				current.TargetResources = append(current.TargetResources, resource)
+			}
+		}
 		upsertTargetResource(&current, vpcResource)
 		workflowID := recordedWorkflowID(req.Status, network.VDNName)
 		if workflowID == "" {
@@ -189,7 +197,25 @@ func (h NamespaceExecute) Reconcile(ctx context.Context, req Request) (Result, e
 			}
 			upsertTargetResource(&current, resource)
 		}
+		for _, kind := range []string{"TGW", "DVC", "Subnet"} {
+			if targetResource(current, kind) == nil {
+				upsertTargetResource(&current, api.NamespaceTargetResourcePreview{
+					Kind: kind, Decision: "Pending", Reason: "Target resource decision is not available from NSX PLAN",
+				})
+			}
+		}
 		actual.Networks = append(actual.Networks, current)
+	}
+	for _, network := range actual.Networks {
+		for _, resource := range network.TargetResources {
+			if resource.Decision == "Pending" {
+				actual.PendingChecks = []string{"target TGW/VPC/DVC/Subnet reuse or creation decisions"}
+				break
+			}
+		}
+		if len(actual.PendingChecks) != 0 {
+			break
+		}
 	}
 
 	changed, err := PublishNamespaceExecutionPreview(batch, req.Generation, actual)
@@ -529,7 +555,9 @@ func targetResource(network api.NamespaceNetworkPreview, kind string) *api.Names
 
 func upsertTargetResource(network *api.NamespaceNetworkPreview, resource api.NamespaceTargetResourcePreview) {
 	for i := range network.TargetResources {
-		if network.TargetResources[i].Kind == resource.Kind {
+		existing := network.TargetResources[i]
+		if existing.Kind == resource.Kind && (existing.Decision == "Pending" || resource.Kind == "VPC" ||
+			(existing.Path == resource.Path && existing.Name == resource.Name)) {
 			network.TargetResources[i] = resource
 			return
 		}
@@ -559,7 +587,8 @@ func plannedNamespaceResources(root *model.OrgRoot) ([]api.NamespaceTargetResour
 	if root == nil {
 		return nil, fmt.Errorf("NSX PLAN returned no conversion payload")
 	}
-	resources := make(map[string]api.NamespaceTargetResourcePreview)
+	type resourceKey struct{ kind, path, name string }
+	resources := make(map[resourceKey]api.NamespaceTargetResourcePreview)
 	var walk func(data.DataValue)
 	walk = func(value data.DataValue) {
 		switch typed := value.(type) {
@@ -574,7 +603,7 @@ func plannedNamespaceResources(root *model.OrgRoot) ([]api.NamespaceTargetResour
 				if name == "" {
 					name = id
 				}
-				resources[kind] = api.NamespaceTargetResourcePreview{Kind: kind, Decision: "Create", Name: name, Path: resourcePath, Reason: "Proposed by NSX internal PLAN"}
+				resources[resourceKey{kind: kind, path: resourcePath, name: name}] = api.NamespaceTargetResourcePreview{Kind: kind, Decision: "Create", Name: name, Path: resourcePath, Reason: "Proposed by NSX internal PLAN"}
 			}
 			for _, child := range fields {
 				walk(child)
@@ -592,14 +621,22 @@ func plannedNamespaceResources(root *model.OrgRoot) ([]api.NamespaceTargetResour
 	for _, child := range root.Children {
 		walk(child)
 	}
-	orderedKinds := make([]string, 0, len(resources))
-	for kind := range resources {
-		orderedKinds = append(orderedKinds, kind)
+	orderedKeys := make([]resourceKey, 0, len(resources))
+	for key := range resources {
+		orderedKeys = append(orderedKeys, key)
 	}
-	sort.Strings(orderedKinds)
-	result := make([]api.NamespaceTargetResourcePreview, 0, len(orderedKinds))
-	for _, kind := range orderedKinds {
-		result = append(result, resources[kind])
+	sort.Slice(orderedKeys, func(i, j int) bool {
+		if orderedKeys[i].kind != orderedKeys[j].kind {
+			return orderedKeys[i].kind < orderedKeys[j].kind
+		}
+		if orderedKeys[i].path != orderedKeys[j].path {
+			return orderedKeys[i].path < orderedKeys[j].path
+		}
+		return orderedKeys[i].name < orderedKeys[j].name
+	})
+	result := make([]api.NamespaceTargetResourcePreview, 0, len(orderedKeys))
+	for _, key := range orderedKeys {
+		result = append(result, resources[key])
 	}
 	return result, nil
 }

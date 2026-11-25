@@ -23,7 +23,7 @@ func RequireNamespacePreviewReview(batch *api.NamespaceNetworkTransition, genera
 		return fmt.Errorf("namespace Execute review requires an existing evaluation preview")
 	}
 	preview := batch.Status.EvaluationPreview
-	if preview.Generation != generation || preview.ReviewRevision < 1 {
+	if !namespacePreviewMatchesExecute(preview, generation) || preview.ReviewRevision < 1 {
 		return fmt.Errorf("namespace Execute review requires a current, versioned evaluation preview")
 	}
 	if preview.ReviewRevision == math.MaxInt64 {
@@ -43,7 +43,7 @@ func PublishNamespaceExecutionPreview(batch *api.NamespaceNetworkTransition, gen
 		return false, fmt.Errorf("NamespaceNetworkTransition and both evaluation previews are required")
 	}
 	previous := batch.Status.EvaluationPreview
-	if previous.Generation != generation || actual.Generation != generation || previous.ReviewRevision < 1 {
+	if !namespacePreviewMatchesExecute(previous, generation) || actual.Generation != previous.Generation || previous.ReviewRevision < 1 {
 		return false, fmt.Errorf("cannot compare stale or unversioned namespace evaluation previews")
 	}
 	actual.ReviewRevision = previous.ReviewRevision
@@ -60,17 +60,25 @@ func PublishNamespaceExecutionPreview(batch *api.NamespaceNetworkTransition, gen
 	return false, nil
 }
 
+// The action update from Evaluate to Execute advances the CR generation once.
+// Admission requires the Evaluate checkpoint to match the previous generation,
+// and the CRD freezes the evaluated network configuration during Execute.
+func namespacePreviewMatchesExecute(preview *api.NamespaceEvaluationPreview, generation int64) bool {
+	return preview != nil && generation > 1 && preview.Generation == generation-1
+}
+
 // CompareNamespaceTargetResources reports additions, removals and changes to
 // target reuse/create decisions. A resource's explanation text may change
 // without making its identity or decision materially different, except for the
 // VPC's stable target-validation summary, whose change requires renewed review.
 func CompareNamespaceTargetResources(previous, current []api.NamespaceNetworkPreview) []api.NamespacePreviewChange {
 	type resourceKey struct{ vdnName, kind string }
-	collect := func(networks []api.NamespaceNetworkPreview) map[resourceKey]api.NamespaceTargetResourcePreview {
-		resources := make(map[resourceKey]api.NamespaceTargetResourcePreview)
+	collect := func(networks []api.NamespaceNetworkPreview) map[resourceKey][]api.NamespaceTargetResourcePreview {
+		resources := make(map[resourceKey][]api.NamespaceTargetResourcePreview)
 		for _, network := range networks {
 			for _, resource := range network.TargetResources {
-				resources[resourceKey{vdnName: network.VDNName, kind: resource.Kind}] = resource
+				key := resourceKey{vdnName: network.VDNName, kind: resource.Kind}
+				resources[key] = append(resources[key], resource)
 			}
 		}
 		return resources
@@ -95,25 +103,51 @@ func CompareNamespaceTargetResources(previous, current []api.NamespaceNetworkPre
 	})
 	changes := make([]api.NamespacePreviewChange, 0)
 	for _, key := range ordered {
-		oldResource, hadOld := before[key]
-		newResource, hasNew := after[key]
-		validationChanged := key.kind == "VPC" && hadOld && hasNew &&
-			strings.HasPrefix(oldResource.Reason, "Target validation:") &&
-			strings.HasPrefix(newResource.Reason, "Target validation:") &&
-			oldResource.Reason != newResource.Reason
-		if hadOld && hasNew && oldResource.Decision == newResource.Decision && oldResource.Name == newResource.Name && oldResource.Path == newResource.Path && !validationChanged {
-			continue
+		oldResources, newResources := before[key], after[key]
+		less := func(a, b api.NamespaceTargetResourcePreview) bool {
+			if a.Path != b.Path {
+				return a.Path < b.Path
+			}
+			if a.Name != b.Name {
+				return a.Name < b.Name
+			}
+			return a.Decision < b.Decision
 		}
-		change := api.NamespacePreviewChange{VDNName: key.vdnName, Kind: key.kind}
-		if hadOld {
-			oldCopy := oldResource
-			change.Previous = &oldCopy
+		sort.Slice(oldResources, func(i, j int) bool { return less(oldResources[i], oldResources[j]) })
+		sort.Slice(newResources, func(i, j int) bool { return less(newResources[i], newResources[j]) })
+		matched := make([]bool, len(newResources))
+		var removed []api.NamespaceTargetResourcePreview
+		for _, old := range oldResources {
+			found := false
+			for i, current := range newResources {
+				validationChanged := key.kind == "VPC" && strings.HasPrefix(old.Reason, "Target validation:") && strings.HasPrefix(current.Reason, "Target validation:") && old.Reason != current.Reason
+				if !matched[i] && old.Decision == current.Decision && old.Name == current.Name && old.Path == current.Path && !validationChanged {
+					matched[i], found = true, true
+					break
+				}
+			}
+			if !found {
+				removed = append(removed, old)
+			}
 		}
-		if hasNew {
-			newCopy := newResource
-			change.Current = &newCopy
+		var added []api.NamespaceTargetResourcePreview
+		for i, current := range newResources {
+			if !matched[i] {
+				added = append(added, current)
+			}
 		}
-		changes = append(changes, change)
+		for i := 0; i < len(removed) || i < len(added); i++ {
+			change := api.NamespacePreviewChange{VDNName: key.vdnName, Kind: key.kind}
+			if i < len(removed) {
+				old := removed[i]
+				change.Previous = &old
+			}
+			if i < len(added) {
+				current := added[i]
+				change.Current = &current
+			}
+			changes = append(changes, change)
+		}
 	}
 	return changes
 }

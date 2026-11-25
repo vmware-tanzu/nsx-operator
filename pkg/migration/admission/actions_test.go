@@ -42,6 +42,9 @@ func TestActionPrerequisites(t *testing.T) {
 					}
 				}
 				old := map[string]any{"metadata": map[string]any{"uid": "current-uid", "generation": generation}, "spec": map[string]any{"action": oldAction}, "status": map[string]any{"lastAction": last, "actionState": state, "actionGeneration": actionGeneration, "observedGeneration": actionGeneration, "phase": phase}}
+				if isNamespace && actionGeneration > 0 {
+					old["status"].(map[string]any)["evaluationPreview"] = map[string]any{"generation": actionGeneration, "reviewRevision": 1}
+				}
 				if rollbackComplete {
 					old["status"].(map[string]any)["rollbackComplete"] = true
 				}

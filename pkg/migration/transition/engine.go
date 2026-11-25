@@ -191,7 +191,7 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	if req.Stage == Namespaces && req.Action == api.ActionExecute {
 		if batch, ok := req.Object.(*api.NamespaceNetworkTransition); ok && batch.Status != nil && batch.Status.EvaluationPreview != nil && batch.Status.EvaluationPreview.ReviewRequired {
 			preview := batch.Status.EvaluationPreview
-			if preview.Generation != req.Generation {
+			if !namespacePreviewMatchesExecute(preview, req.Generation) {
 				Block(req.Status, req.Generation, "StaleReviewPreview", "The reviewed preview belongs to an older spec generation; Rollback and Evaluate the current inputs before retrying Execute")
 				return Result{}, nil
 			}
@@ -298,7 +298,7 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 			return Result{}, fmt.Errorf("namespace Execute requested review without an evaluation preview")
 		}
 		preview := batch.Status.EvaluationPreview
-		if preview.Generation != req.Generation || preview.ReviewRevision < 1 {
+		if !namespacePreviewMatchesExecute(preview, req.Generation) || preview.ReviewRevision < 1 {
 			return Result{}, fmt.Errorf("namespace Execute requested review for a stale or unversioned evaluation preview")
 		}
 		preview.ReviewRequired = true

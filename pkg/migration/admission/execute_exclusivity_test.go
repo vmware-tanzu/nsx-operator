@@ -129,6 +129,7 @@ func validExecuteRequest(resource string, uid types.UID) admission.Request {
 		"status": map[string]any{
 			"lastAction": "Evaluate", "actionState": "Succeeded", "actionGeneration": 2,
 			"observedGeneration": 2, "phase": "Evaluated",
+			"evaluationPreview": map[string]any{"generation": 2, "reviewRevision": 1},
 		},
 	})
 	newRaw, _ := json.Marshal(map[string]any{"metadata": map[string]any{"generation": 3}, "spec": map[string]any{"action": "Execute"}})
