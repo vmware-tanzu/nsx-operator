@@ -382,9 +382,12 @@ func (service *SubnetPortService) CreateOrUpdateSegmentPort(
 		}
 	} else {
 		log.Info("Updating the NSX segment port", "existingSegmentPort", existingSegmentPort, "desiredSegmentPort", nsxSegmentPort)
-		// SegmentPort VIF restore requires POST, which the SDK does not expose.
-		// Use HttpPost directly instead of the SDK's PATCH operation.
-		err = service.postSegmentPort(segmentID, nsxSegmentPort)
+		if restoreMode {
+			// SegmentPort VIF restore requires POST, which the SDK does not expose.
+			err = service.postSegmentPort(segmentID, nsxSegmentPort)
+		} else {
+			err = service.NSXClient.SegmentPortsClient.Patch(segmentID, *nsxSegmentPort.Id, *nsxSegmentPort)
+		}
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
 			log.Error(err, "failed to create or update segment port", "nsxSegmentPort.Id", *nsxSegmentPort.Id, "segmentPath", segmentPath)
