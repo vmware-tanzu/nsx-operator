@@ -141,13 +141,19 @@ func TestMigrationRBACProvidesRequiredInventoryAccess(t *testing.T) {
 			require.NoError(t, json.Unmarshal(doc, &role))
 		}
 	}
-	sourceReads, statusPatches := false, false
+	sourcePermissions := map[string]map[string]bool{}
+	statusPatches := false
 	for _, rule := range role.Rules {
 		for _, group := range rule.APIGroups {
 			if group == "netoperator.vmware.com" {
-				sourceReads = true
-				require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
-				require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools", "workloadnetworkconfigurations"}, rule.Resources)
+				for _, resource := range rule.Resources {
+					if sourcePermissions[resource] == nil {
+						sourcePermissions[resource] = map[string]bool{}
+					}
+					for _, verb := range rule.Verbs {
+						sourcePermissions[resource][verb] = true
+					}
+				}
 			}
 		}
 		for _, resource := range rule.Resources {
@@ -160,6 +166,27 @@ func TestMigrationRBACProvidesRequiredInventoryAccess(t *testing.T) {
 			}
 		}
 	}
-	require.True(t, sourceReads)
+	expectedSourcePermissions := map[string][]string{
+		"networks":                      {"get", "list"},
+		"vspheredistributednetworks":    {"get", "list"},
+		"ippools":                       {"get", "list"},
+		"workloadnetworkconfigurations": {"get"},
+	}
+	actualResources := make([]string, 0, len(sourcePermissions))
+	for resource := range sourcePermissions {
+		actualResources = append(actualResources, resource)
+	}
+	expectedResources := make([]string, 0, len(expectedSourcePermissions))
+	for resource := range expectedSourcePermissions {
+		expectedResources = append(expectedResources, resource)
+	}
+	require.ElementsMatch(t, expectedResources, actualResources)
+	for resource, expectedVerbs := range expectedSourcePermissions {
+		actualVerbs := make([]string, 0, len(sourcePermissions[resource]))
+		for verb := range sourcePermissions[resource] {
+			actualVerbs = append(actualVerbs, verb)
+		}
+		require.ElementsMatch(t, expectedVerbs, actualVerbs, "unexpected verbs for %s", resource)
+	}
 	require.True(t, statusPatches)
 }

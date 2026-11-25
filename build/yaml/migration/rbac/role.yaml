@@ -37,10 +37,15 @@ rules:
   - ippools
   - networks
   - vspheredistributednetworks
-  - workloadnetworkconfigurations
   verbs:
   - get
   - list
+- apiGroups:
+  - netoperator.vmware.com
+  resources:
+  - workloadnetworkconfigurations
+  verbs:
+  - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
