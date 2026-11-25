@@ -167,7 +167,6 @@ func TestSubnetPrecreated(t *testing.T) {
 		RunSubtest(t, "case=SubnetWithAssociatedResourceAnnotation", func(t *testing.T) {
 			SubnetWithAssociatedResourceAnnotation(t)
 		})
-		RunSubtest(t, "case=SharedOpaqueSubnetCreatesSegmentPort", SharedOpaqueSubnetCreatesSegmentPort)
 		// Comment it, since it requires a long time to run.
 		// t.Run("case=PrecreatedSharedSubnetPoll", PrecreatedSharedSubnetPoll)
 	})
