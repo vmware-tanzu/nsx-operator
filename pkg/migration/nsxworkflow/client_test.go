@@ -186,6 +186,20 @@ func TestScopeAndResourceFailure(t *testing.T) {
 	require.ErrorContains(t, err, "unknown state")
 }
 
+func TestValidateSourceOnlyScopeRejectsConversionObjects(t *testing.T) {
+	status := model.DvpgToSubnetWorkflow{
+		Id: ptr.To("workflow-a"),
+		WorkflowState: &model.DvpgToSubnetWorkflowState{MigrationStatus: &model.DvpgToSubnetMigrationStatus{
+			NsxObject: []model.DvpgToSubnetNsxObjectMigrationStatus{{
+				ResourceType: ptr.To("VpcSubnet"), PolicyPath: ptr.To("/orgs/default/projects/default/vpcs/vpc-a/subnets/subnet-a"),
+			}},
+		}},
+	}
+	require.ErrorContains(t, ValidateSourceOnlyScope(status), "unexpectedly reports converted VpcSubnet object")
+	status.WorkflowState.MigrationStatus.NsxObject = nil
+	require.NoError(t, ValidateSourceOnlyScope(status))
+}
+
 func TestTargetScopeErrorsIncludeResourceDetails(t *testing.T) {
 	status := model.DvpgToSubnetWorkflow{
 		Id:      ptr.To("workflow-a"),

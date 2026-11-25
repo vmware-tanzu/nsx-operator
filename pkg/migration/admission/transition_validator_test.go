@@ -29,6 +29,9 @@ func TestEvaluateToExecuteCheckpoint(t *testing.T) {
 			request := func(oldGen, observedGen, checkpoint int64, last, state, oldAction, newAction string) admission.Request {
 				t.Helper()
 				oldObj := map[string]any{"metadata": map[string]any{"uid": "current-uid", "generation": oldGen}, "spec": map[string]any{"action": oldAction}, "status": map[string]any{"lastAction": last, "actionState": state, "actionGeneration": checkpoint, "observedGeneration": observedGen}}
+				if resource == "namespacenetworktransitions" && checkpoint > 0 {
+					oldObj["status"].(map[string]any)["evaluationPreview"] = map[string]any{"generation": checkpoint, "reviewRevision": 1}
+				}
 				newObj := map[string]any{"metadata": map[string]any{"generation": oldGen + 1}, "spec": map[string]any{"action": newAction}}
 				oldRaw, err := json.Marshal(oldObj)
 				require.NoError(t, err)
@@ -116,6 +119,82 @@ func TestNamespaceExecuteRequiresStageOneCompletion(t *testing.T) {
 			if !tc.wantAllow {
 				require.Contains(t, response.Result.Message, "Stage 1 infrastructure migration must complete")
 			}
+		})
+	}
+}
+
+func TestNamespaceExecuteRequiresCurrentPreview(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		preview any
+		allowed bool
+	}{
+		{name: "missing"},
+		{name: "stale", preview: map[string]any{"generation": 1, "reviewRevision": 1}},
+		{name: "review required", preview: map[string]any{"generation": 2, "reviewRevision": 1, "reviewRequired": true}},
+		{name: "current", preview: map[string]any{"generation": 2, "reviewRevision": 1}, allowed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := validExecuteRequest("namespacenetworktransitions", "current-uid")
+			var old map[string]any
+			require.NoError(t, json.Unmarshal(req.OldObject.Raw, &old))
+			status := old["status"].(map[string]any)
+			if tc.preview == nil {
+				delete(status, "evaluationPreview")
+			} else {
+				status["evaluationPreview"] = tc.preview
+			}
+			req.OldObject.Raw, _ = json.Marshal(old)
+			response := newTestTransitionValidator(t, readyInfrastructureTransition()).Handle(context.Background(), req)
+			require.Equal(t, tc.allowed, response.Allowed)
+			if !tc.allowed {
+				require.Contains(t, response.Result.Message, "evaluationPreview")
+			}
+		})
+	}
+}
+
+func TestNamespaceReviewRequiredAllowsRollbackRequest(t *testing.T) {
+	req := validExecuteRequest("namespacenetworktransitions", "current-uid")
+	var old, next map[string]any
+	require.NoError(t, json.Unmarshal(req.OldObject.Raw, &old))
+	require.NoError(t, json.Unmarshal(req.Object.Raw, &next))
+	old["spec"].(map[string]any)["action"] = "Execute"
+	status := old["status"].(map[string]any)
+	status["lastAction"], status["actionState"], status["phase"] = "Execute", "Running", api.PhaseReviewRequired
+	status["evaluationPreview"] = map[string]any{"generation": 1, "reviewRevision": 2, "reviewRequired": true}
+	next["spec"].(map[string]any)["action"] = "Rollback"
+	req.OldObject.Raw, _ = json.Marshal(old)
+	req.Object.Raw, _ = json.Marshal(next)
+	response := newTestTransitionValidator(t).Handle(context.Background(), req)
+	require.True(t, response.Allowed, "%+v", response.Result)
+}
+
+func TestTransitionValidatorRejectsSystemNamespacesInNamespaceBatch(t *testing.T) {
+	for _, namespace := range []string{"kube-system", "vmware-system-nsx"} {
+		t.Run(namespace, func(t *testing.T) {
+			newObject, err := json.Marshal(map[string]any{
+				"metadata": map[string]any{"name": "batch"},
+				"spec": map[string]any{
+					"action":     "Evaluate",
+					"namespaces": []string{namespace},
+				},
+			})
+			require.NoError(t, err)
+			request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Resource: metav1.GroupVersionResource{
+					Group: api.GroupVersion.Group, Version: api.GroupVersion.Version,
+					Resource: "namespacenetworktransitions",
+				},
+				Object: runtime.RawExtension{Raw: newObject},
+			}}
+
+			response := newTestTransitionValidator(t).Handle(context.Background(), request)
+			require.False(t, response.Allowed)
+			require.Equal(t, int32(http.StatusForbidden), response.Result.Code)
+			require.Contains(t, response.Result.Message, namespace)
+			require.Contains(t, response.Result.Message, "cannot be included")
 		})
 	}
 }

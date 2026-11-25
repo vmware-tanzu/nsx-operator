@@ -322,6 +322,7 @@ func TestNamespaceLifecycleHandleValidationAndUnprotectedPaths(t *testing.T) {
 	require.EqualValues(t, 400, validator.Handle(context.Background(), request).Result.Code)
 	request.Resource.Group = SupervisorNamespaceGroup
 	request.Name = ""
+	request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{},"spec":{}}`)}
 	require.EqualValues(t, 400, validator.Handle(context.Background(), request).Result.Code)
 	request.Name = "tenant"
 	require.EqualValues(t, 503, (NamespaceLifecycleValidator{}).Handle(context.Background(), request).Result.Code)
@@ -336,6 +337,7 @@ func TestNamespaceLifecycleHandleValidationAndUnprotectedPaths(t *testing.T) {
 	require.False(t, validator.Handle(context.Background(), request).Allowed, "unprotected namespaces cannot request VPC before Stage 1 completes")
 
 	request.Operation = admissionv1.Delete
+	request.OldObject = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant"},"spec":{}}`)}
 	require.True(t, validator.Handle(context.Background(), request).Allowed, "unprotected namespaces may be deleted")
 }
 
@@ -343,7 +345,8 @@ func TestNamespaceLifecycleAcceptsVersionsForTheSupervisorNamespaceResource(t *t
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))
 	validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).Build()}
-	request := supervisorNamespaceRequest(admissionv1.Create, `{"metadata":{"name":"tenant"},"spec":{}}`, "")
+	request := supervisorNamespaceRequest(admissionv1.Create,
+		`{"metadata":{"name":"tenant"},"spec":{"networking":{"vsphereNetworkConfig":{}}}}`, "")
 	request.Resource.Version = "v1beta1"
 	response := validator.Handle(context.Background(), request)
 	require.True(t, response.Allowed, "the API version is not part of the stable group/resource identity")

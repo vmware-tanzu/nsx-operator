@@ -14,7 +14,6 @@ const ControlPlaneNetworkTransitionName = "supervisor-vds-to-vpc"
 // +kubebuilder:validation:XValidation:rule="self.action != 'Rollback'",message="infrastructure Rollback is unsupported; use WCP backup and restore"
 // +kubebuilder:validation:XValidation:rule="self.action != 'Commit'",message="Commit is a Namespace operation"
 // +kubebuilder:validation:XValidation:rule="!has(self.networkConfiguration) || !has(self.networkConfiguration.lbSNATIPs) || size(self.networkConfiguration.lbSNATIPs) == 0 || !has(self.targetLBProvider) || self.targetLBProvider == 'NSX_LB'",message="LB SNAT IP inputs apply only to the NSX_LB target provider"
-// +kubebuilder:validation:XValidation:rule="!has(oldSelf.nsxProjectID) || (has(self.nsxProjectID) && self.nsxProjectID == oldSelf.nsxProjectID)",message="nsxProjectID cannot change once supplied"
 type ControlPlaneNetworkTransitionSpec struct {
 	TransitionSpec `json:",inline"`
 	// TargetLBProvider selects the desired target load balancer provider.
@@ -25,7 +24,8 @@ type ControlPlaneNetworkTransitionSpec struct {
 	// +kubebuilder:validation:Enum=NSX_LB
 	TargetLBProvider LoadBalancerProvider `json:"targetLBProvider,omitempty"`
 	// NSXProjectID selects a pre-existing NSX project; omission selects the default project.
-	// Once supplied, the ID cannot be changed or removed. Omission is fixed when execution starts.
+	// It may be added, corrected, or removed during Evaluate. It is frozen after Execute
+	// starts and cannot change after an LB SNAT allocation has been accepted.
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	// +kubebuilder:validation:MinLength=1

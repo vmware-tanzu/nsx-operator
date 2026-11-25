@@ -62,6 +62,8 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 	go func() { serverDone <- server.Start(ctx) }()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-serverDone) })
 	require.Eventually(t, func() bool { return server.StartedChecker()(nil) == nil }, 10*time.Second, 50*time.Millisecond)
+	// The namespace action depends on the completed infrastructure transition
+	// created by the controlplane case below.
 	for _, stage := range []string{"controlplane", "namespaces"} {
 		t.Run(stage, func(t *testing.T) {
 			var obj client.Object
@@ -96,9 +98,22 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 			setInput := func(v client.Object, value string) {
 				switch o := v.(type) {
 				case *api.ControlPlaneNetworkTransition:
-					o.Spec.NetworkConfiguration = &api.ControlPlaneNetworkConfiguration{ResourceNaming: &api.ControlPlaneResourceNaming{LoadBalancerVPCName: api.NSXResourceName(value)}}
+					if value == "" {
+						o.Spec.NetworkConfiguration = nil
+					} else {
+						o.Spec.NetworkConfiguration = &api.ControlPlaneNetworkConfiguration{ResourceNaming: &api.ControlPlaneResourceNaming{LoadBalancerVPCName: api.NSXResourceName(value)}}
+					}
 				case *api.NamespaceNetworkTransition:
-					o.Spec.NetworkConfiguration = &api.NamespaceNetworkConfiguration{ResourceNaming: &api.NamespaceResourceNaming{Networks: []api.VDNResourceNaming{{VDNName: "test-vdn", VPCName: api.NSXResourceName(value)}}}}
+					if value == "" {
+						o.Spec.NetworkConfiguration = nil
+					} else {
+						o.Spec.NetworkConfiguration = &api.NamespaceNetworkConfiguration{ResourceNaming: &api.NamespaceResourceNaming{Networks: []api.VDNResourceNaming{{VDNName: "test-vdn", VPCName: api.NSXResourceName(value)}}}}
+					}
+				}
+			}
+			setProjectID := func(v client.Object, projectID string) {
+				if o, ok := v.(*api.ControlPlaneNetworkTransition); ok {
+					o.Spec.NSXProjectID = projectID
 				}
 			}
 			checkpoint := func(v client.Object, state api.ActionState, gen int64, observed ...int64) {
@@ -109,9 +124,15 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 				s := api.TransitionStatus{LastAction: api.ActionEvaluate, ActionState: state, ActionGeneration: gen, ObservedGeneration: observedGeneration}
 				switch o := v.(type) {
 				case *api.ControlPlaneNetworkTransition:
-					o.Status = &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: s}
+					if o.Status == nil {
+						o.Status = &api.ControlPlaneNetworkTransitionStatus{}
+					}
+					o.Status.TransitionStatus = s
 				case *api.NamespaceNetworkTransition:
-					o.Status = &api.NamespaceNetworkTransitionStatus{TransitionStatus: s}
+					if o.Status == nil {
+						o.Status = &api.NamespaceNetworkTransitionStatus{}
+					}
+					o.Status.TransitionStatus = s
 				}
 				require.NoError(t, c.Status().Update(ctx, v))
 			}
@@ -143,6 +164,26 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 			require.NoError(t, c.Update(ctx, changed))
 			current := snapshot()
 			require.Greater(t, current.GetGeneration(), first.GetGeneration())
+			setInput(current, "corrected-vpc")
+			require.NoError(t, c.Update(ctx, current), "Evaluate inputs may be corrected")
+			current = snapshot()
+			setInput(current, "")
+			require.NoError(t, c.Update(ctx, current), "Evaluate inputs may be removed")
+			current = snapshot()
+			setInput(current, "final-vpc")
+			require.NoError(t, c.Update(ctx, current), "Evaluate inputs may be added again")
+			current = snapshot()
+			if stage == "controlplane" {
+				setProjectID(current, "project-one")
+				require.NoError(t, c.Update(ctx, current), "optional project input may be added during Evaluate")
+				current = snapshot()
+				setProjectID(current, "project-two")
+				require.NoError(t, c.Update(ctx, current), "optional project input may be corrected during Evaluate")
+				current = snapshot()
+				setProjectID(current, "")
+				require.NoError(t, c.Update(ctx, current), "optional project input may be removed during Evaluate")
+				current = snapshot()
+			}
 			setAction(current, api.ActionExecute)
 			err := c.Update(ctx, current)
 			require.ErrorContains(t, err, "Complete Evaluate successfully")
@@ -155,6 +196,43 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 				current = snapshot()
 			}
 			checkpoint(current, api.ActionStateSucceeded, current.GetGeneration())
+			current = snapshot()
+			switch o := current.(type) {
+			case *api.ControlPlaneNetworkTransition:
+				o.Status.RequiredInputs = []api.RequiredInput{{FieldName: "spec.networkConfiguration.controlPlaneAndServiceDHCPNetworks[vdnName=source-vdn]", Description: "Supply the DHCP range, subnet mask, and gateway for source-vdn."}}
+				require.NoError(t, c.Status().Update(ctx, o))
+			case *api.NamespaceNetworkTransition:
+				o.Status.RequiredInputs = []api.RequiredInput{{FieldName: "spec.networkConfiguration.namespaceDHCPNetworks[vdnName=source-vdn]", Description: "Supply DHCP input for source-vdn."}}
+				require.NoError(t, c.Status().Update(ctx, o))
+			}
+			current = snapshot()
+			setAction(current, api.ActionExecute)
+			require.ErrorContains(t, c.Update(ctx, current), "Complete Evaluate successfully")
+			current = snapshot()
+			switch o := current.(type) {
+			case *api.ControlPlaneNetworkTransition:
+				o.Status.RequiredInputs = nil
+				o.Status.OptionalInputs = []api.OptionalInput{{FieldName: "spec.networkConfiguration.resourceNaming.loadBalancerVPCName", Description: "Optional LB VPC name; omitted names are generated."}}
+				require.NoError(t, c.Status().Update(ctx, o))
+			case *api.NamespaceNetworkTransition:
+				o.Status.RequiredInputs = nil
+				o.Status.OptionalInputs = []api.OptionalInput{{FieldName: "spec.networkConfiguration.resourceNaming.networks[vdnName=source-vdn].vpcName", Description: "Optional VPC name; omitted names are generated."}}
+				require.NoError(t, c.Status().Update(ctx, o))
+			}
+			current = snapshot()
+			if stage == "controlplane" {
+				o := current.(*api.ControlPlaneNetworkTransition)
+				o.Status.LBSNATIPAllocations = []api.IPAllocationStatus{{IPAddress: "192.0.2.10"}}
+				require.NoError(t, c.Status().Update(ctx, o))
+				current = snapshot()
+				o = current.(*api.ControlPlaneNetworkTransition)
+				o.Spec.NSXProjectID = "changed-after-snat"
+				require.ErrorContains(t, c.Update(ctx, o), "nsxProjectID cannot change after an LB SNAT allocation is accepted")
+				current = snapshot()
+				o = current.(*api.ControlPlaneNetworkTransition)
+				o.Spec.NetworkConfiguration.LBSNATIPs = []string{"192.0.2.11"}
+				require.ErrorContains(t, c.Update(ctx, o), "LB SNAT input cannot change after its allocation is accepted")
+			}
 			combined := snapshot()
 			setAction(combined, api.ActionExecute)
 			setInput(combined, "changed-vpc")
@@ -178,12 +256,22 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 			setAction(current, api.ActionEvaluate)
 			require.ErrorContains(t, c.Update(ctx, current), "Illegal action change")
 			current = snapshot()
+			setAction(current, api.ActionEvaluate)
+			setInput(current, "evaluate-after-execute")
+			require.ErrorContains(t, c.Update(ctx, current), "Illegal action change from Execute to Evaluate")
+			current = snapshot()
 			completedExecute := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration()}
 			switch o := current.(type) {
 			case *api.ControlPlaneNetworkTransition:
-				o.Status = &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: completedExecute}
+				if o.Status == nil {
+					o.Status = &api.ControlPlaneNetworkTransitionStatus{}
+				}
+				o.Status.TransitionStatus = completedExecute
 			case *api.NamespaceNetworkTransition:
-				o.Status = &api.NamespaceNetworkTransitionStatus{TransitionStatus: completedExecute}
+				if o.Status == nil {
+					o.Status = &api.NamespaceNetworkTransitionStatus{}
+				}
+				o.Status.TransitionStatus = completedExecute
 			}
 			require.NoError(t, c.Status().Update(ctx, current))
 			current = snapshot()
@@ -193,11 +281,24 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 			unresolved := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateFailed, ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration(), Phase: "Failed"}
 			switch o := current.(type) {
 			case *api.ControlPlaneNetworkTransition:
-				o.Status = &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: unresolved}
+				if o.Status == nil {
+					o.Status = &api.ControlPlaneNetworkTransitionStatus{}
+				}
+				o.Status.TransitionStatus = unresolved
 			case *api.NamespaceNetworkTransition:
-				o.Status = &api.NamespaceNetworkTransitionStatus{TransitionStatus: unresolved}
+				if o.Status == nil {
+					o.Status = &api.NamespaceNetworkTransitionStatus{}
+				}
+				o.Status.TransitionStatus = unresolved
 			}
 			require.NoError(t, c.Status().Update(ctx, current))
+			current = snapshot()
+			setInput(current, "edit-after-failed-execute")
+			require.ErrorContains(t, c.Update(ctx, current), "networkConfiguration cannot change after execution starts")
+			current = snapshot()
+			setAction(current, api.ActionEvaluate)
+			setInput(current, "reset-after-failed-execute")
+			require.ErrorContains(t, c.Update(ctx, current), "networkConfiguration cannot change after execution starts")
 			require.ErrorContains(t, c.Delete(ctx, snapshot()), "Resolve the unfinished migration action")
 			if stage == "controlplane" {
 				// This API-server test shares the reader across both transition kinds.
@@ -214,20 +315,100 @@ func TestTransitionValidatorOnAPIServer(t *testing.T) {
 				}
 				require.NoError(t, c.Status().Update(ctx, o))
 			}
-
 			if stage == "namespaces" {
 				current = snapshot()
-				o := current.(*api.NamespaceNetworkTransition)
-				o.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: o.Generation, ObservedGeneration: o.Generation, Phase: "Completed"}
-				require.NoError(t, c.Status().Update(ctx, o))
+				setAction(current, api.ActionRollback)
+				require.NoError(t, c.Update(ctx, current), "a failed Namespace Execute can enter Rollback")
+				current = snapshot()
+				rollbackFailed := api.TransitionStatus{LastAction: api.ActionRollback, ActionState: api.ActionStateFailed,
+					ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration(), Phase: "Failed"}
+				namespace := current.(*api.NamespaceNetworkTransition)
+				namespace.Status = &api.NamespaceNetworkTransitionStatus{TransitionStatus: rollbackFailed}
+				require.NoError(t, c.Status().Update(ctx, namespace))
+				current = snapshot()
+				setAction(current, api.ActionEvaluate)
+				setInput(current, "unsafe-rollback-input")
+				require.ErrorContains(t, c.Update(ctx, current), "networkConfiguration cannot change after execution starts")
+				current = snapshot()
+				setAction(current, api.ActionEvaluate)
+				require.ErrorContains(t, c.Update(ctx, current), "Complete and verify whole-batch Rollback")
+
+				current = snapshot()
+				namespace = current.(*api.NamespaceNetworkTransition)
+				namespace.Status = &api.NamespaceNetworkTransitionStatus{
+					TransitionStatus: api.TransitionStatus{LastAction: api.ActionRollback, ActionState: api.ActionStateSucceeded,
+						ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration(), Phase: api.PhaseRolledBack},
+					RollbackComplete: true,
+				}
+				require.NoError(t, c.Status().Update(ctx, namespace))
+				current = snapshot()
+				setAction(current, api.ActionEvaluate)
+				setInput(current, "")
+				require.NoError(t, c.Update(ctx, current), "verified Rollback permits input removal in a new Evaluate")
+				current = snapshot()
+				setAction(current, api.ActionExecute)
+				require.ErrorContains(t, c.Update(ctx, current), "Complete Evaluate successfully")
+
+				current = snapshot()
+				namespace = current.(*api.NamespaceNetworkTransition)
+				namespace.Status.TransitionStatus = api.TransitionStatus{
+					LastAction: api.ActionEvaluate, ActionState: api.ActionStateSucceeded,
+					ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration(), Phase: "Evaluated",
+					OptionalInputs: []api.OptionalInput{{FieldName: "spec.networkConfiguration.resourceNaming.networks[vdnName=source-vdn].vpcName", Description: "Optional VPC name; omitted names are generated."}},
+				}
+				require.NoError(t, c.Status().Update(ctx, namespace))
+				current = snapshot()
+				setAction(current, api.ActionExecute)
+				require.NoError(t, c.Update(ctx, current), "optional names do not block Execute after current Evaluate")
+				current = snapshot()
+				namespace = current.(*api.NamespaceNetworkTransition)
+				namespace.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionExecute,
+					ActionState: api.ActionStateSucceeded, ActionGeneration: current.GetGeneration(),
+					ObservedGeneration: current.GetGeneration(), Phase: api.PhaseCompleted}
+				namespace.Status.RollbackComplete = false
+				require.NoError(t, c.Status().Update(ctx, namespace))
+				current = snapshot()
+				setAction(current, api.ActionRollback)
+				require.NoError(t, c.Update(ctx, current))
+				current = snapshot()
+				namespace = current.(*api.NamespaceNetworkTransition)
+				namespace.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionRollback,
+					ActionState: api.ActionStateSucceeded, ActionGeneration: current.GetGeneration(),
+					ObservedGeneration: current.GetGeneration(), Phase: api.PhaseRolledBack}
+				namespace.Status.RollbackComplete = true
+				require.NoError(t, c.Status().Update(ctx, namespace))
+				current = snapshot()
+				setAction(current, api.ActionEvaluate)
+				setInput(current, "")
+				require.NoError(t, c.Update(ctx, current), "verified Rollback permits a fresh Evaluate")
+				current = snapshot()
+				namespace = current.(*api.NamespaceNetworkTransition)
+				namespace.Status.TransitionStatus = api.TransitionStatus{
+					LastAction: api.ActionEvaluate, ActionState: api.ActionStateSucceeded,
+					ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration(), Phase: "Evaluated",
+				}
+				require.NoError(t, c.Status().Update(ctx, namespace))
+				current = snapshot()
+				setAction(current, api.ActionExecute)
+				require.NoError(t, c.Update(ctx, current), "a fresh Evaluate permits another Execute")
+				current = snapshot()
+				namespace = current.(*api.NamespaceNetworkTransition)
+				namespace.Status.TransitionStatus = api.TransitionStatus{
+					LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded,
+					ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration(), Phase: api.PhaseCompleted,
+				}
+				require.NoError(t, c.Status().Update(ctx, namespace))
 				current = snapshot()
 				setAction(current, api.ActionCommit)
 				require.NoError(t, c.Update(ctx, current), "a current successful Execute permits Commit")
 				current = snapshot()
-				o = current.(*api.NamespaceNetworkTransition)
-				o.Status.TransitionStatus = api.TransitionStatus{LastAction: api.ActionCommit, ActionState: api.ActionStateRunning, ActionGeneration: o.Generation, ObservedGeneration: o.Generation, Phase: "Committing", IrreversibleAction: string(api.ActionCommit)}
-				require.NoError(t, c.Status().Update(ctx, o), "the controller persists PONR before workflow deletion")
-
+				namespace = current.(*api.NamespaceNetworkTransition)
+				namespace.Status.TransitionStatus = api.TransitionStatus{
+					LastAction: api.ActionCommit, ActionState: api.ActionStateRunning,
+					ActionGeneration: current.GetGeneration(), ObservedGeneration: current.GetGeneration(),
+					Phase: "Committing", IrreversibleAction: string(api.ActionCommit),
+				}
+				require.NoError(t, c.Status().Update(ctx, namespace), "the controller persists PONR before workflow deletion")
 				for _, action := range []api.Action{api.ActionRollback, api.ActionEvaluate, api.ActionExecute} {
 					reset := snapshot()
 					setAction(reset, action)

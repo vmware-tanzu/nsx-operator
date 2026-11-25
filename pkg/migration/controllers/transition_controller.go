@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 )
 
@@ -29,10 +31,18 @@ type Reconciler struct {
 	APIReader client.Reader
 	Engine    *transition.Engine
 	Stage     transition.Stage
+	// TopologyDiscoverer must read the live VDN/DVPG and shared-consumer graph.
+	// Nil keeps namespace actions blocked until the owning discovery task wires it.
+	TopologyDiscoverer topology.Discoverer
 }
 
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions;namespacenetworktransitions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions/status;namespacenetworktransitions/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups=iaas.vmware.com,resources=supervisornamespaces,verbs=get
+// +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=supervisor-properties,verbs=get,namespace=vmware-system-vks-public
+// +kubebuilder:rbac:groups=netoperator.vmware.com,resources=networksettings,verbs=get
+// +kubebuilder:rbac:groups=vmoperator.vmware.com,resources=virtualmachines,verbs=get;list
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=vmware-system-nsx
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -76,6 +86,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, nil
 	}
 	request := transition.Request{Stage: r.Stage, Object: obj, Action: action, Generation: obj.GetGeneration(), Status: status}
+	if r.Stage == transition.Namespaces {
+		request.NamespaceTopologyDiscoverer = r.TopologyDiscoverer
+	}
 	var result transition.Result
 	var reconcileErr error
 	blocked, err := r.dependencyBlock(ctx, action, status)
@@ -86,10 +99,45 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		transition.Block(status, obj.GetGeneration(), string(blocked.Reason), blocked.Message)
 		result.RequeueAfter = 30 * time.Second
 	} else {
-		if err := r.checkCurrentRequest(ctx, request); err != nil {
-			return ctrl.Result{}, err
+		readyForDispatch := true
+		// Stage 2 actions read the immutable batch, provider state, and visible
+		// shared identities before dispatch. Recovery actions do not require a
+		// currently-ready Stage 1, but must classify the live provider state.
+		if r.Engine.Enabled && r.Stage == transition.Namespaces &&
+			(action == api.ActionEvaluate || action == api.ActionExecute || action == api.ActionRollback) {
+			batch := obj.(*api.NamespaceNetworkTransition)
+			var preflight preflightOutcome
+			var err error
+			if action == api.ActionRollback {
+				preflight, err = checkNamespaceRollbackPrerequisites(ctx, r.reader(), batch, r.TopologyDiscoverer)
+			} else {
+				preflight, err = checkNamespaceBatchPrerequisites(ctx, r.reader(), batch, r.TopologyDiscoverer)
+			}
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			request.Stage1Transition = preflight.stage1Transition
+			request.NamespaceNetworkStates = preflight.namespaceStates
+			request.NamespaceTopology = preflight.topologySnapshot
+			condition := metav1.Condition{
+				Type: api.ConditionBatchPreflight, Status: metav1.ConditionTrue,
+				Reason: preflight.reason, Message: preflight.message,
+				LastTransitionTime: metav1.Now(), ObservedGeneration: obj.GetGeneration(),
+			}
+			if !preflight.ready {
+				condition.Status = metav1.ConditionFalse
+				transition.Block(status, obj.GetGeneration(), preflight.reason, preflight.message)
+				result.RequeueAfter = namespacePreflightRequeue
+				readyForDispatch = false
+			}
+			meta.SetStatusCondition(&status.Conditions, condition)
 		}
-		result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		if readyForDispatch {
+			if err := r.checkCurrentRequest(ctx, request); err != nil {
+				return ctrl.Result{}, err
+			}
+			result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		}
 	}
 	if !equality.Semantic.DeepEqual(previous, obj) {
 		if err := r.Status().Update(ctx, obj); err != nil {

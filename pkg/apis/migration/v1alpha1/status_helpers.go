@@ -12,6 +12,7 @@ const (
 	PhaseNeedsInput              = "NeedsInput"
 	PhaseEvaluating              = "Evaluating"
 	PhaseEvaluated               = "Evaluated"
+	PhaseReviewRequired          = "ReviewRequired"
 	PhaseEvaluationPassed        = "EvaluationPassed"
 	PhaseEvaluationFailed        = "EvaluationFailed"
 	PhasePlanning                = "Planning"
@@ -36,11 +37,13 @@ const (
 	ConditionInfraTransitionComplete        = "InfraTransitionComplete"
 	ConditionWorkloadCompatibilityEvaluated = "WorkloadCompatibilityEvaluated"
 	ConditionMigrationPlanSynthesized       = "MigrationPlanSynthesized"
+	ConditionMigrationPreviewAvailable      = "MigrationPreviewAvailable"
 	ConditionSubnetsDerived                 = "SubnetsDerived"
 	ConditionNetworkProviderTransitioned    = "NetworkProviderTransitioned"
 	ConditionWorkloadsMigrated              = "WorkloadsMigrated"
 	ConditionLoadBalancerMigrated           = "LoadBalancerMigrated"
 	ConditionNamespaceMigrationCommitted    = "NamespaceMigrationCommitted"
+	ConditionBatchPreflight                 = "BatchPreflight"
 )
 
 // NamespacePhaseCounts derives batch progress without storing redundant counters.

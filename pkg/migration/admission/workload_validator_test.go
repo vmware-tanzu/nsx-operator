@@ -77,12 +77,12 @@ func TestWorkloadCutoverProtection(t *testing.T) {
 	})
 }
 
-func TestControllerIdentityWorkloadUpdateException(t *testing.T) {
+func TestControllerIdentitySystemWorkloadRecoveryException(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, api.AddToScheme(scheme))
 	transition := &api.NamespaceNetworkTransition{
 		ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 2},
-		Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
+		Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant", "kube-system"}},
 		Status:     &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ObservedGeneration: 2, ActionGeneration: 2}},
 	}
 	identity := "system:serviceaccount:vmware-system-netop:vmware-system-netop-controller-manager"
@@ -90,19 +90,22 @@ func TestControllerIdentityWorkloadUpdateException(t *testing.T) {
 	old := `{"metadata":{"uid":"vm-uid"},"spec":{"cpu":2}}`
 	expected := `{"metadata":{"uid":"vm-uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"cpu":2}}`
 	for _, tc := range []struct {
-		name, user, object string
-		op                 admissionv1.Operation
-		allow              bool
+		name, namespace, user, object string
+		op                            admissionv1.Operation
+		allow                         bool
 	}{
-		{"exact annotation", identity, expected, admissionv1.Update, true},
-		{"wrong identity", "someone-else", expected, admissionv1.Update, false},
-		{"extra spec change", identity, `{"metadata":{"uid":"vm-uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"cpu":4}}`, admissionv1.Update, true},
-		{"other annotation", identity, `{"metadata":{"uid":"vm-uid","annotations":{"other":"true"}},"spec":{"cpu":2}}`, admissionv1.Update, true},
-		{"changed uid", identity, `{"metadata":{"uid":"other","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"cpu":2}}`, admissionv1.Update, false},
-		{"delete is forbidden", identity, "", admissionv1.Delete, false},
+		{"same uid tenant update", "tenant", identity, expected, admissionv1.Update, true},
+		{"wrong identity tenant update", "tenant", "someone-else", expected, admissionv1.Update, false},
+		{"extra spec tenant update", "tenant", identity, `{"metadata":{"uid":"vm-uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"cpu":4}}`, admissionv1.Update, true},
+		{"other annotation tenant update", "tenant", identity, `{"metadata":{"uid":"vm-uid","annotations":{"other":"true"}},"spec":{"cpu":2}}`, admissionv1.Update, true},
+		{"same uid system update", "kube-system", identity, expected, admissionv1.Update, true},
+		{"create is allowed for system recovery", "kube-system", identity, `{"metadata":{"name":"replacement"}}`, admissionv1.Create, true},
+		{"delete is allowed for system recovery", "kube-system", identity, "", admissionv1.Delete, true},
+		{"tenant create remains blocked", "tenant", identity, `{"metadata":{"name":"replacement"}}`, admissionv1.Create, false},
+		{"tenant delete remains blocked", "tenant", identity, "", admissionv1.Delete, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Namespace: "tenant", Operation: tc.op, Resource: metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"}, OldObject: runtime.RawExtension{Raw: []byte(old)}, Object: runtime.RawExtension{Raw: []byte(tc.object)}}}
+			req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Namespace: tc.namespace, Operation: tc.op, Resource: metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"}, OldObject: runtime.RawExtension{Raw: []byte(old)}, Object: runtime.RawExtension{Raw: []byte(tc.object)}}}
 			req.UserInfo.Username = tc.user
 			require.Equal(t, tc.allow, validator.Handle(context.Background(), req).Allowed)
 		})
@@ -141,7 +144,7 @@ func TestControlPlaneWorkloadProtection(t *testing.T) {
 
 	t.Run("protects VDS and VPC system namespaces from user writes", func(t *testing.T) {
 		validator := makeValidator(transition, systemNamespace, sharedVPCNamespace)
-		for _, namespace := range []string{"system", "system-vpc", "kube-system"} {
+		for _, namespace := range []string{"system", "system-vpc", "kube-system", "vmware-system-nsx"} {
 			require.False(t, validator.Handle(context.Background(), makeRequest(namespace, admissionv1.Update, "user", oldVM, updatedVM)).Allowed, namespace)
 			require.False(t, validator.Handle(context.Background(), makeRequest(namespace, admissionv1.Delete, NetOperatorControllerUser, oldVM, "")).Allowed, namespace)
 		}

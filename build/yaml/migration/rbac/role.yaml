@@ -14,6 +14,20 @@ rules:
   - create
   - patch
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - iaas.vmware.com
+  resources:
+  - supervisornamespaces
+  verbs:
+  - get
+- apiGroups:
   - migration.network.vmware.com
   resources:
   - controlplanenetworktransitions
@@ -40,6 +54,19 @@ rules:
   verbs:
   - get
   - list
+- apiGroups:
+  - netoperator.vmware.com
+  resources:
+  - networksettings
+  verbs:
+  - get
+- apiGroups:
+  - vmoperator.vmware.com
+  resources:
+  - virtualmachines
+  verbs:
+  - get
+  - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -55,3 +82,18 @@ rules:
   - create
   - get
   - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: supervisor-network-migration-operator
+  namespace: vmware-system-vks-public
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - supervisor-properties
+  resources:
+  - configmaps
+  verbs:
+  - get

@@ -7,9 +7,11 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,7 +45,10 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	var status *api.TransitionStatus
 	var currentUID types.UID
 	isNamespace := false
+	var namespaceBatch []string
+	hasCurrentEvaluationPreview := false
 	hasAcceptedSNATAllocation := false
+	rollbackComplete := false
 	switch req.Resource.Resource {
 	case "controlplanenetworktransitions":
 		var oldObj, newObj api.ControlPlaneNetworkTransition
@@ -62,11 +67,26 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		oldAction, newAction, oldGeneration, currentUID = oldObj.Spec.Action, newObj.Spec.Action, oldObj.Generation, oldObj.UID
+		namespaceBatch = newObj.Spec.Namespaces
 		if oldObj.Status != nil {
 			status = &oldObj.Status.TransitionStatus
+			rollbackComplete = oldObj.Status.RollbackComplete
+			hasCurrentEvaluationPreview = oldObj.Status.EvaluationPreview != nil &&
+				oldObj.Status.EvaluationPreview.Generation == oldGeneration &&
+				oldObj.Status.EvaluationPreview.ReviewRevision > 0 &&
+				!oldObj.Status.EvaluationPreview.ReviewRequired
 		}
 	default:
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unexpected migration resource %q", req.Resource.Resource))
+	}
+	if isNamespace && (req.Operation == admissionv1.Create || req.Operation == admissionv1.Update) {
+		if err := validateNamespaceTransitionNamespaces(ctx, v.Reader, namespaceBatch); err != nil {
+			var forbidden *systemNamespaceInBatchError
+			if errors.As(err, &forbidden) {
+				return admission.Denied(err.Error())
+			}
+			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("validating NamespaceNetworkTransition namespaces: %w", err))
+		}
 	}
 	if req.Operation == admissionv1.Delete {
 		if status == nil || status.LastAction == "" {
@@ -79,7 +99,17 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Denied("Resolve the requested migration action before deleting the transition")
 		}
 		if status.LastAction == api.ActionEvaluate {
-			if !currentSuccessfulCheckpoint(status, oldGeneration, api.ActionEvaluate) || len(status.RequiredInputs) != 0 || hasAcceptedSNATAllocation {
+			if hasAcceptedSNATAllocation {
+				return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
+			}
+			if status.Phase == api.PhaseEvaluationFailed && status.ActionState != api.ActionStateRunning {
+				// Evaluate failures before Execute can be abandoned when no SNAT
+				// allocation was accepted. Refine this check when SNAT allocation
+				// handling and the cleanup finalizer are wired, so in-flight or
+				// unrecorded preparation resources are accounted for too.
+				return admission.Allowed("deleting after failed Evaluate with no accepted SNAT reservation")
+			}
+			if !currentSuccessfulCheckpoint(status, oldGeneration, api.ActionEvaluate) || len(status.RequiredInputs) != 0 {
 				return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
 			}
 			return admission.Allowed("current Evaluate completed without an accepted reservation")
@@ -115,6 +145,9 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	if oldAction == api.ActionEvaluate && newAction == api.ActionExecute {
 		if !currentSuccessfulCheckpoint(status, oldGeneration, api.ActionEvaluate) || status.ObservedGeneration != oldGeneration || len(status.RequiredInputs) != 0 {
 			return admission.Denied("Complete Evaluate successfully for the current inputs before requesting Execute")
+		}
+		if isNamespace && !hasCurrentEvaluationPreview {
+			return admission.Denied("Complete a current Evaluate that publishes status.evaluationPreview before requesting Execute")
 		}
 		if v.Reader == nil {
 			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("migration Execute exclusivity reader is not configured"))
@@ -158,12 +191,41 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 		}
 	}
 	if oldAction == api.ActionRollback && newAction == api.ActionEvaluate && isNamespace {
-		if currentSuccessfulCheckpoint(status, oldGeneration, api.ActionRollback) && status.Phase == api.PhaseRolledBack && status.IrreversibleAction == "" {
+		if currentSuccessfulCheckpoint(status, oldGeneration, api.ActionRollback) && status.Phase == api.PhaseRolledBack && rollbackComplete && status.IrreversibleAction == "" {
 			return admission.Allowed("whole-batch rollback succeeded; inputs may be evaluated again")
 		}
-		return admission.Denied("Complete and verify whole-batch Rollback before requesting Evaluate")
+		return admission.Denied("Complete and verify whole-batch Rollback, including rollbackComplete, before requesting Evaluate")
 	}
 	return admission.Denied(fmt.Sprintf("Illegal action change from %s to %s", oldAction, newAction))
+}
+
+type systemNamespaceInBatchError struct{ namespace string }
+
+func (e *systemNamespaceInBatchError) Error() string {
+	return fmt.Sprintf("system namespace %q cannot be included in NamespaceNetworkTransition.spec.namespaces", e.namespace)
+}
+
+func validateNamespaceTransitionNamespaces(ctx context.Context, reader client.Reader, namespaces []string) error {
+	if reader == nil {
+		return fmt.Errorf("namespace reader is not configured")
+	}
+	for _, namespace := range namespaces {
+		// All vmware-system-* namespaces are operator/system namespaces. Also
+		// reject kube-system and namespaces marked as shared control-plane/VPC
+		// namespaces by WCP, using the same live metadata check as workload
+		// protection.
+		if strings.HasPrefix(namespace, "vmware-system-") {
+			return &systemNamespaceInBatchError{namespace: namespace}
+		}
+		isSystem, err := isControlPlaneSystemNamespace(ctx, reader, namespace)
+		if err != nil {
+			return fmt.Errorf("checking namespace %q: %w", namespace, err)
+		}
+		if isSystem {
+			return &systemNamespaceInBatchError{namespace: namespace}
+		}
+	}
+	return nil
 }
 
 func stageOneComplete(ctx context.Context, reader client.Reader) (bool, error) {

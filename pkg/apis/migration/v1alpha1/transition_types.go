@@ -5,6 +5,13 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+const (
+	// AnnotationReviewedPreviewRevision acknowledges the current Namespace
+	// evaluation preview after a material Execute-time difference. Its value is
+	// the decimal status.evaluationPreview.reviewRevision.
+	AnnotationReviewedPreviewRevision = "migration.network.vmware.com/reviewed-preview-revision"
+)
+
 // Action selects an explicit migration operation.
 // +kubebuilder:validation:Enum=Evaluate;Execute;Rollback;Commit;Finalize
 type Action string
