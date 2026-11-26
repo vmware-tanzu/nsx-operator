@@ -51,7 +51,7 @@ func (handler RuntimeEvaluateHandler) Reconcile(ctx context.Context, request tra
 		if statusErr := inspection.ApplyEvaluation(inspection.Result{}, err, request.Status, request.Generation); statusErr != nil {
 			return transition.Result{}, statusErr
 		}
-		return transition.Result{}, fmt.Errorf("resolve source identity before infrastructure Evaluate: %w", err)
+		return transition.Result{}, fmt.Errorf("resolve source identity before infrastructure Evaluate; inspect SourceIdentityResolved and retry")
 	}
 	setIdentityCondition(request.Status, request.Generation, metav1.ConditionTrue, "IdentityResolved", "Supervisor and vCenter/NSX identities are verified")
 
@@ -77,14 +77,14 @@ func (handler RuntimeEvaluateHandler) Reconcile(ctx context.Context, request tra
 		if statusErr := inspection.ApplyEvaluation(inspection.Result{}, err, request.Status, request.Generation); statusErr != nil {
 			return transition.Result{}, statusErr
 		}
-		return transition.Result{}, fmt.Errorf("initialize infrastructure inspection services: %w", err)
+		return transition.Result{}, fmt.Errorf("initialize infrastructure inspection services")
 	}
 	validationAPI, err := NewNSXDVPGValidationAPI(handler.Clients.NSX)
 	if err != nil {
 		if statusErr := inspection.ApplyEvaluation(inspection.Result{}, err, request.Status, request.Generation); statusErr != nil {
 			return transition.Result{}, statusErr
 		}
-		return transition.Result{}, fmt.Errorf("initialize NSX DVPG validation service: %w", err)
+		return transition.Result{}, fmt.Errorf("initialize NSX DVPG validation service")
 	}
 
 	scope := VCenterControlPlaneScope{

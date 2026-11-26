@@ -73,7 +73,7 @@ func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition
 			Reason: "SourcePreviewUnavailable", Message: "Source network preview is unavailable until discovery succeeds",
 			ObservedGeneration: request.Generation,
 		})
-		return transition.Result{}, fmt.Errorf("CPVM and Service network discovery is unavailable; retry Evaluate: %w", err)
+		return transition.Result{}, fmt.Errorf("CPVM and Service network discovery is unavailable; retry Evaluate")
 	}
 	findings, inspectionErr := handler.Inspector.InspectControlPlane(ctx, resource, vDNs, workloadTopologies...)
 	var validation DVPGValidationResult
@@ -88,11 +88,11 @@ func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition
 	}
 	if inspectionErr != nil {
 		reportDVPGValidation(DVPGValidationResult{}, inspectionErr, false, &request.Status.Conditions, request.Generation)
-		return transition.Result{}, fmt.Errorf("source network inspection failed; inspect NetworkInputsValidated: %w", inspectionErr)
+		return transition.Result{}, fmt.Errorf("source network inspection failed; inspect NetworkInputsValidated")
 	}
 	reportDVPGValidation(validation, validationErr, len(findings.Networks) > 0, &request.Status.Conditions, request.Generation)
 	if validationErr != nil {
-		return transition.Result{}, fmt.Errorf("DVPG conversion compatibility validation failed; retry Evaluate: %w", validationErr)
+		return transition.Result{}, fmt.Errorf("DVPG conversion compatibility validation failed; retry Evaluate")
 	}
 	if findings.LBSNAT != nil {
 		resource.Status.SourceLBProvider = api.LoadBalancerProvider("VSPHERE_FOUNDATION")
@@ -130,7 +130,7 @@ func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition
 	}
 	allocation, ready, err := handler.SNAT.Ensure(ctx, resource, *findings.LBSNAT)
 	if err != nil {
-		return transition.Result{}, fmt.Errorf("LB SNAT source reservation failed; retry Evaluate: %w", err)
+		return transition.Result{}, fmt.Errorf("LB SNAT source reservation failed; retry Evaluate")
 	}
 	if !ready {
 		return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: 5 * time.Second}, nil
