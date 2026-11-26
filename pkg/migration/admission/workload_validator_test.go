@@ -6,6 +6,7 @@ package admission
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,9 @@ import (
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -160,8 +163,10 @@ func TestWorkloadControllerCheckpointAndFields(t *testing.T) {
 	require.NoError(t, corev1.AddToScheme(scheme))
 	old := `{"metadata":{"name":"vm","uid":"uid"},"spec":{"networkInterfaces":[{"name":"old"}]}}`
 	allowed := `{"metadata":{"name":"vm","uid":"uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"networkInterfaces":[{"name":"new"}]}}`
-	otherAnnotation := `{"metadata":{"name":"vm","uid":"uid","annotations":{"other":"value"}},"spec":{"networkInterfaces":[{"name":"new"}]}}`
+	otherAnnotation := `{"metadata":{"name":"vm","uid":"uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true","other":"value"}},"spec":{"networkInterfaces":[{"name":"new"}]}}`
 	otherSpec := `{"metadata":{"name":"vm","uid":"uid"},"spec":{"networkInterfaces":[{"name":"new"}],"powerState":"off"}}`
+	wrongInterfaces := `{"metadata":{"name":"vm","uid":"uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"true"}},"spec":{"networkInterfaces":[{"name":"wrong"}]}}`
+	wrongAnnotation := `{"metadata":{"name":"vm","uid":"uid","annotations":{"migration.vmoperator.vmware.com/in-transition":"false"}},"spec":{"networkInterfaces":[{"name":"new"}]}}`
 	request := func(user, current string, op admissionv1.Operation) admission.Request {
 		return admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
 			Namespace: "kube-system", Operation: op, Resource: metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"},
@@ -178,7 +183,19 @@ func TestWorkloadControllerCheckpointAndFields(t *testing.T) {
 				} else {
 					transition = &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 2}, Spec: api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: status}}
 				}
-				validator := WorkloadCutoverValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build()}
+				validator := WorkloadCutoverValidator{
+					Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build(),
+					ExpectedVMUpdate: func(_ context.Context, namespace, name string, uid types.UID, transitionName string) (*ExpectedVMUpdate, error) {
+						require.Equal(t, "kube-system", namespace)
+						require.Equal(t, "vm", name)
+						require.Equal(t, types.UID("uid"), uid)
+						require.NotEmpty(t, transitionName)
+						return &ExpectedVMUpdate{
+							NetworkInterfaces:    []interface{}{map[string]interface{}{"name": "new"}},
+							TransitionAnnotation: stringPointer("true"),
+						}, nil
+					},
+				}
 				check := func(user, object string, op admissionv1.Operation, want bool) {
 					t.Helper()
 					require.Equal(t, want, validator.Handle(context.Background(), request(user, object, op)).Allowed)
@@ -186,13 +203,67 @@ func TestWorkloadControllerCheckpointAndFields(t *testing.T) {
 				check(NetOperatorControllerUser, allowed, admissionv1.Update, true)
 				check(NetOperatorControllerUser, otherAnnotation, admissionv1.Update, false)
 				check(NetOperatorControllerUser, otherSpec, admissionv1.Update, false)
+				check(NetOperatorControllerUser, wrongInterfaces, admissionv1.Update, false)
+				check(NetOperatorControllerUser, wrongAnnotation, admissionv1.Update, false)
 				check(VMOperatorControllerUser, allowed, admissionv1.Update, false)
 				check(NetOperatorControllerUser, allowed, admissionv1.Create, false)
 				check(NetOperatorControllerUser, allowed, admissionv1.Delete, false)
 			})
 		}
 	}
+
+	t.Run("missing trusted expected VM update fails closed", func(t *testing.T) {
+		status := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 2, ObservedGeneration: 2}
+		transition := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 2}, Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"kube-system"}}, Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: status}}
+		validator := WorkloadCutoverValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build()}
+		req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+			Namespace: "kube-system", Operation: admissionv1.Update,
+			Resource:  metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"},
+			UserInfo:  authenticationv1.UserInfo{Username: NetOperatorControllerUser},
+			OldObject: runtime.RawExtension{Raw: []byte(old)}, Object: runtime.RawExtension{Raw: []byte(allowed)},
+		}}
+		require.False(t, validator.Handle(context.Background(), req).Allowed)
+	})
+	t.Run("expected VM update resolver error returns unavailable", func(t *testing.T) {
+		status := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 2, ObservedGeneration: 2}
+		transition := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 2}, Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"kube-system"}}, Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: status}}
+		validator := WorkloadCutoverValidator{
+			Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build(),
+			ExpectedVMUpdate: func(context.Context, string, string, types.UID, string) (*ExpectedVMUpdate, error) {
+				return nil, errors.New("checkpoint unavailable")
+			},
+		}
+		req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+			Namespace: "kube-system", Operation: admissionv1.Update,
+			Resource:  metav1.GroupVersionResource{Group: "vmoperator.vmware.com", Version: "v1", Resource: "virtualmachines"},
+			UserInfo:  authenticationv1.UserInfo{Username: NetOperatorControllerUser},
+			OldObject: runtime.RawExtension{Raw: []byte(old)}, Object: runtime.RawExtension{Raw: []byte(allowed)},
+		}}
+		response := validator.Handle(context.Background(), req)
+		require.False(t, response.Allowed)
+		require.EqualValues(t, http.StatusServiceUnavailable, response.Result.Code)
+	})
+	t.Run("annotation cleanup requires exact absence", func(t *testing.T) {
+		oldObject := &unstructured.Unstructured{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "vm", "uid": "uid"},
+			"spec":     map[string]interface{}{"networkInterfaces": []interface{}{map[string]interface{}{"name": "old"}}},
+		}}
+		expected := &ExpectedVMUpdate{NetworkInterfaces: []interface{}{map[string]interface{}{"name": "new"}}}
+		clean := &unstructured.Unstructured{Object: map[string]interface{}{
+			"metadata": map[string]interface{}{"name": "vm", "uid": "uid"},
+			"spec":     map[string]interface{}{"networkInterfaces": []interface{}{map[string]interface{}{"name": "new"}}},
+		}}
+		residual := clean.DeepCopy()
+		require.NoError(t, unstructured.SetNestedField(residual.Object, "false", "metadata", "annotations", "migration.vmoperator.vmware.com/in-transition"))
+		empty := clean.DeepCopy()
+		require.NoError(t, unstructured.SetNestedField(empty.Object, "", "metadata", "annotations", "migration.vmoperator.vmware.com/in-transition"))
+		require.True(t, onlyAllowedWorkloadFieldsChanged(NetOperatorControllerUser, "virtualmachines", oldObject, clean, expected))
+		require.False(t, onlyAllowedWorkloadFieldsChanged(NetOperatorControllerUser, "virtualmachines", oldObject, residual, expected))
+		require.False(t, onlyAllowedWorkloadFieldsChanged(NetOperatorControllerUser, "virtualmachines", oldObject, empty, expected))
+	})
 }
+
+func stringPointer(value string) *string { return &value }
 
 func TestWorkloadControllerCheckpointGuards(t *testing.T) {
 	status := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 2, ObservedGeneration: 2}

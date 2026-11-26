@@ -41,6 +41,19 @@ const (
 // direct API reader so protection is not based on a stale manager cache.
 type WorkloadCutoverValidator struct {
 	Reader client.Reader
+	// ExpectedVMUpdate resolves the VM state authorized by trusted migration
+	// state. Implementations receive object identity only, never the incoming
+	// object, so they cannot use the requested values as their own expectation.
+	// A nil resolver or nil result fails closed.
+	ExpectedVMUpdate func(ctx context.Context, namespace, name string, uid types.UID, transition string) (*ExpectedVMUpdate, error)
+}
+
+// ExpectedVMUpdate contains the only VM fields Net Operator may change during
+// a protected migration update. NetworkInterfaces must be supplied from
+// trusted transition state; a nil slice means no trusted expectation exists.
+type ExpectedVMUpdate struct {
+	NetworkInterfaces    []interface{}
+	TransitionAnnotation *string
 }
 
 func (v WorkloadCutoverValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
@@ -75,22 +88,48 @@ func (v WorkloadCutoverValidator) Handle(ctx context.Context, req admission.Requ
 	}
 	if req.Operation == admissionv1.Update && protection.controllerMayChange &&
 		isWorkloadController(req.UserInfo.Username) && oldObject.GetUID() != "" &&
-		oldObject.GetUID() == newObject.GetUID() &&
-		onlyAllowedWorkloadFieldsChanged(req.UserInfo.Username, resource, oldObject, newObject) {
-		return admission.Allowed("checkpoint-authorized controller workload update")
+		oldObject.GetUID() == newObject.GetUID() {
+		var expected *ExpectedVMUpdate
+		if resource == "virtualmachines" && req.UserInfo.Username == NetOperatorControllerUser && v.ExpectedVMUpdate != nil {
+			var resolveErr error
+			expected, resolveErr = v.ExpectedVMUpdate(ctx, req.Namespace, oldObject.GetName(), oldObject.GetUID(), protection.name)
+			if resolveErr != nil {
+				return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("resolving expected VM migration update: %w", resolveErr))
+			}
+		}
+		if expected != nil && onlyAllowedWorkloadFieldsChanged(req.UserInfo.Username, resource, oldObject, newObject, expected) {
+			return admission.Allowed("checkpoint-authorized controller workload update")
+		}
 	}
 	return admission.Denied(fmt.Sprintf("%s mutation in namespace %q is blocked by unresolved migration transition %s", resource, req.Namespace, protection.name))
 }
 
-// The design specifies these Net Operator VM writes. Confirm the exact fields
-// needed by Net Operator for Pods and Services, VM Operator for VMs, NCP for
-// Pods/VMs/Services, and AKO for Services with their owners before allowing them.
-// In particular, do not allow all annotations or finalizers without identifying
-// the keys and values needed by each controller and its recovery operations.
-func onlyAllowedWorkloadFieldsChanged(username, resource string, oldObject, newObject *unstructured.Unstructured) bool {
+// Only the Net Operator VM update described here has a field-level exception.
+// Other workload-controller writes remain denied until their exact fields and
+// values are sourced from trusted migration state.
+func onlyAllowedWorkloadFieldsChanged(username, resource string, oldObject, newObject *unstructured.Unstructured, expected *ExpectedVMUpdate) bool {
 	if username != NetOperatorControllerUser || resource != "virtualmachines" {
 		return false
 	}
+	if expected == nil || expected.NetworkInterfaces == nil {
+		return false
+	}
+	interfaces, found, err := unstructured.NestedSlice(newObject.Object, "spec", "networkInterfaces")
+	if err != nil || !found || !reflect.DeepEqual(interfaces, expected.NetworkInterfaces) {
+		return false
+	}
+	value, found, err := unstructured.NestedString(newObject.Object, "metadata", "annotations", "migration.vmoperator.vmware.com/in-transition")
+	if err != nil {
+		return false
+	}
+	if expected.TransitionAnnotation == nil {
+		if found {
+			return false
+		}
+	} else if !found || value != *expected.TransitionAnnotation {
+		return false
+	}
+
 	oldValue, newValue := oldObject.DeepCopy().Object, newObject.DeepCopy().Object
 	for _, object := range []map[string]interface{}{oldValue, newValue} {
 		unstructured.RemoveNestedField(object, "metadata", "annotations", "migration.vmoperator.vmware.com/in-transition")
