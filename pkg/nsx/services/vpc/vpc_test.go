@@ -1251,20 +1251,38 @@ func TestGetGatewayConnectionTypeFromConnectionPath(t *testing.T) {
 
 func TestValidateConnectionStatus(t *testing.T) {
 	tests := []struct {
-		name             string
-		prepareFunc      func(*testing.T, *VPCService) *gomonkey.Patches
-		vpcNetworkConfig v1alpha1.VPCNetworkConfiguration
-		expectedStatus   *common.VPCConnectionStatus
-		expectedError    error
+		name                       string
+		allowWithoutServiceGateway bool
+		prepareFunc                func(*testing.T, *VPCService) *gomonkey.Patches
+		vpcNetworkConfig           v1alpha1.VPCNetworkConfiguration
+		expectedStatus             *common.VPCConnectionStatus
+		expectedError              error
 	}{
 		{
-			name: "ServiceGatewayDisabled",
+			name: "NoServiceGatewayKeepsWaitingWithoutTransitGatewayPath",
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+			},
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				NSXProject: "/orgs/default/projects/project-quality",
+			}},
+			prepareFunc: func(_ *testing.T, service *VPCService) *gomonkey.Patches {
+				return gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{}, nil}, Times: 1,
+				}})
+			},
+		},
+		{
+			name:                       "TransitGatewayPathMissingWithoutServiceGateway",
+			allowWithoutServiceGateway: true,
 			expectedStatus: &common.VPCConnectionStatus{
 				GatewayConnectionReady:  false,
 				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
 				ServiceClusterReady:     false,
 				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
 			},
+			expectedError: fmt.Errorf("VPC connectivity profile has no TransitGatewayPath"),
 			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
 					NSXProject: "/orgs/default/projects/project-quality",
@@ -1282,11 +1300,112 @@ func TestValidateConnectionStatus(t *testing.T) {
 			},
 		},
 		{
+			name: "ServiceGatewayEnabledWithoutTransitGatewayPath",
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+			},
+			expectedError: fmt.Errorf("VPC connectivity profile has no TransitGatewayPath"),
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				NSXProject: "/orgs/default/projects/project-quality",
+			}},
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				return gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{ServiceGateway: &model.VpcServiceGatewayConfig{
+						Enable: common.Bool(true), EdgeClusterPaths: []string{"/service-cluster-path"},
+					}}, nil}, Times: 1,
+				}})
+			},
+		},
+		{
+			name:                       "EmptyTransitGatewayPath",
+			allowWithoutServiceGateway: true,
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+			},
+			expectedError: fmt.Errorf("VPC connectivity profile has no TransitGatewayPath"),
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				NSXProject: "/orgs/default/projects/project-quality",
+			}},
+			prepareFunc: func(_ *testing.T, service *VPCService) *gomonkey.Patches {
+				return gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{TransitGatewayPath: common.String("")}, nil}, Times: 1,
+				}})
+			},
+		},
+		{
+			name:                       "DistributedConnectionWithoutServiceGateway",
+			allowWithoutServiceGateway: true,
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReason:    common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReason:       common.ReasonServiceClusterNotSet,
+				DistributedConnectionReady: true,
+			},
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				NSXProject: "/orgs/default/projects/project-quality",
+			}},
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{TransitGatewayPath: common.String("/transit-gateway")}, nil}, Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{Results: []model.TransitGatewayAttachment{{ConnectionPath: common.String("/infra/distributed-vlan-connections/gateway-102")}}}, nil}, Times: 1,
+				}})
+				return patches
+			},
+		},
+		{
+			name:                       "GatewayConnectionWithoutServiceGatewayIsNotDistributed",
+			allowWithoutServiceGateway: true,
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReason:    common.ReasonServiceClusterNotSet,
+			},
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				NSXProject: "/orgs/default/projects/project-quality",
+			}},
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{TransitGatewayPath: common.String("/transit-gateway")}, nil}, Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{Results: []model.TransitGatewayAttachment{{ConnectionPath: common.String("/infra/gateway-connections/gateway-101")}}}, nil}, Times: 1,
+				}})
+				return patches
+			},
+		},
+		{
+			name:                       "DistributedConnectionWithoutEdgeClusterPaths",
+			allowWithoutServiceGateway: true,
+			expectedStatus: &common.VPCConnectionStatus{
+				GatewayConnectionReason:    common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReason:       common.ReasonServiceClusterNotSet,
+				DistributedConnectionReady: true,
+			},
+			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+				NSXProject: "/orgs/default/projects/project-quality",
+			}},
+			prepareFunc: func(_ *testing.T, service *VPCService) (patches *gomonkey.Patches) {
+				patches = gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.VpcConnectivityProfile{
+						ServiceGateway:     &model.VpcServiceGatewayConfig{Enable: common.Bool(true)},
+						TransitGatewayPath: common.String("/transit-gateway"),
+					}, nil}, Times: 1,
+				}})
+				patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+					Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{Results: []model.TransitGatewayAttachment{{ConnectionPath: common.String("/infra/distributed-vlan-connections/gateway-102")}}}, nil}, Times: 1,
+				}})
+				return patches
+			},
+		},
+		{
 			name: "ServiceClusterReady",
 			expectedStatus: &common.VPCConnectionStatus{
-				GatewayConnectionReady:  false,
-				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
-				ServiceClusterReady:     true,
+				GatewayConnectionReady:     false,
+				GatewayConnectionReason:    common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReady:        true,
+				DistributedConnectionReady: true,
 			},
 			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
@@ -1326,9 +1445,10 @@ func TestValidateConnectionStatus(t *testing.T) {
 		{
 			name: "ServiceClusterReadyWithVXlanConnection",
 			expectedStatus: &common.VPCConnectionStatus{
-				GatewayConnectionReady:  false,
-				GatewayConnectionReason: common.ReasonGatewayConnectionNotSet,
-				ServiceClusterReady:     true,
+				GatewayConnectionReady:     false,
+				GatewayConnectionReason:    common.ReasonGatewayConnectionNotSet,
+				ServiceClusterReady:        true,
+				DistributedConnectionReady: true,
 			},
 			vpcNetworkConfig: v1alpha1.VPCNetworkConfiguration{
 				Spec: v1alpha1.VPCNetworkConfigurationSpec{
@@ -1409,20 +1529,130 @@ func TestValidateConnectionStatus(t *testing.T) {
 		},
 	}
 
-	service, _, _, _, _ := createService(t)
-	service.NSXClient.VPCConnectivityProfilesClient = &fakeVPCConnectivityProfilesClient{}
-	service.NSXClient.TransitGatewayAttachmentClient = &fakeTransitGatewayAttachmentClient{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(*testing.T) {
+			service, _, _, _, _ := createService(t)
+			service.NSXClient.VPCConnectivityProfilesClient = &fakeVPCConnectivityProfilesClient{}
+			service.NSXClient.TransitGatewayAttachmentClient = &fakeTransitGatewayAttachmentClient{}
 			if tt.prepareFunc != nil {
 				patches := tt.prepareFunc(t, service)
 				defer patches.Reset()
 			}
-			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig, tt.vpcNetworkConfig.Spec.VPCConnectivityProfile)
+			status, err := service.ValidateConnectionStatus(&tt.vpcNetworkConfig, tt.vpcNetworkConfig.Spec.VPCConnectivityProfile, tt.allowWithoutServiceGateway)
 			assert.Equal(t, tt.expectedStatus, status)
 			assert.Equal(t, tt.expectedError, err)
 		})
 	}
+}
+
+func TestValidateConnectionStatusCache(t *testing.T) {
+	service, _, _, _, _ := createService(t)
+	service.NSXClient.VPCConnectivityProfilesClient = &fakeVPCConnectivityProfilesClient{}
+	service.NSXClient.TransitGatewayAttachmentClient = &fakeTransitGatewayAttachmentClient{}
+	profilePath := "/orgs/default/projects/project-quality/vpc-connectivity-profiles/system"
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+		NSXProject: "/orgs/default/projects/project-quality",
+	}}
+	profile := model.VpcConnectivityProfile{TransitGatewayPath: common.String("/orgs/default/projects/project-quality/transit-gateways/tgw")}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{
+		{Values: gomonkey.Params{profile, nil}, Times: 1},
+		{Values: gomonkey.Params{model.VpcConnectivityProfile{}, errors.New("cache miss")}, Times: 1},
+	})
+	defer patches.Reset()
+	patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{Results: []model.TransitGatewayAttachment{{ConnectionPath: common.String("/infra/distributed-vlan-connections/connection")}}}, nil}, Times: 1,
+	}})
+
+	first, err := service.ValidateConnectionStatus(nc, profilePath, true)
+	require.NoError(t, err)
+	require.True(t, first.DistributedConnectionReady)
+	first.DistributedConnectionReady = false // A caller must not change the cached value.
+
+	second, err := service.ValidateConnectionStatus(nc, profilePath, true)
+	require.NoError(t, err)
+	require.True(t, second.DistributedConnectionReady)
+}
+
+func TestValidateConnectionStatusDoesNotCachePendingConnection(t *testing.T) {
+	service, _, _, _, _ := createService(t)
+	service.NSXClient.VPCConnectivityProfilesClient = &fakeVPCConnectivityProfilesClient{}
+	service.NSXClient.TransitGatewayAttachmentClient = &fakeTransitGatewayAttachmentClient{}
+	profilePath := "/orgs/default/projects/project-quality/vpc-connectivity-profiles/system"
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+		NSXProject: "/orgs/default/projects/project-quality",
+	}}
+	profile := model.VpcConnectivityProfile{TransitGatewayPath: common.String("/orgs/default/projects/project-quality/transit-gateways/tgw")}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{profile, nil}, Times: 2,
+	}})
+	defer patches.Reset()
+	patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{
+		{Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{}, nil}, Times: 1},
+		{Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{Results: []model.TransitGatewayAttachment{{ConnectionPath: common.String("/infra/distributed-vlan-connections/connection")}}}, nil}, Times: 1},
+	})
+
+	first, err := service.ValidateConnectionStatus(nc, profilePath, true)
+	require.NoError(t, err)
+	require.False(t, first.DistributedConnectionReady)
+	second, err := service.ValidateConnectionStatus(nc, profilePath, true)
+	require.NoError(t, err)
+	require.True(t, second.DistributedConnectionReady)
+}
+
+func TestValidateConnectionStatusDoesNotCacheErrors(t *testing.T) {
+	service, _, _, _, _ := createService(t)
+	service.NSXClient.VPCConnectivityProfilesClient = &fakeVPCConnectivityProfilesClient{}
+	service.NSXClient.TransitGatewayAttachmentClient = &fakeTransitGatewayAttachmentClient{}
+	profilePath := "/orgs/default/projects/project-quality/vpc-connectivity-profiles/system"
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+		NSXProject: "/orgs/default/projects/project-quality",
+	}}
+	profile := model.VpcConnectivityProfile{TransitGatewayPath: common.String("/orgs/default/projects/project-quality/transit-gateways/tgw")}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{
+		{Values: gomonkey.Params{model.VpcConnectivityProfile{}, errors.New("transient NSX error")}, Times: 1},
+		{Values: gomonkey.Params{profile, nil}, Times: 1},
+	})
+	defer patches.Reset()
+	patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{}, nil}, Times: 1,
+	}})
+
+	_, err := service.ValidateConnectionStatus(nc, profilePath, true)
+	require.Error(t, err)
+	_, err = service.ValidateConnectionStatus(nc, profilePath, true)
+	require.NoError(t, err)
+}
+
+func TestValidateConnectionStatusDoesNotCacheServiceGatewayStatus(t *testing.T) {
+	service, _, _, _, _ := createService(t)
+	service.NSXClient.VPCConnectivityProfilesClient = &fakeVPCConnectivityProfilesClient{}
+	service.NSXClient.TransitGatewayAttachmentClient = &fakeTransitGatewayAttachmentClient{}
+	profilePath := "/orgs/default/projects/project-quality/vpc-connectivity-profiles/system"
+	nc := &v1alpha1.VPCNetworkConfiguration{Spec: v1alpha1.VPCNetworkConfigurationSpec{
+		NSXProject: "/orgs/default/projects/project-quality",
+	}}
+	profile := model.VpcConnectivityProfile{
+		TransitGatewayPath: common.String("/orgs/default/projects/project-quality/transit-gateways/tgw"),
+		ServiceGateway: &model.VpcServiceGatewayConfig{
+			Enable:           common.Bool(true),
+			EdgeClusterPaths: []string{"/infra/sites/default/enforcement-points/default/edge-clusters/edge-cluster"},
+		},
+	}
+	patches := gomonkey.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.VPCConnectivityProfilesClient), "Get", []gomonkey.OutputCell{{
+		Values: gomonkey.Params{profile, nil}, Times: 2,
+	}})
+	defer patches.Reset()
+	patches.ApplyMethodSeq(reflect.TypeOf(service.NSXClient.TransitGatewayAttachmentClient), "List", []gomonkey.OutputCell{
+		{Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{Results: []model.TransitGatewayAttachment{{ConnectionPath: common.String("/infra/distributed-vlan-connections/connection")}}}, nil}, Times: 1},
+		{Values: gomonkey.Params{model.TransitGatewayAttachmentListResult{}, nil}, Times: 1},
+	})
+
+	first, err := service.ValidateConnectionStatus(nc, profilePath, true)
+	require.NoError(t, err)
+	require.True(t, first.DistributedConnectionReady)
+	second, err := service.ValidateConnectionStatus(nc, profilePath, true)
+	require.NoError(t, err)
+	require.False(t, second.DistributedConnectionReady)
 }
 
 func TestIsLBProviderChanged(t *testing.T) {
