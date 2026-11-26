@@ -29,7 +29,7 @@ func TestPersistentFailurePreservesCheckpointAndBackoff(t *testing.T) {
 		Spec:       api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionEvaluate}},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(obj).WithObjects(obj).Build()
-	failure := errors.New("NSX unavailable")
+	failure := transition.MarkRetriable(errors.New("NSX unavailable"))
 	calls := 0
 	recover := false
 	e := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{

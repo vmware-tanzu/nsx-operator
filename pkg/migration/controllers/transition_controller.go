@@ -6,7 +6,9 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -37,11 +39,13 @@ type Reconciler struct {
 }
 
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions;namespacenetworktransitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=migration.network.vmware.com,resources=namespacenetworktransitions,verbs=update
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions/status;namespacenetworktransitions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=iaas.vmware.com,resources=supervisornamespaces,verbs=get
 // +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=supervisor-properties,verbs=get,namespace=vmware-system-vks-public
 // +kubebuilder:rbac:groups=netoperator.vmware.com,resources=networksettings,verbs=get
+// +kubebuilder:rbac:groups=vmoperator.vmware.com,resources=virtualmachines,verbs=get;list
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=vmware-system-nsx
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
@@ -62,7 +66,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !obj.GetDeletionTimestamp().IsZero() {
-		return ctrl.Result{}, nil
+		return r.finalizeNamespaceBatch(ctx, obj)
+	}
+	if r.Stage == transition.Namespaces && !slices.Contains(obj.GetFinalizers(), api.NamespaceWorkflowCleanupFinalizer) {
+		obj.SetFinalizers(append(obj.GetFinalizers(), api.NamespaceWorkflowCleanupFinalizer))
+		if err := r.Update(ctx, obj); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adding namespace workflow cleanup finalizer: %w", err)
+		}
+		// Continue only after confirming the persisted object has the finalizer;
+		// any action dispatched below is then protected against deletion races.
+		if err := r.reader().Get(ctx, key.NamespacedName, obj); err != nil {
+			return ctrl.Result{}, fmt.Errorf("reading namespace transition after adding cleanup finalizer: %w", err)
+		}
 	}
 	previous := obj.DeepCopyObject()
 	var status *api.TransitionStatus
@@ -144,6 +159,74 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		}
 	}
 	return ctrl.Result{RequeueAfter: result.RequeueAfter}, reconcileErr
+}
+
+func (r *Reconciler) finalizeNamespaceBatch(ctx context.Context, obj client.Object) (ctrl.Result, error) {
+	if r.Stage != transition.Namespaces || !slices.Contains(obj.GetFinalizers(), api.NamespaceWorkflowCleanupFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	batch, ok := obj.(*api.NamespaceNetworkTransition)
+	if !ok {
+		return ctrl.Result{}, fmt.Errorf("namespace workflow cleanup received %T", obj)
+	}
+	if batch.Status != nil {
+		status := &batch.Status.TransitionStatus
+		// A deletion timestamp can only be finalized after Evaluate has no
+		// irreversible effects, or after Commit/Rollback completed. Admission
+		// enforces this for normal deletes; retain the finalizer if admission was
+		// bypassed and the status shows an unsafe/incomplete action.
+		safeEmptyEvaluate := status.LastAction == "" && batch.Spec.Action == api.ActionEvaluate && status.IrreversibleAction == ""
+		safeFailedEvaluate := status.LastAction == api.ActionEvaluate && status.IrreversibleAction == "" &&
+			status.ActionState == api.ActionStateFailed &&
+			status.ActionGeneration == batch.Generation && status.ObservedGeneration == batch.Generation &&
+			(status.Phase == api.PhaseEvaluationFailed || status.Phase == api.PhaseFailed)
+		safeCompletion := status.ActionState == api.ActionStateSucceeded &&
+			status.ActionGeneration == batch.Generation && status.ObservedGeneration == batch.Generation &&
+			((status.LastAction == api.ActionCommit && status.IrreversibleAction == string(api.ActionCommit) && status.Phase == api.PhaseCommitted) ||
+				(status.LastAction == api.ActionRollback && status.IrreversibleAction == "" && status.Phase == api.PhaseRolledBack) ||
+				(status.LastAction == api.ActionEvaluate && status.IrreversibleAction == "" && status.Phase == api.PhaseEvaluated))
+		if !safeEmptyEvaluate && !safeFailedEvaluate && !safeCompletion {
+			return ctrl.Result{}, fmt.Errorf("refusing to remove namespace transition finalizer while action %q is incomplete", status.LastAction)
+		}
+		// Evaluate owns source-only validation workflows until Execute starts.
+		// Commit deletes them through its irreversible handler. Rollback retains
+		// recorded identities because later handlers may share their ownership.
+		cleanupEvaluateWorkflows := safeEmptyEvaluate || safeFailedEvaluate ||
+			(status.LastAction == api.ActionEvaluate && safeCompletion)
+		if cleanupEvaluateWorkflows && len(status.NSXWorkflows) != 0 {
+			if r.Engine == nil || r.Engine.WorkflowDeleter == nil {
+				return ctrl.Result{}, fmt.Errorf("NSX workflow deletion is unavailable during namespace transition cleanup")
+			}
+			var cleanupErrors []error
+			for _, workflow := range status.NSXWorkflows {
+				if workflow.WorkflowID == "" {
+					cleanupErrors = append(cleanupErrors, fmt.Errorf("namespace transition records an empty NSX workflow ID for VDN %q", workflow.VDNName))
+					continue
+				}
+				if err := r.Engine.WorkflowDeleter.DeleteWorkflow(ctx, workflow.WorkflowID); err != nil {
+					cleanupErrors = append(cleanupErrors, fmt.Errorf("deleting NSX workflow %q for VDN %q: %w", workflow.WorkflowID, workflow.VDNName, err))
+				}
+			}
+			if err := errors.Join(cleanupErrors...); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+	obj.SetFinalizers(removeFinalizer(obj.GetFinalizers(), api.NamespaceWorkflowCleanupFinalizer))
+	if err := r.Update(ctx, obj); err != nil {
+		return ctrl.Result{}, fmt.Errorf("removing namespace workflow cleanup finalizer: %w", err)
+	}
+	return ctrl.Result{}, nil
+}
+
+func removeFinalizer(finalizers []string, target string) []string {
+	result := make([]string, 0, len(finalizers))
+	for _, finalizer := range finalizers {
+		if finalizer != target {
+			result = append(result, finalizer)
+		}
+	}
+	return result
 }
 
 func (r *Reconciler) reader() client.Reader {
@@ -291,7 +374,7 @@ func (r *Reconciler) infrastructureReady(ctx context.Context) (bool, error) {
 }
 
 // transitionEvents ignores controller-owned status updates. Checkpoints and
-// progress use explicit requeues; errors retain the work queue's retry backoff.
+// progress use explicit requeues; retriable errors retain the work queue's retry backoff.
 // Metadata updates still wake input waits and lifecycle reconciliation.
 func transitionEvents() predicate.Predicate {
 	return predicate.Funcs{UpdateFunc: func(e event.UpdateEvent) bool {

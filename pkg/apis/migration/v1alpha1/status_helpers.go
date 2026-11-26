@@ -36,6 +36,7 @@ const (
 	ConditionInfraTransitionComplete        = "InfraTransitionComplete"
 	ConditionWorkloadCompatibilityEvaluated = "WorkloadCompatibilityEvaluated"
 	ConditionMigrationPlanSynthesized       = "MigrationPlanSynthesized"
+	ConditionMigrationPreviewAvailable      = "MigrationPreviewAvailable"
 	ConditionSubnetsDerived                 = "SubnetsDerived"
 	ConditionNetworkProviderTransitioned    = "NetworkProviderTransitioned"
 	ConditionWorkloadsMigrated              = "WorkloadsMigrated"

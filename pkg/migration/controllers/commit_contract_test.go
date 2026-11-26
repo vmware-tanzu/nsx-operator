@@ -65,7 +65,7 @@ func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 			}
 			deletions := map[string]int{}
 			failSecond := true
-			deleteFailure := errors.New("second workflow deletion unavailable")
+			deleteFailure := transition.MarkRetriable(errors.New("second workflow deletion unavailable"))
 			discoverer := emptyTopologyDiscoverer()
 			handler := actionHandlerFunc(func(_ context.Context, req transition.Request) (transition.Result, error) {
 				if stage == transition.Namespaces {
@@ -112,7 +112,7 @@ func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 			require.Empty(t, deletions)
 			require.ErrorIs(t, reconcile(), deleteFailure) // First delete succeeds, second fails.
 			require.Equal(t, map[string]int{"workflow-a": 1}, deletions)
-			require.Equal(t, api.ActionStateFailed, read().ActionState)
+			require.Equal(t, api.ActionStateRunning, read().ActionState)
 			require.Equal(t, string(action), read().IrreversibleAction)
 			require.Equal(t, workflows, read().NSXWorkflows)
 			if stage == transition.Namespaces {

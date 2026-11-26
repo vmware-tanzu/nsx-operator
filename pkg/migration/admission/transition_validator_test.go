@@ -120,6 +120,110 @@ func TestNamespaceExecuteRequiresStageOneCompletion(t *testing.T) {
 	}
 }
 
+func TestTransitionValidatorRejectsSystemNamespacesInNamespaceBatch(t *testing.T) {
+	for _, namespace := range []string{"kube-system", "vmware-system-nsx"} {
+		t.Run(namespace, func(t *testing.T) {
+			newObject, err := json.Marshal(map[string]any{
+				"metadata": map[string]any{"name": "batch"},
+				"spec": map[string]any{
+					"action":     "Evaluate",
+					"namespaces": []string{namespace},
+				},
+			})
+			require.NoError(t, err)
+			request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Resource: metav1.GroupVersionResource{
+					Group: api.GroupVersion.Group, Version: api.GroupVersion.Version,
+					Resource: "namespacenetworktransitions",
+				},
+				Object: runtime.RawExtension{Raw: newObject},
+			}}
+
+			response := newTestTransitionValidator(t).Handle(context.Background(), request)
+			require.False(t, response.Allowed)
+			require.Equal(t, int32(http.StatusForbidden), response.Result.Code)
+			require.Contains(t, response.Result.Message, namespace)
+			require.Contains(t, response.Result.Message, "cannot be included")
+		})
+	}
+}
+
+func TestNamespaceTransitionUpdateDoesNotRevalidateImmutableNamespaces(t *testing.T) {
+	tests := []struct {
+		name      string
+		newAction string
+		status    map[string]any
+	}{
+		{
+			name:      "Execute to Rollback",
+			newAction: "Rollback",
+			status: map[string]any{
+				"lastAction": "Execute", "actionState": "Running", "actionGeneration": int64(3),
+				"observedGeneration": int64(3),
+			},
+		},
+		{
+			name:      "Execute to Commit",
+			newAction: "Commit",
+			status: map[string]any{
+				"lastAction": "Execute", "actionState": "Succeeded", "actionGeneration": int64(3),
+				"observedGeneration": int64(3), "phase": "Completed",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			oldObject, err := json.Marshal(map[string]any{
+				"metadata": map[string]any{"name": "batch", "generation": int64(3)},
+				"spec":     map[string]any{"action": "Execute", "namespaces": []string{"kube-system"}},
+				"status":   tc.status,
+			})
+			require.NoError(t, err)
+			newObject, err := json.Marshal(map[string]any{
+				"metadata": map[string]any{"name": "batch", "generation": int64(4)},
+				"spec":     map[string]any{"action": tc.newAction, "namespaces": []string{"kube-system"}},
+			})
+			require.NoError(t, err)
+			request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Update,
+				Resource: metav1.GroupVersionResource{
+					Group: api.GroupVersion.Group, Version: api.GroupVersion.Version,
+					Resource: "namespacenetworktransitions",
+				},
+				OldObject: runtime.RawExtension{Raw: oldObject},
+				Object:    runtime.RawExtension{Raw: newObject},
+			}}
+			response := newTestTransitionValidator(t).Handle(context.Background(), request)
+			require.True(t, response.Allowed, response.Result.Message)
+		})
+	}
+}
+
+func TestNamespaceTransitionDeleteRequiresWorkflowCleanupFinalizer(t *testing.T) {
+	oldObject, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{"name": "batch", "generation": int64(2)},
+		"spec":     map[string]any{"action": "Evaluate", "namespaces": []string{"tenant"}},
+		"status": map[string]any{
+			"phase": "EvaluationFailed", "lastAction": "Evaluate", "actionState": "Failed",
+			"actionGeneration": int64(2), "observedGeneration": int64(2),
+			"nsxWorkflows": []any{map[string]any{"vdnName": "vdn-a", "workflowID": "workflow-a"}},
+		},
+	})
+	require.NoError(t, err)
+	request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+		Operation: admissionv1.Delete,
+		Resource: metav1.GroupVersionResource{
+			Group: api.GroupVersion.Group, Version: api.GroupVersion.Version,
+			Resource: "namespacenetworktransitions",
+		},
+		OldObject: runtime.RawExtension{Raw: oldObject},
+	}}
+	response := newTestTransitionValidator(t).Handle(context.Background(), request)
+	require.False(t, response.Allowed)
+	require.Contains(t, response.Result.Message, "cleanup finalizer is not installed")
+}
+
 func TestNamespaceExecuteStageOneReadFailureFailsClosed(t *testing.T) {
 	reader := getErrorReader{Reader: newTestTransitionValidator(t).Reader, err: errors.New("API unavailable")}
 	response := (TransitionValidator{Reader: reader}).Handle(context.Background(), validExecuteRequest("namespacenetworktransitions", "current-uid"))

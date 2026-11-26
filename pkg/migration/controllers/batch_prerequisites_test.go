@@ -11,6 +11,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,6 +68,27 @@ func TestReadNamespaceBatchSnapshot(t *testing.T) {
 	}
 	if len(snapshot.NSXWorkflows) != 1 || snapshot.NSXWorkflows[0].WorkflowID != "workflow-1" {
 		t.Fatalf("workflow checkpoint was not copied: %#v", snapshot.NSXWorkflows)
+	}
+}
+
+func TestMalformedProviderErrorsIncludeFieldType(t *testing.T) {
+	supervisor := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"networking": "not-a-map"},
+	}}
+	_, err := supervisorNamespaceProvider(supervisor, "tenant")
+	if err == nil || !strings.Contains(err.Error(), "invalid spec.networking") || !strings.Contains(err.Error(), "expected map[string]interface{}") {
+		t.Fatalf("supervisorNamespaceProvider() error = %v, want invalid spec.networking with underlying type error", err)
+	}
+
+	networkSettings := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "netoperator.vmware.com/v1alpha1", "kind": "NetworkSettings",
+		"metadata": map[string]interface{}{"name": "default", "namespace": "tenant"},
+		"provider": map[string]interface{}{"name": "vsphere-distributed"},
+	}}
+	c := fake.NewClientBuilder().WithScheme(preflightTestScheme(t)).WithObjects(networkSettings).Build()
+	_, err = ReadNetworkSettingsProvider(context.Background(), c, "tenant")
+	if err == nil || !strings.Contains(err.Error(), "read NetworkSettings/default provider") || !strings.Contains(err.Error(), "expected string") {
+		t.Fatalf("ReadNetworkSettingsProvider() error = %v, want provider path with underlying type error", err)
 	}
 }
 

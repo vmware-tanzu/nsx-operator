@@ -13,8 +13,8 @@ func TestBatchSnapshotValidate(t *testing.T) {
 	}{
 		{name: "complete snapshot", snapshot: BatchSnapshot{Complete: true}},
 		{name: "incomplete discovery", snapshot: BatchSnapshot{}, wantErr: true},
-		{name: "resource kind missing", snapshot: BatchSnapshot{Complete: true, Resources: []ResourceIdentity{{Key: "stable-id"}}}, wantErr: true},
-		{name: "resource key missing", snapshot: BatchSnapshot{Complete: true, Resources: []ResourceIdentity{{Kind: ResourceDVPG}}}, wantErr: true},
+		{name: "resource type missing", snapshot: BatchSnapshot{Complete: true, Resources: []ResourceIdentity{{Key: "stable-id"}}}, wantErr: true},
+		{name: "resource key missing", snapshot: BatchSnapshot{Complete: true, Resources: []ResourceIdentity{{ResourceType: ResourceDVPG}}}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

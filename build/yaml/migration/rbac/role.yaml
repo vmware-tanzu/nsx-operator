@@ -35,6 +35,7 @@ rules:
   verbs:
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - migration.network.vmware.com
@@ -60,6 +61,13 @@ rules:
   - networksettings
   verbs:
   - get
+- apiGroups:
+  - vmoperator.vmware.com
+  resources:
+  - virtualmachines
+  verbs:
+  - get
+  - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

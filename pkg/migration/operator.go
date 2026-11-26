@@ -10,16 +10,15 @@ import (
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
-	nsxmigration "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/migration"
+	migrationservice "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/migration"
 )
 
 // SetupWithManager registers both stages with a shared dispatcher. Disabled
-// startup skips registration entirely. Evaluate checks supplied inputs before
-// reporting that source discovery and reservation are unavailable. Commit is
-// wired to the lazy NSX workflow client; namespace preflight waits for a
-// topology discoverer to be configured.
+// startup skips registration entirely. Namespace Evaluate includes input
+// discovery and preflight; Commit uses the lazy NSX workflow client.
 func SetupWithManager(mgr ctrl.Manager) error {
 	return SetupWithManagerAndTopologyDiscoverer(mgr, nil)
 }
@@ -28,7 +27,14 @@ func SetupWithManager(mgr ctrl.Manager) error {
 // namespace preflight and action handlers. A nil discoverer intentionally
 // blocks namespace actions and emits an error until discovery is implemented.
 func SetupWithManagerAndTopologyDiscoverer(mgr ctrl.Manager, discoverer topology.Discoverer) error {
-	return setupWithTopologyDiscoverer(mgr, discoverer, func(r *controllers.Reconciler) error {
+	reader := mgr.GetAPIReader()
+	engine := newEngine(reader, migrationservice.NewService())
+	engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionEvaluate}] = transition.EvaluateInputs{
+		Discovery: transition.NamespaceTopologyDHCPDiscovery{},
+		Preflight: transition.NamespaceWorkloadCompatibility{Reader: reader},
+		Evaluator: transition.NamespaceEvaluate{NSXService: migrationservice.NewService(), NamingInspector: inspection.Service{}},
+	}
+	return registerControllers(mgr.GetClient(), reader, engine, discoverer, func(r *controllers.Reconciler) error {
 		return r.SetupWithManager(mgr)
 	})
 }
@@ -39,12 +45,12 @@ func setupWithManager(mgr ctrl.Manager, register func(*controllers.Reconciler) e
 
 func setupWithTopologyDiscoverer(mgr ctrl.Manager, discoverer topology.Discoverer, register func(*controllers.Reconciler) error) error {
 	reader := mgr.GetAPIReader()
-	engine := newEngine(reader, nsxmigration.NewService())
+	engine := newEngine(reader, migrationservice.NewService())
 	return registerControllers(mgr.GetClient(), reader, engine, discoverer, register)
 }
 
 func newEngine(reader client.Reader, workflows transition.WorkflowDeleter) *transition.Engine {
-	return &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+	return &transition.Engine{Enabled: true, WorkflowDeleter: workflows, Handlers: map[transition.Key]transition.Handler{
 		{Stage: transition.Infrastructure, Action: api.ActionEvaluate}: transition.EvaluateInputs{},
 		{Stage: transition.Namespaces, Action: api.ActionEvaluate}:     transition.EvaluateInputs{},
 		{Stage: transition.Namespaces, Action: api.ActionCommit}:       &transition.NamespaceCommitHandler{Reader: reader, Workflows: workflows},

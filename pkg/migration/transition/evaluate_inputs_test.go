@@ -13,12 +13,73 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 )
 
 type dhcpDiscoveryFunc func(context.Context, Request) ([]string, error)
 
 func (f dhcpDiscoveryFunc) DiscoverDHCPNetworks(ctx context.Context, req Request) ([]string, error) {
 	return f(ctx, req)
+}
+
+func TestNamespaceEvaluateValidatesExistingAddressesAgainstVDNSubnet(t *testing.T) {
+	config := api.DHCPNetworkConfiguration{VDNName: "vdn-a", DHCPRange: &api.IPAddressRange{Start: "192.0.2.10", End: "192.0.2.20"}, SubnetMask: "255.255.255.0", GatewayAddress: "192.0.2.1"}
+	obj := &api.NamespaceNetworkTransition{Spec: api.NamespaceNetworkTransitionSpec{Namespaces: []string{"tenant"}, NetworkConfiguration: &api.NamespaceNetworkConfiguration{NamespaceDHCPNetworks: []api.DHCPNetworkConfiguration{config}}}}
+	base := topology.SourceNetwork{VDNName: "vdn-a", VDSRef: "dvs-1", DVPGRefs: []string{"dvpg-1"}, DHCPKnown: true, DHCPBacked: true, Namespaces: []string{"tenant"}, WorkloadAddressInventoryComplete: true}
+	for _, tc := range []struct {
+		name      string
+		address   string
+		complete  bool
+		wantError string
+	}{
+		{"outside subnet", "198.51.100.10/24", true, "outside DHCP subnet 192.0.2.0/24"},
+		{"inside subnet outside pool", "192.0.2.100/24", true, ""},
+		{"inside pool", "192.0.2.15", true, ""},
+		{"unavailable inventory", "", false, "inventory for VDN \"vdn-a\" is incomplete"},
+		{"malformed address", "bad-address", true, "invalid address"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := base
+			source.WorkloadAddressInventoryComplete = tc.complete
+			if tc.address != "" {
+				source.WorkloadAddresses = []topology.WorkloadAddress{{Namespace: "tenant", Kind: "VirtualMachine", Name: "vm", Interface: "eth0", Address: tc.address}}
+			}
+			calls := 0
+			h := EvaluateInputs{Discovery: NamespaceTopologyDHCPDiscovery{}, Evaluator: handlerFunc(func(context.Context, Request) (Result, error) { calls++; return Result{Outcome: OutcomeSucceeded}, nil })}
+			result, err := h.Reconcile(context.Background(), Request{Stage: Namespaces, Object: obj, Status: &api.TransitionStatus{}, NamespaceTopology: namespaceTopology(source)})
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				require.Zero(t, calls)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, OutcomeSucceeded, result.Outcome)
+				require.Equal(t, 1, calls)
+			}
+		})
+	}
+}
+
+func TestNamespaceEvaluateUsesEachWorkloadVDN(t *testing.T) {
+	inputs := []api.DHCPNetworkConfiguration{
+		{VDNName: "vdn-a", DHCPRange: &api.IPAddressRange{Start: "192.0.2.10", End: "192.0.2.20"}, SubnetMask: "255.255.255.0", GatewayAddress: "192.0.2.1"},
+		{VDNName: "vdn-b", DHCPRange: &api.IPAddressRange{Start: "198.51.100.10", End: "198.51.100.20"}, SubnetMask: "255.255.255.0", GatewayAddress: "198.51.100.1"},
+	}
+	obj := &api.NamespaceNetworkTransition{Spec: api.NamespaceNetworkTransitionSpec{Namespaces: []string{"tenant"}, NetworkConfiguration: &api.NamespaceNetworkConfiguration{NamespaceDHCPNetworks: inputs}}}
+	source := func(vdn, ip string) topology.SourceNetwork {
+		return topology.SourceNetwork{VDNName: vdn, VDSRef: "dvs-1", DVPGRefs: []string{"dvpg-1"}, DHCPKnown: true, DHCPBacked: true, Namespaces: []string{"tenant"}, WorkloadAddressInventoryComplete: true, WorkloadAddresses: []topology.WorkloadAddress{{Namespace: "tenant", Kind: "VirtualMachine", Name: "vm", Interface: vdn, Address: ip}}}
+	}
+	a, b := source("vdn-a", "192.0.2.100/24"), source("vdn-b", "198.51.100.100/24")
+	calls := 0
+	h := EvaluateInputs{Discovery: NamespaceTopologyDHCPDiscovery{}, Evaluator: handlerFunc(func(context.Context, Request) (Result, error) { calls++; return Result{Outcome: OutcomeSucceeded}, nil })}
+	req := Request{Stage: Namespaces, Object: obj, Status: &api.TransitionStatus{}, NamespaceTopology: namespaceTopology(a, b)}
+	_, err := h.Reconcile(context.Background(), req)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	a.WorkloadAddresses[0].Address = "198.51.100.100/24"
+	req.NamespaceTopology = namespaceTopology(a, b)
+	_, err = h.Reconcile(context.Background(), req)
+	require.ErrorContains(t, err, `VDN "vdn-a" is outside DHCP subnet 192.0.2.0/24`)
+	require.Equal(t, 1, calls)
 }
 
 func TestEvaluateInputs(t *testing.T) {
@@ -55,7 +116,7 @@ func TestEvaluateInputs(t *testing.T) {
 			_, err = e.Reconcile(context.Background(), req)
 			require.NoError(t, err)
 			_, err = e.Reconcile(context.Background(), req)
-			require.ErrorContains(t, err, "source network discovery")
+			require.NoError(t, err)
 			require.Empty(t, status.RequiredInputs)
 			require.Equal(t, "EvaluationFailed", status.Phase)
 			require.Equal(t, metav1.ConditionFalse, meta.FindStatusCondition(status.Conditions, "Ready").Status)
@@ -92,7 +153,7 @@ func TestEvaluateInputsDelegatesToStageHandler(t *testing.T) {
 			require.NoError(t, err)
 			_, err = e.Reconcile(context.Background(), req)
 			if tc.err != nil {
-				require.ErrorIs(t, err, tc.err)
+				require.NoError(t, err)
 				require.Contains(t, meta.FindStatusCondition(status.Conditions, "Ready").Message, "pool exhausted")
 			} else {
 				require.NoError(t, err)

@@ -73,12 +73,29 @@ func (v WorkloadCutoverValidator) Handle(ctx context.Context, req admission.Requ
 	if protection == nil {
 		return admission.Allowed("namespace is outside unresolved migration scope")
 	}
-	if req.Operation == admissionv1.Update &&
-		oldObject != nil && newObject != nil && oldObject.GetUID() != "" && oldObject.GetUID() == newObject.GetUID() &&
-		protection.controllerMayChange && v.isConfiguredController(req.UserInfo.Username) {
-		return admission.Allowed("configured controller may update workloads in this transition namespace")
+	if protection.controllerMayChange && v.isConfiguredController(req.UserInfo.Username) {
+		if req.Operation == admissionv1.Update &&
+			oldObject != nil && newObject != nil && oldObject.GetUID() != "" && oldObject.GetUID() == newObject.GetUID() {
+			return admission.Allowed("configured controller may update workloads in this transition namespace")
+		}
+
+		recoveryNamespace, err := isControllerRecoveryNamespace(ctx, v.Reader, req.Namespace)
+		if err != nil {
+			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking controller recovery namespace: %w", err))
+		}
+		if recoveryNamespace && controllerRecoveryOperation(req.Operation) {
+			return admission.Allowed("configured controller may recover workloads in a system namespace")
+		}
 	}
 	return admission.Denied(fmt.Sprintf("%s mutation in namespace %q is blocked by unresolved migration transition %s", resource, req.Namespace, protection.name))
+}
+
+func controllerRecoveryOperation(operation admissionv1.Operation) bool {
+	return operation == admissionv1.Create || operation == admissionv1.Delete
+}
+
+func isControllerRecoveryNamespace(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
+	return isControlPlaneSystemNamespace(ctx, reader, namespace)
 }
 
 func (v WorkloadCutoverValidator) isConfiguredController(username string) bool {
@@ -211,7 +228,7 @@ func controlPlaneControllerMayChange(transition *api.ControlPlaneNetworkTransiti
 }
 
 func isControlPlaneSystemNamespace(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
-	if namespace == "kube-system" {
+	if namespace == "kube-system" || namespace == "vmware-system-nsx" {
 		return true, nil
 	}
 	object := &corev1.Namespace{}

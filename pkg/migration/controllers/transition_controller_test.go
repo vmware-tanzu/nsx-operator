@@ -68,6 +68,108 @@ func TestReconcileStatus(t *testing.T) {
 	}
 }
 
+type workflowDeleteRecorder struct {
+	deleted []string
+}
+
+func (recorder *workflowDeleteRecorder) DeleteWorkflow(_ context.Context, id string) error {
+	recorder.deleted = append(recorder.deleted, id)
+	return nil
+}
+
+func TestNamespaceWorkflowCleanupFinalizer(t *testing.T) {
+	t.Run("adds finalizer before normal reconciliation", func(t *testing.T) {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		require.NoError(t, api.AddToScheme(scheme))
+		batch := &api.NamespaceNetworkTransition{
+			ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 1},
+			Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionEvaluate}},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(batch).Build()
+		r := Reconciler{Client: c, Engine: &transition.Engine{}, Stage: transition.Namespaces}
+		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: batch.Name}})
+		require.NoError(t, err)
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: batch.Name}, batch))
+		require.Contains(t, batch.Finalizers, api.NamespaceWorkflowCleanupFinalizer)
+	})
+
+	tests := []struct {
+		name        string
+		action      api.Action
+		phase       string
+		state       api.ActionState
+		lastAction  api.Action
+		workflows   []api.NSXWorkflowStatus
+		wantDeleted []string
+	}{
+		{
+			name:       "empty Evaluate checkpoint",
+			action:     api.ActionEvaluate,
+			workflows:  nil,
+			lastAction: "",
+		},
+		{
+			name:        "failed Evaluate deletes recorded workflow",
+			action:      api.ActionEvaluate,
+			phase:       api.PhaseEvaluationFailed,
+			state:       api.ActionStateFailed,
+			lastAction:  api.ActionEvaluate,
+			workflows:   []api.NSXWorkflowStatus{{VDNName: "vdn-a", WorkflowID: "workflow-a"}},
+			wantDeleted: []string{"workflow-a"},
+		},
+		{
+			name:        "successful Evaluate deletes recorded workflow",
+			action:      api.ActionEvaluate,
+			phase:       api.PhaseEvaluated,
+			state:       api.ActionStateSucceeded,
+			lastAction:  api.ActionEvaluate,
+			workflows:   []api.NSXWorkflowStatus{{VDNName: "vdn-a", WorkflowID: "workflow-a"}},
+			wantDeleted: []string{"workflow-a"},
+		},
+		{
+			name:       "successful Rollback retains recorded workflow",
+			action:     api.ActionRollback,
+			phase:      api.PhaseRolledBack,
+			state:      api.ActionStateSucceeded,
+			lastAction: api.ActionRollback,
+			workflows:  []api.NSXWorkflowStatus{{VDNName: "vdn-a", WorkflowID: "workflow-a"}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			require.NoError(t, api.AddToScheme(scheme))
+			deleting := metav1.NewTime(time.Now())
+			batch := &api.NamespaceNetworkTransition{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "batch", Generation: 1, DeletionTimestamp: &deleting,
+					Finalizers: []string{api.NamespaceWorkflowCleanupFinalizer},
+				},
+				Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: tc.action}},
+				Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+					Phase: tc.phase, LastAction: tc.lastAction, ActionState: tc.state,
+					ActionGeneration: 1, ObservedGeneration: 1, NSXWorkflows: tc.workflows,
+				}},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(batch).Build()
+			recorder := &workflowDeleteRecorder{}
+			r := Reconciler{
+				Client: c, Engine: &transition.Engine{WorkflowDeleter: recorder}, Stage: transition.Namespaces,
+			}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: batch.Name}})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantDeleted, recorder.deleted)
+			var persisted api.NamespaceNetworkTransition
+			err = c.Get(ctx, types.NamespacedName{Name: batch.Name}, &persisted)
+			if err == nil {
+				require.NotContains(t, persisted.Finalizers, api.NamespaceWorkflowCleanupFinalizer)
+			}
+		})
+	}
+}
+
 func TestNamespaceInfrastructureGate(t *testing.T) {
 	for _, state := range []api.ActionState{"", api.ActionStateRunning, api.ActionStateFailed, api.ActionStateSucceeded} {
 		ready := state == api.ActionStateSucceeded
@@ -143,7 +245,7 @@ func TestCompletedNamespaceBatchPreserved(t *testing.T) {
 			} else {
 				require.Zero(t, result.RequeueAfter)
 				require.Equal(t, previous.Status, batch.Status)
-				require.Equal(t, previous.ResourceVersion, batch.ResourceVersion)
+				require.Contains(t, batch.Finalizers, api.NamespaceWorkflowCleanupFinalizer)
 			}
 		})
 	}

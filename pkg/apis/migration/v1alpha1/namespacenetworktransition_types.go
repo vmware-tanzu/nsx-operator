@@ -5,6 +5,8 @@ package v1alpha1
 
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+const NamespaceWorkflowCleanupFinalizer = "migration.network.vmware.com/nsx-workflow-cleanup"
+
 // NamespaceNetworkTransitionSpec requests a batch of Supervisor Namespace transitions.
 // +kubebuilder:validation:XValidation:rule="self.namespaces == oldSelf.namespaces",message="Namespaces is immutable"
 // +kubebuilder:validation:XValidation:rule="self.action in ['Evaluate', 'Execute', 'Commit', 'Rollback']",message="namespace action must be Evaluate, Execute, Commit, or Rollback"
