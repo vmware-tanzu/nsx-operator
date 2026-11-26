@@ -628,11 +628,14 @@ func VerifyNsxCertWithThumbprint(der []byte, thumbprint string) error {
 	return err
 }
 
-// GetTLSConfigForCert returns TLS config based on given pemCerts.
-// If CA cert is passed, TLS config will do native cert check for connection.
-// Otherwise, exact byte-to-byte check will be performed.
-// Error is returned if pem invalid or not a certificate.
-func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
+// GetTLSConfigForCert builds a TLS config from the first PEM certificate in pemCerts.
+// When isLeafCert is true, the server's leaf certificate must exactly match the
+// configured certificate, even if that certificate has IsCA set. When false, a CA
+// certificate is trusted for standard TLS verification; a non-CA certificate is
+// pinned using the same exact match. Pinning compares DER bytes and replaces
+// standard certificate chain and hostname verification.
+// It returns an error if the PEM block is invalid or cannot be parsed as a certificate.
+func GetTLSConfigForCert(pemCerts []byte, isLeafCert bool) (*tls.Config, error) {
 	block, _ := pem.Decode(pemCerts)
 	if block == nil {
 		err := errors.New("decode ca file fail")
@@ -651,8 +654,10 @@ func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
 		return nil, err
 	}
 
+	log.Info("Dump CERT", "IsCA", cert.IsCA, "Subject", cert.Subject.String(), "IPAddresses", cert.IPAddresses, "DNSNames", cert.DNSNames)
+
 	// Native cert verification in case of CA cert
-	if cert.IsCA {
+	if cert.IsCA && !isLeafCert {
 		log.Info("Configured CA cert", "subject", cert.Subject)
 		certPool := x509.NewCertPool()
 		certPool.AddCert(cert)
@@ -663,7 +668,7 @@ func GetTLSConfigForCert(pemCerts []byte) (*tls.Config, error) {
 		return config, nil
 	}
 
-	// Exact pem matching for leaf certs (certificate pinning)
+	// Exact DER matching for leaf certificates (certificate pinning)
 	// #nosec G402: ignore insecure options
 	config := &tls.Config{
 		InsecureSkipVerify: true,

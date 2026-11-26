@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -47,8 +48,9 @@ const (
 )
 
 const (
-	NSXGetDelay           = 2 * time.Second
-	GetNsxVersionInterval = 30 * time.Minute
+	NSXGetDelay              = 2 * time.Second
+	GetNsxVersionInterval    = 30 * time.Minute
+	defaultConnectionTimeout = 30 * time.Second
 )
 
 // Cluster consists of endpoint and provides http.Client used to send http requests.
@@ -241,63 +243,73 @@ func (cluster *Cluster) getCaFile(addr string) string {
 	return cafile
 }
 
-func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
-	tr := &http.Transport{
-		IdleConnTimeout: idle * time.Second,
-	}
-	log.Info("Cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
-	if !cluster.config.Insecure {
-		dial := func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
-			var config *tls.Config
-			cafile := cluster.getCaFile(addr)
-			caCount := len(cluster.config.CAFile)
-			log.Info("Create Transport", "ca file", cafile, "caCount", caCount)
-			if caCount > 0 {
-				caCert, err := os.ReadFile(cafile)
+// getDialTLSContext returns a DialTLSContext callback that selects TLS verification
+// settings for each target endpoint. A certificate supplied as a file path or
+// inline PEM takes precedence over a thumbprint: GetTLSConfigForCert applies
+// IsLeafCert to select CA trust or exact certificate pinning. With no configured
+// certificate, the callback verifies the endpoint's thumbprint, or uses system
+// root CAs if no thumbprint is configured.
+func (cluster *Cluster) getDialTLSContext(timeout time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) { // #nosec G402: ignore insecure options
+		var config *tls.Config
+		cafile := cluster.getCaFile(addr)
+		caCount := len(cluster.config.CAFile)
+
+		if caCount > 0 {
+			log.Info("Create Transport", "auth_type", "ca_cert", "ca_file", cafile, "caCount", caCount)
+			caCert := []byte(cafile)
+			var err error
+			if block, _ := pem.Decode(caCert); block == nil {
+				caCert, err = os.ReadFile(cafile)
 				if err != nil {
 					log.Error(err, "Create transport", "read ca file", cafile)
 					return nil, err
 				}
+			}
 
-				config, err = util.GetTLSConfigForCert(caCert)
-				if err != nil {
-					log.Error(err, "Create transport", "get TLS config from cert", cafile)
-					return nil, err
-				}
-			} else {
-				thumbprint := cluster.getThumbprint(addr)
-				tpCount := len(cluster.config.Thumbprint)
-				log.Info("Create Transport", "thumbprint", thumbprint, "tpCount", tpCount)
+			config, err = util.GetTLSConfigForCert(caCert, cluster.config.IsLeafCert)
+			if err != nil {
+				log.Error(err, "Create transport", "get TLS config from cert", cafile)
+				return nil, err
+			}
+		} else {
+			thumbprint := cluster.getThumbprint(addr)
+			tpCount := len(cluster.config.Thumbprint)
+
+			if tpCount > 0 {
+				log.Info("Create Transport", "auth_type", "thumbprint", "tpCount", tpCount)
 				// #nosec G402: ignore insecure options
 				config = &tls.Config{
 					InsecureSkipVerify: true,
 					VerifyConnection: func(cs tls.ConnectionState) error {
-						// not check thumbprint if no thumbprint config
-						if tpCount > 0 {
-							if err := util.VerifyNsxCertWithThumbprint(cs.PeerCertificates[0].Raw, thumbprint); err != nil {
-								return err
-							}
+						if err := util.VerifyNsxCertWithThumbprint(cs.PeerCertificates[0].Raw, thumbprint); err != nil {
+							return err
 						}
 						return nil
 					},
 				}
+			} else {
+				log.Info("Create Transport", "auth_type", "system_root_ca", "reason", "Insecure=false but no CA or Thumbprint provided")
+				config = &tls.Config{}
 			}
-			conn, err := tls.Dial(network, addr, config)
-			if err != nil {
-				log.Error(err, "Failed to do transport connect to", "addr", addr)
-				return nil, err
+		}
+		dialer := &tls.Dialer{
+			NetDialer: &net.Dialer{Timeout: timeout},
+			Config:    config,
+		}
+		conn, err := dialer.DialContext(ctx, network, addr)
+		if err != nil {
+			log.Error(err, "Failed to do transport connect to", "addr", addr)
+			return nil, err
 
-			}
-			return conn, nil
 		}
-		tr.DialTLSContext = dial
-	} else {
-		// #nosec G402: ignore insecure options
-		tr.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
-		}
+		return conn, nil
 	}
-	return &Transport{Base: tr}
+}
+
+func (cluster *Cluster) createTransport(idle time.Duration) *Transport {
+	log.Info("Cluster envoy mode", "envoy mode", cluster.UsingEnvoy())
+	return &Transport{Base: cluster.createHTTPTransport(time.Duration(cluster.config.HTTPTimeout)*time.Second, idle*time.Second)}
 }
 
 func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) *http.Client {
@@ -308,17 +320,32 @@ func (cluster *Cluster) createHTTPClient(tr *Transport, timeout time.Duration) *
 }
 
 func (cluster *Cluster) createNoBalancerClient(timeout, idle time.Duration) *http.Client {
-	// #nosec G402: ignore insecure options
-	tlsConfig := tls.Config{InsecureSkipVerify: true}
-	transport := &http.Transport{
-		TLSClientConfig: &tlsConfig,
-		IdleConnTimeout: idle * time.Second,
-	}
-	noBClient := http.Client{
-		Transport: transport,
+	return &http.Client{
+		Transport: cluster.createHTTPTransport(timeout*time.Second, idle*time.Second),
 		Timeout:   timeout * time.Second,
 	}
-	return &noBClient
+}
+
+func (cluster *Cluster) createHTTPTransport(timeout, idle time.Duration) *http.Transport {
+	// Transport can keep dialing after the request times out. Bound connection
+	// establishment independently, including custom TLS handshakes.
+	if timeout <= 0 {
+		timeout = defaultConnectionTimeout
+	}
+	transport := &http.Transport{
+		DialContext:         (&net.Dialer{Timeout: timeout}).DialContext,
+		TLSHandshakeTimeout: timeout,
+		IdleConnTimeout:     idle,
+	}
+	if !cluster.config.Insecure {
+		transport.DialTLSContext = cluster.getDialTLSContext(timeout)
+	} else {
+		// #nosec G402: ignore insecure options
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
+	return transport
 }
 
 func (cluster *Cluster) createEndpoints(apiManagers []string, client *http.Client, noBClient *http.Client, r ratelimiter.RateLimiter, tokenProvider auth.TokenProvider) ([]*Endpoint, error) {

@@ -180,7 +180,7 @@ func Test_KeyFunc(t *testing.T) {
 }
 
 func Test_InitializeRuleStore(t *testing.T) {
-	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc := cluster.NewRestConnector()
 
@@ -231,7 +231,7 @@ func Test_InitializeRuleStore(t *testing.T) {
 }
 
 func Test_InitializeGroupStore(t *testing.T) {
-	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc := cluster.NewRestConnector()
 
@@ -282,7 +282,7 @@ func Test_InitializeGroupStore(t *testing.T) {
 }
 
 func Test_InitializeSecurityPolicyStore(t *testing.T) {
-	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
+	config2 := nsx.NewConfig("localhost", "1", "1", []string{}, false, 10, 3, 20, 20, true, true, true, ratelimiter.AIMD, nil, nil, []string{})
 	cluster, _ := nsx.NewCluster(config2)
 	rc := cluster.NewRestConnector()
 
