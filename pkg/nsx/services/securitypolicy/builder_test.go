@@ -1730,6 +1730,51 @@ func Test_buildRuleServiceEntries(t *testing.T) {
 				)
 			}(),
 		},
+		{
+			name: "zero port with endPort",
+			port: v1alpha1.SecurityPolicyPort{
+				Port:     intstr.FromInt(0),
+				EndPort:  6000,
+				Protocol: "TCP",
+			},
+			expected: func() *data.StructValue {
+				destinationPorts := data.NewListValue()
+				destinationPorts.Add(data.NewStringValue("0-6000"))
+				return data.NewStructValue(
+					"",
+					map[string]data.DataValue{
+						"source_ports":      data.NewListValue(),
+						"destination_ports": destinationPorts,
+						"l4_protocol":       data.NewStringValue("TCP"),
+						"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+						"marked_for_delete": data.NewBooleanValue(false),
+						"overridden":        data.NewBooleanValue(false),
+					},
+				)
+			}(),
+		},
+		{
+			name: "omitted port with endPort",
+			port: v1alpha1.SecurityPolicyPort{
+				EndPort:  6000,
+				Protocol: "TCP",
+			},
+			expected: func() *data.StructValue {
+				destinationPorts := data.NewListValue()
+				destinationPorts.Add(data.NewStringValue("0-6000"))
+				return data.NewStructValue(
+					"",
+					map[string]data.DataValue{
+						"source_ports":      data.NewListValue(),
+						"destination_ports": destinationPorts,
+						"l4_protocol":       data.NewStringValue("TCP"),
+						"resource_type":     data.NewStringValue("L4PortSetServiceEntry"),
+						"marked_for_delete": data.NewBooleanValue(false),
+						"overridden":        data.NewBooleanValue(false),
+					},
+				)
+			}(),
+		},
 	}
 
 	for _, tt := range tests {
