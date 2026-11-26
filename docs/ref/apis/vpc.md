@@ -1274,7 +1274,7 @@ _Appears in:_
 | `conditions` _[Condition](#condition) array_ | Conditions describes current state of SubnetPort. |  |  |
 | `attachment` _[PortAttachment](#portattachment)_ | SubnetPort attachment state. |  |  |
 | `networkInterfaceConfig` _[NetworkInterfaceConfig](#networkinterfaceconfig)_ |  |  |  |
-| `fqdns` _string array_ | FQDNs contains the system-computed fully qualified domain names for the port. Each FQDN is formed by combining the DNS host name with the domain name. |  |  |
+| `fqdns` _string array_ | FQDNs contains the system-computed fully qualified domain names for the port.<br />Each FQDN is formed by combining the DNS host name with the domain name. |  |  |
 
 
 #### SubnetSet
