@@ -69,9 +69,7 @@ func (s ConnectivityProfileService) Create(ctx context.Context, r Resource, tags
 	return s.Client.Patch(o, p, r.ID, model.VpcConnectivityProfile{Id: &r.ID, DisplayName: &r.ID, TransitGatewayPath: &r.Gateway, ExternalIpBlocks: r.Blocks, Tags: tags})
 }
 
-func (s ConnectivityProfileService) reusableID(cluster, project, tgwID, tgwPath, blockPath, requestedProfile, snatBlock string) (string, error) {
-	blocks := optionalPath(blockPath)
-
+func (s ConnectivityProfileService) reusableID(cluster, project, tgwID, tgwPath string, blocks []string, requestedProfile, snatBlock string) (string, error) {
 	profileMatches := make([]*model.VpcConnectivityProfile, 0)
 	for _, candidate := range s.Store.List() {
 		if candidate == nil || value(candidate.Id) == "" {
@@ -101,8 +99,34 @@ func (s ConnectivityProfileService) reusableID(cluster, project, tgwID, tgwPath,
 	return profileID, nil
 }
 
-func (s ConnectivityProfileService) expected(project, id string, tgw, block Resource) Resource {
-	return Resource{Kind: Profile, ID: id, Parent: project, Path: project + "/vpc-connectivity-profiles/" + id, Gateway: tgw.Path, Blocks: optionalPath(block.Path)}
+func (s ConnectivityProfileService) expected(project, id string, tgw Resource, blocks []string) Resource {
+	return Resource{Kind: Profile, ID: id, Parent: project, Path: project + "/vpc-connectivity-profiles/" + id, Gateway: tgw.Path, Blocks: append([]string(nil), blocks...)}
+}
+
+// UpdateBlocks adds the next level of ordinary IP blocks to a profile already
+// selected by the transition checkpoint. The caller supplies a complete set,
+// including any accepted SNAT block that must remain attached.
+func (s ConnectivityProfileService) UpdateBlocks(ctx context.Context, profile Resource, blocks []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	o, p, err := scope(profile, Profile)
+	if err != nil {
+		return err
+	}
+	current, err := s.Client.Get(o, p, profile.ID)
+	if err != nil {
+		return fmt.Errorf("read connectivity profile before updating blocks: %w", err)
+	}
+	live, found, err := profileResource(current)
+	if err != nil {
+		return err
+	}
+	if !found || !compatible(profile, live) {
+		return &ConflictError{Kind: Profile, Path: profile.Path}
+	}
+	current.ExternalIpBlocks = append([]string(nil), blocks...)
+	return s.Client.Patch(o, p, profile.ID, current)
 }
 
 func profileBlocksCompatible(actual, ordinary []string, allowedSNATBlock string) bool {

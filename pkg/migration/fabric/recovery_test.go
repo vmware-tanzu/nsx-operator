@@ -77,7 +77,7 @@ func TestReuseCandidatesStayInProjectAndIgnoreDeleting(t *testing.T) {
 		path := tc.project + "/vpc-connectivity-profiles/" + tc.id
 		require.NoError(t, profiles.Put(path, &model.VpcConnectivityProfile{Id: ptr.To(tc.id), Path: ptr.To(path), ParentPath: ptr.To(tc.project), Tags: tags, TransitGatewayPath: ptr.To(project + "/transit-gateways/valid"), MarkedForDelete: ptr.To(tc.deleted)}))
 	}
-	id, err = (ConnectivityProfileService{Store: profiles}).reusableID("cluster", project, "valid", project+"/transit-gateways/valid", "", "fallback", "")
+	id, err = (ConnectivityProfileService{Store: profiles}).reusableID("cluster", project, "valid", project+"/transit-gateways/valid", nil, "fallback", "")
 	require.NoError(t, err)
 	require.Equal(t, "valid", id)
 }
@@ -262,10 +262,10 @@ func TestProfileReuseAllowsOnlyAcceptedSNATBlock(t *testing.T) {
 	obj := &model.VpcConnectivityProfile{Id: ptr.To("reused"), Path: &path, ParentPath: &project, TransitGatewayPath: &tgw, ExternalIpBlocks: []string{ordinary, snat}, Tags: []model.Tag{{Scope: ptr.To(common.TagScopeCluster), Tag: ptr.To("cluster")}}}
 	require.NoError(t, store.Put(path, obj))
 	svc := ConnectivityProfileService{Store: store}
-	got, err := svc.reusableID("cluster", project, "t", tgw, ordinary, "default", snat)
+	got, err := svc.reusableID("cluster", project, "t", tgw, []string{ordinary}, "default", snat)
 	require.NoError(t, err)
 	require.Equal(t, "reused", got)
-	got, err = svc.reusableID("cluster", project, "t", tgw, ordinary, "default", project+"/infra/ip-blocks/unrelated")
+	got, err = svc.reusableID("cluster", project, "t", tgw, []string{ordinary}, "default", project+"/infra/ip-blocks/unrelated")
 	require.NoError(t, err)
 	require.Equal(t, "default", got)
 }

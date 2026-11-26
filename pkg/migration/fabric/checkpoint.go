@@ -8,9 +8,9 @@ import "context"
 // CheckpointKey identifies one preparation within one transition incarnation.
 // Identity distinguishes multiple fabric preparations in the same transition.
 type CheckpointKey struct {
-	TransitionUID    string
-	ActionGeneration int64
-	Identity         string
+	TransitionUID    string `json:"transitionUID"`
+	ActionGeneration int64  `json:"actionGeneration"`
+	Identity         string `json:"identity"`
 }
 
 // ResourceOrigin records what can be proved about a selected resource. Unknown
@@ -38,8 +38,9 @@ type ResourceCheckpoint struct {
 // The caller must preserve a recorded path and must not downgrade or guess its
 // origin during retry, restart, cancellation, or concurrent reconciliation.
 type PreparationCheckpoint struct {
-	Key       CheckpointKey
-	Resources []ResourceCheckpoint
+	Key        CheckpointKey        `json:"key"`
+	Identities *FrozenIdentities    `json:"identities,omitempty"`
+	Resources  []ResourceCheckpoint `json:"resources,omitempty"`
 }
 
 // PreparationCheckpointStore is the integration contract for durable state.

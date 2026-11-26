@@ -38,11 +38,11 @@ func (s *FabricService) reusableIDs(req FabricPreparationRequest, project, reque
 		return "", "", "", err
 	}
 	tgwPath := project + "/transit-gateways/" + tgwID
-	blockPath := ""
-	if req.IPBlockID != "" {
-		blockPath = project + "/infra/ip-blocks/" + req.IPBlockID
+	profileBlocks, err := profileBlockPaths(req, project)
+	if err != nil {
+		return "", "", "", err
 	}
-	profileID, err := s.Profiles.reusableID(s.cluster, project, tgwID, tgwPath, blockPath, requestedProfile, snatBlock)
+	profileID, err := s.Profiles.reusableID(s.cluster, project, tgwID, tgwPath, profileBlocks, requestedProfile, snatBlock)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -85,12 +85,6 @@ func validResourceID(id string) bool {
 	return validID.MatchString(id) && id != "." && id != ".."
 }
 
-func optionalPath(path string) []string {
-	if path == "" {
-		return nil
-	}
-	return []string{path}
-}
 func ownedByCluster(tags []model.Tag, cluster string) bool {
 	return tagValue(tags, common.TagScopeCluster) == cluster
 }
@@ -156,6 +150,11 @@ func validate(r FabricPreparationRequest) error {
 			return fmt.Errorf("invalid resource ID %q", id)
 		}
 	}
+	for _, id := range r.ProfileIPBlockIDs {
+		if !validResourceID(id) {
+			return fmt.Errorf("invalid connectivity profile IP block ID %q", id)
+		}
+	}
 	if (r.IPBlockID == "") != (r.IPBlockCIDR == "") {
 		return fmt.Errorf("IP block ID and CIDR must be supplied together")
 	}
@@ -195,6 +194,40 @@ func sorted(values []string) []string {
 }
 func equalSet(a, b []string) bool {
 	return strings.Join(sorted(a), "\x00") == strings.Join(sorted(b), "\x00")
+}
+
+func subset(values, set []string) bool {
+	available := make(map[string]struct{}, len(set))
+	for _, value := range set {
+		available[value] = struct{}{}
+	}
+	for _, value := range values {
+		if _, found := available[value]; !found {
+			return false
+		}
+	}
+	return true
+}
+
+func profileBlockPaths(req FabricPreparationRequest, project string) ([]string, error) {
+	ids := append([]string(nil), req.ProfileIPBlockIDs...)
+	if req.IPBlockID != "" {
+		ids = append(ids, req.IPBlockID)
+	}
+	ids = sorted(ids)
+	paths := make([]string, 0, len(ids))
+	previous := ""
+	for _, id := range ids {
+		if !validResourceID(id) {
+			return nil, fmt.Errorf("invalid connectivity profile IP block ID %q", id)
+		}
+		if id == previous {
+			continue
+		}
+		paths = append(paths, project+"/infra/ip-blocks/"+id)
+		previous = id
+	}
+	return paths, nil
 }
 func compatible(a, b Resource) bool {
 	if a.Kind != b.Kind || a.ID != b.ID || a.Path != b.Path || a.Parent != b.Parent || a.Gateway != b.Gateway || a.Profile != b.Profile || a.CIDR != b.CIDR || a.SubnetExclusive != b.SubnetExclusive || !slices.Equal(a.ExcludedIPs, b.ExcludedIPs) || !equalSet(a.Zones, b.Zones) || !equalSet(a.VDS, b.VDS) || !equalSet(a.Blocks, b.Blocks) {

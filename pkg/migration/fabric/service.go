@@ -47,7 +47,11 @@ type Resource struct {
 }
 
 // FrozenIdentities pins the selected resource identities across retries.
-type FrozenIdentities struct{ TGWID, ProfileID, VPCID string }
+type FrozenIdentities struct {
+	TGWID     string `json:"tgwID"`
+	ProfileID string `json:"profileID"`
+	VPCID     string `json:"vpcID"`
+}
 
 // IPRange is an inclusive range of IP addresses.
 type IPRange struct{ Start, End string }
@@ -79,6 +83,10 @@ type FabricPreparationRequest struct {
 	Zones, VDS             []string
 	TGWID, VPCID           string
 	IPBlockID, IPBlockCIDR string
+	// ProfileIPBlockIDs is the complete target set of ordinary blocks linked
+	// through the connectivity profile. It may grow across level-driven Prepare
+	// calls as the coordinator creates each block. Empty falls back to IPBlockID.
+	ProfileIPBlockIDs []string
 	// Allowed ranges combine the applicable static, DHCP, VKS and VIP pools.
 	// Callers must supply the complete inventory for this block.
 	IPBlockAllowedIPs []IPRange
@@ -172,11 +180,15 @@ func (s *FabricService) Prepare(ctx context.Context, req FabricPreparationReques
 		return result, err
 	}
 	result.Identities = ids
-	base := req.ProjectPath
+	base := strings.TrimSuffix(req.ProjectPath, "/")
 	tgwID, profileID, vpcID := ids.TGWID, ids.ProfileID, ids.VPCID
 	result.TGW = s.TransitGateways.expected(req, base, tgwID)
 	result.IPBlock = s.IPBlocks.expected(req, base)
-	result.Profile = s.Profiles.expected(base, profileID, result.TGW, result.IPBlock)
+	profileBlocks, err := profileBlockPaths(req, base)
+	if err != nil {
+		return result, err
+	}
+	result.Profile = s.Profiles.expected(base, profileID, result.TGW, profileBlocks)
 
 	result.VPC = s.VPCs.expected(base, vpcID)
 	result.Attachment = s.Attachments.expected(result.VPC, result.Profile)
@@ -199,6 +211,33 @@ func (s *FabricService) Prepare(ctx context.Context, req FabricPreparationReques
 	result.Ready = true
 	result.State = PreparationReady
 	return result, nil
+}
+
+// PrepareIPBlock reconciles and verifies a source network's block separately
+// so a shared connectivity profile can be created only after all of its block
+// dependencies exist.
+func (s *FabricService) PrepareIPBlock(ctx context.Context, req FabricPreparationRequest) (bool, error) {
+	if s == nil {
+		return false, fmt.Errorf("fabric service is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if err := validate(req); err != nil {
+		return false, err
+	}
+	if req.IPBlockID == "" {
+		return false, fmt.Errorf("IP block identity is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, snatBlock, err := s.resolveIdentitiesLocked(ctx, req)
+	if err != nil {
+		return false, err
+	}
+	expected := s.IPBlocks.expected(req, req.ProjectPath)
+	expected.Tags = s.tags(IPBlock, req.NamespaceUID, vpcPurpose(req))
+	return s.prepareResource(ctx, expected, snatBlock)
 }
 
 // ResolveIdentities discovers identities without modifying NSX. Persist its
@@ -272,16 +311,47 @@ func (s *FabricService) prepareResource(ctx context.Context, expected Resource, 
 		}
 		return false, nil
 	}
-	if expected.Kind == Profile && snatBlock != "" {
-		blocks := make([]string, 0, len(actual.Blocks))
-		for _, b := range actual.Blocks {
-			if b != snatBlock {
-				blocks = append(blocks, b)
+	if expected.Kind == Profile {
+		ordinaryBlocks := make([]string, 0, len(actual.Blocks))
+		hasSNATBlock := false
+		for _, block := range actual.Blocks {
+			if snatBlock != "" && block == snatBlock {
+				hasSNATBlock = true
+				continue
 			}
+			ordinaryBlocks = append(ordinaryBlocks, block)
 		}
-		actual.Blocks = blocks
+		actualForCompare := actual
+		actualForCompare.Blocks = ordinaryBlocks
+		expectedForCompare := expected
+		expectedForCompare.Blocks = ordinaryBlocks
+		if !compatible(expectedForCompare, actualForCompare) {
+			return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
+		}
+		if !equalSet(ordinaryBlocks, expected.Blocks) {
+			if !subset(ordinaryBlocks, expected.Blocks) {
+				return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
+			}
+			desiredBlocks := append([]string(nil), expected.Blocks...)
+			if hasSNATBlock {
+				desiredBlocks = append(desiredBlocks, snatBlock)
+			}
+			updater, ok := access.(interface {
+				UpdateBlocks(context.Context, Resource, []string) error
+			})
+			if !ok {
+				return false, fmt.Errorf("connectivity profile service cannot update external IP blocks")
+			}
+			if err := updater.UpdateBlocks(ctx, actual, sorted(desiredBlocks)); err != nil {
+				return false, fmt.Errorf("update connectivity profile %s blocks: %w", expected.Path, err)
+			}
+			return false, nil
+		}
+		actual.Blocks = ordinaryBlocks
+	} else if !compatible(expected, actual) {
+		return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
 	}
-	if !compatible(expected, actual) {
+	if expected.Kind == Profile && !compatible(expected, actual) {
 		return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
 	}
 	return access.CheckRealization(ctx, actual)
