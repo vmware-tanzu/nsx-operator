@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	vapierrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	"github.com/vmware/vsphere-automation-sdk-go/runtime/bindings"
 	"github.com/vmware/vsphere-automation-sdk-go/runtime/data"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/cluster/restore"
 	mpmodel "github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
@@ -1697,7 +1700,8 @@ func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount_StatusFailureR
 	require.NoError(t, base.Get(ctx, secretKey, storedSecret))
 	assert.Equal(t, originalSecret.Data, storedSecret.Data)
 	assert.Equal(t, cert, captured.pi)
-	assert.Equal(t, cert, captured.ccp)
+	// The CCP already holds the certificate, and NSX rejects an update carrying it.
+	assert.Empty(t, captured.ccp, "the CCP must not be written again with its own certificate")
 	realized := &v1alpha1.NSXServiceAccount{}
 	require.NoError(t, base.Get(ctx, client.ObjectKeyFromObject(obj), realized))
 	assert.Equal(t, v1alpha1.NSXServiceAccountPhaseRealized, realized.Status.Phase)
@@ -4544,4 +4548,869 @@ func TestRestoreRealizedNSXServiceAccountPartialRestoreGuards(t *testing.T) {
 			}
 		})
 	}
+}
+
+// newAPIErrorData builds the ApiError payload NSX attaches to a vAPI error, which
+// TransNSXApiError needs in order to translate the error.
+func newAPIErrorData(t *testing.T, code int64) *data.StructValue {
+	t.Helper()
+	dv, errs := bindings.NewTypeConverter().ConvertToVapi(model.ApiError{ErrorCode: &code}, model.ApiErrorBindingType())
+	require.Empty(t, errs)
+	return dv.(*data.StructValue)
+}
+
+// newMP2038Error builds the vAPI error the NSX SDK returns for MP2038 ("Certificate already exists").
+func newMP2038Error(t *testing.T) error {
+	t.Helper()
+	errType := vapierrors.ErrorType_INVALID_REQUEST
+	return vapierrors.InvalidRequest{Data: newAPIErrorData(t, nsxutil.CertificateAlreadyExistsErrorCode), ErrorType: &errType}
+}
+
+// newNotFoundError builds the vAPI error the NSX SDK returns for a missing object.
+func newNotFoundError(t *testing.T) error {
+	t.Helper()
+	errType := vapierrors.ErrorType_NOT_FOUND
+	return vapierrors.NotFound{Data: newAPIErrorData(t, 202), ErrorType: &errType}
+}
+
+func TestSamePEMCertificate(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "same-pem-test"
+	certA, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	certB, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+
+	assert.True(t, samePEMCertificate(certA, certA))
+	// Formatting differences must not matter, only the certificate itself.
+	assert.True(t, samePEMCertificate(certA, strings.ReplaceAll(certA, "\n", "\r\n")))
+	assert.True(t, samePEMCertificate("\n"+certA+"\n\n", certA))
+	assert.False(t, samePEMCertificate(certA, certB))
+	// Unparsable input never counts as the same certificate, even when equal.
+	assert.False(t, samePEMCertificate("cert", "cert"))
+	assert.False(t, samePEMCertificate("", ""))
+	assert.False(t, samePEMCertificate(certA, "cert"))
+}
+
+// A reconcile that re-enters CreateOrUpdate after a successful one reuses the Secret's
+// certificate while the PI already holds it. It must succeed without importing the
+// certificate again (NSX rejects that with MP2038).
+func TestNSXServiceAccountService_CreateOrUpdateNSXServiceAccount_RepeatedReconcileWithExistingPI(t *testing.T) {
+	ClearCCPConnectionCapacityFull()
+	t.Cleanup(ClearCCPConnectionCapacityFull)
+	ctx := context.Background()
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	require.NoError(t, s.Client.Create(ctx, obj))
+
+	name := util.NormalizeId(s.getClusterName(string(obj.UID), obj.Namespace, obj.Name))
+	piID, certID, nodeID := "pi1", "cert1", "clusterId1"
+	// attached is the certificate NSX holds for the PI, as NSX would return it.
+	var attached string
+	imports := 0
+	patches := gomonkey.ApplyMethod(s.NSXClient, "NSXCheckVersion", func(_ *nsx.Client, _ int) bool { return true })
+	defer patches.Reset()
+	patches.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, request mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+		attached = *request.CertificatePem
+		return mpmodel.PrincipalIdentity{Name: request.Name, Id: &piID, CertificateId: &certID, Tags: request.Tags}, nil
+	})
+	patches.ApplyMethod(s.NSXClient.CertificatesClient, "Get", func(_ *fakeCertificatesClient, _ string, _ *bool, _ *string) (mpmodel.Certificate, error) {
+		return mpmodel.Certificate{PemEncoded: &attached}, nil
+	})
+	patches.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, request mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+		imports++
+		if *request.PemEncoded == attached {
+			return mpmodel.CertificateList{}, newMP2038Error(t)
+		}
+		attached = *request.PemEncoded
+		return mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &certID}}}, nil
+	})
+	// NSX rejects a CCP update that carries the certificate the CCP already has
+	// (HTTP 500, error code 100), so the fake does too.
+	ccpCert := ""
+	ccpUpdates := 0
+	patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+		ccpUpdates++
+		if samePEMCertificate(ccpCert, *request.Certificate) {
+			return model.ClusterControlPlane{}, errors.New("nsx error code: 100, message: General error has occurred.")
+		}
+		ccpCert = *request.Certificate
+		request.Id, request.NodeId = &name, &nodeID
+		return request, nil
+	})
+
+	// First reconcile creates the PI, CCP and Secret.
+	require.NoError(t, s.CreateOrUpdateNSXServiceAccount(ctx, obj))
+	require.NotEmpty(t, attached)
+	// A stale reconcile runs the create/update path again with the same Secret.
+	for i := 0; i < 2; i++ {
+		require.NoError(t, s.CreateOrUpdateNSXServiceAccount(ctx, obj))
+	}
+	assert.Zero(t, imports, "the PI's own certificate must not be imported again")
+	assert.Equal(t, 1, ccpUpdates, "the CCP must not be updated again with its own certificate")
+	assert.True(t, IsNSXServiceAccountRealized(&obj.Status))
+}
+
+func TestNSXServiceAccountService_updatePICert_AlreadyExists(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "update-pi-cert-test"
+	cert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	oldCert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	otherCert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+
+	// searchHit builds a search result the way NSX returns a certificate.
+	searchHit := func(t *testing.T, id, pemData string) *data.StructValue {
+		t.Helper()
+		v, errs := common.NewConverter().ConvertToVapi(mpmodel.Certificate{Id: &id, PemEncoded: &pemData}, mpmodel.CertificateBindingType())
+		require.Empty(t, errs)
+		return v.(*data.StructValue)
+	}
+
+	const oldID, newID = "old-cert", "new-cert"
+	tests := []struct {
+		name string
+		// nsxPICertID is the certificate the PI holds in NSX, as opposed to the cached PI,
+		// which always still holds oldID.
+		nsxPICertID string
+		piGetErr    error
+		// pems maps certificate IDs to the PEM NSX holds for them.
+		pems       map[string]string
+		searchPEM  string // PEM of the search hit, "" for no hit
+		searchErr  error
+		wantErr    string
+		wantUpdate bool // the PI is switched to newID
+		wantDelete []string
+	}{
+		{
+			name:        "stale cache, PI in NSX already has the certificate",
+			nsxPICertID: newID,
+			pems:        map[string]string{oldID: oldCert, newID: cert},
+		},
+		{
+			name:        "interrupted earlier attempt, existing certificate is found and used",
+			nsxPICertID: oldID,
+			pems:        map[string]string{oldID: oldCert, newID: cert},
+			searchPEM:   cert,
+			wantUpdate:  true,
+			wantDelete:  []string{oldID},
+		},
+		{
+			name:        "certificate not found by search yet is retried",
+			nsxPICertID: oldID,
+			pems:        map[string]string{oldID: oldCert},
+			wantErr:     "will retry",
+		},
+		{
+			name:        "search hit with a different certificate is not used",
+			nsxPICertID: oldID,
+			pems:        map[string]string{oldID: oldCert},
+			searchPEM:   otherCert,
+			wantErr:     "will retry",
+		},
+		{
+			name:        "search failure is returned",
+			nsxPICertID: oldID,
+			pems:        map[string]string{oldID: oldCert},
+			searchErr:   errors.New("search failed"),
+			wantErr:     "search failed",
+		},
+		{
+			name:     "PI cannot be refreshed",
+			piGetErr: errors.New("get failed"),
+			pems:     map[string]string{oldID: oldCert},
+			wantErr:  "get failed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			name, piID, oldCertID := "pi-name", "pi1", oldID
+			pi := &mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &oldCertID}
+			var updatedTo string
+			var deleted []string
+			patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+				return mpmodel.CertificateList{}, newMP2038Error(t)
+			})
+			defer patches.Reset()
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Get", func(_ *fakePrincipalIdentitiesClient, _ string) (mpmodel.PrincipalIdentity, error) {
+				certID := tt.nsxPICertID
+				return mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &certID}, tt.piGetErr
+			})
+			patches.ApplyMethod(s.NSXClient.CertificatesClient, "Get", func(_ *fakeCertificatesClient, id string, _ *bool, _ *string) (mpmodel.Certificate, error) {
+				pemData := tt.pems[id]
+				return mpmodel.Certificate{PemEncoded: &pemData}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.MPQueryClient, "List", func(_ *fakeMPQueryClient, query string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mpmodel.SearchResponse, error) {
+				assert.Contains(t, query, "leaf_certificate_sha_256_thumbprint:\""+certificateThumbprint(cert)+"\"")
+				assert.NotContains(t, query, "resource_type", "NSX indexes an imported self-signed certificate as certificate_ca")
+				if tt.searchPEM == "" {
+					return mpmodel.SearchResponse{}, tt.searchErr
+				}
+				return mpmodel.SearchResponse{Results: []*data.StructValue{searchHit(t, newID, tt.searchPEM)}}, tt.searchErr
+			})
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, req mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+				updatedTo = *req.CertificateId
+				return mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: req.CertificateId}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.CertificatesClient, "Delete", func(_ *fakeCertificatesClient, id string) error {
+				deleted = append(deleted, id)
+				return nil
+			})
+
+			err := s.updatePICert(pi, name, cert)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tt.wantUpdate {
+				assert.Equal(t, newID, updatedTo)
+			} else {
+				assert.Empty(t, updatedTo, "the PI must not be switched")
+			}
+			assert.Equal(t, tt.wantDelete, deleted)
+			if tt.piGetErr == nil {
+				// The cache must reflect NSX after the call, not the stale PI.
+				cached := s.PrincipalIdentityStore.GetByKey(name).(*mpmodel.PrincipalIdentity)
+				want := tt.nsxPICertID
+				if tt.wantUpdate {
+					want = newID
+				}
+				assert.Equal(t, want, *cached.CertificateId)
+			}
+		})
+	}
+}
+
+// A PI that could not be switched to a freshly imported certificate must not leave that
+// certificate behind, unless NSX may have applied the switch.
+func TestNSXServiceAccountService_updatePICert_UpdateFails(t *testing.T) {
+	const oldID, newID = "old-cert", "new-cert"
+	tests := []struct {
+		name        string
+		nsxPICertID string
+		piGetErr    error
+		wantErr     bool
+		wantDelete  []string
+	}{
+		{name: "update not applied deletes the imported certificate", nsxPICertID: oldID, wantErr: true, wantDelete: []string{newID}},
+		{name: "update applied with a lost response succeeds", nsxPICertID: newID, wantDelete: []string{oldID}},
+		{name: "unknown PI state keeps the imported certificate", piGetErr: errors.New("get failed"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			name, piID, oldCertID, newCertID := "pi-name", "pi1", oldID, newID
+			pi := &mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &oldCertID}
+			var deleted []string
+			patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+				return mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &newCertID}}}, nil
+			})
+			defer patches.Reset()
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, _ mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+				return mpmodel.PrincipalIdentity{}, errors.New("timeout")
+			})
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Get", func(_ *fakePrincipalIdentitiesClient, _ string) (mpmodel.PrincipalIdentity, error) {
+				certID := tt.nsxPICertID
+				return mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &certID}, tt.piGetErr
+			})
+			patches.ApplyMethod(s.NSXClient.CertificatesClient, "Delete", func(_ *fakeCertificatesClient, id string) error {
+				deleted = append(deleted, id)
+				return nil
+			})
+
+			err := s.updatePICert(pi, name, "cert")
+			if tt.wantErr {
+				require.ErrorContains(t, err, "timeout")
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantDelete, deleted)
+		})
+	}
+}
+
+func TestCertificateThumbprint(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "thumbprint-test"
+	cert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	other, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+
+	t.Run("NSX format", func(t *testing.T) {
+		// NSX stores the thumbprint as upper case hex pairs separated by colons.
+		assert.Regexp(t, `^([0-9A-F]{2}:){31}[0-9A-F]{2}$`, certificateThumbprint(cert))
+	})
+	t.Run("surrounding whitespace is ignored", func(t *testing.T) {
+		assert.Equal(t, certificateThumbprint(cert), certificateThumbprint(cert+"\n"))
+	})
+	t.Run("first certificate of a chain is used", func(t *testing.T) {
+		assert.Equal(t, certificateThumbprint(cert), certificateThumbprint(cert+other))
+		assert.NotEqual(t, certificateThumbprint(cert), certificateThumbprint(other))
+	})
+	t.Run("invalid PEM", func(t *testing.T) {
+		assert.Empty(t, certificateThumbprint("not a pem"))
+	})
+}
+
+// lockAccount must serialize users of the same account and let different accounts run in parallel.
+func TestNSXServiceAccountService_lockAccount(t *testing.T) {
+	t.Run("same account waits, other account does not", func(t *testing.T) {
+		s := &NSXServiceAccountService{}
+		unlock := s.lockAccount("a")
+
+		acquired := make(chan struct{})
+		go func() {
+			defer s.lockAccount("a")()
+			close(acquired)
+		}()
+		select {
+		case <-acquired:
+			t.Fatal("the same account must be locked")
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		// Another account is not blocked.
+		s.lockAccount("b")()
+
+		unlock()
+		select {
+		case <-acquired:
+		case <-time.After(time.Second):
+			t.Fatal("the lock was not released")
+		}
+	})
+
+	// Unsynchronized increments would be flagged by -race and lose updates.
+	t.Run("mutual exclusion", func(t *testing.T) {
+		s := &NSXServiceAccountService{}
+		counter := 0
+		var wg sync.WaitGroup
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 200; j++ {
+					func() {
+						defer s.lockAccount("a")()
+						counter++
+					}()
+				}
+			}()
+		}
+		wg.Wait()
+		assert.Equal(t, 400, counter)
+	})
+}
+
+// Errors of the import other than MP2038 must be returned as they are, without looking at the PI.
+func TestNSXServiceAccountService_updatePICert_ImportErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		importResp mpmodel.CertificateList
+		importErr  error
+		wantErr    string
+	}{
+		{name: "other import error is returned unchanged", importErr: errors.New("import failed"), wantErr: "import failed"},
+		{name: "import without a certificate in the response", wantErr: "returned no certificate ID"},
+		{name: "import with a certificate without ID", importResp: mpmodel.CertificateList{Results: []mpmodel.Certificate{{}}}, wantErr: "returned no certificate ID"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			name, piID, certID := "pi-name", "pi1", "old-cert"
+			pi := &mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &certID}
+			patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+				return tt.importResp, tt.importErr
+			})
+			defer patches.Reset()
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Get", func(_ *fakePrincipalIdentitiesClient, _ string) (mpmodel.PrincipalIdentity, error) {
+				t.Error("the PI must not be read when the import did not fail with MP2038")
+				return mpmodel.PrincipalIdentity{}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, _ mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+				t.Error("the PI must not be updated")
+				return mpmodel.PrincipalIdentity{}, nil
+			})
+
+			require.ErrorContains(t, s.updatePICert(pi, name, "cert"), tt.wantErr)
+		})
+	}
+}
+
+// A certificate that was already in NSX (found after MP2038) was not imported by this call,
+// so it must never be deleted, even when the PI cannot be switched to it. The previous
+// certificate must go once the PI uses the new one, but never when it is the same one.
+func TestNSXServiceAccountService_updatePICert_DiscoveredCertificate(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "discovered-cert-test"
+	cert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	oldCert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+
+	const oldID, foundID = "old-cert", "found-cert"
+	tests := []struct {
+		name       string
+		updateErr  error
+		foundID    string // ID the search reports for the certificate
+		pems       map[string]string
+		wantErr    bool
+		wantDelete []string
+	}{
+		{
+			name:       "update fails, discovered certificate is kept",
+			updateErr:  errors.New("update failed"),
+			foundID:    foundID,
+			pems:       map[string]string{oldID: oldCert},
+			wantErr:    true,
+			wantDelete: nil,
+		},
+		{
+			name:       "update succeeds, previous certificate is deleted",
+			foundID:    foundID,
+			pems:       map[string]string{oldID: oldCert},
+			wantDelete: []string{oldID},
+		},
+		{
+			// The PI's certificate cannot be read as the one in use, yet the search reports
+			// the PI's own ID: the certificate in use must not be deleted.
+			name:       "discovered certificate is the PI's current one",
+			foundID:    oldID,
+			pems:       map[string]string{oldID: oldCert},
+			wantDelete: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			name, piID, certID := "pi-name", "pi1", oldID
+			pi := &mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &certID}
+			var deleted []string
+			patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+				return mpmodel.CertificateList{}, newMP2038Error(t)
+			})
+			defer patches.Reset()
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Get", func(_ *fakePrincipalIdentitiesClient, _ string) (mpmodel.PrincipalIdentity, error) {
+				id := oldID // the PI stays on the previous certificate
+				return mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &id}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.CertificatesClient, "Get", func(_ *fakeCertificatesClient, id string, _ *bool, _ *string) (mpmodel.Certificate, error) {
+				pemData := tt.pems[id]
+				return mpmodel.Certificate{PemEncoded: &pemData}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.MPQueryClient, "List", func(_ *fakeMPQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mpmodel.SearchResponse, error) {
+				id, pemData := tt.foundID, cert
+				v, errs := common.NewConverter().ConvertToVapi(mpmodel.Certificate{Id: &id, PemEncoded: &pemData}, mpmodel.CertificateBindingType())
+				require.Empty(t, errs)
+				return mpmodel.SearchResponse{Results: []*data.StructValue{v.(*data.StructValue)}}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, req mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+				if tt.updateErr != nil {
+					return mpmodel.PrincipalIdentity{}, tt.updateErr
+				}
+				return mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: req.CertificateId}, nil
+			})
+			patches.ApplyMethod(s.NSXClient.CertificatesClient, "Delete", func(_ *fakeCertificatesClient, id string) error {
+				deleted = append(deleted, id)
+				return nil
+			})
+
+			err := s.updatePICert(pi, name, cert)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantDelete, deleted)
+		})
+	}
+}
+
+// Failing to delete the previous certificate is only logged: the PI already uses the new one.
+func TestNSXServiceAccountService_updatePICert_OldCertificateDeleteFails(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	name, piID, oldID, newID := "pi-name", "pi1", "old-cert", "new-cert"
+	pi := &mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &oldID}
+	patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+		return mpmodel.CertificateList{Results: []mpmodel.Certificate{{Id: &newID}}}, nil
+	})
+	defer patches.Reset()
+	patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, req mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+		return mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: req.CertificateId}, nil
+	})
+	patches.ApplyMethod(s.NSXClient.CertificatesClient, "Delete", func(_ *fakeCertificatesClient, _ string) error {
+		return errors.New("delete failed")
+	})
+
+	require.NoError(t, s.updatePICert(pi, name, "cert"))
+	assert.Equal(t, newID, *s.PrincipalIdentityStore.GetByKey(name).(*mpmodel.PrincipalIdentity).CertificateId)
+}
+
+func TestNSXServiceAccountService_findCertificateID(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "find-cert-test"
+	cert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	otherCert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+
+	hit := func(t *testing.T, id *string, pemData *string) *data.StructValue {
+		t.Helper()
+		v, errs := common.NewConverter().ConvertToVapi(mpmodel.Certificate{Id: id, PemEncoded: pemData}, mpmodel.CertificateBindingType())
+		require.Empty(t, errs)
+		return v.(*data.StructValue)
+	}
+	str := func(v string) *string { return &v }
+	// An entity that cannot be converted to a Certificate.
+	invalid := data.NewStructValue("x", map[string]data.DataValue{"id": data.NewIntegerValue(1)})
+
+	tests := []struct {
+		name    string
+		cert    string
+		pages   []mpmodel.SearchResponse // returned in order, one per List call
+		wantID  string
+		wantErr string
+		calls   int
+	}{
+		{name: "found on the first page", cert: cert, calls: 1, wantID: "id1",
+			pages: []mpmodel.SearchResponse{{Results: []*data.StructValue{hit(t, str("id1"), &cert)}}}},
+		{name: "found on a later page", cert: cert, calls: 2, wantID: "id2",
+			pages: []mpmodel.SearchResponse{
+				{Results: []*data.StructValue{hit(t, str("other"), &otherCert)}, Cursor: str("1")},
+				{Results: []*data.StructValue{hit(t, str("id2"), &cert)}},
+			}},
+		{name: "empty cursor ends the search", cert: cert, calls: 1,
+			pages: []mpmodel.SearchResponse{{Cursor: str("")}}},
+		{name: "no results", cert: cert, calls: 1, pages: []mpmodel.SearchResponse{{}}},
+		{name: "hits without id or PEM are skipped", cert: cert, calls: 1, wantID: "id3",
+			pages: []mpmodel.SearchResponse{{Results: []*data.StructValue{
+				hit(t, nil, &cert), hit(t, str("no-pem"), nil), hit(t, str("id3"), &cert)}}}},
+		{name: "an unreadable hit does not hide a matching one", cert: cert, calls: 1, wantID: "id4",
+			pages: []mpmodel.SearchResponse{{Results: []*data.StructValue{invalid, hit(t, str("id4"), &cert)}}}},
+		{name: "same thumbprint but a different certificate is rejected", cert: cert, calls: 1,
+			pages: []mpmodel.SearchResponse{{Results: []*data.StructValue{hit(t, str("id5"), &otherCert)}}}},
+		{name: "invalid PEM", cert: "not a pem", wantErr: "invalid certificate PEM"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			calls := 0
+			patches := gomonkey.ApplyMethod(s.NSXClient.MPQueryClient, "List", func(_ *fakeMPQueryClient, _ string, cursor *string, _ *string, _ *int64, _ *bool, _ *string) (mpmodel.SearchResponse, error) {
+				resp := tt.pages[calls]
+				if calls > 0 {
+					assert.NotNil(t, cursor, "the next page must be requested with the cursor")
+				}
+				calls++
+				return resp, nil
+			})
+			defer patches.Reset()
+
+			id, err := s.findCertificateID(tt.cert)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantID, id)
+			assert.Equal(t, tt.calls, calls)
+		})
+	}
+
+	t.Run("search failure is returned", func(t *testing.T) {
+		s := &NSXServiceAccountService{Service: newFakeCommonService()}
+		s.SetUpStore()
+		patches := gomonkey.ApplyMethod(s.NSXClient.MPQueryClient, "List", func(_ *fakeMPQueryClient, _ string, _ *string, _ *string, _ *int64, _ *bool, _ *string) (mpmodel.SearchResponse, error) {
+			return mpmodel.SearchResponse{}, errors.New("search failed")
+		})
+		defer patches.Reset()
+		_, err := s.findCertificateID(cert)
+		require.ErrorContains(t, err, "search failed")
+	})
+}
+
+func TestNSXServiceAccountService_refreshPI(t *testing.T) {
+	t.Run("PI without ID", func(t *testing.T) {
+		s := &NSXServiceAccountService{Service: newFakeCommonService()}
+		s.SetUpStore()
+		_, err := s.refreshPI(&mpmodel.PrincipalIdentity{})
+		require.ErrorContains(t, err, "no ID")
+	})
+	t.Run("response without name keeps the cached name", func(t *testing.T) {
+		s := &NSXServiceAccountService{Service: newFakeCommonService()}
+		s.SetUpStore()
+		name, piID, certID := "pi-name", "pi1", "new-cert"
+		patches := gomonkey.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Get", func(_ *fakePrincipalIdentitiesClient, _ string) (mpmodel.PrincipalIdentity, error) {
+			return mpmodel.PrincipalIdentity{Id: &piID, CertificateId: &certID}, nil
+		})
+		defer patches.Reset()
+
+		fresh, err := s.refreshPI(&mpmodel.PrincipalIdentity{Name: &name, Id: &piID})
+		require.NoError(t, err)
+		assert.Equal(t, name, *fresh.Name)
+		assert.Equal(t, certID, *s.PrincipalIdentityStore.GetByKey(name).(*mpmodel.PrincipalIdentity).CertificateId)
+	})
+	t.Run("Get failure is returned and the store is untouched", func(t *testing.T) {
+		s := &NSXServiceAccountService{Service: newFakeCommonService()}
+		s.SetUpStore()
+		name, piID := "pi-name", "pi1"
+		patches := gomonkey.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Get", func(_ *fakePrincipalIdentitiesClient, _ string) (mpmodel.PrincipalIdentity, error) {
+			return mpmodel.PrincipalIdentity{}, errors.New("get failed")
+		})
+		defer patches.Reset()
+
+		_, err := s.refreshPI(&mpmodel.PrincipalIdentity{Name: &name, Id: &piID})
+		require.ErrorContains(t, err, "get failed")
+		assert.Nil(t, s.PrincipalIdentityStore.GetByKey(name))
+	})
+}
+
+// The recovery must also work when entered through createPIAndCCP, the real caller: the
+// cached PI still holds the previous certificate although NSX already switched it.
+func TestNSXServiceAccountService_createPIAndCCP_StaleCachedPI(t *testing.T) {
+	ClearCCPConnectionCapacityFull()
+	t.Cleanup(ClearCCPConnectionCapacityFull)
+	subject := util.DefaultSubject
+	subject.CommonName = "stale-pi-test"
+	cert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	oldCert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	obj := newTestServiceAccount()
+	name := util.NormalizeId(s.getClusterName(string(obj.UID), obj.Namespace, obj.Name))
+	piID, nodeID, oldID, newID := "pi1", "clusterId1", "old-cert", "new-cert"
+	scope, uid := common.TagScopeNSXServiceAccountCRUID, string(obj.UID)
+	require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &oldID,
+		Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}))
+	// The CCP already has the certificate, so only the PI is in question.
+	require.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &name, NodeId: &nodeID, Certificate: &cert,
+		Tags: []model.Tag{{Scope: &scope, Tag: &uid}}}))
+
+	patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Importcertificate", func(_ *fakeCertificatesClient, _ mpmodel.TrustObjectData) (mpmodel.CertificateList, error) {
+		return mpmodel.CertificateList{}, newMP2038Error(t)
+	})
+	defer patches.Reset()
+	patches.ApplyMethod(s.NSXClient.CertificatesClient, "Get", func(_ *fakeCertificatesClient, id string, _ *bool, _ *string) (mpmodel.Certificate, error) {
+		pemData := oldCert
+		if id == newID {
+			pemData = cert
+		}
+		return mpmodel.Certificate{PemEncoded: &pemData}, nil
+	})
+	patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Get", func(_ *fakePrincipalIdentitiesClient, _ string) (mpmodel.PrincipalIdentity, error) {
+		id := newID
+		return mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &id, Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}, nil
+	})
+	patches.ApplyMethod(s.NSXClient.PrincipalIdentitiesClient, "Updatecertificate", func(_ *fakePrincipalIdentitiesClient, _ mpmodel.UpdatePrincipalIdentityCertificateRequest) (mpmodel.PrincipalIdentity, error) {
+		t.Error("the PI already has the certificate in NSX and must not be updated")
+		return mpmodel.PrincipalIdentity{}, nil
+	})
+
+	gotNodeID, err := s.createPIAndCCP(name, "/vpc", cert, &nodeID, obj)
+	require.NoError(t, err)
+	assert.Equal(t, nodeID, gotNodeID)
+	assert.Equal(t, newID, *s.PrincipalIdentityStore.GetByKey(name).(*mpmodel.PrincipalIdentity).CertificateId, "the cache must be refreshed from NSX")
+}
+
+// Reconcile, restore and cert rotation of one NSXServiceAccount must wait for each other.
+func TestNSXServiceAccountService_EntryPointsHoldAccountLock(t *testing.T) {
+	obj := newTestServiceAccount()
+	run := map[string]func(s *NSXServiceAccountService, obj *v1alpha1.NSXServiceAccount){
+		"CreateOrUpdateNSXServiceAccount": func(s *NSXServiceAccountService, obj *v1alpha1.NSXServiceAccount) {
+			_ = s.CreateOrUpdateNSXServiceAccount(context.Background(), obj)
+		},
+		"RestoreRealizedNSXServiceAccount": func(s *NSXServiceAccountService, obj *v1alpha1.NSXServiceAccount) {
+			_ = s.RestoreRealizedNSXServiceAccount(context.Background(), obj)
+		},
+		"ValidateAndUpdateRealizedNSXServiceAccount": func(s *NSXServiceAccountService, obj *v1alpha1.NSXServiceAccount) {
+			_ = s.ValidateAndUpdateRealizedNSXServiceAccount(context.Background(), obj, nil, nil)
+		},
+	}
+	for name, call := range run {
+		t.Run(name, func(t *testing.T) {
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			patches := gomonkey.ApplyMethod(s.NSXClient, "NSXCheckVersion", func(_ *nsx.Client, _ int) bool { return false })
+			defer patches.Reset()
+			// Once unblocked, CreateOrUpdate must stop at the first NSX write instead of
+			// running on into the fakes, which return empty objects.
+			patches.ApplyMethod(s.NSXClient.WithCertificateClient, "Create", func(_ *fakeWithCertificateClient, _ mpmodel.PrincipalIdentityWithCertificate) (mpmodel.PrincipalIdentity, error) {
+				return mpmodel.PrincipalIdentity{}, errors.New("stop here")
+			})
+			clusterName := util.NormalizeId(s.getClusterName(string(obj.UID), obj.Namespace, obj.Name))
+			account := obj.DeepCopy()
+			account.Status.ClusterName = clusterName
+
+			unlock := s.lockAccount(clusterName)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				call(s, account)
+			}()
+			select {
+			case <-done:
+				unlock()
+				t.Fatal("the call must wait while the account is locked")
+			case <-time.After(100 * time.Millisecond):
+			}
+			unlock()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the call did not continue after the account was unlocked")
+			}
+		})
+	}
+}
+
+// When the PI's current certificate cannot be read from NSX, createPIAndCCP must not
+// guess: a failed lookup is retried, while a certificate that is gone from NSX is not the
+// Secret's and is imported as before.
+func TestNSXServiceAccountService_createPIAndCCP_PICertificateLookup(t *testing.T) {
+	tests := []struct {
+		name    string
+		getErr  func(t *testing.T) error
+		wantErr string
+	}{
+		{
+			name:    "lookup failure is returned for retry",
+			getErr:  func(*testing.T) error { return errors.New("get failed") },
+			wantErr: "get failed",
+		},
+		{
+			// A cached CertificateId goes stale e.g. after an NSX restore.
+			name:   "stale CertificateId imports the certificate",
+			getErr: newNotFoundError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ClearCCPConnectionCapacityFull()
+			t.Cleanup(ClearCCPConnectionCapacityFull)
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := newTestServiceAccount()
+			captured := mockServiceAccountNSX(t, s, obj, true)
+			name := util.NormalizeId(s.getClusterName(string(obj.UID), obj.Namespace, obj.Name))
+			// Give the stored PI a certificate so that it has to be looked up in NSX.
+			certID := "cert1"
+			s.PrincipalIdentityStore.GetByKey(name).(*mpmodel.PrincipalIdentity).CertificateId = &certID
+			patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Get", func(_ *fakeCertificatesClient, _ string, _ *bool, _ *string) (mpmodel.Certificate, error) {
+				return mpmodel.Certificate{}, tt.getErr(t)
+			})
+			defer patches.Reset()
+
+			_, err := s.createPIAndCCP(name, "/vpc", "cert", nil, obj)
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				assert.Empty(t, captured.pi, "a failed lookup must not turn into a blind import")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, "cert", captured.pi, "the certificate must still be imported for the PI")
+			assert.Equal(t, "cert", captured.ccp)
+		})
+	}
+}
+
+// createPIAndCCP must only write the CCP when its certificate changes: NSX rejects an
+// update carrying the certificate the CCP already has.
+func TestNSXServiceAccountService_createPIAndCCP_CCPCertificate(t *testing.T) {
+	subject := util.DefaultSubject
+	subject.CommonName = "ccp-cert-test"
+	cert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+	otherCert, _, err := util.GenerateCertificate(&subject, util.DefaultValidDays)
+	require.NoError(t, err)
+
+	reformattedCert := "\n" + strings.ReplaceAll(cert, "\n", "\r\n")
+
+	tests := []struct {
+		name       string
+		storedCert *string
+		wantUpdate bool
+	}{
+		{name: "same certificate skips the update", storedCert: &cert},
+		{name: "same certificate in different formatting skips the update", storedCert: &reformattedCert},
+		{name: "different certificate updates the CCP", storedCert: &otherCert, wantUpdate: true},
+		{name: "unknown certificate updates the CCP", wantUpdate: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ClearCCPConnectionCapacityFull()
+			t.Cleanup(ClearCCPConnectionCapacityFull)
+			s := &NSXServiceAccountService{Service: newFakeCommonService()}
+			s.SetUpStore()
+			obj := newTestServiceAccount()
+			name := util.NormalizeId(s.getClusterName(string(obj.UID), obj.Namespace, obj.Name))
+			piID, certID, nodeID := "pi1", "cert1", "clusterId1"
+			scope, uid := common.TagScopeNSXServiceAccountCRUID, string(obj.UID)
+			// The PI already holds the certificate, so only the CCP is under test.
+			require.NoError(t, s.PrincipalIdentityStore.Add(&mpmodel.PrincipalIdentity{Name: &name, Id: &piID, CertificateId: &certID,
+				Tags: []mpmodel.Tag{{Scope: &scope, Tag: &uid}}}))
+			require.NoError(t, s.ClusterControlPlaneStore.Add(&model.ClusterControlPlane{Id: &name, NodeId: &nodeID, Certificate: tt.storedCert,
+				Tags: []model.Tag{{Scope: &scope, Tag: &uid}}}))
+			patches := gomonkey.ApplyMethod(s.NSXClient.CertificatesClient, "Get", func(_ *fakeCertificatesClient, _ string, _ *bool, _ *string) (mpmodel.Certificate, error) {
+				return mpmodel.Certificate{PemEncoded: &cert}, nil
+			})
+			defer patches.Reset()
+			updates := 0
+			patches.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+				updates++
+				// NSX may omit the certificate from the response.
+				request.Certificate = nil
+				return request, nil
+			})
+
+			gotNodeID, err := s.createPIAndCCP(name, "/vpc", cert, nil, obj)
+			require.NoError(t, err)
+			assert.Equal(t, nodeID, gotNodeID)
+			assert.Equal(t, tt.wantUpdate, updates == 1)
+
+			// Whatever happened, the cache must now know the CCP has the certificate,
+			// so the next reconcile does not write it again.
+			stored := s.ClusterControlPlaneStore.GetByKey(name).(*model.ClusterControlPlane)
+			require.NotNil(t, stored.Certificate)
+			assert.True(t, samePEMCertificate(*stored.Certificate, cert))
+			_, err = s.createPIAndCCP(name, "/vpc", cert, nil, obj)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantUpdate, updates == 1, "a repeated call must not update the CCP again")
+		})
+	}
+}
+
+// Every CCP write, including a rotation, must leave the written certificate in the cache
+// even when NSX omits it from the response, so that a later reconcile skips rewriting it.
+func TestNSXServiceAccountService_updateClusterControlPlane_CachesCertificate(t *testing.T) {
+	s := &NSXServiceAccountService{Service: newFakeCommonService()}
+	s.SetUpStore()
+	name, cert := "ccp1", "written-cert"
+	patches := gomonkey.ApplyMethod(s.NSXClient.ClusterControlPlanesClient, "Update", func(_ *fakeClusterControlPlanesClient, _, _, _ string, request model.ClusterControlPlane) (model.ClusterControlPlane, error) {
+		request.Certificate = nil
+		return request, nil
+	})
+	defer patches.Reset()
+
+	updated, err := s.updateClusterControlPlane(name, model.ClusterControlPlane{Id: &name, Certificate: &cert})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Certificate)
+	assert.Equal(t, cert, *updated.Certificate)
+	stored, ok := s.ClusterControlPlaneStore.GetByKey(name).(*model.ClusterControlPlane)
+	require.True(t, ok)
+	require.NotNil(t, stored.Certificate)
+	assert.Equal(t, cert, *stored.Certificate)
 }
