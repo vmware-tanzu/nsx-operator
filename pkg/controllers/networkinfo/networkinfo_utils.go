@@ -19,19 +19,21 @@ import (
 )
 
 func setNetworkInfoVPCStatusWithError(client client.Client, ctx context.Context, obj client.Object, transitionTime metav1.Time, _ error, args ...interface{}) {
-	setNetworkInfoVPCStatus(client, ctx, obj, transitionTime, args...)
+	if err := setNetworkInfoVPCStatus(client, ctx, obj, transitionTime, args...); err != nil {
+		log.Error(err, "Failed to persist NetworkInfo VPC state", "NetworkInfo", obj.GetName())
+	}
 }
 
-func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) {
+func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj client.Object, _ metav1.Time, args ...interface{}) error {
 	if len(args) < 1 {
 		log.Error(nil, "VPC State is needed when updating NetworkInfo status")
-		return
+		return nil
 	}
 	networkInfo := obj.(*v1alpha1.NetworkInfo)
 	if args[0] == nil {
 		// Not clear the existing VPC in NetworkInfo as
 		// currently one Namespace only maps to one VPC
-		return
+		return nil
 	}
 	createdVPC := args[0].(*v1alpha1.VPCState)
 
@@ -62,15 +64,13 @@ func setNetworkInfoVPCStatus(client client.Client, ctx context.Context, obj clie
 	}
 
 	if reflect.DeepEqual(*existingVPC, *createdVPC) && domainsEqual {
-		return
+		return nil
 	}
 	networkInfo.VPCs = []v1alpha1.VPCState{*createdVPC}
 	if updateAllowedDomains {
 		networkInfo.AllowedDNSRecordDomains = allowedDNSRecordDomains
 	}
-	if err := client.Update(ctx, networkInfo); err != nil {
-		log.Error(err, "Failed to update NetworkInfo VPC status", "NetworkInfo", networkInfo.Name)
-	}
+	return client.Update(ctx, networkInfo)
 }
 
 func setVPCNetworkConfigurationStatusWithLBS(ctx context.Context, client client.Client, ncName, vpcName, aviSubnetPath, nsxLBSPath, vpcPath string) error {
@@ -314,10 +314,15 @@ func filterTagFromNSXVPC(nsxVPC *model.Vpc, tagName string) string {
 }
 
 func setNSNetworkReadyCondition(ctx context.Context, kubeClient client.Client, nsName string, condition *v1.NamespaceCondition) {
+	if err := updateNSNetworkReadyCondition(ctx, kubeClient, nsName, condition); err != nil {
+		log.Error(err, "Failed to persist Namespace network condition", "Namespace", nsName)
+	}
+}
+
+func updateNSNetworkReadyCondition(ctx context.Context, kubeClient client.Client, nsName string, condition *v1.NamespaceCondition) error {
 	obj := &v1.Namespace{}
 	if err := kubeClient.Get(ctx, apitypes.NamespacedName{Name: nsName}, obj); err != nil {
-		log.Error(err, "Unable to fetch Namespace", "Namespace", nsName)
-		return
+		return err
 	}
 
 	updatedConditions := make([]v1.NamespaceCondition, 0)
@@ -333,7 +338,7 @@ func setNSNetworkReadyCondition(ctx context.Context, kubeClient client.Client, n
 	}
 	// Return if the failure (reason/message) is already added on Namespace condition.
 	if extCondition != nil && nsConditionEquals(*extCondition, *condition) {
-		return
+		return nil
 	}
 
 	updatedConditions = append(updatedConditions, v1.NamespaceCondition{
@@ -345,10 +350,10 @@ func setNSNetworkReadyCondition(ctx context.Context, kubeClient client.Client, n
 	})
 	obj.Status.Conditions = updatedConditions
 	if err := kubeClient.Status().Update(ctx, obj, &client.SubResourceUpdateOptions{}); err != nil {
-		log.Error(err, "Failed to update Namespace status", "Namespace", nsName)
-		return
+		return err
 	}
 	log.Info("Updated Namespace network condition", "Namespace", nsName, "status", condition.Status, "reason", condition.Reason, "message", condition.Message)
+	return nil
 }
 
 // nsConditionEquals compares the old and new Namespace condition. The compare ignores the differences in field

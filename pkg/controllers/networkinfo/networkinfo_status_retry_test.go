@@ -5,12 +5,14 @@ package networkinfo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
 
 	gomonkey "github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/require"
+	netop "github.com/vmware-tanzu/net-operator-api/api/v1alpha1"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -96,11 +98,15 @@ func TestSystemAVIStatusWriteRetriesUntilRecovery(t *testing.T) {
 	ni := &v1alpha1.NetworkInfo{ObjectMeta: metav1.ObjectMeta{Name: "system-ni", Namespace: "kube-system"}}
 	writeErr := apierrors.NewConflict(schema.GroupResource{Group: "crd.nsx.vmware.com", Resource: "vpcnetworkconfigurations"}, "system", fmt.Errorf("concurrent update"))
 	var statusErr error = writeErr
+	var infoWriteErr error
 	pathWrites, networkInfoUpdates := 0, 0
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(nc, ns).WithObjects(ns, nc, ni).WithInterceptorFuncs(interceptor.Funcs{
 		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 			if _, ok := obj.(*v1alpha1.NetworkInfo); ok {
 				networkInfoUpdates++
+				if infoWriteErr != nil {
+					return infoWriteErr
+				}
 			}
 			return c.Update(ctx, obj, opts...)
 		},
@@ -148,12 +154,42 @@ func TestSystemAVIStatusWriteRetriesUntilRecovery(t *testing.T) {
 		require.Empty(t, actual.Status.VPCs)
 	}
 	statusErr = nil
+	infoWriteErr = errors.New("NetworkInfo write failed")
 	result, err := r.Reconcile(ctx, req)
+	require.ErrorIs(t, err, infoWriteErr)
+	require.Equal(t, common.ResultRequeue, result)
+	infoWriteErr = nil
+	result, err = r.Reconcile(ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, common.ResultNormal, result)
-	require.Equal(t, 4, pathWrites)
-	require.Equal(t, 1, networkInfoUpdates)
+	require.Equal(t, 5, pathWrites)
+	require.Equal(t, 2, networkInfoUpdates)
 	actual := &v1alpha1.VPCNetworkConfiguration{}
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "system"}, actual))
 	require.Equal(t, subnetPath, actual.Status.VPCs[0].AVISESubnetPath)
+
+	// A retained NetworkInfo must respond to the effective provider even when its
+	// VPC binding and NetworkInfo identity are already present.
+	require.NoError(t, netop.AddToScheme(scheme))
+	settings := &netop.NetworkSettings{ObjectMeta: metav1.ObjectMeta{Namespace: ns.Name, Name: "default"}, Provider: netop.NetworkProviderVSphereDistributed}
+	settingsClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(settings).Build()
+	r.networkSettings = settingsClient
+	writes := pathWrites
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	require.Equal(t, writes, pathWrites)
+
+	require.NoError(t, settingsClient.Get(ctx, client.ObjectKeyFromObject(settings), settings))
+	settings.Provider, settings.LegacyProvider = netop.NetworkProviderVPC, netop.NetworkProviderVSphereDistributed
+	require.NoError(t, settingsClient.Update(ctx, settings))
+	_, err = r.Reconcile(ctx, req)
+	require.ErrorContains(t, err, "default network")
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(ns), ns))
+	for _, cond := range ns.Status.Conditions {
+		if cond.Type == NamespaceNetworkReady {
+			require.Equal(t, corev1.ConditionFalse, cond.Status)
+			return
+		}
+	}
+	t.Fatal("missing namespace readiness after provider cutover")
 }

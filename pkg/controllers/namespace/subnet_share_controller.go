@@ -35,6 +35,20 @@ func (r *NamespaceReconciler) createSubnetCRInK8s(ctx context.Context, subnetCR 
 	if err != nil {
 		// If the Subnet CR already exists with the same name, try using generateName
 		if apierrors.IsAlreadyExists(err) {
+			// Recover a successful concurrent or previously unacknowledged create.
+			// Generate another name only for an actual collision with a different subnet.
+			existing := &v1alpha1.Subnet{}
+			if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(subnetCR), existing); err != nil {
+				return err
+			}
+			associated := subnetCR.Annotations[servicecommon.AnnotationAssociatedResource]
+			if associated != "" && existing.Annotations[servicecommon.AnnotationAssociatedResource] == associated {
+				if !existing.DeletionTimestamp.IsZero() {
+					return fmt.Errorf("shared Subnet %s/%s is terminating", existing.Namespace, existing.Name)
+				}
+				*subnetCR = *existing
+				return nil
+			}
 			log.Info("Subnet CR with the same name already exists, using generateName",
 				"Namespace", subnetCR.Namespace, "Name", subnetCR.Name)
 

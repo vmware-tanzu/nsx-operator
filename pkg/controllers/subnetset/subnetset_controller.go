@@ -79,6 +79,12 @@ func (r *SubnetSetReconciler) UpdateSubnetSetForSubnetNames(ctx context.Context,
 		specChanged = true
 	}
 
+	// Workload default lookup uses the current label; retain the legacy label
+	// on pre-created sets just as on auto-created sets.
+	if _, labeled := subnetsetCR.Labels[servicecommon.LabelDefaultNetwork]; !labeled && util.GetSubnetSetKind(subnetsetCR) != "" {
+		updateLabels(subnetsetCR, false)
+		specChanged = true
+	}
 	if specChanged {
 		err := r.Client.Update(ctx, subnetsetCR)
 		if err != nil {

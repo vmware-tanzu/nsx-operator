@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -62,4 +63,12 @@ func TestSubnetSetHandler_Delete(t *testing.T) {
 	h := SubnetSetHandler{}
 	h.Delete(context.TODO(), deleteEvent, queue)
 	assert.Equal(t, 1, queue.Len())
+}
+
+func TestEventsEnqueueExistingNetworkInfoNames(t *testing.T) {
+	info := &v1alpha1.NetworkInfo{ObjectMeta: v1.ObjectMeta{Name: "retained", Namespace: "ns-1"}}
+	r := createNetworkInfoReconciler([]client.Object{info})
+	requests := networkInfosInNamespace(context.Background(), r.Client, "ns-1")
+	assert.Equal(t, []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(info)}}, requests)
+	assert.Empty(t, networkInfosInNamespace(context.Background(), r.Client, "ns-2"))
 }
