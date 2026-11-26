@@ -149,21 +149,25 @@ func normalizeServer(server string) string {
 
 // VCenterSupervisorTopology reads topology through an authenticated REST client.
 type VCenterSupervisorTopology struct {
-	Client      *rest.Client
-	credentials *url.Userinfo
-	sessionMu   sync.Mutex
+	Client         *rest.Client
+	credentials    *url.Userinfo
+	sessionManager vCenterRESTSessionManager
+	readTopologyFn func(context.Context, string) ([]SupervisorZone, error)
+	sessionMu      sync.Mutex
 }
 
 func (reader *VCenterSupervisorTopology) ReadTopology(ctx context.Context, supervisorID string) ([]SupervisorZone, error) {
-	if reader.Client == nil || !validSupervisorID(supervisorID) {
+	if !validSupervisorID(supervisorID) {
+		return nil, fmt.Errorf("authenticated vCenter REST client and Supervisor ID are required")
+	}
+	if reader.Client == nil && (reader.sessionManager == nil || reader.readTopologyFn == nil) {
 		return nil, fmt.Errorf("authenticated vCenter REST client and Supervisor ID are required")
 	}
 	if _, err := reader.refreshSession(ctx); err != nil {
 		return nil, err
 	}
-	var zones []SupervisorZone
-	resource := reader.Client.Resource("/api/vcenter/namespace-management/supervisors").WithSubpath(supervisorID).WithSubpath("topology")
-	if err := reader.Client.Do(ctx, resource.Request(http.MethodGet), &zones); err != nil {
+	zones, err := reader.readTopology(ctx, supervisorID)
+	if err != nil {
 		// The session can expire between this read and the topology request. The
 		// GET is safe to retry once after checking and refreshing the session.
 		refreshed, refreshErr := reader.refreshSession(ctx)
@@ -173,9 +177,22 @@ func (reader *VCenterSupervisorTopology) ReadTopology(ctx context.Context, super
 		if !refreshed {
 			return nil, err
 		}
-		if retryErr := reader.Client.Do(ctx, resource.Request(http.MethodGet), &zones); retryErr != nil {
-			return nil, retryErr
+		zones, err = reader.readTopology(ctx, supervisorID)
+		if err != nil {
+			return nil, err
 		}
+	}
+	return zones, nil
+}
+
+func (reader *VCenterSupervisorTopology) readTopology(ctx context.Context, supervisorID string) ([]SupervisorZone, error) {
+	if reader.readTopologyFn != nil {
+		return reader.readTopologyFn(ctx, supervisorID)
+	}
+	var zones []SupervisorZone
+	resource := reader.Client.Resource("/api/vcenter/namespace-management/supervisors").WithSubpath(supervisorID).WithSubpath("topology")
+	if err := reader.Client.Do(ctx, resource.Request(http.MethodGet), &zones); err != nil {
+		return nil, err
 	}
 	return zones, nil
 }
@@ -205,7 +222,14 @@ func ensureVCenterRESTSession(ctx context.Context, manager vCenterRESTSessionMan
 func (reader *VCenterSupervisorTopology) refreshSession(ctx context.Context) (bool, error) {
 	reader.sessionMu.Lock()
 	defer reader.sessionMu.Unlock()
-	return ensureVCenterRESTSession(ctx, reader.Client, reader.credentials)
+	manager := reader.sessionManager
+	if manager == nil {
+		manager = reader.Client
+	}
+	if manager == nil {
+		return false, fmt.Errorf("authenticated vCenter REST client is required")
+	}
+	return ensureVCenterRESTSession(ctx, manager, reader.credentials)
 }
 
 type computeManagerPage struct {

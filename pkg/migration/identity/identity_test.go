@@ -6,9 +6,11 @@ package identity
 import (
 	"context"
 	"errors"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/govmomi/vapi/rest"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
@@ -25,6 +27,187 @@ func TestNormalizeServer(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, normalizeServer(tc.input)) })
 	}
+}
+
+type topologyReaderFunc func(context.Context, string) ([]SupervisorZone, error)
+
+func (reader topologyReaderFunc) ReadTopology(ctx context.Context, supervisorID string) ([]SupervisorZone, error) {
+	return reader(ctx, supervisorID)
+}
+
+type computeManagerReaderFunc func(context.Context) ([]ComputeManager, error)
+
+func (reader computeManagerReaderFunc) ListComputeManagers(ctx context.Context) ([]ComputeManager, error) {
+	return reader(ctx)
+}
+
+func TestResolverResolve(t *testing.T) {
+	const supervisorID = "123e4567-e89b-12d3-a456-426614174000"
+	zones := []SupervisorZone{{Zone: "zone-1", Clusters: []string{"cluster-1"}}}
+	resolver := func(topology []SupervisorZone, topologyErr error, managers []ComputeManager, managersErr error) Resolver {
+		return Resolver{
+			SupervisorTopology: topologyReaderFunc(func(context.Context, string) ([]SupervisorZone, error) { return topology, topologyErr }),
+			ComputeManagers:    computeManagerReaderFunc(func(context.Context) ([]ComputeManager, error) { return managers, managersErr }),
+			VCenterUUID:        "vc-uuid",
+			VCenterServer:      "vcenter.example.com.",
+		}
+	}
+
+	t.Run("matches one vCenter manager", func(t *testing.T) {
+		reader := resolver(zones, nil, []ComputeManager{
+			{ID: "cm-id", OriginType: "vCenter", Server: "https://VCENTER.EXAMPLE.COM:443/sdk"},
+			{ID: "other", OriginType: "NSX", Server: "vcenter.example.com"},
+		}, nil)
+		got, err := reader.Resolve(context.Background(), supervisorID, 6)
+		require.NoError(t, err)
+		require.Equal(t, api.ResolvedSourceContext{EvaluatedGeneration: 6, VCenterInstanceUUID: "vc-uuid", NSXComputeManagerID: "cm-id"}, got)
+	})
+
+	t.Run("rejects invalid Supervisor ID before lookups", func(t *testing.T) {
+		var topologyCalls, managerCalls int
+		reader := resolver(zones, nil, nil, nil)
+		reader.SupervisorTopology = topologyReaderFunc(func(context.Context, string) ([]SupervisorZone, error) {
+			topologyCalls++
+			return zones, nil
+		})
+		reader.ComputeManagers = computeManagerReaderFunc(func(context.Context) ([]ComputeManager, error) {
+			managerCalls++
+			return nil, nil
+		})
+		_, err := reader.Resolve(context.Background(), "not-a-uuid", 6)
+		require.ErrorContains(t, err, "Supervisor ID, and Evaluate generation are required")
+		require.Zero(t, topologyCalls)
+		require.Zero(t, managerCalls)
+	})
+
+	t.Run("rejects missing prerequisites", func(t *testing.T) {
+		_, err := (Resolver{}).Resolve(context.Background(), supervisorID, 6)
+		require.ErrorContains(t, err, "authenticated vCenter and NSX clients")
+		reader := resolver(zones, nil, nil, nil)
+		_, err = reader.Resolve(context.Background(), supervisorID, 0)
+		require.ErrorContains(t, err, "Evaluate generation are required")
+	})
+
+	t.Run("wraps topology read error", func(t *testing.T) {
+		wantErr := errors.New("vCenter unavailable")
+		_, err := resolver(nil, wantErr, nil, nil).Resolve(context.Background(), supervisorID, 6)
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "validate Supervisor ID against vCenter topology")
+	})
+
+	t.Run("rejects invalid topology", func(t *testing.T) {
+		_, err := resolver(nil, nil, nil, nil).Resolve(context.Background(), supervisorID, 6)
+		require.ErrorContains(t, err, "no enabled zones")
+	})
+
+	t.Run("wraps NSX list error", func(t *testing.T) {
+		wantErr := errors.New("NSX unavailable")
+		_, err := resolver(zones, nil, nil, wantErr).Resolve(context.Background(), supervisorID, 6)
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "list NSX compute managers")
+	})
+
+	t.Run("rejects missing, duplicate, and empty manager identities", func(t *testing.T) {
+		for _, tc := range []struct {
+			name     string
+			managers []ComputeManager
+			message  string
+		}{
+			{name: "no match", managers: []ComputeManager{{ID: "other", OriginType: "VCENTER", Server: "other.example.com"}}, message: "found 0"},
+			{name: "duplicate matches", managers: []ComputeManager{{ID: "one", OriginType: "VCENTER", Server: "vcenter.example.com"}, {ID: "two", OriginType: "vcenter", Server: "VCENTER.EXAMPLE.COM."}}, message: "found 2"},
+			{name: "empty manager ID", managers: []ComputeManager{{OriginType: "VCENTER", Server: "vcenter.example.com"}}, message: "has an empty ID"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				_, err := resolver(zones, nil, tc.managers, nil).Resolve(context.Background(), supervisorID, 6)
+				require.ErrorContains(t, err, tc.message)
+			})
+		}
+	})
+}
+
+func TestValidateTopology(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		zones []SupervisorZone
+		want  string
+	}{
+		{name: "valid topology", zones: []SupervisorZone{{Zone: "zone", Clusters: []string{"cluster"}}}},
+		{name: "no zones", want: "no enabled zones"},
+		{name: "missing zone ID", zones: []SupervisorZone{{Clusters: []string{"cluster"}}}, want: "zone without an ID"},
+		{name: "missing cluster ID", zones: []SupervisorZone{{Zone: "zone", Clusters: []string{""}}}, want: "empty cluster ID"},
+		{name: "no clusters", zones: []SupervisorZone{{Zone: "zone"}}, want: "no enabled clusters"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateTopology(tc.zones)
+			if tc.want == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestNewResolverRequiresAuthenticatedClients(t *testing.T) {
+	_, err := NewResolver(nil)
+	require.ErrorContains(t, err, "authenticated vCenter SOAP/REST and NSX clients are required")
+	_, err = NewResolver(&AuthenticatedClients{})
+	require.ErrorContains(t, err, "authenticated vCenter SOAP/REST and NSX clients are required")
+}
+
+func TestVCenterSupervisorTopologyRefreshesExpiredSessions(t *testing.T) {
+	const supervisorID = "123e4567-e89b-12d3-a456-426614174000"
+	zones := []SupervisorZone{{Zone: "zone", Clusters: []string{"cluster"}}}
+	t.Run("refresh before read", func(t *testing.T) {
+		manager := &fakeRESTSessionManager{}
+		reader := VCenterSupervisorTopology{sessionManager: manager, credentials: url.UserPassword("user", "secret")}
+		reader.readTopologyFn = func(context.Context, string) ([]SupervisorZone, error) { return zones, nil }
+		got, err := reader.ReadTopology(context.Background(), supervisorID)
+		require.NoError(t, err)
+		require.Equal(t, zones, got)
+		require.Equal(t, 1, manager.logins)
+	})
+
+	t.Run("refreshes and retries after session expires during read", func(t *testing.T) {
+		manager := &fakeRESTSessionManager{session: &rest.Session{User: "user"}}
+		reader := VCenterSupervisorTopology{sessionManager: manager, credentials: url.UserPassword("user", "secret")}
+		readCalls := 0
+		reader.readTopologyFn = func(context.Context, string) ([]SupervisorZone, error) {
+			readCalls++
+			if readCalls == 1 {
+				manager.session = nil
+				return nil, errors.New("401 Unauthorized")
+			}
+			return zones, nil
+		}
+		got, err := reader.ReadTopology(context.Background(), supervisorID)
+		require.NoError(t, err)
+		require.Equal(t, zones, got)
+		require.Equal(t, 2, readCalls)
+		require.Equal(t, 1, manager.logins)
+	})
+
+	t.Run("does not retry unrelated read errors with a live session", func(t *testing.T) {
+		manager := &fakeRESTSessionManager{session: &rest.Session{User: "user"}}
+		reader := VCenterSupervisorTopology{sessionManager: manager, credentials: url.UserPassword("user", "secret")}
+		wantErr := errors.New("vCenter topology unavailable")
+		readCalls := 0
+		reader.readTopologyFn = func(context.Context, string) ([]SupervisorZone, error) {
+			readCalls++
+			return nil, wantErr
+		}
+		_, err := reader.ReadTopology(context.Background(), supervisorID)
+		require.ErrorIs(t, err, wantErr)
+		require.Equal(t, 1, readCalls)
+	})
+
+	t.Run("rejects invalid ID without session calls", func(t *testing.T) {
+		manager := &fakeRESTSessionManager{}
+		reader := VCenterSupervisorTopology{sessionManager: manager, credentials: url.UserPassword("user", "secret")}
+		_, err := reader.ReadTopology(context.Background(), "invalid")
+		require.ErrorContains(t, err, "authenticated vCenter REST client and Supervisor ID are required")
+		require.Zero(t, manager.logins)
+	})
 }
 
 func TestNSXComputeManagersPagination(t *testing.T) {
@@ -128,3 +311,9 @@ func TestRecordResolvedSourceContext(t *testing.T) {
 }
 
 func stringPointer(value string) *string { return &value }
+
+func TestStringValue(t *testing.T) {
+	value := "value"
+	require.Equal(t, "value", stringValue(&value))
+	require.Empty(t, stringValue(nil))
+}

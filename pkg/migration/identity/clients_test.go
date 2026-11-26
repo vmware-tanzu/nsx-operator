@@ -47,6 +47,62 @@ func TestVCenterCredentialsFromFiles(t *testing.T) {
 	require.ErrorContains(t, err, "must be provided together")
 }
 
+func TestNewAuthenticatedClientsRejectsInvalidConfiguration(t *testing.T) {
+	_, err := NewAuthenticatedClients(context.Background(), nil)
+	require.ErrorContains(t, err, "vCenter and NSX operator configuration are required")
+
+	base := func() *config.NSXOperatorConfig {
+		return &config.NSXOperatorConfig{
+			NsxConfig: &config.NsxConfig{},
+			VCConfig:  &config.VCConfig{VCEndPoint: "vcenter.example.com", HttpsPort: 443, VCUser: "user", VCPassword: "password"},
+		}
+	}
+
+	_, err = NewAuthenticatedClients(context.Background(), &config.NSXOperatorConfig{VCConfig: &config.VCConfig{}})
+	require.ErrorContains(t, err, "vCenter and NSX operator configuration are required")
+
+	insecure := base()
+	insecure.NsxConfig.Insecure = true
+	_, err = NewAuthenticatedClients(context.Background(), insecure)
+	require.ErrorContains(t, err, "requires TLS certificate verification")
+
+	missingEndpoint := base()
+	missingEndpoint.VCEndPoint = " "
+	_, err = NewAuthenticatedClients(context.Background(), missingEndpoint)
+	require.ErrorContains(t, err, "vCenter endpoint and a valid HTTPS port are required")
+
+	invalidPort := base()
+	invalidPort.HttpsPort = 65536
+	_, err = NewAuthenticatedClients(context.Background(), invalidPort)
+	require.ErrorContains(t, err, "vCenter endpoint and a valid HTTPS port are required")
+
+	partialCredentials := base()
+	partialCredentials.VCPassword = ""
+	_, err = NewAuthenticatedClients(context.Background(), partialCredentials)
+	require.ErrorContains(t, err, "username and password must be provided together")
+
+	invalidCA := base()
+	invalidCA.VCCAFile = filepath.Join(t.TempDir(), "invalid-ca.pem")
+	require.NoError(t, os.WriteFile(invalidCA.VCCAFile, []byte("invalid certificate"), 0600))
+	_, err = NewAuthenticatedClients(context.Background(), invalidCA)
+	require.ErrorContains(t, err, "contains no valid certificates")
+}
+
+func TestVCenterCredentialsAndAuthenticatedClientsClose(t *testing.T) {
+	username, password, err := vCenterCredentials(&config.VCConfig{VCUser: "configured", VCPassword: "secret"})
+	require.NoError(t, err)
+	require.Equal(t, "configured", username)
+	require.Equal(t, "secret", password)
+
+	require.NoError(t, (&AuthenticatedClients{}).Close(context.Background()))
+	var clients *AuthenticatedClients
+	require.NoError(t, clients.Close(context.Background()))
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.NoError(t, (&AuthenticatedClients{}).Close(canceled))
+}
+
 func TestVCenterRootCAsAndTLSConfig(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
