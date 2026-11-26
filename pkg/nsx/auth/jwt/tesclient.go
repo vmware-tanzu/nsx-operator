@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 type tokenExchange struct {
@@ -26,16 +28,17 @@ type tokenExchangeSpec struct {
 // for SAML token.
 type TESClient struct {
 	*VCClient
+	log logger.CustomLogger
 }
 
 // NewTESClient creates a TESClient object.
-func NewTESClient(hostname string, port int, ssoDomain string, username, password string, caCertPem []byte, insecureSkipVerify bool, scheme string) (*TESClient, error) {
-	client, err := NewVCClient(hostname, port, ssoDomain, username, password, caCertPem, insecureSkipVerify, scheme)
+func NewTESClient(hostname string, port int, ssoDomain string, username, password string, caCertPem []byte, insecureSkipVerify bool, scheme string, log logger.CustomLogger) (*TESClient, error) {
+	client, err := NewVCClient(hostname, port, ssoDomain, username, password, caCertPem, insecureSkipVerify, scheme, log)
 	if err != nil {
 		log.Error(err, "Failed to create new TESClient")
 		return nil, err
 	}
-	return &TESClient{client}, nil
+	return &TESClient{VCClient: client, log: log}, nil
 }
 
 func newTokenExchange(samlToken string, useOldAudience bool) *tokenExchange {
@@ -58,6 +61,7 @@ func newTokenExchange(samlToken string, useOldAudience bool) *tokenExchange {
 func (client *TESClient) ExchangeJWT(samlToken string, useOldAudience bool) (string, error) {
 	// assume that response should have "access_token" field
 	// no retry while hit "Unknown audience value" error
+	log := client.log.Fallback()
 	log.Debug("Sending saml token to TES for JWT")
 
 	exchange := newTokenExchange(samlToken, useOldAudience)

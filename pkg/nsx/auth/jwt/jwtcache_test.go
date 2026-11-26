@@ -20,16 +20,18 @@ import (
 	"github.com/vmware/govmomi/sts"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 )
 
 func TestJwtcache_NewJWTCache(t *testing.T) {
 	tesClient := &TESClient{}
 	freshInterval := time.Second
-	cache := NewJWTCache(tesClient, freshInterval)
+	cache := NewJWTCache(tesClient, freshInterval, logger.Log)
 	assert.Equal(t, cache.freshInterval, 30*time.Second)
 
 	freshInterval = 60 * time.Second
-	cache = NewJWTCache(tesClient, freshInterval)
+	cache = NewJWTCache(tesClient, freshInterval, logger.Log)
 	assert.Equal(t, cache.freshInterval, freshInterval)
 }
 
@@ -46,7 +48,7 @@ func TestJwtcache_GetJWT(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 
-	cache := NewJWTCache(tesClient, freshInterval)
+	cache := NewJWTCache(tesClient, freshInterval, logger.Log)
 	cache.tesClient = tesClient
 	// #nosec G402: ignore insecure options
 	config := &tls.Config{InsecureSkipVerify: true}
@@ -80,7 +82,7 @@ func TestJwtcache_GetJWTFailed(t *testing.T) {
 	index := strings.Index(ts.URL, "//")
 	a := ts.URL[index+2:]
 
-	cache := NewJWTCache(tesClient, freshInterval)
+	cache := NewJWTCache(tesClient, freshInterval, logger.Log)
 	cache.tesClient = tesClient
 	// #nosec G402: ignore insecure options
 	config := &tls.Config{InsecureSkipVerify: true}
