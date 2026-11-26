@@ -56,11 +56,21 @@ type Resolver struct {
 
 // NewResolver connects the authenticated clients to the identity lookups.
 func NewResolver(clients *AuthenticatedClients) (Resolver, error) {
-	if clients == nil || clients.VCenter == nil || clients.VCenterREST == nil || clients.NSX == nil || clients.NSX.RestConnector == nil {
+	if clients == nil || clients.VCenter == nil {
+		return Resolver{}, fmt.Errorf("authenticated vCenter SOAP/REST and NSX clients are required")
+	}
+	if clients.VCenter.Client == nil || clients.VCenter.Client.Client == nil {
+		return Resolver{}, fmt.Errorf("authenticated vCenter identity is incomplete")
+	}
+	if clients.VCenterREST == nil || clients.NSX == nil || clients.NSX.RestConnector == nil {
 		return Resolver{}, fmt.Errorf("authenticated vCenter SOAP/REST and NSX clients are required")
 	}
 	vCenterUUID := clients.VCenter.ServiceContent.About.InstanceUuid
-	server := clients.VCenter.URL().Hostname()
+	vCenterURL := clients.VCenter.URL()
+	if vCenterURL == nil {
+		return Resolver{}, fmt.Errorf("authenticated vCenter identity is incomplete")
+	}
+	server := vCenterURL.Hostname()
 	if vCenterUUID == "" || server == "" {
 		return Resolver{}, fmt.Errorf("authenticated vCenter identity is incomplete")
 	}

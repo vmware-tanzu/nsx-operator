@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/vapi/rest"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -153,6 +154,8 @@ func TestNewResolverRequiresAuthenticatedClients(t *testing.T) {
 	require.ErrorContains(t, err, "authenticated vCenter SOAP/REST and NSX clients are required")
 	_, err = NewResolver(&AuthenticatedClients{})
 	require.ErrorContains(t, err, "authenticated vCenter SOAP/REST and NSX clients are required")
+	_, err = NewResolver(&AuthenticatedClients{VCenter: &govmomi.Client{}})
+	require.ErrorContains(t, err, "authenticated vCenter identity is incomplete")
 }
 
 func TestVCenterSupervisorTopologyRefreshesExpiredSessions(t *testing.T) {
