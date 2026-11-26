@@ -214,7 +214,20 @@ func (vcClient *VCClient) createVimClient(ctx context.Context, vimSdkURL string)
 	if err != nil {
 		return nil, err
 	}
-	vimClient, err := vim25.NewClient(ctx, soap.NewClient(vcURL, true))
+	if vcClient.httpClient == nil {
+		return nil, errors.New("vCenter HTTP client is not initialized")
+	}
+	transport, ok := vcClient.httpClient.Transport.(*http.Transport)
+	if !ok || transport == nil || transport.TLSClientConfig == nil {
+		return nil, errors.New("vCenter HTTP client TLS configuration is not initialized")
+	}
+
+	// STS inherits this SOAP transport, so use the same trust policy as REST
+	// before making any SDK or credential-bearing STS requests.
+	tlsConfig := transport.TLSClientConfig.Clone()
+	soapClient := soap.NewClient(vcURL, tlsConfig.InsecureSkipVerify)
+	soapClient.DefaultTransport().TLSClientConfig = tlsConfig
+	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
 		log.Error(err, "Failed to create VIM client", "vimSdkURL", vimSdkURL)
 		return nil, err
