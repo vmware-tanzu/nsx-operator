@@ -273,12 +273,34 @@ func stringValue(value *string) string {
 	return *value
 }
 
-// ValidateReuse permits Execute to reuse only identities saved by the successful
-// Evaluate immediately preceding this Execute request. The caller passes the
-// current Execute generation and the persisted checkpoint captured before the
-// controller starts Execute.
-func ValidateReuse(source *api.ResolvedSourceContext, action api.Action, currentVCenterUUID string, currentGeneration int64, evaluateCheckpoint *api.TransitionStatus, conditions []metav1.Condition) error {
-	if source == nil || source.NSXComputeManagerID == "" || source.VCenterInstanceUUID == "" || source.EvaluatedGeneration < 1 {
+// RecordResolvedSourceContext stores the non-secret result only after Evaluate
+// has completed all of its checks. The caller should leave this field unset on
+// a failed or incomplete Evaluate; the controller's status update then persists
+// this value atomically with the successful Evaluate checkpoint.
+func RecordResolvedSourceContext(status *api.ControlPlaneNetworkTransitionStatus, source api.ResolvedSourceContext, generation int64) error {
+	if status == nil {
+		return fmt.Errorf("control-plane transition status is required")
+	}
+	if generation < 1 || source.EvaluatedGeneration != generation {
+		return fmt.Errorf("resolved source context generation %d does not match Evaluate generation %d", source.EvaluatedGeneration, generation)
+	}
+	if source.VCenterInstanceUUID == "" || source.NSXComputeManagerID == "" {
+		return fmt.Errorf("resolved source context must include vCenter UUID and NSX compute-manager ID")
+	}
+	status.ResolvedSourceContext = source.DeepCopy()
+	return nil
+}
+
+// ValidateReuse permits Execute to reuse only the resolved source context
+// persisted by the immediately preceding successful Evaluate. The source
+// context is the durable Evaluate checkpoint because the shared LastAction and
+// ActionGeneration fields advance to Execute before its handler is called.
+func ValidateReuse(status *api.ControlPlaneNetworkTransitionStatus, action api.Action, currentVCenterUUID string, currentGeneration int64) error {
+	if status == nil || status.ResolvedSourceContext == nil {
+		return fmt.Errorf("resolved source context is missing; run Evaluate")
+	}
+	source := status.ResolvedSourceContext
+	if source.NSXComputeManagerID == "" || source.VCenterInstanceUUID == "" || source.EvaluatedGeneration < 1 {
 		return fmt.Errorf("resolved source context is missing; run Evaluate")
 	}
 	if source.VCenterInstanceUUID != currentVCenterUUID {
@@ -291,12 +313,8 @@ func ValidateReuse(source *api.ResolvedSourceContext, action api.Action, current
 	if currentGeneration < 2 || source.EvaluatedGeneration != evaluateGeneration {
 		return fmt.Errorf("resolved source context generation %d does not match the Evaluate generation for current Execute generation %d", source.EvaluatedGeneration, currentGeneration)
 	}
-	if evaluateCheckpoint == nil || evaluateCheckpoint.LastAction != api.ActionEvaluate ||
-		evaluateCheckpoint.ActionState != api.ActionStateSucceeded || evaluateCheckpoint.ActionGeneration != evaluateGeneration {
-		return fmt.Errorf("resolved source context is not backed by a successful Evaluate checkpoint for generation %d", evaluateGeneration)
-	}
-	if !conditionSucceededAt(conditions, inspection.ConditionNetworkInputsValidated, evaluateGeneration) ||
-		!conditionSucceededAt(conditions, inspection.ConditionDVPGConversionValidated, evaluateGeneration) {
+	if !conditionSucceededAt(status.Conditions, inspection.ConditionNetworkInputsValidated, evaluateGeneration) ||
+		!conditionSucceededAt(status.Conditions, inspection.ConditionDVPGConversionValidated, evaluateGeneration) {
 		return fmt.Errorf("resolved source context is not backed by successful Evaluate checks for generation %d", evaluateGeneration)
 	}
 	return nil
