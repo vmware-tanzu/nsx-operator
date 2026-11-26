@@ -176,18 +176,18 @@ func ObserveAllocationReady(e AllocationEvidence, expectedIP string) (bool, erro
 	if err := CheckIdentity(e.Binding, e.Namespace, e.Allocation); err != nil {
 		return false, err
 	}
-	if e.BackendID == "" {
-		return false, fmt.Errorf("backend identity is missing")
-	}
 	ready, err := readyCondition(e.Allocation.Status.Conditions)
 	if err != nil || !ready {
 		return false, err
 	}
+	if e.BackendID == "" {
+		return false, fmt.Errorf("backend identity is missing")
+	}
 	if e.Allocation.Status.AllocationIPs == "" {
 		return false, nil
 	}
-	ip, err := allocationIP(e)
-	if err != nil {
+	ip, ready, err := allocationIP(e)
+	if err != nil || !ready {
 		return false, err
 	}
 	if ip != expected[0] {
@@ -197,64 +197,76 @@ func ObserveAllocationReady(e AllocationEvidence, expectedIP string) (bool, erro
 }
 
 // VerifiedMoveIPs checks a live target and either a live source or its retained
-// checkpoint against independently verified backend identity. It never queries
-// NSX or creates/persists the checkpoint itself.
-func VerifiedMoveIPs(source AllocationEvidence, consumed *ConsumedAllocation, target AllocationEvidence) ([]string, error) {
-	targetIP, err := allocationIP(target)
-	if err != nil {
-		return nil, fmt.Errorf("target: %w", err)
-	}
+// checkpoint against independently verified backend identity. A false ready
+// result with no error means the caller should leave this move's verified IPs
+// absent so Aggregate reports it as pending. Errors indicate conflicting or
+// insufficient identity/address evidence. This function never queries NSX or
+// creates/persists the checkpoint itself.
+func VerifiedMoveIPs(source AllocationEvidence, consumed *ConsumedAllocation, target AllocationEvidence) ([]string, bool, error) {
 	if source.Binding.Ref == target.Binding.Ref {
-		return nil, fmt.Errorf("source and target allocation references are identical")
+		return nil, false, fmt.Errorf("source and target allocation references are identical")
+	}
+	targetIP, ready, err := allocationIP(target)
+	if err != nil {
+		return nil, false, fmt.Errorf("target: %w", err)
+	}
+	if !ready {
+		return nil, false, nil
 	}
 	var sourceIP, backendID string
 	if source.Allocation != nil {
 		if consumed != nil {
-			return nil, fmt.Errorf("both live source and consumed checkpoint provided")
+			return nil, false, fmt.Errorf("both live source and consumed checkpoint provided")
 		}
-		sourceIP, err = allocationIP(source)
+		sourceIP, ready, err = allocationIP(source)
 		if err != nil {
-			return nil, fmt.Errorf("source: %w", err)
+			return nil, false, fmt.Errorf("source: %w", err)
+		}
+		if !ready {
+			return nil, false, nil
 		}
 		backendID = source.BackendID
 	} else {
 		if consumed == nil || consumed.Binding != source.Binding || !validRef(consumed.Binding.Ref) || consumed.Binding.NamespaceUID == "" || consumed.Binding.ObjectUID == "" || consumed.BackendID == "" {
-			return nil, fmt.Errorf("missing or invalid consumed source identity checkpoint")
+			return nil, false, fmt.Errorf("missing or invalid consumed source identity checkpoint")
 		}
 		if source.Namespace == nil || source.Namespace.Name != source.Binding.Ref.Namespace || source.Namespace.UID != source.Binding.NamespaceUID || !source.Namespace.DeletionTimestamp.IsZero() {
-			return nil, fmt.Errorf("consumed source namespace identity mismatch or deletion")
+			return nil, false, fmt.Errorf("consumed source namespace identity mismatch or deletion")
 		}
 		ips, err := normalizeIPs([]string{consumed.IP})
 		if err != nil {
-			return nil, fmt.Errorf("invalid consumed source address: %w", err)
+			return nil, false, fmt.Errorf("invalid consumed source address: %w", err)
 		}
 		sourceIP = ips[0]
 		backendID = consumed.BackendID
 	}
 	if backendID == "" || target.BackendID == "" || backendID != target.BackendID {
-		return nil, fmt.Errorf("allocation backend identity missing or mismatched")
+		return nil, false, fmt.Errorf("allocation backend identity missing or mismatched")
 	}
 	if sourceIP != targetIP {
-		return nil, fmt.Errorf("source and target allocation addresses differ")
+		return nil, false, fmt.Errorf("source and target allocation addresses differ")
 	}
-	return []string{targetIP}, nil
+	return []string{targetIP}, true, nil
 }
-func allocationIP(e AllocationEvidence) (string, error) {
+func allocationIP(e AllocationEvidence) (string, bool, error) {
 	if e.Allocation == nil {
-		return "", fmt.Errorf("allocation is missing")
+		return "", false, nil
 	}
 	if err := CheckIdentity(e.Binding, e.Namespace, e.Allocation); err != nil {
-		return "", err
-	}
-	if e.BackendID == "" {
-		return "", fmt.Errorf("backend identity is missing")
+		return "", false, err
 	}
 	ready, err := readyCondition(e.Allocation.Status.Conditions)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if !ready {
-		return "", fmt.Errorf("allocation is not Ready")
+		return "", false, nil
+	}
+	if e.BackendID == "" {
+		return "", false, fmt.Errorf("backend identity is missing")
+	}
+	if e.Allocation.Status.AllocationIPs == "" {
+		return "", false, nil
 	}
 	value := e.Allocation.Status.AllocationIPs
 	if prefix, err := netip.ParsePrefix(value); err == nil && prefix.Bits() == prefix.Addr().BitLen() {
@@ -262,9 +274,9 @@ func allocationIP(e AllocationEvidence) (string, error) {
 	}
 	ips, err := normalizeIPs([]string{value})
 	if err != nil {
-		return "", fmt.Errorf("allocation status does not contain a single exact IP: %w", err)
+		return "", false, fmt.Errorf("allocation status does not contain a single exact IP: %w", err)
 	}
-	return ips[0], nil
+	return ips[0], true, nil
 }
 func readyCondition(conditions []vpc.Condition) (bool, error) {
 	found, ready := false, false

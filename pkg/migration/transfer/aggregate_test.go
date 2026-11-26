@@ -79,6 +79,20 @@ func TestAggregateChildFailureAndInvalidInventory(t *testing.T) {
 	require.Contains(t, result.Failures[0], "invalid expected addresses")
 }
 
+func TestAggregateRejectsAllocationMoveToItself(t *testing.T) {
+	ref := api.NamespacedName{Namespace: "tenant", Name: "vip"}
+	result := Aggregate(true, []Operation{{
+		Type:   IPAddressAllocationMove,
+		Source: ref,
+		Target: ref,
+		IPs:    []string{"10.0.0.4"},
+	}}, nil)
+
+	require.False(t, result.Ready)
+	require.Contains(t, result.Failures[0], "invalid expected operation")
+	require.Contains(t, result.Failures[0], "source and target are identical")
+}
+
 func TestAggregateAcrossSplitChildren(t *testing.T) {
 	var expected []Operation
 	var observations []Observation

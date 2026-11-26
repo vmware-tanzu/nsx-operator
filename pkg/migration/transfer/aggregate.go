@@ -67,6 +67,10 @@ func Aggregate(inventoryComplete bool, expected []Operation, children []Observat
 			result.Failures = append(result.Failures, fmt.Sprintf("invalid expected operation %v", k))
 			continue
 		}
+		if op.Type == IPAddressAllocationMove && op.Source == op.Target {
+			result.Failures = append(result.Failures, fmt.Sprintf("invalid expected operation %v: source and target are identical", k))
+			continue
+		}
 		ips, err := normalizeIPs(op.IPs)
 		if err != nil {
 			result.Failures = append(result.Failures, fmt.Sprintf("invalid expected addresses for %v: %v", k, err))
