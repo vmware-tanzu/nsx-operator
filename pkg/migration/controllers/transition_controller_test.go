@@ -333,6 +333,76 @@ func TestNamespaceExecuteWaitsForRollbackToComplete(t *testing.T) {
 	require.EqualValues(t, 1, handlerCalls.Load(), "Execute may start after the previous batch completes Rollback")
 }
 
+func TestNamespaceRollbackWaitsForActiveExecute(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 1},
+		Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 1, Phase: api.PhaseInfraTransitionComplete,
+			Conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue, Reason: "ActionCompleted", LastTransitionTime: metav1.Now()}},
+		}}}
+	rollback := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch-b", Generation: 3},
+		Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionRollback}},
+		Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionExecute, ActionState: api.ActionStateFailed, ActionGeneration: 2, Phase: api.PhaseFailed,
+		}}}
+	executing := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch-a", Generation: 2},
+		Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}},
+		Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 2, Phase: api.PhaseExecuting,
+		}}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(infra, rollback, executing).WithObjects(infra, rollback, executing).Build()
+	var rollbackCalls atomic.Int32
+	engine := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{
+		{Stage: transition.Namespaces, Action: api.ActionRollback}: actionHandlerFunc(func(context.Context, transition.Request) (transition.Result, error) {
+			rollbackCalls.Add(1)
+			return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: time.Second}, nil
+		}),
+	}}
+	r := Reconciler{Client: c, Engine: engine, Stage: transition.Namespaces}
+	request := ctrl.Request{NamespacedName: types.NamespacedName{Name: rollback.Name}}
+	result, err := r.Reconcile(ctx, request)
+	require.NoError(t, err)
+	require.Positive(t, result.RequeueAfter)
+	require.Zero(t, rollbackCalls.Load(), "Rollback must wait while another batch is executing")
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: rollback.Name}, rollback))
+	require.Equal(t, api.ActionExecute, rollback.Status.LastAction, "waiting must preserve the failed Execute checkpoint")
+	require.Equal(t, "ExecuteInProgress", meta.FindStatusCondition(rollback.Status.Conditions, api.ConditionReady).Reason)
+
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: executing.Name}, executing))
+	executing.Status.LastAction = api.ActionExecute
+	executing.Status.ActionState = api.ActionStateSucceeded
+	executing.Status.Phase = api.PhaseCompleted
+	require.NoError(t, c.Status().Update(ctx, executing))
+	_, err = r.Reconcile(ctx, request) // Persist the Rollback checkpoint.
+	require.NoError(t, err)
+	_, err = r.Reconcile(ctx, request) // Run the Rollback handler.
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rollbackCalls.Load(), "Rollback may start after Execute completes")
+}
+
+func TestCompletedRollbackRequiresCurrentSuccessfulCheckpoint(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     *api.TransitionStatus
+		generation int64
+		completed  bool
+	}{
+		{name: "current successful rollback", status: &api.TransitionStatus{LastAction: api.ActionRollback, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: api.PhaseRolledBack}, generation: 4, completed: true},
+		{name: "wrong last action", status: &api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: api.PhaseRolledBack}, generation: 4},
+		{name: "rollback still running", status: &api.TransitionStatus{LastAction: api.ActionRollback, ActionState: api.ActionStateRunning, ActionGeneration: 4, Phase: api.PhaseRolledBack}, generation: 4},
+		{name: "stale rollback generation", status: &api.TransitionStatus{LastAction: api.ActionRollback, ActionState: api.ActionStateSucceeded, ActionGeneration: 3, Phase: api.PhaseRolledBack}, generation: 4},
+		{name: "phase is not rolled back", status: &api.TransitionStatus{LastAction: api.ActionRollback, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: api.PhaseRollingBack}, generation: 4},
+		{name: "missing status", generation: 4},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.completed, completedRollback(tc.status, tc.generation))
+		})
+	}
+}
+
 func TestCompletedExecuteUsesNamespaceTerminalPhases(t *testing.T) {
 	for _, tc := range []struct {
 		phase     string
