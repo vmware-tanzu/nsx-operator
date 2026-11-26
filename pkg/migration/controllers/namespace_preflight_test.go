@@ -397,11 +397,13 @@ func TestPendingExecuteConflictPolicy(t *testing.T) {
 	tests := []struct {
 		name          string
 		currentAction api.Action
+		currentName   string
 		mutate        func(*api.NamespaceNetworkTransition)
 		wantConflict  bool
 	}{
 		{name: "Rollback can pass a pending Execute", currentAction: api.ActionRollback},
-		{name: "Execute still waits for a pending Execute", currentAction: api.ActionExecute, wantConflict: true},
+		{name: "earlier pending Execute wins arbitration", currentAction: api.ActionExecute, wantConflict: false},
+		{name: "later pending Execute waits for the winner", currentAction: api.ActionExecute, currentName: "z-current", wantConflict: true},
 		{name: "Evaluate still waits for a pending Execute", currentAction: api.ActionEvaluate, wantConflict: true},
 		{name: "missing status is not proof of pending Execute", currentAction: api.ActionRollback, wantConflict: true, mutate: func(b *api.NamespaceNetworkTransition) { b.Status = nil }},
 		{name: "failed Evaluate is not proof of pending Execute", currentAction: api.ActionRollback, wantConflict: true, mutate: func(b *api.NamespaceNetworkTransition) { b.Status.ActionState = api.ActionStateFailed }},
@@ -431,11 +433,21 @@ func TestPendingExecuteConflictPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			currentName := tt.currentName
+			if currentName == "" {
+				currentName = "current"
+			}
 			current := &api.NamespaceNetworkTransition{
-				ObjectMeta: metav1.ObjectMeta{Name: "current", UID: "current-uid"},
+				ObjectMeta: metav1.ObjectMeta{Name: currentName, UID: "current-uid", Generation: 3},
 				Spec: api.NamespaceNetworkTransitionSpec{
 					TransitionSpec: api.TransitionSpec{Action: tt.currentAction}, Namespaces: []string{"tenant"},
 				},
+			}
+			if tt.currentAction == api.ActionExecute {
+				current.Status = &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+					LastAction: api.ActionEvaluate, ActionState: api.ActionStateSucceeded,
+					ActionGeneration: 2, ObservedGeneration: 3, Phase: api.PhaseBlocked,
+				}}
 			}
 			other := &api.NamespaceNetworkTransition{
 				ObjectMeta: metav1.ObjectMeta{Name: "other", UID: "other-uid", Generation: 3},

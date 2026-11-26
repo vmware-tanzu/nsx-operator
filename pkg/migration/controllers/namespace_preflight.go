@@ -455,12 +455,30 @@ func findActiveNamespaceBatchConflicts(ctx context.Context, c client.Reader, cur
 			}
 			conflict = topologyResourcesOverlap(currentTopology, otherTopology)
 		}
+		// Two newly requested Execute actions have not yet persisted an engine
+		// checkpoint, so neither is an owner yet. Elect one deterministically
+		// from the conflicting pending requests; otherwise both preflights can
+		// block each other forever. A checkpointed Execute still wins through
+		// the normal unresolved-mutation path above.
+		if conflict && isPendingNamespaceExecute(current) && isPendingNamespaceExecute(other) {
+			conflict = !pendingNamespaceExecutePrecedes(current, other)
+		}
 		if conflict {
 			conflicts = append(conflicts, other.Name)
 		}
 	}
 	sort.Strings(conflicts)
 	return conflicts, nil
+}
+
+func pendingNamespaceExecutePrecedes(first, second *api.NamespaceNetworkTransition) bool {
+	if first.CreationTimestamp.Equal(&second.CreationTimestamp) {
+		if first.Name != second.Name {
+			return first.Name < second.Name
+		}
+		return string(first.UID) < string(second.UID)
+	}
+	return first.CreationTimestamp.Before(&second.CreationTimestamp)
 }
 
 func isPendingNamespaceExecute(batch *api.NamespaceNetworkTransition) bool {
