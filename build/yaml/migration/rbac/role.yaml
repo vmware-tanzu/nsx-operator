@@ -14,10 +14,44 @@ rules:
   - create
   - patch
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - migration.network.vmware.com
   resources:
   - controlplanenetworktransitions
   - namespacenetworktransitions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - migration.network.vmware.com
+  resources:
+  - networkresourcetransitions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - crd.nsx.vmware.com
+  resources:
+  - subnetipreservations
+  - subnetports
+  - ipaddressallocations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - netoperator.vmware.com
+  resources:
+  - vdnsubnetlinks
   verbs:
   - get
   - list

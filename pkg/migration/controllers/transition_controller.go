@@ -32,6 +32,10 @@ type Reconciler struct {
 }
 
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions;namespacenetworktransitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=migration.network.vmware.com,resources=networkresourcetransitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=crd.nsx.vmware.com,resources=subnetipreservations;subnetports;ipaddressallocations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=netoperator.vmware.com,resources=vdnsubnetlinks,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions/status;namespacenetworktransitions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=vmware-system-nsx
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch

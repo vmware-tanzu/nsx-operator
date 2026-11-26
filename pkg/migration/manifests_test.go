@@ -132,7 +132,7 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 	sourceReads, statusPatches := false, false
 	for _, rule := range role.Rules {
 		for _, group := range rule.APIGroups {
-			if group == "netoperator.vmware.com" {
+			if group == "netoperator.vmware.com" && containsResource(rule.Resources, "networks") {
 				sourceReads = true
 				require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
 				require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
@@ -150,4 +150,41 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 	}
 	require.True(t, sourceReads)
 	require.True(t, statusPatches)
+}
+
+func containsResource(resources []string, resource string) bool {
+	for _, item := range resources {
+		if item == resource {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTransferObservationRBACIsReadOnly(t *testing.T) {
+	var role rbacv1.ClusterRole
+	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
+		var resource struct{ Kind string }
+		require.NoError(t, json.Unmarshal(doc, &resource))
+		if resource.Kind == "ClusterRole" {
+			require.NoError(t, json.Unmarshal(doc, &role))
+		}
+	}
+	for group, resources := range map[string][]string{
+		"":                             {"namespaces"},
+		"migration.network.vmware.com": {"networkresourcetransitions"},
+		"netoperator.vmware.com":       {"vdnsubnetlinks"},
+		"crd.nsx.vmware.com":           {"subnetipreservations", "subnetports", "ipaddressallocations"},
+	} {
+		for _, resource := range resources {
+			found := false
+			for _, rule := range role.Rules {
+				if containsResource(rule.APIGroups, group) && containsResource(rule.Resources, resource) {
+					found = true
+					require.ElementsMatch(t, []string{"get", "list", "watch"}, rule.Verbs, "%s/%s", group, resource)
+				}
+			}
+			require.True(t, found, "%s/%s", group, resource)
+		}
+	}
 }
