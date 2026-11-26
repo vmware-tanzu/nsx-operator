@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 )
 
 // DHCPNetworkDiscovery returns the names of all DHCP-backed source VDNs in the
@@ -28,14 +29,13 @@ type DHCPNetworkDiscovery interface {
 // A nil Evaluator keeps Evaluate unsuccessful until the stage evaluator is wired.
 type EvaluateInputs struct {
 	Discovery DHCPNetworkDiscovery
+	Preflight Handler
 	Evaluator Handler
 }
 
 func (h EvaluateInputs) Reconcile(ctx context.Context, req Request) (Result, error) {
 	var networks []api.DHCPNetworkConfiguration
 	var field string
-	req.Status.RequiredInputs = nil
-	req.Status.OptionalInputs = nil
 	switch obj := req.Object.(type) {
 	case *api.ControlPlaneNetworkTransition:
 		if req.Stage != Infrastructure {
@@ -58,6 +58,17 @@ func (h EvaluateInputs) Reconcile(ctx context.Context, req Request) (Result, err
 		}
 	default:
 		return Result{}, fmt.Errorf("unsupported transition object %T", req.Object)
+	}
+	req.Status.RequiredInputs = nil
+	req.Status.OptionalInputs = nil
+	if h.Preflight != nil {
+		result, err := h.Preflight.Reconcile(ctx, req)
+		if err != nil {
+			return Result{}, err
+		}
+		if result.Outcome != OutcomeSucceeded {
+			return result, nil
+		}
 	}
 	configured := make(map[string]bool, len(networks))
 	for _, network := range networks {
@@ -124,7 +135,65 @@ func (h EvaluateInputs) Reconcile(ctx context.Context, req Request) (Result, err
 	if h.Discovery == nil || h.Evaluator == nil {
 		return Result{}, fmt.Errorf("input validation completed; source network discovery and remaining Evaluate checks are not implemented")
 	}
+	if req.Stage == Namespaces && len(networks) != 0 {
+		if err := validateNamespaceWorkloadAddresses(req, networks); err != nil {
+			return Result{}, err
+		}
+	}
 	return h.Evaluator.Reconcile(ctx, req)
+}
+
+// validateNamespaceWorkloadAddresses verifies existing allocations against
+// their own VDN's subnet, not the potentially narrower DHCP allocation pool.
+// Missing inventory is not evidence that a VDN has no workloads.
+func validateNamespaceWorkloadAddresses(req Request, inputs []api.DHCPNetworkConfiguration) error {
+	sources, err := batchSourceNetworks(req)
+	if err != nil {
+		return err
+	}
+	byVDN := make(map[string]topology.SourceNetwork, len(sources))
+	for _, source := range sources {
+		byVDN[source.VDNName] = source
+	}
+	for _, input := range inputs {
+		source, ok := byVDN[input.VDNName]
+		if !ok || !source.DHCPBacked {
+			return fmt.Errorf("no DHCP source inventory for VDN %q", input.VDNName)
+		}
+		if !source.WorkloadAddressInventoryComplete {
+			return fmt.Errorf("existing workload address inventory for VDN %q is incomplete", input.VDNName)
+		}
+		start, err := netip.ParseAddr(input.DHCPRange.Start)
+		if err != nil {
+			return fmt.Errorf("invalid DHCP range for VDN %q: %w", input.VDNName, err)
+		}
+		mask := net.ParseIP(input.SubnetMask).To4()
+		if mask == nil {
+			return fmt.Errorf("invalid DHCP mask for VDN %q", input.VDNName)
+		}
+		bits, width := net.IPMask(mask).Size()
+		if width != 32 || bits == 0 {
+			return fmt.Errorf("invalid DHCP mask for VDN %q", input.VDNName)
+		}
+		subnet := netip.PrefixFrom(start, bits).Masked()
+		for _, workload := range source.WorkloadAddresses {
+			if workload.Namespace == "" || workload.Kind == "" || workload.Name == "" || workload.Interface == "" || !containsString(source.Namespaces, workload.Namespace) {
+				return fmt.Errorf("incomplete or out-of-scope workload identity in VDN %q address inventory", source.VDNName)
+			}
+			address, parseErr := netip.ParseAddr(workload.Address)
+			if parseErr != nil {
+				prefix, prefixErr := netip.ParsePrefix(workload.Address)
+				if prefixErr != nil {
+					return fmt.Errorf("invalid address %q for %s %s/%s interface %s on VDN %q", workload.Address, workload.Kind, workload.Namespace, workload.Name, workload.Interface, source.VDNName)
+				}
+				address = prefix.Addr()
+			}
+			if !address.Is4() || !subnet.Contains(address) {
+				return fmt.Errorf("%s %s/%s interface %s address %q on VDN %q is outside DHCP subnet %s", workload.Kind, workload.Namespace, workload.Name, workload.Interface, workload.Address, source.VDNName, subnet)
+			}
+		}
+	}
+	return nil
 }
 
 func validateLBSNATIPs(addresses []string) error {

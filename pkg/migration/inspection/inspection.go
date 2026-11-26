@@ -18,6 +18,7 @@ import (
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	migrationstatus "github.com/vmware-tanzu/nsx-operator/pkg/migration/status"
+	migrationtopology "github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 )
 
 const ConditionNetworkInputsValidated = "NetworkInputsValidated"
@@ -135,6 +136,92 @@ func (service Service) Inspect(ctx context.Context, vdns []string, dhcpInputs []
 	return service.InspectWithNaming(ctx, vdns, dhcpInputs, nil)
 }
 
+// ValidateResourceNaming checks naming selectors and shared-span TGW/VPC
+// names against the complete live VDN inventory provided by namespace
+// Evaluate. It deliberately performs no target resource discovery or writes.
+func (service Service) ValidateResourceNaming(sources []migrationtopology.SourceNetwork, names []api.VDNResourceNaming) error {
+	var problems []string
+	orderedVDNs := make([]string, 0, len(sources))
+	sourcesByVDN := make(map[string]inspectedSource, len(sources))
+	for _, source := range sources {
+		if source.VDNName == "" {
+			problems = append(problems, "source network inventory contains an empty VDN name")
+			continue
+		}
+		if _, exists := sourcesByVDN[source.VDNName]; exists {
+			problems = append(problems, fmt.Sprintf("source network inventory contains duplicate VDN %q", source.VDNName))
+			continue
+		}
+		zoneIDs := append([]string(nil), source.ZoneIDs...)
+		sort.Strings(zoneIDs)
+		uniqueZoneIDs := make([]string, 0, len(zoneIDs))
+		for _, zoneID := range zoneIDs {
+			if zoneID == "" {
+				problems = append(problems, fmt.Sprintf("source VDN %q has an empty Transport Zone ID", source.VDNName))
+				continue
+			}
+			if len(uniqueZoneIDs) == 0 || uniqueZoneIDs[len(uniqueZoneIDs)-1] != zoneID {
+				uniqueZoneIDs = append(uniqueZoneIDs, zoneID)
+			}
+		}
+		orderedVDNs = append(orderedVDNs, source.VDNName)
+		sourcesByVDN[source.VDNName] = inspectedSource{zoneIDs: uniqueZoneIDs}
+	}
+	sort.Strings(orderedVDNs)
+
+	knownVDNs := make(map[string]struct{}, len(sourcesByVDN))
+	for vdnName := range sourcesByVDN {
+		knownVDNs[vdnName] = struct{}{}
+	}
+	nameByVDN, namingProblems := indexResourceNaming(knownVDNs, names)
+	problems = append(problems, namingProblems...)
+	needsZoneSpans := false
+	for _, name := range names {
+		if _, found := nameByVDN[name.VDNName]; found && (name.TGWName != "" || name.VPCName != "") {
+			needsZoneSpans = true
+		}
+	}
+	if needsZoneSpans {
+		for _, vdnName := range orderedVDNs {
+			if len(sourcesByVDN[vdnName].zoneIDs) == 0 {
+				problems = append(problems, fmt.Sprintf("source VDN %q has no Transport Zone span for TGW/VPC naming validation", vdnName))
+			}
+		}
+	} else {
+		// Empty spans must not accidentally group unrelated VDNs when the
+		// discoverer has no span data and no TGW/VPC override needs checking.
+		for vdnName, source := range sourcesByVDN {
+			if len(source.zoneIDs) == 0 {
+				delete(sourcesByVDN, vdnName)
+			}
+		}
+	}
+	_, _, spanProblems := mergeSpanNames(orderedVDNs, sourcesByVDN, nameByVDN)
+	problems = append(problems, spanProblems...)
+	if len(problems) == 0 {
+		return nil
+	}
+	sort.Strings(problems)
+	return &ConfigurationError{Message: strings.Join(problems, "; ")}
+}
+
+func indexResourceNaming(knownVDNs map[string]struct{}, names []api.VDNResourceNaming) (map[string]api.VDNResourceNaming, []string) {
+	nameByVDN := make(map[string]api.VDNResourceNaming, len(names))
+	var problems []string
+	for _, name := range names {
+		if _, found := knownVDNs[name.VDNName]; !found {
+			problems = append(problems, fmt.Sprintf("resource naming references unknown VDN %q", name.VDNName))
+			continue
+		}
+		if _, found := nameByVDN[name.VDNName]; found {
+			problems = append(problems, fmt.Sprintf("duplicate resource naming for VDN %q", name.VDNName))
+			continue
+		}
+		nameByVDN[name.VDNName] = name
+	}
+	return nameByVDN, problems
+}
+
 // InspectWithNaming validates source data, resolves reusable target topology,
 // and reports optional name fields only for target resources that need creation.
 func (service Service) InspectWithNaming(ctx context.Context, vdns []string, dhcpInputs []api.DHCPNetworkConfiguration, names []api.VDNResourceNaming) (Result, error) {
@@ -196,18 +283,8 @@ func (service Service) InspectWithNaming(ctx context.Context, vdns []string, dhc
 			return Result{}, fmt.Errorf("list existing NSX migration topology: %w", err)
 		}
 	}
-	nameByVDN := make(map[string]api.VDNResourceNaming, len(names))
-	for _, name := range names {
-		if _, found := uniqueVDNs[name.VDNName]; !found {
-			result.Problems = append(result.Problems, fmt.Sprintf("resource naming references unknown VDN %q", name.VDNName))
-			continue
-		}
-		if _, found := nameByVDN[name.VDNName]; found {
-			result.Problems = append(result.Problems, fmt.Sprintf("duplicate resource naming for VDN %q", name.VDNName))
-			continue
-		}
-		nameByVDN[name.VDNName] = name
-	}
+	nameByVDN, namingProblems := indexResourceNaming(uniqueVDNs, names)
+	result.Problems = append(result.Problems, namingProblems...)
 	sourcesByVDN := make(map[string]inspectedSource, len(orderedVDNs))
 	for _, vdnName := range orderedVDNs {
 		sourceVDN, err := service.Inventory.Resolve(ctx, vdnName)

@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -66,6 +68,108 @@ func TestReconcileStatus(t *testing.T) {
 	}
 }
 
+type workflowDeleteRecorder struct {
+	deleted []string
+}
+
+func (recorder *workflowDeleteRecorder) DeleteWorkflow(_ context.Context, id string) error {
+	recorder.deleted = append(recorder.deleted, id)
+	return nil
+}
+
+func TestNamespaceWorkflowCleanupFinalizer(t *testing.T) {
+	t.Run("adds finalizer before normal reconciliation", func(t *testing.T) {
+		ctx := context.Background()
+		scheme := runtime.NewScheme()
+		require.NoError(t, api.AddToScheme(scheme))
+		batch := &api.NamespaceNetworkTransition{
+			ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 1},
+			Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionEvaluate}},
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(batch).Build()
+		r := Reconciler{Client: c, Engine: &transition.Engine{}, Stage: transition.Namespaces}
+		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: batch.Name}})
+		require.NoError(t, err)
+		require.NoError(t, c.Get(ctx, types.NamespacedName{Name: batch.Name}, batch))
+		require.Contains(t, batch.Finalizers, api.NamespaceWorkflowCleanupFinalizer)
+	})
+
+	tests := []struct {
+		name        string
+		action      api.Action
+		phase       string
+		state       api.ActionState
+		lastAction  api.Action
+		workflows   []api.NSXWorkflowStatus
+		wantDeleted []string
+	}{
+		{
+			name:       "empty Evaluate checkpoint",
+			action:     api.ActionEvaluate,
+			workflows:  nil,
+			lastAction: "",
+		},
+		{
+			name:        "failed Evaluate deletes recorded workflow",
+			action:      api.ActionEvaluate,
+			phase:       api.PhaseEvaluationFailed,
+			state:       api.ActionStateFailed,
+			lastAction:  api.ActionEvaluate,
+			workflows:   []api.NSXWorkflowStatus{{VDNName: "vdn-a", WorkflowID: "workflow-a"}},
+			wantDeleted: []string{"workflow-a"},
+		},
+		{
+			name:        "successful Evaluate deletes recorded workflow",
+			action:      api.ActionEvaluate,
+			phase:       api.PhaseEvaluated,
+			state:       api.ActionStateSucceeded,
+			lastAction:  api.ActionEvaluate,
+			workflows:   []api.NSXWorkflowStatus{{VDNName: "vdn-a", WorkflowID: "workflow-a"}},
+			wantDeleted: []string{"workflow-a"},
+		},
+		{
+			name:       "successful Rollback retains recorded workflow",
+			action:     api.ActionRollback,
+			phase:      api.PhaseRolledBack,
+			state:      api.ActionStateSucceeded,
+			lastAction: api.ActionRollback,
+			workflows:  []api.NSXWorkflowStatus{{VDNName: "vdn-a", WorkflowID: "workflow-a"}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			require.NoError(t, api.AddToScheme(scheme))
+			deleting := metav1.NewTime(time.Now())
+			batch := &api.NamespaceNetworkTransition{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "batch", Generation: 1, DeletionTimestamp: &deleting,
+					Finalizers: []string{api.NamespaceWorkflowCleanupFinalizer},
+				},
+				Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: tc.action}},
+				Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+					Phase: tc.phase, LastAction: tc.lastAction, ActionState: tc.state,
+					ActionGeneration: 1, ObservedGeneration: 1, NSXWorkflows: tc.workflows,
+				}},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(batch).Build()
+			recorder := &workflowDeleteRecorder{}
+			r := Reconciler{
+				Client: c, Engine: &transition.Engine{WorkflowDeleter: recorder}, Stage: transition.Namespaces,
+			}
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: batch.Name}})
+			require.NoError(t, err)
+			require.Equal(t, tc.wantDeleted, recorder.deleted)
+			var persisted api.NamespaceNetworkTransition
+			err = c.Get(ctx, types.NamespacedName{Name: batch.Name}, &persisted)
+			if err == nil {
+				require.NotContains(t, persisted.Finalizers, api.NamespaceWorkflowCleanupFinalizer)
+			}
+		})
+	}
+}
+
 func TestNamespaceInfrastructureGate(t *testing.T) {
 	for _, state := range []api.ActionState{"", api.ActionStateRunning, api.ActionStateFailed, api.ActionStateSucceeded} {
 		ready := state == api.ActionStateSucceeded
@@ -89,10 +193,10 @@ func TestNamespaceInfrastructureGate(t *testing.T) {
 			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "batch"}, batch))
 			reason := "InfrastructureNotReady"
 			if ready {
-				reason = "ActionNotImplemented"
+				reason = "Stage1Incomplete"
 			}
 			require.Equal(t, reason, meta.FindStatusCondition(batch.Status.Conditions, "Ready").Reason)
-			require.Equal(t, !ready, result.RequeueAfter > 0)
+			require.Positive(t, result.RequeueAfter)
 		})
 	}
 }
@@ -141,7 +245,7 @@ func TestCompletedNamespaceBatchPreserved(t *testing.T) {
 			} else {
 				require.Zero(t, result.RequeueAfter)
 				require.Equal(t, previous.Status, batch.Status)
-				require.Equal(t, previous.ResourceVersion, batch.ResourceVersion)
+				require.Contains(t, batch.Finalizers, api.NamespaceWorkflowCleanupFinalizer)
 			}
 		})
 	}
@@ -411,20 +515,28 @@ func TestNamespaceRollbackRecoveryGate(t *testing.T) {
 		for _, state := range []api.ActionState{api.ActionStateRunning, api.ActionStateFailed} {
 			t.Run(string(checkpoint)+"/"+string(state), func(t *testing.T) {
 				ctx := context.Background()
-				scheme := runtime.NewScheme()
-				require.NoError(t, api.AddToScheme(scheme))
+				scheme := preflightTestScheme(t)
 				infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName},
 					Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateFailed, IrreversibleAction: string(checkpoint)}}}
 				batch := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 3},
-					Spec:   api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionRollback}},
+					Spec:   api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionRollback}, Namespaces: []string{"tenant"}},
 					Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionRollback, ActionState: state, ActionGeneration: 3}}}
-				cl := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(infra, batch).Build()
+				networkSettings := &unstructured.Unstructured{Object: map[string]interface{}{
+					"apiVersion": "netoperator.vmware.com/v1alpha1", "kind": "NetworkSettings",
+					"metadata": map[string]interface{}{"name": "default", "namespace": "tenant"},
+					"provider": "vsphere-distributed",
+				}}
+				cl := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(batch).WithObjects(
+					infra, batch,
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "tenant-uid"}},
+					newSupervisorNamespace("tenant", false), networkSettings,
+				).Build()
 				calls := 0
 				e := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{{Stage: transition.Namespaces, Action: api.ActionRollback}: actionHandlerFunc(func(context.Context, transition.Request) (transition.Result, error) {
 					calls++
 					return transition.Result{Outcome: transition.OutcomeSucceeded}, nil
 				})}}
-				r := Reconciler{Client: cl, Engine: e, Stage: transition.Namespaces}
+				r := Reconciler{Client: cl, Engine: e, Stage: transition.Namespaces, TopologyDiscoverer: emptyTopologyDiscoverer()}
 				for i := 0; i < 2; i++ {
 					_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "batch"}})
 					require.NoError(t, err)
@@ -444,15 +556,18 @@ func TestNamespaceRollbackRecoveryGate(t *testing.T) {
 
 func TestPendingFinalizeDoesNotStrandNamespaceExecution(t *testing.T) {
 	ctx := context.Background()
-	scheme := runtime.NewScheme()
-	require.NoError(t, api.AddToScheme(scheme))
 	infra := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 5},
-		Spec:   api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionFinalize}},
-		Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: "InfraTransitionComplete", Conditions: []metav1.Condition{{Type: "InfraTransitionComplete", Status: metav1.ConditionTrue, ObservedGeneration: 4}}}}}
+		Spec: api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionFinalize}},
+		Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, ObservedGeneration: 4, Phase: "InfraTransitionComplete", Conditions: []metav1.Condition{{Type: "InfraTransitionComplete", Status: metav1.ConditionTrue, ObservedGeneration: 4}}},
+			TargetNSXProjectPath: "orgs/default/projects/project-1", TargetLBProvider: api.LoadBalancerProvider("NSX_LB"),
+			PrimaryVPCPath:      "orgs/default/projects/project-1/vpcs/primary",
+			LoadBalancerVPCPath: "orgs/default/projects/project-1/vpcs/lb"}}
 	batch := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 3},
-		Spec:   api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}},
+		Spec:   api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
 		Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 3}}}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(infra, batch).WithObjects(infra, batch).Build()
+	objects := []client.Object{infra, batch, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "tenant-uid"}}}
+	objects = append(objects, preflightDependencyObjects(false)...)
+	cl := fake.NewClientBuilder().WithScheme(preflightTestScheme(t)).WithStatusSubresource(infra, batch).WithObjects(objects...).Build()
 	calls := 0
 	e := &transition.Engine{Enabled: true, Handlers: map[transition.Key]transition.Handler{{Stage: transition.Namespaces, Action: api.ActionExecute}: actionHandlerFunc(func(context.Context, transition.Request) (transition.Result, error) {
 		calls++
@@ -464,7 +579,7 @@ func TestPendingFinalizeDoesNotStrandNamespaceExecution(t *testing.T) {
 	require.NoError(t, cl.Get(ctx, types.NamespacedName{Name: infra.Name}, infra))
 	require.Equal(t, "Blocked", infra.Status.Phase)
 	require.Equal(t, api.ActionExecute, infra.Status.LastAction)
-	namespaceController := Reconciler{Client: cl, APIReader: cl, Engine: e, Stage: transition.Namespaces}
+	namespaceController := Reconciler{Client: cl, APIReader: cl, Engine: e, Stage: transition.Namespaces, TopologyDiscoverer: emptyTopologyDiscoverer()}
 	_, err = namespaceController.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: batch.Name}})
 	require.NoError(t, err)
 	require.Equal(t, 1, calls)

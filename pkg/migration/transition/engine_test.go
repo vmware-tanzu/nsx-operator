@@ -158,20 +158,23 @@ func TestEngineProgressAndRestart(t *testing.T) {
 func TestHandlerResults(t *testing.T) {
 	failure := errors.New("NSX unavailable")
 	for _, tc := range []struct {
-		name   string
-		result Result
-		err    error
-		phase  string
+		name      string
+		result    Result
+		err       error
+		phase     string
+		state     api.ActionState
+		wantError bool
 	}{
-		{"polling", Result{Outcome: OutcomeInProgress, RequeueAfter: time.Second}, nil, "Executing"},
-		{"failure", Result{}, failure, "Failed"},
-		{"success", Result{Outcome: OutcomeSucceeded}, nil, "InfraTransitionComplete"},
+		{"polling", Result{Outcome: OutcomeInProgress, RequeueAfter: time.Second}, nil, "Executing", api.ActionStateRunning, false},
+		{"terminal failure", Result{}, failure, "Failed", api.ActionStateFailed, false},
+		{"retryable failure", Result{}, MarkRetriable(failure), "Executing", api.ActionStateRunning, true},
+		{"success", Result{Outcome: OutcomeSucceeded}, nil, "InfraTransitionComplete", api.ActionStateSucceeded, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status := &api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 2}
 			engine := Engine{Enabled: true, Handlers: map[Key]Handler{{Infrastructure, api.ActionExecute}: handlerFunc(func(context.Context, Request) (Result, error) { return tc.result, tc.err })}}
 			result, err := engine.Reconcile(context.Background(), Request{Stage: Infrastructure, Action: api.ActionExecute, Generation: 2, Status: status})
-			if tc.err != nil {
+			if tc.wantError {
 				require.ErrorIs(t, err, tc.err)
 				require.Contains(t, meta.FindStatusCondition(status.Conditions, "Ready").Message, tc.err.Error())
 			} else {
@@ -179,18 +182,31 @@ func TestHandlerResults(t *testing.T) {
 			}
 			require.Equal(t, tc.result, result)
 			require.Equal(t, tc.phase, status.Phase)
-			expectedState := api.ActionStateSucceeded
-			if tc.err != nil {
-				expectedState = api.ActionStateFailed
-			} else if tc.result.RequeueAfter > 0 {
-				expectedState = api.ActionStateRunning
-			}
-			require.Equal(t, expectedState, status.ActionState)
-			if tc.err != nil || tc.result.RequeueAfter > 0 {
+			require.Equal(t, tc.state, status.ActionState)
+			if tc.state != api.ActionStateSucceeded {
 				require.Equal(t, api.ActionExecute, status.LastAction)
 			}
 		})
 	}
+}
+
+func TestTerminalEvaluationFailureDoesNotReturnRetryableError(t *testing.T) {
+	status := &api.TransitionStatus{LastAction: api.ActionEvaluate, ActionState: api.ActionStateRunning, ActionGeneration: 4}
+	calls := 0
+	engine := Engine{Enabled: true, Handlers: map[Key]Handler{{Namespaces, api.ActionEvaluate}: handlerFunc(func(context.Context, Request) (Result, error) {
+		calls++
+		return Result{Outcome: OutcomeFailed, FailureReason: "NSXValidationFailed", FailureMessage: "NSX validation failed: backend detail"}, nil
+	})}}
+	result, err := engine.Reconcile(context.Background(), Request{Stage: Namespaces, Action: api.ActionEvaluate, Generation: 4, Status: status})
+	require.NoError(t, err)
+	require.Equal(t, Result{}, result)
+	require.Equal(t, 1, calls)
+	require.Equal(t, api.ActionStateFailed, status.ActionState)
+	require.Equal(t, "EvaluationFailed", status.Phase)
+	condition := meta.FindStatusCondition(status.Conditions, "Ready")
+	require.NotNil(t, condition)
+	require.Equal(t, "NSXValidationFailed", condition.Reason)
+	require.Equal(t, "NSX validation failed: backend detail", condition.Message)
 }
 
 func TestNamespaceRollbackPartialActionAfterRestart(t *testing.T) {
@@ -220,7 +236,7 @@ func TestNamespaceRollbackPartialActionAfterRestart(t *testing.T) {
 				require.Equal(t, api.ActionStateRunning, status.ActionState)
 				if failed {
 					_, err = engine.Reconcile(context.Background(), request)
-					require.ErrorIs(t, err, failure)
+					require.NoError(t, err)
 					require.Equal(t, action, status.LastAction)
 					require.Equal(t, api.ActionStateFailed, status.ActionState)
 				}
@@ -399,7 +415,7 @@ func TestSNATAllocationFailureIsActionableAndEvaluateCanRetry(t *testing.T) {
 	_, err := engine.Reconcile(context.Background(), request)
 	require.NoError(t, err, "the first reconcile persists the Evaluate checkpoint")
 	_, err = engine.Reconcile(context.Background(), request)
-	require.ErrorIs(t, err, allocationErr)
+	require.NoError(t, err)
 	require.Equal(t, "EvaluationFailed", status.Phase)
 	require.Equal(t, api.ActionStateFailed, status.ActionState)
 	condition := meta.FindStatusCondition(status.Conditions, "Ready")
@@ -449,7 +465,7 @@ func TestNamespaceCommitRecovery(t *testing.T) {
 	status.NSXWorkflows = []api.NSXWorkflowStatus{{VDNName: "dvs-1", WorkflowID: "workflow-1"}, {VDNName: "dvs-2", WorkflowID: "workflow-2"}}
 	request.Action, request.Generation = api.ActionCommit, 5
 	calls := 0
-	failure := errors.New("second workflow deletion failed")
+	failure := MarkRetriable(errors.New("second workflow deletion failed"))
 	engine := Engine{Enabled: true, Handlers: map[Key]Handler{{Namespaces, api.ActionCommit}: handlerFunc(func(_ context.Context, req Request) (Result, error) {
 		if req.Status.IrreversibleAction == "" {
 			return Result{Outcome: OutcomeCheckpointIrreversible}, nil
@@ -474,9 +490,9 @@ func TestNamespaceCommitRecovery(t *testing.T) {
 	require.Equal(t, string(api.ActionCommit), status.IrreversibleAction)
 	_, err = engine.Reconcile(ctx, request)
 	require.ErrorIs(t, err, failure)
-	require.Equal(t, api.ActionStateFailed, status.ActionState)
+	require.Equal(t, api.ActionStateRunning, status.ActionState)
 	require.Equal(t, "Committing", status.Phase)
-	require.Equal(t, "CommitFailed", meta.FindStatusCondition(status.Conditions, "NamespaceMigrationCommitted").Reason)
+	require.Equal(t, "Retrying", meta.FindStatusCondition(status.Conditions, "NamespaceMigrationCommitted").Reason)
 	// Restart with the persisted failed checkpoint and exact workflow identities.
 	request.Status = status.DeepCopy()
 	restarted := Engine{Enabled: true, Handlers: engine.Handlers}
@@ -522,7 +538,7 @@ func TestFailureStatusMessageFitsConditionLimit(t *testing.T) {
 		return Result{}, failure
 	})}}
 	_, err := engine.Reconcile(context.Background(), Request{Stage: Infrastructure, Action: api.ActionExecute, Generation: 2, Status: status})
-	require.ErrorIs(t, err, failure)
+	require.NoError(t, err)
 	message := meta.FindStatusCondition(status.Conditions, "Ready").Message
 	require.LessOrEqual(t, len(message), 32768)
 	require.True(t, utf8.ValidString(message))
@@ -572,7 +588,7 @@ func TestRejectedCommitPreflightCanRollback(t *testing.T) {
 	_, err := engine.Reconcile(context.Background(), req)
 	require.NoError(t, err)
 	_, err = engine.Reconcile(context.Background(), req)
-	require.ErrorIs(t, err, failure)
+	require.NoError(t, err)
 	require.Empty(t, status.IrreversibleAction)
 	req.Action, req.Generation = api.ActionRollback, 3
 	_, err = engine.Reconcile(context.Background(), req)

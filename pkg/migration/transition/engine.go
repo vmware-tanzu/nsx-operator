@@ -14,9 +14,11 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 )
 
 // Stage identifies the infrastructure or namespace orchestration boundary.
@@ -36,6 +38,30 @@ type Request struct {
 	Action     api.Action
 	Generation int64
 	Status     *api.TransitionStatus
+	// Stage1Transition is the persisted Stage 1 handoff for namespace actions.
+	// It is a read-only snapshot; handlers must not mutate it or re-discover the
+	// shared Project/LB resources independently.
+	Stage1Transition *api.ControlPlaneNetworkTransition
+	// NamespaceNetworkStates contains the live Namespace identity, desired and
+	// effective provider pair, and persisted per-Namespace progress observed by
+	// preflight. Handlers must re-read state before external mutations.
+	NamespaceNetworkStates []NamespaceNetworkState
+	// NamespaceTopology is a fresh preflight snapshot. Handlers must rediscover
+	// before external writes instead of treating this snapshot as a lock.
+	NamespaceTopology           *topology.BatchSnapshot
+	NamespaceTopologyDiscoverer topology.Discoverer
+}
+
+// NamespaceNetworkState ties provider/progress observations to a live
+// Kubernetes Namespace UID for one immutable transition member.
+type NamespaceNetworkState struct {
+	Name              string
+	UID               types.UID
+	DesiredProvider   string
+	EffectiveProvider string
+	LegacyProvider    string
+	Progress          api.NamespaceStatus
+	HasProgress       bool
 }
 
 // Outcome distinguishes completion, ongoing work, and a wait for administrator input.
@@ -51,18 +77,24 @@ const (
 	OutcomeCheckpointIrreversible Outcome = "CheckpointIrreversible"
 	// OutcomeNeedsInput means requiredInputs must be supplied before retrying.
 	OutcomeNeedsInput Outcome = "NeedsInput"
+	// OutcomeFailed records a terminal action failure without scheduling an automatic retry.
+	OutcomeFailed Outcome = "Failed"
 )
 
 // Result reports an explicit execution outcome. A zero outcome is invalid for handlers.
 // RequeueAfter applies only to InProgress; NeedsInput waits for an object update.
 type Result struct {
-	Outcome      Outcome
-	RequeueAfter time.Duration
+	Outcome        Outcome
+	RequeueAfter   time.Duration
+	FailureReason  string
+	FailureMessage string
 }
 
 // Handler performs one resumable action. It must use stable external identifiers
 // and tolerate replay after a crash or status update conflict.
-// Returned errors are published in status and must not contain credentials or tokens.
+// Terminal handler errors are recorded as failed status without an automatic retry.
+// Errors classified by IsRetriableError keep the action Running and are returned
+// so controller-runtime applies its rate-limited retry backoff.
 // Admission webhooks validate action requests before Kubernetes accepts them.
 // Handlers inspect existing SubnetPort, NetworkInterface, reservation,
 // NetworkResourceTransition and NSX workflow state on every reconciliation. They
@@ -87,9 +119,10 @@ type Key struct {
 // Engine dispatches actions without automatically advancing review gates.
 // An empty Handlers map is a safe scaffold: every action reports unavailable.
 type Engine struct {
-	mu       sync.Mutex
-	Enabled  bool
-	Handlers map[Key]Handler
+	mu              sync.Mutex
+	Enabled         bool
+	Handlers        map[Key]Handler
+	WorkflowDeleter WorkflowDeleter
 }
 
 // LockReconcile serializes the controllers' dependency reads, dispatch, and status writes.
@@ -183,28 +216,47 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 	req.Status.Phase = activePhase(req.Action)
 	irreversible := req.Status.IrreversibleAction
 	result, err := handler.Reconcile(ctx, req)
+	engineContractError := false
 	if req.Status.IrreversibleAction != irreversible {
 		// A handler receives mutable status for progress reporting, but cannot
 		// create or erase the boundary that authorizes destructive work. Restore
 		// the durable value even on failure so recovery remains possible.
 		req.Status.IrreversibleAction = irreversible
 		err = errors.Join(err, fmt.Errorf("handler must not mutate irreversibleAction; return CheckpointIrreversible to request persistence"))
+		engineContractError = true
 	}
-	if err == nil && result.Outcome != OutcomeSucceeded && result.Outcome != OutcomeInProgress && result.Outcome != OutcomeNeedsInput && result.Outcome != OutcomeCheckpointIrreversible {
+	if err == nil && result.Outcome != OutcomeSucceeded && result.Outcome != OutcomeInProgress && result.Outcome != OutcomeNeedsInput && result.Outcome != OutcomeCheckpointIrreversible && result.Outcome != OutcomeFailed {
 		err = fmt.Errorf("handler returned invalid outcome %q", result.Outcome)
+		engineContractError = true
 	}
 	if err == nil && result.Outcome == OutcomeCheckpointIrreversible && req.Action != api.ActionCommit && req.Action != api.ActionFinalize {
 		err = fmt.Errorf("action %s cannot establish an irreversible checkpoint", req.Action)
+		engineContractError = true
 	}
 	if err == nil && result.Outcome == OutcomeSucceeded && (req.Action == api.ActionCommit || req.Action == api.ActionFinalize) && irreversible != string(req.Action) {
 		err = fmt.Errorf("action %s cannot succeed without a persisted irreversible checkpoint", req.Action)
+		engineContractError = true
 	}
 
 	if err != nil {
+		if !engineContractError && IsRetriableError(err) {
+			reason := "Retrying"
+			message := failureMessage(req.Action, err)
+			req.Status.ActionState = api.ActionStateRunning
+			req.Status.Phase = activePhase(req.Action)
+			infraCondition(req, metav1.ConditionFalse, reason, message)
+			commitCondition(req, metav1.ConditionFalse, reason, message)
+			condition(req.Status, req.Generation, metav1.ConditionFalse, reason, message)
+			return Result{}, fmt.Errorf("reconciling %s %s (retryable): %w", req.Stage, req.Action, err)
+		}
 		req.Status.ActionState = api.ActionStateFailed
-		req.Status.Phase = "Failed"
+		req.Status.Phase = api.PhaseFailed
 		if req.Action == api.ActionEvaluate {
 			req.Status.Phase = "EvaluationFailed"
+			var incompatible *IncompatibleWorkloadError
+			if errors.As(err, &incompatible) {
+				req.Status.Phase = api.PhaseFailed
+			}
 		}
 		infraCondition(req, metav1.ConditionFalse, "CutoverFailed", "Control plane infrastructure transition failed")
 		if req.Action == api.ActionCommit {
@@ -212,9 +264,30 @@ func (e *Engine) Reconcile(ctx context.Context, req Request) (Result, error) {
 			commitCondition(req, metav1.ConditionFalse, "CommitFailed", "Namespace commit failed; resume Commit from its recorded workflow identities")
 		}
 		condition(req.Status, req.Generation, metav1.ConditionFalse, "ActionFailed", failureMessage(req.Action, err))
-		return Result{}, fmt.Errorf("reconciling %s %s: %w", req.Stage, req.Action, err)
+		if engineContractError {
+			return Result{}, fmt.Errorf("reconciling %s %s: %w", req.Stage, req.Action, err)
+		}
+		return Result{}, nil
 	}
 	switch result.Outcome {
+	case OutcomeFailed:
+		reason := result.FailureReason
+		if reason == "" {
+			reason = "ActionFailed"
+		}
+		message := result.FailureMessage
+		if message == "" {
+			message = "Migration action failed and requires remediation before retry"
+		}
+		req.Status.ActionState = api.ActionStateFailed
+		req.Status.Phase = api.PhaseFailed
+		if req.Action == api.ActionEvaluate {
+			req.Status.Phase = "EvaluationFailed"
+		}
+		infraCondition(req, metav1.ConditionFalse, reason, message)
+		commitCondition(req, metav1.ConditionFalse, reason, message)
+		condition(req.Status, req.Generation, metav1.ConditionFalse, reason, message)
+		return Result{}, nil
 	case OutcomeCheckpointIrreversible:
 		req.Status.IrreversibleAction = string(req.Action)
 		req.Status.ActionState = api.ActionStateRunning

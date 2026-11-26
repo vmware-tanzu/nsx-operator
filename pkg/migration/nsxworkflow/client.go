@@ -169,13 +169,14 @@ func (client *Client) WaitForCompletion(ctx context.Context, workflowID, expecte
 	if err := ctx.Err(); err != nil {
 		return model.DvpgToSubnetWorkflow{}, err
 	}
-	if !validPolicyPath(expectedVPCPath) {
-		return model.DvpgToSubnetWorkflow{}, fmt.Errorf("expected target VPC path %q is invalid", expectedVPCPath)
-	}
 	switch expectedState {
 	case DesiredStateValidation, DesiredStatePlan, DesiredStateConversion, DesiredStateRollbackConversion:
 	default:
 		return model.DvpgToSubnetWorkflow{}, fmt.Errorf("unsupported expected NSX workflow state %q", expectedState)
+	}
+	sourceOnlyValidation := expectedState == DesiredStateValidation && expectedVPCPath == ""
+	if !sourceOnlyValidation && !validPolicyPath(expectedVPCPath) {
+		return model.DvpgToSubnetWorkflow{}, fmt.Errorf("expected target VPC path %q is invalid", expectedVPCPath)
 	}
 	interval := client.PollInterval
 	if interval <= 0 {
@@ -188,8 +189,14 @@ func (client *Client) WaitForCompletion(ctx context.Context, workflowID, expecte
 		if err != nil {
 			return workflowStatus, err
 		}
-		if err := ValidateTargetScope(workflowStatus, expectedVPCPath); err != nil {
-			return workflowStatus, err
+		var scopeErr error
+		if sourceOnlyValidation {
+			scopeErr = ValidateSourceOnlyScope(workflowStatus)
+		} else {
+			scopeErr = ValidateTargetScope(workflowStatus, expectedVPCPath)
+		}
+		if scopeErr != nil {
+			return workflowStatus, scopeErr
 		}
 		// NSX may still expose the previous phase's execution and resource states
 		// immediately after the desired state has been advanced.
@@ -226,6 +233,23 @@ func (client *Client) WaitForCompletion(ctx context.Context, workflowID, expecte
 		case <-ticker.C:
 		}
 	}
+}
+
+// ValidateSourceOnlyScope rejects an NSX response that binds validation to a
+// target VPC or reports objects created during conversion. The VALIDATION
+// request intentionally omits vpc_path because Evaluate does not prepare target
+// resources.
+func ValidateSourceOnlyScope(workflowStatus model.DvpgToSubnetWorkflow) error {
+	if vpcPath := ptr.Deref(workflowStatus.VpcPath, ""); vpcPath != "" {
+		return fmt.Errorf("NSX source-only validation workflow %q unexpectedly targets VPC %q", ptr.Deref(workflowStatus.Id, ""), vpcPath)
+	}
+	if workflowStatus.WorkflowState != nil && workflowStatus.WorkflowState.MigrationStatus != nil {
+		for _, resource := range workflowStatus.WorkflowState.MigrationStatus.NsxObject {
+			return fmt.Errorf("NSX source-only validation workflow %q unexpectedly reports converted %s object at %q",
+				ptr.Deref(workflowStatus.Id, ""), ptr.Deref(resource.ResourceType, "unknown"), ptr.Deref(resource.PolicyPath, ""))
+		}
+	}
+	return nil
 }
 
 // ValidateTargetScope ensures the workflow and its NSX-reported paths belong to the requested VPC.

@@ -83,7 +83,13 @@ func readManifestDocuments(t *testing.T, path string) [][]byte {
 func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 	var leaseRole rbacv1.Role
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
-		var resource struct{ Kind string }
+		var resource struct {
+			Kind     string
+			Metadata struct {
+				Name      string
+				Namespace string
+			} `json:"metadata"`
+		}
 		require.NoError(t, json.Unmarshal(doc, &resource))
 		switch resource.Kind {
 		case "ClusterRole":
@@ -96,7 +102,9 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 				require.NotContains(t, rule.Resources, "namespacenetworktransitions/finalizers")
 			}
 		case "Role":
-			require.NoError(t, json.Unmarshal(doc, &leaseRole))
+			if resource.Metadata.Namespace == "vmware-system-nsx" {
+				require.NoError(t, json.Unmarshal(doc, &leaseRole))
+			}
 		}
 	}
 	require.Equal(t, "vmware-system-nsx", leaseRole.Namespace)
@@ -105,9 +113,12 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 	require.ElementsMatch(t, []string{"get", "create", "update"}, leaseRole.Rules[0].Verbs)
 	bindings := 0
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/bindings.yaml") {
-		var resource struct{ Kind string }
+		var resource struct {
+			Kind     string
+			Metadata struct{ Name string } `json:"metadata"`
+		}
 		require.NoError(t, json.Unmarshal(doc, &resource))
-		if resource.Kind == "RoleBinding" {
+		if resource.Kind == "RoleBinding" && resource.Metadata.Name == "supervisor-network-migration-operator-leader-election" {
 			var binding rbacv1.RoleBinding
 			require.NoError(t, json.Unmarshal(doc, &binding))
 			require.Equal(t, leaseRole.Namespace, binding.Namespace)
@@ -132,7 +143,7 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 	sourceReads, statusPatches := false, false
 	for _, rule := range role.Rules {
 		for _, group := range rule.APIGroups {
-			if group == "netoperator.vmware.com" {
+			if group == "netoperator.vmware.com" && containsString(rule.Resources, "networks") {
 				sourceReads = true
 				require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
 				require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
@@ -150,4 +161,79 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 	}
 	require.True(t, sourceReads)
 	require.True(t, statusPatches)
+}
+
+func TestBatchPreflightRBAC(t *testing.T) {
+	var clusterRole rbacv1.ClusterRole
+	var configReaderRole rbacv1.Role
+	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
+		var resource struct {
+			Kind     string
+			Metadata struct {
+				Name      string
+				Namespace string
+			} `json:"metadata"`
+		}
+		require.NoError(t, json.Unmarshal(doc, &resource))
+		if resource.Kind == "ClusterRole" {
+			require.NoError(t, json.Unmarshal(doc, &clusterRole))
+		} else if resource.Kind == "Role" && resource.Metadata.Namespace == "vmware-system-vks-public" {
+			require.NoError(t, json.Unmarshal(doc, &configReaderRole))
+		}
+	}
+	for _, expected := range []struct {
+		apiGroup string
+		resource string
+		verbs    []string
+	}{
+		{apiGroup: "", resource: "namespaces", verbs: []string{"get", "list"}},
+		{apiGroup: "iaas.vmware.com", resource: "supervisornamespaces", verbs: []string{"get"}},
+		{apiGroup: "netoperator.vmware.com", resource: "networksettings", verbs: []string{"get"}},
+		{apiGroup: "migration.network.vmware.com", resource: "namespacenetworktransitions/status", verbs: []string{"get", "patch", "update"}},
+	} {
+		found := false
+		for _, rule := range clusterRole.Rules {
+			if !containsString(rule.APIGroups, expected.apiGroup) || !containsString(rule.Resources, expected.resource) {
+				continue
+			}
+			for _, verb := range expected.verbs {
+				require.Contains(t, rule.Verbs, verb)
+			}
+			found = true
+			break
+		}
+		require.True(t, found, "missing RBAC rule for %s/%s", expected.apiGroup, expected.resource)
+	}
+	require.Equal(t, "supervisor-network-migration-operator", configReaderRole.Name)
+	require.Equal(t, "vmware-system-vks-public", configReaderRole.Namespace)
+	require.Len(t, configReaderRole.Rules, 1)
+	require.Equal(t, []string{""}, configReaderRole.Rules[0].APIGroups)
+	require.Equal(t, []string{"configmaps"}, configReaderRole.Rules[0].Resources)
+	require.Equal(t, []string{"supervisor-properties"}, configReaderRole.Rules[0].ResourceNames)
+	require.Equal(t, []string{"get"}, configReaderRole.Rules[0].Verbs)
+
+	var configReaderBinding rbacv1.RoleBinding
+	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/bindings.yaml") {
+		var resource struct {
+			Kind     string
+			Metadata struct{ Name string } `json:"metadata"`
+		}
+		require.NoError(t, json.Unmarshal(doc, &resource))
+		if resource.Kind == "RoleBinding" && resource.Metadata.Name == "supervisor-network-migration-operator-config-reader" {
+			require.NoError(t, json.Unmarshal(doc, &configReaderBinding))
+		}
+	}
+	require.Equal(t, "vmware-system-vks-public", configReaderBinding.Namespace)
+	require.Equal(t, "Role", configReaderBinding.RoleRef.Kind)
+	require.Equal(t, "supervisor-network-migration-operator", configReaderBinding.RoleRef.Name)
+	require.Contains(t, configReaderBinding.Subjects, rbacv1.Subject{Kind: "ServiceAccount", Name: "ncp-svc-account", Namespace: "vmware-system-nsx"})
+}
+
+func containsString(values []string, value string) bool {
+	for _, entry := range values {
+		if entry == value {
+			return true
+		}
+	}
+	return false
 }

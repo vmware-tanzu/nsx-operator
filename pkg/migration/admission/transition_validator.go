@@ -7,9 +7,12 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -43,7 +46,9 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	var status *api.TransitionStatus
 	var currentUID types.UID
 	isNamespace := false
+	var namespaceBatch []string
 	hasAcceptedSNATAllocation := false
+	hasWorkflowCleanupFinalizer := false
 	rollbackComplete := false
 	switch req.Resource.Resource {
 	case "controlplanenetworktransitions":
@@ -63,6 +68,8 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		oldAction, newAction, oldGeneration, currentUID = oldObj.Spec.Action, newObj.Spec.Action, oldObj.Generation, oldObj.UID
+		namespaceBatch = newObj.Spec.Namespaces
+		hasWorkflowCleanupFinalizer = slices.Contains(oldObj.Finalizers, api.NamespaceWorkflowCleanupFinalizer)
 		if oldObj.Status != nil {
 			status = &oldObj.Status.TransitionStatus
 			rollbackComplete = oldObj.Status.RollbackComplete
@@ -70,48 +77,20 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	default:
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unexpected migration resource %q", req.Resource.Resource))
 	}
+	if isNamespace && req.Operation == admissionv1.Create {
+		if err := validateNamespaceTransitionNamespaces(ctx, v.Reader, namespaceBatch); err != nil {
+			var forbidden *systemNamespaceInBatchError
+			if errors.As(err, &forbidden) {
+				return admission.Denied(err.Error())
+			}
+			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("validating NamespaceNetworkTransition namespaces: %w", err))
+		}
+	}
 	if req.Operation == admissionv1.Delete {
-		if status == nil || status.LastAction == "" {
-			if oldAction == api.ActionExecute || oldAction == api.ActionRollback || oldAction == api.ActionCommit || oldAction == api.ActionFinalize {
-				return admission.Denied("Resolve the requested migration action before deleting the transition")
-			}
-			return admission.Allowed("transition has no action checkpoint")
+		if isNamespace && status != nil && len(status.NSXWorkflows) != 0 && !hasWorkflowCleanupFinalizer {
+			return admission.Denied("Namespace transition cleanup finalizer is not installed yet; retry deletion after the controller reconciles")
 		}
-		if (oldAction == api.ActionExecute || oldAction == api.ActionRollback || oldAction == api.ActionCommit || oldAction == api.ActionFinalize) && status.LastAction != oldAction {
-			return admission.Denied("Resolve the requested migration action before deleting the transition")
-		}
-		if status.LastAction == api.ActionEvaluate {
-			if hasAcceptedSNATAllocation {
-				return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
-			}
-			if status.Phase == api.PhaseEvaluationFailed && status.ActionState != api.ActionStateRunning {
-				// Evaluate failures before Execute can be abandoned when no SNAT
-				// allocation was accepted. Refine this check when SNAT allocation
-				// handling and the cleanup finalizer are wired, so in-flight or
-				// unrecorded preparation resources are accounted for too.
-				return admission.Allowed("deleting after failed Evaluate with no accepted SNAT reservation")
-			}
-			if !currentSuccessfulCheckpoint(status, oldGeneration, api.ActionEvaluate) || len(status.RequiredInputs) != 0 {
-				return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
-			}
-			return admission.Allowed("current Evaluate completed without an accepted reservation")
-		}
-		if !currentSuccessfulCheckpoint(status, oldGeneration, status.LastAction) {
-			return admission.Denied("Resolve the unfinished migration action before deleting the transition")
-		}
-		if isNamespace {
-			if status.LastAction == api.ActionCommit && status.IrreversibleAction == string(api.ActionCommit) && status.Phase == api.PhaseCommitted {
-				return admission.Allowed("namespace batch is committed")
-			}
-			if status.LastAction == api.ActionRollback && status.IrreversibleAction == "" && status.Phase == api.PhaseRolledBack {
-				return admission.Allowed("namespace batch is fully rolled back")
-			}
-			return admission.Denied("Namespace inputs remain protected until the batch is committed or fully rolled back")
-		}
-		if status.LastAction == api.ActionFinalize && status.IrreversibleAction == string(api.ActionFinalize) && status.Phase == api.PhaseFinalized {
-			return admission.Allowed("infrastructure transition is finalized")
-		}
-		return admission.Denied("Infrastructure transition must be finalized before deletion")
+		return ifAllowToDelete(oldAction, oldGeneration, isNamespace, status, hasAcceptedSNATAllocation, hasWorkflowCleanupFinalizer)
 	}
 	if req.Operation == admissionv1.Create {
 		if newAction != api.ActionEvaluate {
@@ -176,6 +155,40 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 		return admission.Denied("Complete and verify whole-batch Rollback, including rollbackComplete, before requesting Evaluate")
 	}
 	return admission.Denied(fmt.Sprintf("Illegal action change from %s to %s", oldAction, newAction))
+}
+
+type systemNamespaceInBatchError struct{ namespace string }
+
+func (e *systemNamespaceInBatchError) Error() string {
+	return fmt.Sprintf("system namespace %q cannot be included in NamespaceNetworkTransition.spec.namespaces", e.namespace)
+}
+
+func validateNamespaceTransitionNamespaces(ctx context.Context, reader client.Reader, namespaces []string) error {
+	if reader == nil {
+		return fmt.Errorf("namespace reader is not configured")
+	}
+	for _, namespace := range namespaces {
+		isSystem, err := isSystemNamespaceInTransitionBatch(ctx, reader, namespace)
+		if err != nil {
+			return fmt.Errorf("checking namespace %q: %w", namespace, err)
+		}
+		if isSystem {
+			return &systemNamespaceInBatchError{namespace: namespace}
+		}
+	}
+	return nil
+}
+
+// isSystemNamespaceInTransitionBatch rejects namespaces reserved for
+// Supervisor/control-plane workloads from tenant NamespaceNetworkTransition
+// batches. CPVM namespaces are identified by WCP metadata (kube-system or the
+// shared-system-T1/VPC annotations); vmware-system-* namespaces are reserved
+// for system components by name.
+func isSystemNamespaceInTransitionBatch(ctx context.Context, reader client.Reader, namespace string) (bool, error) {
+	if strings.HasPrefix(namespace, "vmware-system-") {
+		return true, nil
+	}
+	return isControlPlaneSystemNamespace(ctx, reader, namespace)
 }
 
 func stageOneComplete(ctx context.Context, reader client.Reader) (bool, error) {
@@ -267,6 +280,58 @@ func currentSuccessfulCheckpoint(status *api.TransitionStatus, generation int64,
 	return status != nil && generation > 0 && status.LastAction == action &&
 		status.ActionState == api.ActionStateSucceeded && status.ActionGeneration == generation &&
 		status.ObservedGeneration == generation
+}
+
+func ifAllowToDelete(action api.Action, generation int64, isNamespace bool, status *api.TransitionStatus, hasAcceptedSNATAllocation, hasWorkflowCleanupFinalizer bool) admission.Response {
+	if status == nil || status.LastAction == "" {
+		if action == api.ActionExecute || action == api.ActionRollback || action == api.ActionCommit || action == api.ActionFinalize {
+			return admission.Denied("Resolve the requested migration action before deleting the transition")
+		}
+		return admission.Allowed("transition has no action checkpoint")
+	}
+	if (action == api.ActionExecute || action == api.ActionRollback || action == api.ActionCommit || action == api.ActionFinalize) && status.LastAction != action {
+		return admission.Denied("Resolve the requested migration action before deleting the transition")
+	}
+	if status.LastAction == api.ActionEvaluate {
+		if status.ActionState == api.ActionStateFailed && (status.Phase == api.PhaseEvaluationFailed || status.Phase == api.PhaseFailed) {
+			if canAbandonFailedEvaluate(status, action, generation, isNamespace, hasAcceptedSNATAllocation, hasWorkflowCleanupFinalizer) {
+				return admission.Allowed("failed Evaluate can be abandoned after finalizer cleanup")
+			}
+			return admission.Denied("Resolve failed Evaluate side effects or stale checkpoints before deleting the transition")
+		}
+		if hasAcceptedSNATAllocation {
+			return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
+		}
+		if !currentSuccessfulCheckpoint(status, generation, api.ActionEvaluate) || len(status.RequiredInputs) != 0 {
+			return admission.Denied("Resolve the unfinished Evaluate or accepted reservation before deleting the transition")
+		}
+		return admission.Allowed("current Evaluate completed without an accepted reservation")
+	}
+	if !currentSuccessfulCheckpoint(status, generation, status.LastAction) {
+		return admission.Denied("Resolve the unfinished migration action before deleting the transition")
+	}
+	if isNamespace {
+		if status.LastAction == api.ActionCommit && status.IrreversibleAction == string(api.ActionCommit) && status.Phase == api.PhaseCommitted {
+			return admission.Allowed("namespace batch is committed")
+		}
+		if status.LastAction == api.ActionRollback && status.IrreversibleAction == "" && status.Phase == api.PhaseRolledBack {
+			return admission.Allowed("namespace batch is fully rolled back")
+		}
+		return admission.Denied("Namespace inputs remain protected until the batch is committed or fully rolled back")
+	}
+	if status.LastAction == api.ActionFinalize && status.IrreversibleAction == string(api.ActionFinalize) && status.Phase == api.PhaseFinalized {
+		return admission.Allowed("infrastructure transition is finalized")
+	}
+	return admission.Denied("Infrastructure transition must be finalized before deletion")
+}
+
+func canAbandonFailedEvaluate(status *api.TransitionStatus, action api.Action, generation int64, isNamespace, hasAcceptedSNATAllocation, hasWorkflowCleanupFinalizer bool) bool {
+	return status != nil && action == api.ActionEvaluate && generation > 0 &&
+		status.LastAction == api.ActionEvaluate && status.ActionState == api.ActionStateFailed &&
+		(status.Phase == api.PhaseEvaluationFailed || status.Phase == api.PhaseFailed) &&
+		status.ActionGeneration == generation && status.ObservedGeneration == generation &&
+		status.IrreversibleAction == "" && !hasAcceptedSNATAllocation &&
+		(len(status.NSXWorkflows) == 0 || (isNamespace && hasWorkflowCleanupFinalizer))
 }
 
 func decodeObjects(req admission.Request, oldObj, newObj any) error {
