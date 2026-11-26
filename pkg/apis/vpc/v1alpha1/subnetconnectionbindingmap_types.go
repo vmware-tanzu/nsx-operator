@@ -60,6 +60,7 @@ type SubnetConnectionBindingMapStatus struct {
 // +kubebuilder:storageversion
 // +kubebuilder:resource:scope="Namespaced",path=subnetconnectionbindingmaps,shortName=subnetbinding;subnetbindings
 // +kubebuilder:selectablefield:JSONPath=`.spec.subnetName`
+// +kubebuilder:selectablefield:JSONPath=`.spec.targetSubnetName`
 
 // SubnetConnectionBindingMap is the Schema for the SubnetConnectionBindingMap API.
 // +kubebuilder:printcolumn:name="subnet",type=string,JSONPath=`.spec.subnetName`,description="The Subnet which the SubnetConnectionBindingMap is associated"
