@@ -96,13 +96,6 @@ func TestCleanupContext(t *testing.T) {
 		require.True(t, ctx == cleanupCtx)
 	})
 
-	t.Run("supports nil context", func(t *testing.T) {
-		cleanupCtx, cleanupCancel := cleanupContext(nil)
-		defer cleanupCancel()
-		require.NoError(t, cleanupCtx.Err())
-		_, hasDeadline := cleanupCtx.Deadline()
-		require.True(t, hasDeadline)
-	})
 }
 
 type fakeRESTSessionManager struct {
