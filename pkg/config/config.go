@@ -256,10 +256,6 @@ func LoadConfigFromFile() (*NSXOperatorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Fall back to mode from [coe] section if not defined in [DEFAULT]
-	if !cfg.Section("DEFAULT").HasKey("mode") && cfg.Section("coe").HasKey("mode") {
-		nsxOperatorConfig.DefaultConfig.Mode = cfg.Section("coe").Key("mode").String()
-	}
 	err = cfg.Section("nsx_v3").MapTo(nsxOperatorConfig.NsxConfig)
 	if err != nil {
 		return nil, err

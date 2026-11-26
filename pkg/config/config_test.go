@@ -362,7 +362,7 @@ func TestConfig_Mode(t *testing.T) {
 }
 
 func TestConfig_ModeFromConfigFile(t *testing.T) {
-	// 1. Config file with [coe] mode fallback
+	// A mode under [coe] does not select standalone mode.
 	f1, err := os.CreateTemp("", "nsxop_coe_mode_*.ini")
 	assert.Nil(t, err)
 	defer os.Remove(f1.Name())
@@ -387,10 +387,10 @@ thumbprint = 81:49:DD:B7:E8:79:55:5D:9E:75:A9:FA:A6:7D:CB:EA:A4:CA:12:C6
 	configFilePath = f1.Name()
 	loadedCfg, err := NewNSXOperatorConfigFromFile()
 	assert.Nil(t, err)
-	assert.Equal(t, ModeAntreaNSXOnly, loadedCfg.GetMode())
-	assert.True(t, loadedCfg.IsAntreaNSXOnly())
+	assert.Equal(t, ModeVPC, loadedCfg.GetMode())
+	assert.False(t, loadedCfg.IsAntreaNSXOnly())
 	assert.False(t, loadedCfg.CoeConfig.EnableVPCNetwork)
-	assert.True(t, loadedCfg.K8sConfig.EnableAntreaNSXInterworking)
+	assert.False(t, loadedCfg.K8sConfig.EnableAntreaNSXInterworking)
 
 	// 2. Config file with [DEFAULT] mode
 	f2, err := os.CreateTemp("", "nsxop_default_mode_*.ini")
