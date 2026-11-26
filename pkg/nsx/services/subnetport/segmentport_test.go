@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -27,6 +28,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/config"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/realizestate"
+	nsxutil "github.com/vmware-tanzu/nsx-operator/pkg/nsx/util"
 )
 
 type fakeSegmentsClient struct {
@@ -117,7 +120,7 @@ func TestSegmentPortPathValidation(t *testing.T) {
 			subnetPort := &v1alpha1.SubnetPort{}
 			_, err = service.CreateOrUpdateSegmentPort(subnetPort, tt.path, "", nil, false, false)
 			assert.Error(t, err)
-			_, err = service.CheckSegmentPortState(subnetPort, tt.path)
+			_, err = service.CheckSegmentPortState(subnetPort, tt.path, false)
 			assert.Error(t, err)
 			port := segmentPortForDeletion()
 			port.ParentPath = common.String(tt.path)
@@ -311,12 +314,24 @@ func TestBuildSegmentPortIdAndNameLookupError(t *testing.T) {
 
 type fakeSegmentPortsClient struct {
 	infra_segments.PortsClient
-	port      model.SegmentPort
-	postCount int
+	port       model.SegmentPort
+	postCount  int
+	patchCount int
+	patchErr   error
+	getErr     error
 }
 
 func (c *fakeSegmentPortsClient) Get(segmentID, portID string) (model.SegmentPort, error) {
-	return c.port, nil
+	return c.port, c.getErr
+}
+
+func (c *fakeSegmentPortsClient) Patch(segmentID, portID string, port model.SegmentPort) error {
+	c.patchCount++
+	if c.patchErr != nil {
+		return c.patchErr
+	}
+	c.port = port
+	return nil
 }
 
 func (c *fakeSegmentPortsClient) post(port *model.SegmentPort) error {
@@ -348,7 +363,7 @@ func TestPostSegmentPort(t *testing.T) {
 				},
 			}
 			called := false
-			patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.Cluster), "HttpPost", func(_ *nsx.Cluster, url string, requestBody interface{}) (map[string]interface{}, error) {
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(service.NSXClient.Cluster), "HttpPostNoResponse", func(_ *nsx.Cluster, url string, requestBody interface{}) error {
 				called = true
 				assert.Equal(t, "policy/api/v1/infra/segments/seg-1/ports/port-1", url)
 				encoded, err := json.Marshal(requestBody)
@@ -365,7 +380,7 @@ func TestPostSegmentPort(t *testing.T) {
 				} else {
 					assert.Equal(t, *tt.initState, body["init_state"])
 				}
-				return body, tt.apiErr
+				return tt.apiErr
 			})
 			defer patches.Reset()
 
@@ -418,7 +433,7 @@ func TestCreateOrUpdateSegmentPortExisting(t *testing.T) {
 			require.NoError(t, service.SegmentPortStore.Apply(port))
 			segmentClient.port = *port
 			segmentClient.port.ParentPath = nil
-			patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "CheckSegmentPortState", func(_ *SubnetPortService, _ *v1alpha1.SubnetPort, _ string) (*model.SegmentPortState, error) {
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(service), "CheckSegmentPortState", func(_ *SubnetPortService, _ *v1alpha1.SubnetPort, _ string, _ bool) (*model.SegmentPortState, error) {
 				return &model.SegmentPortState{}, nil
 			})
 			defer patches.Reset()
@@ -435,6 +450,7 @@ func TestCreateOrUpdateSegmentPortExisting(t *testing.T) {
 			require.NoError(t, err)
 			assert.Zero(t, restoreVifChecks)
 			assert.Equal(t, tt.postCount, segmentClient.postCount)
+			assert.Zero(t, segmentClient.patchCount)
 			assert.Len(t, service.SegmentPortStore.List(), 1)
 			cached := service.SegmentPortStore.GetByKey(*port.Id)
 			require.NotNil(t, cached)
@@ -481,7 +497,46 @@ func TestCheckSegmentPortState_NotFound(t *testing.T) {
 		},
 	}
 
-	_, err := service.CheckSegmentPortState(spCR, "/infra/segments/seg1")
+	_, err := service.CheckSegmentPortState(spCR, "/infra/segments/seg1", false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get segment port from store")
+}
+
+func TestCheckSegmentPortStateRealizationError(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		restoreMode  bool
+		attachmentID string
+		initState    *string
+		wantDelete   bool
+	}{
+		{name: "restored port without NSX init state", restoreMode: true, attachmentID: "saved-vif"},
+		{name: "restored port with init state", restoreMode: true, attachmentID: "saved-vif", initState: common.String(model.SegmentPort_INIT_STATE_RESTORE_VIF)},
+		{name: "normal port", wantDelete: true},
+		{name: "restore mode without saved VIF", restoreMode: true, wantDelete: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sp := &v1alpha1.SubnetPort{ObjectMeta: metav1.ObjectMeta{UID: "cr-uid"}}
+			sp.Status.Attachment.ID = tc.attachmentID
+			client := &fakeDeleteSegmentPortsClient{}
+			service := &SubnetPortService{Service: common.Service{NSXClient: &nsx.Client{SegmentPortsClient: client}}, SegmentPortStore: setupSegmentPortStore()}
+			port := &model.SegmentPort{Id: common.String("port-1"), Path: common.String("/infra/segments/seg-1/ports/port-1"), InitState: tc.initState,
+				Tags: []model.Tag{{Scope: common.String(common.TagScopeSubnetPortCRUID), Tag: common.String(string(sp.UID))}}}
+			require.NoError(t, service.SegmentPortStore.Apply(port))
+			realizeErr := nsxutil.NewRealizeStateError("realization failed", 1)
+			patches := gomonkey.ApplyMethod(reflect.TypeOf(&realizestate.RealizeStateService{}), "CheckRealizeState", func(_ *realizestate.RealizeStateService, _ wait.Backoff, _ string, _ []string) error {
+				return realizeErr
+			})
+			defer patches.Reset()
+			_, err := service.CheckSegmentPortState(sp, "/infra/segments/seg-1", tc.restoreMode)
+			require.ErrorIs(t, err, realizeErr)
+			if tc.wantDelete {
+				assert.Equal(t, 1, client.calls)
+				assert.Nil(t, service.SegmentPortStore.GetByKey("port-1"))
+			} else {
+				assert.Zero(t, client.calls)
+				assert.NotNil(t, service.SegmentPortStore.GetByKey("port-1"))
+			}
+		})
+	}
 }

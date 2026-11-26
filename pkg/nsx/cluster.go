@@ -502,6 +502,17 @@ func (cluster *Cluster) HttpPost(url string, requestBody interface{}) (map[strin
 	return respJson, err
 }
 
+// HttpPostNoResponse sends a POST request when the caller does not need a response body.
+func (cluster *Cluster) HttpPostNoResponse(url string, requestBody interface{}) error {
+	resp, err := cluster.httpAction(url, "POST", requestBody)
+	if err != nil {
+		log.Error(err, "Failed to do HTTP POST operation")
+		return err
+	}
+	err, _ = util.HandleHTTPResponse(resp, nil, true)
+	return err
+}
+
 // HttpPatch sends an http PATCH request to the cluster with a JSON body, exported for use
 func (cluster *Cluster) HttpPatch(url string, requestBody interface{}) (map[string]interface{}, error) {
 	resp, err := cluster.httpAction(url, "PATCH", requestBody)
