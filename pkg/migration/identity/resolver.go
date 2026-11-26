@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/vmware/govmomi/vapi/rest"
@@ -18,6 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
 )
 
 // SupervisorZone is one zone returned by the authenticated vCenter Supervisor API.
@@ -63,7 +65,7 @@ func NewResolver(clients *AuthenticatedClients) (Resolver, error) {
 		return Resolver{}, fmt.Errorf("authenticated vCenter identity is incomplete")
 	}
 	return Resolver{
-		SupervisorTopology: VCenterSupervisorTopology{Client: clients.VCenterREST},
+		SupervisorTopology: &VCenterSupervisorTopology{Client: clients.VCenterREST, credentials: clients.vCenterRESTCredentials},
 		ComputeManagers:    NSXComputeManagers{Client: fabric.NewComputeManagersClient(clients.NSX.RestConnector)},
 		VCenterUUID:        vCenterUUID,
 		VCenterServer:      server,
@@ -146,27 +148,97 @@ func normalizeServer(server string) string {
 }
 
 // VCenterSupervisorTopology reads topology through an authenticated REST client.
-type VCenterSupervisorTopology struct{ Client *rest.Client }
+type VCenterSupervisorTopology struct {
+	Client      *rest.Client
+	credentials *url.Userinfo
+	sessionMu   sync.Mutex
+}
 
-func (reader VCenterSupervisorTopology) ReadTopology(ctx context.Context, supervisorID string) ([]SupervisorZone, error) {
+func (reader *VCenterSupervisorTopology) ReadTopology(ctx context.Context, supervisorID string) ([]SupervisorZone, error) {
 	if reader.Client == nil || !validSupervisorID(supervisorID) {
 		return nil, fmt.Errorf("authenticated vCenter REST client and Supervisor ID are required")
+	}
+	if _, err := reader.refreshSession(ctx); err != nil {
+		return nil, err
 	}
 	var zones []SupervisorZone
 	resource := reader.Client.Resource("/api/vcenter/namespace-management/supervisors").WithSubpath(supervisorID).WithSubpath("topology")
 	if err := reader.Client.Do(ctx, resource.Request(http.MethodGet), &zones); err != nil {
-		return nil, err
+		// The session can expire between this read and the topology request. The
+		// GET is safe to retry once after checking and refreshing the session.
+		refreshed, refreshErr := reader.refreshSession(ctx)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("read Supervisor topology: %w (session refresh failed: %v)", err, refreshErr)
+		}
+		if !refreshed {
+			return nil, err
+		}
+		if retryErr := reader.Client.Do(ctx, resource.Request(http.MethodGet), &zones); retryErr != nil {
+			return nil, retryErr
+		}
 	}
 	return zones, nil
 }
 
+type vCenterRESTSessionManager interface {
+	Session(context.Context) (*rest.Session, error)
+	Login(context.Context, *url.Userinfo) error
+}
+
+func ensureVCenterRESTSession(ctx context.Context, manager vCenterRESTSessionManager, credentials *url.Userinfo) (bool, error) {
+	session, err := manager.Session(ctx)
+	if err != nil {
+		return false, fmt.Errorf("check vCenter REST session: %w", err)
+	}
+	if session != nil {
+		return false, nil
+	}
+	if credentials == nil {
+		return false, fmt.Errorf("vCenter REST session expired and credentials are unavailable")
+	}
+	if err := manager.Login(ctx, credentials); err != nil {
+		return false, fmt.Errorf("refresh vCenter REST session: %w", err)
+	}
+	return true, nil
+}
+
+func (reader *VCenterSupervisorTopology) refreshSession(ctx context.Context) (bool, error) {
+	reader.sessionMu.Lock()
+	defer reader.sessionMu.Unlock()
+	return ensureVCenterRESTSession(ctx, reader.Client, reader.credentials)
+}
+
+type computeManagerPage struct {
+	Managers []ComputeManager
+	Cursor   *string
+}
+
+type computeManagerPageReader func(cursor *string, pageSize int64) (computeManagerPage, error)
+
 // NSXComputeManagers reads NSX's registered compute managers, following every
 // cursor so identity resolution cannot silently miss a matching record.
-type NSXComputeManagers struct{ Client fabric.ComputeManagersClient }
+type NSXComputeManagers struct {
+	Client   fabric.ComputeManagersClient
+	listPage computeManagerPageReader
+}
 
 func (reader NSXComputeManagers) ListComputeManagers(ctx context.Context) ([]ComputeManager, error) {
-	if reader.Client == nil {
+	if reader.Client == nil && reader.listPage == nil {
 		return nil, fmt.Errorf("NSX compute-manager client is required")
+	}
+	listPage := reader.listPage
+	if listPage == nil {
+		listPage = func(cursor *string, pageSize int64) (computeManagerPage, error) {
+			page, err := reader.Client.List(cursor, nil, nil, &pageSize, nil, nil, nil)
+			if err != nil {
+				return computeManagerPage{}, err
+			}
+			result := computeManagerPage{Cursor: page.Cursor}
+			for _, manager := range page.Results {
+				result.Managers = append(result.Managers, ComputeManager{ID: stringValue(manager.Id), OriginType: stringValue(manager.OriginType), Server: stringValue(manager.Server)})
+			}
+			return result, nil
+		}
 	}
 	pageSize := int64(1000)
 	var cursor *string
@@ -178,13 +250,11 @@ func (reader NSXComputeManagers) ListComputeManagers(ctx context.Context) ([]Com
 		}
 		// Filter locally because NSX versions may serialize the vCenter origin
 		// type with different casing.
-		page, err := reader.Client.List(cursor, nil, nil, &pageSize, nil, nil, nil)
+		page, err := listPage(cursor, pageSize)
 		if err != nil {
 			return nil, err
 		}
-		for _, manager := range page.Results {
-			result = append(result, ComputeManager{ID: stringValue(manager.Id), OriginType: stringValue(manager.OriginType), Server: stringValue(manager.Server)})
-		}
+		result = append(result, page.Managers...)
 		if page.Cursor == nil || *page.Cursor == "" {
 			return result, nil
 		}
@@ -203,9 +273,11 @@ func stringValue(value *string) string {
 	return *value
 }
 
-// ValidateReuse permits Execute to reuse only identities saved by a successful
-// Evaluate for the same source vCenter and generation.
-func ValidateReuse(source *api.ResolvedSourceContext, action api.Action, currentVCenterUUID string, conditions []metav1.Condition) error {
+// ValidateReuse permits Execute to reuse only identities saved by the successful
+// Evaluate immediately preceding this Execute request. The caller passes the
+// current Execute generation and the persisted checkpoint captured before the
+// controller starts Execute.
+func ValidateReuse(source *api.ResolvedSourceContext, action api.Action, currentVCenterUUID string, currentGeneration int64, evaluateCheckpoint *api.TransitionStatus, conditions []metav1.Condition) error {
 	if source == nil || source.NSXComputeManagerID == "" || source.VCenterInstanceUUID == "" || source.EvaluatedGeneration < 1 {
 		return fmt.Errorf("resolved source context is missing; run Evaluate")
 	}
@@ -215,8 +287,17 @@ func ValidateReuse(source *api.ResolvedSourceContext, action api.Action, current
 	if action != api.ActionExecute {
 		return fmt.Errorf("resolved source context cannot be reused for action %q", action)
 	}
-	if !conditionSucceededAt(conditions, "NetworkInputsValidated", source.EvaluatedGeneration) || !conditionSucceededAt(conditions, "DVPGConversionValidated", source.EvaluatedGeneration) {
-		return fmt.Errorf("resolved source context is not backed by successful Evaluate checks for generation %d", source.EvaluatedGeneration)
+	evaluateGeneration := currentGeneration - 1
+	if currentGeneration < 2 || source.EvaluatedGeneration != evaluateGeneration {
+		return fmt.Errorf("resolved source context generation %d does not match the Evaluate generation for current Execute generation %d", source.EvaluatedGeneration, currentGeneration)
+	}
+	if evaluateCheckpoint == nil || evaluateCheckpoint.LastAction != api.ActionEvaluate ||
+		evaluateCheckpoint.ActionState != api.ActionStateSucceeded || evaluateCheckpoint.ActionGeneration != evaluateGeneration {
+		return fmt.Errorf("resolved source context is not backed by a successful Evaluate checkpoint for generation %d", evaluateGeneration)
+	}
+	if !conditionSucceededAt(conditions, inspection.ConditionNetworkInputsValidated, evaluateGeneration) ||
+		!conditionSucceededAt(conditions, inspection.ConditionDVPGConversionValidated, evaluateGeneration) {
+		return fmt.Errorf("resolved source context is not backed by successful Evaluate checks for generation %d", evaluateGeneration)
 	}
 	return nil
 }

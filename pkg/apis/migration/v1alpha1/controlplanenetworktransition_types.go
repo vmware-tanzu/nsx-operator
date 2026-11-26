@@ -175,7 +175,7 @@ type ResolvedSourceContext struct {
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=255
-	NSXComputeManagerID string `json:"nsxComputeManagerID"`
+	NSXComputeManagerID string `json:"nsxComputeManagerId"`
 }
 
 // ControlPlaneNetworkTransition requests Stage 1 infrastructure transition and Stage 3 finalization.

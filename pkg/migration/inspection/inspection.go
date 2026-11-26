@@ -21,6 +21,7 @@ import (
 )
 
 const ConditionNetworkInputsValidated = "NetworkInputsValidated"
+const ConditionDVPGConversionValidated = "DVPGConversionValidated"
 const inputPrefix = "networkInspection/"
 
 // ConfigurationError identifies incompatible inventory, as distinct from a

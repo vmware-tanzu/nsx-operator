@@ -585,7 +585,7 @@ spec:
                     format: int64
                     minimum: 1
                     type: integer
-                  nsxComputeManagerID:
+                  nsxComputeManagerId:
                     description: NSXComputeManagerID is the NSX identity corresponding
                       to that vCenter.
                     maxLength: 255
@@ -599,7 +599,7 @@ spec:
                     type: string
                 required:
                 - evaluatedGeneration
-                - nsxComputeManagerID
+                - nsxComputeManagerId
                 - vCenterInstanceUUID
                 type: object
               sourceLBProvider:

@@ -34,6 +34,8 @@ type AuthenticatedClients struct {
 	VCenter     *govmomi.Client
 	VCenterREST *rest.Client
 	NSX         *nsx.Client
+
+	vCenterRESTCredentials *url.Userinfo
 }
 
 // NewAuthenticatedClients builds the migration clients from the operator's
@@ -65,7 +67,7 @@ func NewAuthenticatedClients(ctx context.Context, operatorConfig *config.NSXOper
 	userinfo := url.UserPassword(username, password)
 
 	soapClient := soap.NewClient(vcURL, false)
-	soapClient.DefaultTransport().TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: rootCAs}
+	soapClient.DefaultTransport().TLSClientConfig = vCenterTLSConfig(rootCAs)
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
 		return nil, fmt.Errorf("connect to vCenter: %w", err)
@@ -78,7 +80,9 @@ func NewAuthenticatedClients(ctx context.Context, operatorConfig *config.NSXOper
 
 	vcenterREST := rest.NewClient(vimClient)
 	if err := vcenterREST.Login(ctx, userinfo); err != nil {
-		_ = vcenter.Logout(ctx)
+		cleanupCtx, cancel := cleanupContext(ctx)
+		_ = vcenter.Logout(cleanupCtx)
+		cancel()
 		return nil, fmt.Errorf("authenticate to vCenter REST API: %w", err)
 	}
 
@@ -88,11 +92,13 @@ func NewAuthenticatedClients(ctx context.Context, operatorConfig *config.NSXOper
 	migrationConfig.LibMode = true
 	nsxClient, err := nsx.NewMigrationClient(&migrationConfig)
 	if err != nil {
-		_ = vcenterREST.Logout(ctx)
-		_ = vcenter.Logout(ctx)
+		cleanupCtx, cancel := cleanupContext(ctx)
+		_ = vcenterREST.Logout(cleanupCtx)
+		_ = vcenter.Logout(cleanupCtx)
+		cancel()
 		return nil, fmt.Errorf("initialize authenticated NSX migration client: %w", err)
 	}
-	return &AuthenticatedClients{VCenter: vcenter, VCenterREST: vcenterREST, NSX: nsxClient}, nil
+	return &AuthenticatedClients{VCenter: vcenter, VCenterREST: vcenterREST, NSX: nsxClient, vCenterRESTCredentials: userinfo}, nil
 }
 
 // Close releases authenticated sessions. It is safe to call more than once.
@@ -100,11 +106,8 @@ func (clients *AuthenticatedClients) Close(ctx context.Context) error {
 	if clients == nil {
 		return nil
 	}
-	if ctx == nil || ctx.Err() != nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-	}
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	var restErr, soapErr error
 	if clients.VCenterREST != nil {
 		restErr = clients.VCenterREST.Logout(ctx)
@@ -118,18 +121,32 @@ func (clients *AuthenticatedClients) Close(ctx context.Context) error {
 	return nil
 }
 
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx != nil && ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.Background(), 5*time.Second)
+}
+
 func vCenterCredentials(vcConfig *config.VCConfig) (string, string, error) {
+	return vCenterCredentialsFromFiles(vcConfig, jwt.VC_SVCACCOUNT_USER_PATH, jwt.VC_SVCACCOUNT_PWD_PATH)
+}
+
+func vCenterCredentialsFromFiles(vcConfig *config.VCConfig, usernamePath, passwordPath string) (string, string, error) {
+	if vcConfig == nil {
+		return "", "", fmt.Errorf("vCenter configuration is required")
+	}
 	if (vcConfig.VCUser == "") != (vcConfig.VCPassword == "") {
 		return "", "", fmt.Errorf("vCenter username and password must be provided together")
 	}
 	if vcConfig.VCUser != "" {
 		return vcConfig.VCUser, vcConfig.VCPassword, nil
 	}
-	username, err := readCredential(jwt.VC_SVCACCOUNT_USER_PATH)
+	username, err := readCredential(usernamePath)
 	if err != nil {
 		return "", "", fmt.Errorf("read vCenter service-account username: %w", err)
 	}
-	password, err := readCredential(jwt.VC_SVCACCOUNT_PWD_PATH)
+	password, err := readCredential(passwordPath)
 	if err != nil {
 		return "", "", fmt.Errorf("read vCenter service-account password: %w", err)
 	}
@@ -160,4 +177,8 @@ func vCenterRootCAs(caFile string) (*x509.CertPool, error) {
 		return nil, fmt.Errorf("vCenter CA file %q contains no valid certificates", caFile)
 	}
 	return rootCAs, nil
+}
+
+func vCenterTLSConfig(rootCAs *x509.CertPool) *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: rootCAs}
 }
