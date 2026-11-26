@@ -124,12 +124,18 @@ func (r *Reconciler) namespaceExecuteBlock(ctx context.Context, current *api.Nam
 	}
 	for i := range namespaces.Items {
 		other := &namespaces.Items[i]
-		if other.Name == current.Name || !other.DeletionTimestamp.IsZero() || other.Spec.Action != api.ActionExecute {
+		if other.Name == current.Name || !other.DeletionTimestamp.IsZero() {
 			continue
 		}
 		var otherStatus *api.TransitionStatus
 		if other.Status != nil {
 			otherStatus = &other.Status.TransitionStatus
+		}
+		if other.Spec.Action == api.ActionRollback && (otherStatus == nil || otherStatus.Phase != api.PhaseRolledBack) {
+			return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Rollback; %q must wait", other.Name, current.Name), nil
+		}
+		if other.Spec.Action != api.ActionExecute {
+			continue
 		}
 		if namespaceExecuteStarted(otherStatus, other.Generation) {
 			return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Execute; %q must wait", other.Name, current.Name), nil
