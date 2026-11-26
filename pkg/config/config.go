@@ -103,6 +103,15 @@ type CoeConfig struct {
 	Cluster          string `ini:"cluster"`
 	EnableVPCNetwork bool   `ini:"enable_vpc_network"`
 	EnableSha        bool   `ini:"enable_sha"`
+	// EnableNetworkMigration opts into migration-specific operator behavior.
+	// It is read at startup and defaults to false.
+	EnableNetworkMigration bool `ini:"enable_network_migration"`
+}
+
+// NetworkMigrationEnabled reports whether migration support is explicitly enabled.
+// It is independent of the migration manager process and other VPC feature flags.
+func (operatorConfig *NSXOperatorConfig) NetworkMigrationEnabled() bool {
+	return operatorConfig != nil && operatorConfig.CoeConfig != nil && operatorConfig.EnableNetworkMigration
 }
 
 type NsxConfig struct {
@@ -274,6 +283,7 @@ func LoadConfigFromFile() (*NSXOperatorConfig, error) {
 		return nil, err
 	}
 
+	configLog.Infof("Network migration support enabled: %t", nsxOperatorConfig.NetworkMigrationEnabled())
 	return nsxOperatorConfig, nil
 }
 
