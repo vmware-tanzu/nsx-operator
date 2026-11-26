@@ -4,6 +4,7 @@
 package subnetport
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -33,6 +34,7 @@ func (c *countingSegmentPortsClient) Get(segmentID, portID string) (model.Segmen
 
 func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 	const attachmentID = "00000000-0000-0000-0000-000000000002"
+	writeErr := errors.New("segment port write failed")
 	tests := []struct {
 		name         string
 		ready        corev1.ConditionStatus
@@ -43,16 +45,23 @@ func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 		newPort      bool
 		stateCalls   int
 		postCount    int
+		patchCount   int
+		writeErr     error
 	}{
 		{name: "ready L2 port without IP or gateway", ready: corev1.ConditionTrue, attachmentID: attachmentID},
 		{name: "missing Ready condition", attachmentID: attachmentID, stateCalls: 1},
 		{name: "not ready", ready: corev1.ConditionFalse, attachmentID: attachmentID, stateCalls: 1},
 		{name: "missing status attachment", ready: corev1.ConditionTrue, stateCalls: 1},
 		{name: "mismatched status attachment", ready: corev1.ConditionTrue, attachmentID: "different-attachment", stateCalls: 1},
-		{name: "changed context", ready: corev1.ConditionTrue, attachmentID: attachmentID, contextID: "host-1", stateCalls: 1, postCount: 1},
-		{name: "changed tags", ready: corev1.ConditionTrue, attachmentID: attachmentID, updateTags: true, stateCalls: 1, postCount: 1},
+		{name: "changed context", ready: corev1.ConditionTrue, attachmentID: attachmentID, contextID: "host-1", stateCalls: 1, patchCount: 1},
+		{name: "changed tags", ready: corev1.ConditionTrue, attachmentID: attachmentID, updateTags: true, stateCalls: 1, patchCount: 1},
 		{name: "restore unchanged port", ready: corev1.ConditionTrue, attachmentID: attachmentID, restoreMode: true, stateCalls: 1},
-		{name: "new port with stale ready status", ready: corev1.ConditionTrue, attachmentID: attachmentID, newPort: true, stateCalls: 1, postCount: 1},
+		{name: "restore changed port", ready: corev1.ConditionTrue, attachmentID: attachmentID, contextID: "host-1", restoreMode: true, stateCalls: 1, postCount: 1},
+		{name: "restore new port", attachmentID: attachmentID, restoreMode: true, newPort: true, stateCalls: 1, postCount: 1},
+		{name: "restore new port without attachment", restoreMode: true, newPort: true, stateCalls: 1, postCount: 1},
+		{name: "new port with stale ready status", ready: corev1.ConditionTrue, attachmentID: attachmentID, newPort: true, stateCalls: 1, patchCount: 1},
+		{name: "PATCH error", newPort: true, patchCount: 1, writeErr: writeErr},
+		{name: "POST error", restoreMode: true, newPort: true, postCount: 1, writeErr: writeErr},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -63,7 +72,7 @@ func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 			if tt.ready != "" {
 				sp.Status.Conditions = []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: tt.ready}}
 			}
-			segmentClient := &countingSegmentPortsClient{fakeSegmentPortsClient: &fakeSegmentPortsClient{}}
+			segmentClient := &countingSegmentPortsClient{fakeSegmentPortsClient: &fakeSegmentPortsClient{patchErr: tt.writeErr}}
 			service := &SubnetPortService{
 				Service: common.Service{
 					Client:    fake.NewClientBuilder().WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns", UID: "ns-uid"}}).Build(),
@@ -87,6 +96,10 @@ func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 			})
 			defer patches.Reset()
 			patches.ApplyFunc((*SubnetPortService).postSegmentPort, func(_ *SubnetPortService, _ string, port *model.SegmentPort) error {
+				if tt.writeErr != nil {
+					segmentClient.postCount++
+					return tt.writeErr
+				}
 				return segmentClient.post(port)
 			})
 			patches.ApplyFunc(nsx.RestoreVifFeatureEnabled, func(_ *nsx.Client, _ *config.NSXOperatorConfig) bool { return true })
@@ -96,10 +109,16 @@ func TestCreateOrUpdateSegmentPortAlreadyRealized(t *testing.T) {
 			}
 
 			state, err := service.CreateOrUpdateSegmentPort(sp, segmentPath, tt.contextID, tags, true, tt.restoreMode)
-			require.NoError(t, err)
 			assert.Equal(t, tt.postCount, segmentClient.postCount)
+			assert.Equal(t, tt.patchCount, segmentClient.patchCount)
 			assert.Equal(t, tt.stateCalls, stateCalls)
 			assert.Equal(t, tt.stateCalls, segmentClient.getCount)
+			if tt.writeErr != nil {
+				require.ErrorIs(t, err, tt.writeErr)
+				assert.Empty(t, service.SegmentPortStore.List())
+			} else {
+				require.NoError(t, err)
+			}
 			if tt.stateCalls == 0 {
 				assert.Nil(t, state)
 			} else {
