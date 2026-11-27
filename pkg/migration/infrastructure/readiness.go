@@ -86,12 +86,22 @@ func (r *KubernetesReadiness) Check(ctx context.Context, resuming bool, projectP
 	}
 	master := masters[0]
 	if master.Status.Phase != corev1.PodRunning {
-		return issue("NCPNotReady", "The active NCP Pod must have a running, ready nsx-operator container; migration sidecar readiness is insufficient")
+		return issue("NCPNotReady", "The active NCP Pod must be running and Ready; migration sidecar readiness is insufficient")
+	}
+	podReady := false
+	for _, condition := range master.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			podReady = true
+			break
+		}
+	}
+	if !podReady {
+		return issue("NCPNotReady", "The active NCP Pod must be Ready, including all required networking containers")
 	}
 	for _, container := range master.Status.ContainerStatuses {
 		if container.Name == "nsx-operator" && container.Ready && container.State.Running != nil && container.ContainerID != "" {
 			return nil
 		}
 	}
-	return issue("NCPNotReady", "The active NCP Pod must have a running, ready nsx-operator container; migration sidecar readiness is insufficient")
+	return issue("NCPNotReady", "The active NCP Pod must have a running, ready nsx-operator container")
 }

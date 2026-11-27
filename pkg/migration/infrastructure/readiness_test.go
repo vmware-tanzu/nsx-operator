@@ -23,7 +23,7 @@ import (
 
 func readyObjects() (*netapi.WorkloadNetworkConfiguration, *corev1.Pod) {
 	config := &netapi.WorkloadNetworkConfiguration{ObjectMeta: metav1.ObjectMeta{Name: "default", UID: "wlnc", Generation: 2}, Spec: netapi.WorkloadNetworkConfigurationSpec{ActiveSystemProvider: netapi.NetworkProviderVSphereDistributed, Providers: []netapi.NetworkProviderEntry{{Type: netapi.NetworkProviderVSphereDistributed}, {Type: netapi.NetworkProviderVPC, SystemConfiguration: &netapi.NamespaceNetworkConfig{VPCConfig: netapi.VPCConfig{AutoCreateConfig: netapi.AutoCreateVPCConfig{NSXProject: "/orgs/default/projects/default"}}}}}}, Status: &netapi.WorkloadNetworkConfigurationStatus{Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, ObservedGeneration: 2}}}}
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "nsx-ncp-0", Namespace: ncpNamespace, UID: "ncp", Labels: map[string]string{"nsx-operator-role": "master"}}, Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Name: "nsx-operator", Ready: true, ContainerID: "containerd://current", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "nsx-ncp-0", Namespace: ncpNamespace, UID: "ncp", Labels: map[string]string{"nsx-operator-role": "master"}}, Status: corev1.PodStatus{Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}, ContainerStatuses: []corev1.ContainerStatus{{Name: "nsx-operator", Ready: true, ContainerID: "containerd://current", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}}}}
 	return config, pod
 }
 func TestKubernetesReadiness(t *testing.T) {
