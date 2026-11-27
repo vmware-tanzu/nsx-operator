@@ -7,9 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -248,7 +250,7 @@ func (r *NetworkResourceTransitionReconciler) reconcileMoveItem(
 	var sourceUID types.UID
 	if sourceExists {
 		sourceUID = sourceCR.UID
-		if sourceCR.Spec.UsedFor != v1alpha1.UsedForLBFrontend {
+		if !slices.Contains(sourceCR.Spec.UsedFor, v1alpha1.UsedForLBFrontend) {
 			return fail("Source IPAddressAllocation is not LB_FRONTEND", false)
 		}
 		if sourceCR.Status.AllocationIPs == "" {
@@ -389,7 +391,7 @@ func validateTargetCR(source, target *v1alpha1.IPAddressAllocation) error {
 	if !target.DeletionTimestamp.IsZero() {
 		return fmt.Errorf("target IPAddressAllocation is being deleted")
 	}
-	if source != nil && target.Spec != source.Spec {
+	if source != nil && !apiequality.Semantic.DeepEqual(target.Spec, source.Spec) {
 		return &permanentTransitionValidationError{err: fmt.Errorf("target IPAddressAllocation spec conflicts with source")}
 	}
 	return nil

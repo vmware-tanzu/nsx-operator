@@ -241,7 +241,7 @@ func TestReconcile_WaitingSourceAllocation(t *testing.T) {
 			UID:       types.UID("source-uid-123"),
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor: v1alpha1.UsedForLBFrontend,
+			UsedFor: []string{v1alpha1.UsedForLBFrontend},
 		},
 		// No allocation IPs yet
 	}
@@ -313,7 +313,7 @@ func TestReconcile_Success_InPlaceTagAdoption(t *testing.T) {
 			},
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor:     v1alpha1.UsedForLBFrontend,
+			UsedFor:     []string{v1alpha1.UsedForLBFrontend},
 			IPBlockName: "ipblock-public",
 		},
 		Status: v1alpha1.IPAddressAllocationStatus{
@@ -410,7 +410,7 @@ func TestReconcile_Success_InPlaceTagAdoption(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "192.168.10.50", targetCR.Status.AllocationIPs)
 	assert.Equal(t, "ipblock-public", targetCR.Spec.IPBlockName)
-	assert.Equal(t, v1alpha1.UsedForLBFrontend, targetCR.Spec.UsedFor)
+	assert.Equal(t, []string{v1alpha1.UsedForLBFrontend}, targetCR.Spec.UsedFor)
 	assert.Len(t, targetCR.OwnerReferences, 1)
 	assert.Equal(t, types.UID("new-svc-uid-789"), targetCR.OwnerReferences[0].UID)
 
@@ -424,7 +424,7 @@ func TestReconcile_DeletionRequestedCompletesTransition(t *testing.T) {
 	scheme := setupScheme()
 	deletedAt := metav1.Now()
 	spec := v1alpha1.IPAddressAllocationSpec{
-		UsedFor:     v1alpha1.UsedForLBFrontend,
+		UsedFor:     []string{v1alpha1.UsedForLBFrontend},
 		IPBlockName: "ipblock-public",
 	}
 	sourceCR := &v1alpha1.IPAddressAllocation{
@@ -519,7 +519,7 @@ func TestReconcile_Idempotent_AlreadyTransitioned(t *testing.T) {
 			UID:       types.UID("target-uid-456"),
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor: v1alpha1.UsedForLBFrontend,
+			UsedFor: []string{v1alpha1.UsedForLBFrontend},
 		},
 		Status: v1alpha1.IPAddressAllocationStatus{
 			AllocationIPs: "192.168.10.50",
@@ -596,7 +596,7 @@ func TestReconcile_Recovery_RestartDuringStatusUpdate(t *testing.T) {
 			UID:       types.UID("source-uid-123"),
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor: v1alpha1.UsedForLBFrontend,
+			UsedFor: []string{v1alpha1.UsedForLBFrontend},
 		},
 		Status: v1alpha1.IPAddressAllocationStatus{
 			AllocationIPs: "192.168.10.50",
@@ -610,7 +610,7 @@ func TestReconcile_Recovery_RestartDuringStatusUpdate(t *testing.T) {
 			UID:       types.UID("target-uid-456"),
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor: v1alpha1.UsedForLBFrontend,
+			UsedFor: []string{v1alpha1.UsedForLBFrontend},
 		},
 		// Status is empty because operator crashed right before updating target status
 		Status: v1alpha1.IPAddressAllocationStatus{},
@@ -704,7 +704,7 @@ func TestReconcile_Recovery_RestartBeforeNSXAdoption(t *testing.T) {
 			UID:       types.UID("source-uid-123"),
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor: v1alpha1.UsedForLBFrontend,
+			UsedFor: []string{v1alpha1.UsedForLBFrontend},
 		},
 		Status: v1alpha1.IPAddressAllocationStatus{
 			AllocationIPs: "192.168.10.50",
@@ -719,7 +719,7 @@ func TestReconcile_Recovery_RestartBeforeNSXAdoption(t *testing.T) {
 			Annotations: map[string]string{servicecommon.AnnotationTransitionTarget: "true"},
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor: v1alpha1.UsedForLBFrontend,
+			UsedFor: []string{v1alpha1.UsedForLBFrontend},
 		},
 		Status: v1alpha1.IPAddressAllocationStatus{},
 	}
@@ -927,7 +927,7 @@ func TestEnsureTargetCR(t *testing.T) {
 			Labels: map[string]string{"env": "prod"},
 		},
 		Spec: v1alpha1.IPAddressAllocationSpec{
-			UsedFor:     v1alpha1.UsedForLBFrontend,
+			UsedFor:     []string{v1alpha1.UsedForLBFrontend},
 			IPBlockName: "ipblock-infra",
 		},
 	}
@@ -954,7 +954,7 @@ func TestEnsureTargetCR(t *testing.T) {
 	assert.Equal(t, "tenant-ns", gotCreated.Namespace)
 	assert.Equal(t, "prod", gotCreated.Labels["env"])
 	assert.Equal(t, "true", gotCreated.Annotations[servicecommon.AnnotationTransitionTarget])
-	assert.Equal(t, v1alpha1.UsedForLBFrontend, gotCreated.Spec.UsedFor)
+	assert.Equal(t, []string{v1alpha1.UsedForLBFrontend}, gotCreated.Spec.UsedFor)
 	assert.Equal(t, "ipblock-infra", gotCreated.Spec.IPBlockName)
 
 	// 3. Reject a target that entered deletion before it was returned to adoption.
@@ -986,7 +986,7 @@ func TestEnsureTargetCR_ValidatesPersistedTarget(t *testing.T) {
 		}, wantError: "being deleted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			source := &v1alpha1.IPAddressAllocation{Spec: v1alpha1.IPAddressAllocationSpec{UsedFor: v1alpha1.UsedForLBFrontend, AllocationSize: 1}}
+			source := &v1alpha1.IPAddressAllocation{Spec: v1alpha1.IPAddressAllocationSpec{UsedFor: []string{v1alpha1.UsedForLBFrontend}, AllocationSize: 1}}
 			target := &v1alpha1.IPAddressAllocation{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "tenant", Name: "target", UID: "target-uid", Annotations: map[string]string{servicecommon.AnnotationTransitionTarget: "true"}},
 				Spec:       source.Spec,
