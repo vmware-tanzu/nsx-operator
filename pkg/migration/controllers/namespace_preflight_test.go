@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	netop "github.com/vmware-tanzu/net-operator-api/api/v1alpha1"
+
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/topology"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 )
@@ -351,6 +355,116 @@ func TestRollbackPreflightAllowsProviderRestorePropagation(t *testing.T) {
 	}
 }
 
+func TestNamespacePreflightRediscoversRetainedBackingAfterCutover(t *testing.T) {
+	ctx := context.Background()
+	scheme := preflightTestScheme(t)
+	member := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "tenant-uid"}}
+	settings := &netop.NetworkSettings{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: member.Name}, Provider: netop.NetworkProviderVSphereDistributed}
+	source := &netop.Network{
+		ObjectMeta: metav1.ObjectMeta{Name: "source", Namespace: member.Name},
+		Spec: netop.NetworkSpec{Type: netop.NetworkTypeVDS, ProviderRef: netop.NetworkProviderReference{
+			APIGroup: netop.GroupName, Kind: "VSphereDistributedNetwork", Name: "source-vdn",
+		}},
+	}
+	vdn := &netop.VSphereDistributedNetwork{
+		ObjectMeta: metav1.ObjectMeta{Name: "source-vdn"},
+		Spec:       netop.VSphereDistributedNetworkSpec{PortGroupID: "dvpg-1", IPAssignmentMode: netop.IPAssignmentModeDHCP},
+		Status: netop.VSphereDistributedNetworkStatus{DefaultPortConfig: &netop.VSphereDistributedPortConfig{
+			Vlan: &netop.VlanSpec{Type: netop.VLANTypeStandard},
+		}},
+	}
+	batch := &api.NamespaceNetworkTransition{
+		ObjectMeta: metav1.ObjectMeta{Name: "batch", UID: "batch-uid", Generation: 3},
+		Spec: api.NamespaceNetworkTransitionSpec{
+			TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{member.Name},
+			NetworkConfiguration: &api.NamespaceNetworkConfiguration{NamespaceDHCPNetworks: []api.DHCPNetworkConfiguration{{
+				VDNName: vdn.Name, SubnetMask: "255.255.255.0", GatewayAddress: "192.0.2.1",
+				DHCPRange: &api.IPAddressRange{Start: "192.0.2.10", End: "192.0.2.20"},
+			}}},
+		},
+		Status: &api.NamespaceNetworkTransitionStatus{
+			TransitionStatus:  api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 3, ObservedGeneration: 3},
+			NamespaceStatuses: []api.NamespaceStatus{{Name: member.Name, Phase: api.PhaseExecuting}},
+		},
+	}
+	desired := newSupervisorNamespace(member.Name, true)
+	deps := preflightDependencyObjects(false)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		batch, member, settings, source, vdn, desired, readyStage1Transition(), deps[0], deps[2],
+	).Build()
+	discoverer := topology.InspectionDiscoverer{
+		Service: inspection.Service{
+			Inventory:       inspection.KubernetesInventory{Reader: c, Topology: preflightPortGroupReader{}},
+			TargetInventory: preflightTargetInventory{},
+		},
+		Graph: preflightGraphFunc(func(_ context.Context, _ *api.NamespaceNetworkTransition, networks []inspection.Network) ([]topology.ResourceIdentity, []topology.ConsumerIdentity, error) {
+			if len(networks) != 1 || networks[0].Source.VDNName != vdn.Name || len(networks[0].Source.Topologies) != 1 || networks[0].Source.Topologies[0].PortGroupID != vdn.Spec.PortGroupID {
+				t.Fatalf("wrong source topology: %+v", networks)
+			}
+			return nil, nil, nil
+		}),
+	}
+	checkExecute := func() {
+		t.Helper()
+		outcome, err := checkNamespaceBatchPrerequisites(ctx, c, batch, discoverer)
+		if err != nil || !outcome.ready || len(outcome.topologySnapshot.Resources) != 1 || outcome.topologySnapshot.Resources[0].Key != "vc:dvpg-1" {
+			t.Fatalf("Execute preflight = %+v, err = %v", outcome, err)
+		}
+	}
+	checkExecute()
+	target := &netop.Network{ObjectMeta: metav1.ObjectMeta{Name: "target", Namespace: member.Name}, Spec: netop.NetworkSpec{Type: netop.NetworkTypeNSXTVPC}}
+	if err := c.Create(ctx, target); err != nil {
+		t.Fatal(err)
+	}
+	checkExecute()
+	settings.Provider, settings.LegacyProvider = netop.NetworkProviderVPC, netop.NetworkProviderVSphereDistributed
+	if err := c.Update(ctx, settings); err != nil {
+		t.Fatal(err)
+	}
+	checkExecute()
+	batch.Spec.Action = api.ActionRollback
+	batch.Generation++
+	discoverer.Service.TargetInventory = nil
+	outcome, err := checkNamespaceRollbackPrerequisites(ctx, c, batch, discoverer)
+	if err != nil || !outcome.ready {
+		t.Fatalf("Rollback preflight = %+v, err = %v", outcome, err)
+	}
+	if err := c.Delete(ctx, vdn); err != nil {
+		t.Fatal(err)
+	}
+	_, err = checkNamespaceRollbackPrerequisites(ctx, c, batch, discoverer)
+	if err == nil || !strings.Contains(err.Error(), "resolve source VDN source-vdn") {
+		t.Fatalf("missing VDN backing error = %v", err)
+	}
+	// Batch-wide workflow names cannot prove the original member's backing.
+	batch.Status.NSXWorkflows = []api.NSXWorkflowStatus{{VDNName: vdn.Name, WorkflowID: "workflow"}}
+	if err := c.Delete(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	_, err = checkNamespaceRollbackPrerequisites(ctx, c, batch, discoverer)
+	if err == nil || !strings.Contains(err.Error(), "namespace tenant has no source Networks") {
+		t.Fatalf("missing retained source error = %v", err)
+	}
+}
+
+type preflightPortGroupReader struct{}
+
+func (preflightPortGroupReader) ResolvePortGroup(_ context.Context, id string) (inspection.Topology, error) {
+	return inspection.Topology{VCenterUUID: "vc", PortGroupID: id, SwitchID: "switch", SwitchUUID: "switch-uuid", ClusterIDs: []string{"cluster"}, ZoneIDs: []string{"zone"}}, nil
+}
+
+type preflightTargetInventory struct{}
+
+func (preflightTargetInventory) ListTopology(context.Context) ([]inspection.TargetTopology, error) {
+	return nil, nil
+}
+
+type preflightGraphFunc func(context.Context, *api.NamespaceNetworkTransition, []inspection.Network) ([]topology.ResourceIdentity, []topology.ConsumerIdentity, error)
+
+func (f preflightGraphFunc) DiscoverShared(ctx context.Context, batch *api.NamespaceNetworkTransition, networks []inspection.Network) ([]topology.ResourceIdentity, []topology.ConsumerIdentity, error) {
+	return f(ctx, batch, networks)
+}
+
 func TestFindActiveNamespaceBatchConflictsOnSharedDVPG(t *testing.T) {
 	current := &api.NamespaceNetworkTransition{
 		ObjectMeta: metav1.ObjectMeta{Name: "batch-a", UID: "uid-a", Generation: 1},
@@ -388,8 +502,40 @@ func TestFindActiveNamespaceBatchConflictsOnSharedDVPG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("checkNamespaceBatchPrerequisites() error = %v", err)
 	}
-	if outcome.ready || outcome.reason != "ConflictingBatch" {
-		t.Fatalf("preflight = (ready=%t, reason=%q), want blocked with ConflictingBatch", outcome.ready, outcome.reason)
+	if !outcome.ready {
+		t.Fatalf("read-only Evaluate blocked on shared DVPG: reason=%q", outcome.reason)
+	}
+}
+
+func TestSharedVDNOnlyConflictsWhenResourcesAreMutated(t *testing.T) {
+	current := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "current"}, Spec: api.NamespaceNetworkTransitionSpec{
+		TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"a"},
+		NetworkConfiguration: &api.NamespaceNetworkConfiguration{NamespaceDHCPNetworks: []api.DHCPNetworkConfiguration{{VDNName: "shared"}}},
+	}}
+	other := &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "other"}, Spec: api.NamespaceNetworkTransitionSpec{
+		TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"b"},
+	}, Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, NSXWorkflows: []api.NSXWorkflowStatus{{VDNName: "shared"}}}}}
+	c := fake.NewClientBuilder().WithScheme(preflightTestScheme(t)).WithObjects(current, other).Build()
+	dvpg := topology.ResourceIdentity{Kind: topology.ResourceDVPG, Key: "vc:dvpg"}
+	for _, tc := range []struct {
+		name         string
+		resources    []topology.ResourceIdentity
+		wantConflict bool
+	}{
+		{"reuse", nil, false}, {"modify", []topology.ResourceIdentity{dvpg}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			discoverer := &topologyDiscovererFunc{fn: func(context.Context, *api.NamespaceNetworkTransition) (topology.BatchSnapshot, error) {
+				return topology.BatchSnapshot{Complete: true, Resources: []topology.ResourceIdentity{dvpg}}, nil
+			}}
+			conflicts, err := findActiveNamespaceBatchConflicts(context.Background(), c, current, topology.BatchSnapshot{Complete: true, Resources: tc.resources}, discoverer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(conflicts) != 0) != tc.wantConflict {
+				t.Fatalf("conflicts = %v, want conflict=%t", conflicts, tc.wantConflict)
+			}
+		})
 	}
 }
 
@@ -648,10 +794,12 @@ func preflightTestScheme(t *testing.T) *runtime.Scheme {
 	if err := api.AddToScheme(scheme); err != nil {
 		t.Fatalf("register migration API types: %v", err)
 	}
+	if err := netop.AddToScheme(scheme); err != nil {
+		t.Fatalf("register Net Operator API types: %v", err)
+	}
 	for _, entry := range []struct{ group, version, kind string }{
 		{group: "iaas.vmware.com", version: "v1alpha2", kind: "SupervisorNamespace"},
 		{group: "iaas.vmware.com", version: "v1alpha1", kind: "SupervisorNamespace"},
-		{group: "netoperator.vmware.com", version: "v1alpha1", kind: "NetworkSettings"},
 	} {
 		gvk := schema.GroupVersionKind{Group: entry.group, Version: entry.version, Kind: entry.kind}
 		scheme.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})

@@ -136,12 +136,16 @@ func checkNamespaceBatchPrerequisites(ctx context.Context, c client.Reader, batc
 	if len(conflicts) != 0 {
 		return preflightOutcome{
 			reason:  "ConflictingBatch",
-			message: fmt.Sprintf("Namespace batch shares namespace, VDN, or discovered topology resources with unresolved transition(s): %v", conflicts),
+			message: fmt.Sprintf("Namespace batch shares namespace or mutable topology resources with unresolved transition(s): %v", conflicts),
 		}, nil
+	}
+	message := "Current Stage 1 checkpoint, WCP coexistence registration, target Project and shared LB context, immutable Namespace membership, and live source topology passed"
+	if batch.Spec.Action == api.ActionExecute {
+		message += "; action handler must recheck live shared resources and consumers before mutation"
 	}
 	return preflightOutcome{
 		ready: true, reason: "KnownChecksPassed",
-		message:          "Current Stage 1 checkpoint, WCP networkProvider=nsx-vpc coexistence registration, Project/LB VPC identity, staging Namespace presence, immutable batch Namespace state, desired/effective providers, and complete live topology discovery passed; action handlers must validate consumers and rediscover immediately before mutation",
+		message:          message,
 		stage1Transition: stage1.Transition,
 		namespaceStates:  namespaceNetworkStates(batchSnapshot.Namespaces),
 		topologySnapshot: &topologySnapshot,
@@ -205,7 +209,7 @@ func checkNamespaceRollbackPrerequisites(ctx context.Context, c client.Reader, b
 		return preflightOutcome{}, err
 	}
 	if len(conflicts) != 0 {
-		return preflightOutcome{reason: "ConflictingBatch", message: fmt.Sprintf("Namespace batch shares namespace, VDN, or discovered topology resources with unresolved transition(s): %v", conflicts)}, nil
+		return preflightOutcome{reason: "ConflictingBatch", message: fmt.Sprintf("Namespace batch shares namespace or mutable topology resources with unresolved transition(s): %v", conflicts)}, nil
 	}
 	return preflightOutcome{
 		ready: true, reason: "RollbackDependenciesPassed",
@@ -416,7 +420,6 @@ func findActiveNamespaceBatchConflicts(ctx context.Context, c client.Reader, cur
 		return nil, fmt.Errorf("list namespace transitions for batch conflict check: %w", err)
 	}
 	currentMembers := namespaceSet(current.Spec.Namespaces)
-	currentVDNs := namespaceBatchVDNSet(current)
 	conflicts := make([]string, 0)
 	for i := range transitions.Items {
 		other := &transitions.Items[i]
@@ -439,16 +442,9 @@ func findActiveNamespaceBatchConflicts(ctx context.Context, c client.Reader, cur
 				break
 			}
 		}
-		if !conflict {
-			otherVDNs := namespaceBatchVDNSet(other)
-			for name := range currentVDNs {
-				if _, overlap := otherVDNs[name]; overlap {
-					conflict = true
-					break
-				}
-			}
-		}
-		if !conflict {
+		// Evaluate reads shared backing without changing it. Mutating actions
+		// compare the resources each action actually plans to modify.
+		if !conflict && current.Spec.Action != api.ActionEvaluate && len(currentTopology.Resources) != 0 {
 			otherTopology, err := discoverBatchTopology(ctx, discoverer, other)
 			if err != nil {
 				return nil, fmt.Errorf("discover topology for unresolved batch %q: %w", other.Name, err)
@@ -520,32 +516,6 @@ func topologyResourcesOverlap(first, second topology.BatchSnapshot) bool {
 		}
 	}
 	return false
-}
-
-// namespaceBatchVDNSet collects only identities already present in the
-// immutable batch input or persisted workflow checkpoints. It is a conservative
-// overlap signal; vCenter/DVPG and live NSX consumer checks remain required
-// before any external mutation.
-func namespaceBatchVDNSet(batch *api.NamespaceNetworkTransition) map[string]struct{} {
-	set := make(map[string]struct{})
-	if batch == nil {
-		return set
-	}
-	if batch.Spec.NetworkConfiguration != nil {
-		for _, network := range batch.Spec.NetworkConfiguration.NamespaceDHCPNetworks {
-			if network.VDNName != "" {
-				set[network.VDNName] = struct{}{}
-			}
-		}
-	}
-	if batch.Status != nil {
-		for _, workflow := range batch.Status.NSXWorkflows {
-			if workflow.VDNName != "" {
-				set[workflow.VDNName] = struct{}{}
-			}
-		}
-	}
-	return set
 }
 
 func hasUnresolvedMutation(batch *api.NamespaceNetworkTransition) bool {

@@ -46,10 +46,10 @@ type ConsumerIdentity struct {
 	Name         string
 }
 
-// BatchSnapshot is a read-only, point-in-time view. Complete is true only when
-// the implementation has resolved all batch VDNs, physical DVPG identities,
-// VDN/subnet bindings, relevant reservations, workflows, and their live
-// consumers. It is never persisted as migration status.
+// BatchSnapshot is a read-only, point-in-time view. Complete means that all
+// source VDNs and physical DVPG identities were verified. For mutating actions
+// it also requires the relevant VDN/subnet bindings, reservations, workflows,
+// and live consumers. It is never persisted as migration status.
 type BatchSnapshot struct {
 	Complete  bool
 	Resources []ResourceIdentity
