@@ -3,8 +3,9 @@
 
 # Strategic merge patch for the downstream NCP Deployment; not a standalone Deployment.
 # Replace the image with the pinned dedicated migration image.
-# Downstream packaging must additionally copy the existing NSX operator's config,
-# CA, token/credential mounts and Envoy settings when enabling real handlers.
+# Downstream packaging must add --enable-network-migration and copy the NSX
+# operator's config, CA, token/credential mounts and Envoy settings before
+# enabling source evaluation. The Supervisor ID is read from nsx-ncp-config.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

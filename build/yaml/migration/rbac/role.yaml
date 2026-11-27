@@ -14,6 +14,13 @@ rules:
   - create
   - patch
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+- apiGroups:
   - migration.network.vmware.com
   resources:
   - controlplanenetworktransitions
@@ -34,6 +41,14 @@ rules:
 - apiGroups:
   - netoperator.vmware.com
   resources:
+  - ipaddressallocations
+  verbs:
+  - create
+  - get
+  - list
+- apiGroups:
+  - netoperator.vmware.com
+  resources:
   - ippools
   - networks
   - vspheredistributednetworks
@@ -47,6 +62,14 @@ metadata:
   name: supervisor-network-migration-operator
   namespace: vmware-system-nsx
 rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - nsx-ncp-config
+  resources:
+  - configmaps
+  verbs:
+  - get
 - apiGroups:
   - coordination.k8s.io
   resources:

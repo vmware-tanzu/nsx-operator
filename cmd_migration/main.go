@@ -27,6 +27,8 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration"
 	migrationadmission "github.com/vmware-tanzu/nsx-operator/pkg/migration/admission"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/identity"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/infrastructure"
 	pkgutil "github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
@@ -37,6 +39,8 @@ type options struct {
 	enabled           bool
 	namespace         string
 	operatorNamespace string
+	supervisorID      string
+	netOperatorNS     string
 	admissionEnabled  bool
 	admissionPort     int
 	admissionCertDir  string
@@ -54,9 +58,16 @@ func registerFlags(flags *flag.FlagSet) (*options, error) {
 	if operatorNamespace == "" {
 		operatorNamespace = "vmware-system-nsx"
 	}
-	opts := &options{operatorNamespace: operatorNamespace}
-	flags.BoolVar(&opts.enabled, "enable-network-migration", false, "Enable migration dispatch (no external migration handlers are implemented)")
+	supervisorID := os.Getenv("NSX_MIGRATION_SUPERVISOR_ID")
+	netOperatorNamespace := os.Getenv("NET_OPERATOR_NAMESPACE")
+	if netOperatorNamespace == "" {
+		netOperatorNamespace = "vmware-system-netop"
+	}
+	opts := &options{operatorNamespace: operatorNamespace, supervisorID: supervisorID, netOperatorNS: netOperatorNamespace}
+	flags.BoolVar(&opts.enabled, "enable-network-migration", false, "Enable migration controllers and the infrastructure Evaluate handler")
 	flags.StringVar(&opts.namespace, "leader-election-namespace", operatorNamespace, "Namespace for the migration operator's independent lease")
+	flags.StringVar(&opts.supervisorID, "supervisor-id", supervisorID, "Override the Supervisor ID read from nsx-ncp-config")
+	flags.StringVar(&opts.netOperatorNS, "net-operator-namespace", netOperatorNamespace, "Namespace containing Net Operator source Networks")
 	flags.BoolVar(&opts.admissionEnabled, "enable-migration-admission", false, "Serve migration admission independently of transition controllers")
 	flags.IntVar(&opts.admissionPort, "migration-admission-port", 9982, "Port for the migration admission webhook")
 	flags.StringVar(&opts.admissionCertDir, "migration-admission-cert-dir", "/etc/nsx-operator/migration-webhook-certs", "Directory containing tls.crt and tls.key for the migration admission webhook")
@@ -72,11 +83,54 @@ func run() error {
 	log := logger.ZapCustomLogger(false, config.LogLevel)
 	logger.Log = log
 	ctrl.SetLogger(log.Logger)
-	return startManager(ctrl.SetupSignalHandler(), opts, managerDependencies{
+	ctx := ctrl.SetupSignalHandler()
+	var migrationClients *identity.AuthenticatedClients
+	defer func() {
+		if migrationClients == nil {
+			return
+		}
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := migrationClients.Close(closeCtx); err != nil {
+			ctrl.Log.Error(err, "Failed to close migration client sessions")
+		}
+	}()
+	setupControllers := func(mgr ctrl.Manager) error {
+		supervisorID := opts.supervisorID
+		if supervisorID == "" {
+			var err error
+			supervisorID, err = infrastructure.ReadSupervisorIDCandidateFromNCPConfig(ctx, mgr.GetAPIReader(), opts.operatorNamespace)
+			if err != nil {
+				return fmt.Errorf("resolve Supervisor ID from nsx-ncp-config: %w", err)
+			}
+		}
+		operatorConfig, err := config.NewNSXOperatorConfigFromFile()
+		if err != nil {
+			return fmt.Errorf("load NSX Operator configuration for migration: %w", err)
+		}
+		migrationClients, err = identity.NewAuthenticatedClients(ctx, operatorConfig)
+		if err != nil {
+			return err
+		}
+		identityResolver, err := identity.NewResolver(migrationClients)
+		if err != nil {
+			return err
+		}
+		evaluateHandler := infrastructure.RuntimeEvaluateHandler{
+			Clients:              migrationClients,
+			Identity:             identityResolver,
+			SupervisorID:         supervisorID,
+			KubernetesClient:     mgr.GetClient(),
+			KubernetesReader:     mgr.GetAPIReader(),
+			NetOperatorNamespace: opts.netOperatorNS,
+		}
+		return migration.SetupWithEvaluateHandler(mgr, evaluateHandler)
+	}
+	return startManager(ctx, opts, managerDependencies{
 		loadConfig:       ctrl.GetConfig,
 		getConfig:        pkgutil.GetConfig,
 		newManager:       ctrl.NewManager,
-		setupControllers: migration.SetupWithManager,
+		setupControllers: setupControllers,
 	})
 }
 

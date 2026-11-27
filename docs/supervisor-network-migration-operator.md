@@ -18,10 +18,11 @@ NCP Pod. It owns the cluster-scoped `migration.network.vmware.com/v1alpha1` reso
 Migration dispatch defaults to disabled. Disabled startup does not start
 transition controllers, watches, or leader election and does not probe API-server
 health, though valid local REST configuration is still required. Enabling
-`--enable-network-migration` starts dispatch and its independent lease; it does
-not implement the vCenter FSS/HTTP authorization gate. Startup does not contact
-NSX. `HasVPCNamespaces()` is not a valid startup prerequisite because a VDS
-Supervisor may not yet have VPC namespaces.
+`--enable-network-migration` initializes authenticated vCenter and NSX clients
+and starts dispatch with its independent lease. The vCenter FSS/HTTP
+authorization gate remains outside the migration manager. `HasVPCNamespaces()`
+is not a valid startup prerequisite because a VDS Supervisor may not yet have
+VPC namespaces.
 
 Both CRDs accept `Evaluate` and `Execute`. Namespace batches also accept
 `Rollback` and `Commit`; infrastructure accepts `Finalize` and rejects
@@ -349,6 +350,32 @@ handlers. RBAC includes source inventory reads and transition status patches,
 but no source-network writes. Tests cover the live govmomi simulator, Kubernetes
 inventory reads, validation failures, both CR status writers, stale snapshots,
 missing-input recovery, and preservation of unrelated status.
+
+## WBS 1.2.2 infrastructure Evaluate
+
+`infrastructure.EvaluateHandler` discovers the CPVM primary workload network
+from each Supervisor-enabled cluster and the default workload networks for
+Kubernetes Namespaces labelled `managedBy: vSphere-AppPlatform`. Other
+Namespaces are skipped. It maps the vCenter network IDs to DVPGs, then to Net
+Operator VDNs; user-provided CR inputs do not define discovery scope.
+
+Before Evaluate can succeed, the handler submits every discovered DVPG on one
+VDS together in a single NSX `DvpgToSubnetWorkflow` validation request. It
+reports unsupported DVPGs as problems, partial compatibility and warnings as
+warnings, and resumes an in-progress validation using a deterministic workflow
+ID. Missing DHCP values are reported through the shared inspection status
+contract. The handler also applies the Supervisor LB SNAT policy and uses a
+stable Net Operator `IPAddressAllocation` request so retries reuse one source
+address; the single ControlPlane transition owns that allocation.
+
+The handler and its WCP, NSX validation, and SNAT adapters have unit coverage.
+With migration enabled, the manager registers the ControlPlane Evaluate handler
+with authenticated vCenter and NSX clients. It reads the Supervisor ID from
+`[coe].cluster` in `nsx-ncp-config` unless an override is supplied, then verifies
+the ID against vCenter during Evaluate. Evaluate uses `spec.nsxProjectID` when
+set and the NSX `default` project when omitted, matching the infrastructure
+prerequisite checks. Cleanup of a source allocation after a changed or deleted
+evaluation request remains open.
 
 ## Design contract
 

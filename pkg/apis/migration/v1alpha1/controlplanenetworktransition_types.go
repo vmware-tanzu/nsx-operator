@@ -113,6 +113,11 @@ type IPAllocationStatus struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.irreversibleAction) || self.irreversibleAction == 'Finalize'",message="infrastructure irreversibleAction must be Finalize"
 type ControlPlaneNetworkTransitionStatus struct {
 	TransitionStatus `json:",inline"`
+	// ResolvedSourceContext records the non-secret source identity confirmed by Evaluate.
+	// It is tied to the Evaluate generation and reused by Execute retries. SupervisorID
+	// remains in the external VCFA/WCP context and is never persisted here.
+	// +optional
+	ResolvedSourceContext *ResolvedSourceContext `json:"resolvedSourceContext,omitempty"`
 	// LBSNATIPAllocations records the accepted IPv4 LB SNAT address. Once recorded,
 	// spec.networkConfiguration.lbSNATIPs cannot be added, changed, or removed
 	// during Evaluate. spec.targetLBProvider and spec.nsxProjectID must also
@@ -151,6 +156,26 @@ type ControlPlaneNetworkTransitionStatus struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=1024
 	LoadBalancerVPCPath string `json:"loadBalancerVPCPath,omitempty"`
+}
+
+// ResolvedSourceContext records the source identity verified during Evaluate.
+// It contains identifiers only; credentials and tokens never belong in status.
+type ResolvedSourceContext struct {
+	// EvaluatedGeneration identifies the desired transition generation whose source
+	// context was successfully resolved.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	EvaluatedGeneration int64 `json:"evaluatedGeneration"`
+	// VCenterInstanceUUID identifies the vCenter authenticated by the manager.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	VCenterInstanceUUID string `json:"vCenterInstanceUUID"`
+	// NSXComputeManagerID is the NSX identity corresponding to that vCenter.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	NSXComputeManagerID string `json:"nsxComputeManagerID"`
 }
 
 // ControlPlaneNetworkTransition requests Stage 1 infrastructure transition and Stage 3 finalization.

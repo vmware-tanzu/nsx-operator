@@ -80,8 +80,8 @@ func readManifestDocuments(t *testing.T, path string) [][]byte {
 	return documents
 }
 
-func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
-	var leaseRole rbacv1.Role
+func TestMigrationRoleMatchesSharedNCPServiceAccount(t *testing.T) {
+	var migrationRole rbacv1.Role
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
 		var resource struct{ Kind string }
 		require.NoError(t, json.Unmarshal(doc, &resource))
@@ -96,13 +96,14 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 				require.NotContains(t, rule.Resources, "namespacenetworktransitions/finalizers")
 			}
 		case "Role":
-			require.NoError(t, json.Unmarshal(doc, &leaseRole))
+			require.NoError(t, json.Unmarshal(doc, &migrationRole))
 		}
 	}
-	require.Equal(t, "vmware-system-nsx", leaseRole.Namespace)
-	require.Len(t, leaseRole.Rules, 1)
-	require.Equal(t, []string{"leases"}, leaseRole.Rules[0].Resources)
-	require.ElementsMatch(t, []string{"get", "create", "update"}, leaseRole.Rules[0].Verbs)
+	require.Equal(t, "vmware-system-nsx", migrationRole.Namespace)
+	require.ElementsMatch(t, []rbacv1.PolicyRule{
+		{APIGroups: []string{""}, Resources: []string{"configmaps"}, ResourceNames: []string{"nsx-ncp-config"}, Verbs: []string{"get"}},
+		{APIGroups: []string{"coordination.k8s.io"}, Resources: []string{"leases"}, Verbs: []string{"create", "get", "update"}},
+	}, migrationRole.Rules)
 	bindings := 0
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/bindings.yaml") {
 		var resource struct{ Kind string }
@@ -110,8 +111,8 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 		if resource.Kind == "RoleBinding" {
 			var binding rbacv1.RoleBinding
 			require.NoError(t, json.Unmarshal(doc, &binding))
-			require.Equal(t, leaseRole.Namespace, binding.Namespace)
-			require.Equal(t, leaseRole.Name, binding.RoleRef.Name)
+			require.Equal(t, migrationRole.Namespace, binding.Namespace)
+			require.Equal(t, migrationRole.Name, binding.RoleRef.Name)
 			require.Equal(t, "Role", binding.RoleRef.Kind)
 			require.Contains(t, binding.Subjects, rbacv1.Subject{Kind: "ServiceAccount", Name: "ncp-svc-account", Namespace: "vmware-system-nsx"})
 			bindings++
@@ -120,7 +121,7 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 	require.Equal(t, 1, bindings)
 }
 
-func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
+func TestNetworkInspectionAndSourceAllocationRBAC(t *testing.T) {
 	var role rbacv1.ClusterRole
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
 		var resource struct{ Kind string }
@@ -129,13 +130,18 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 			require.NoError(t, json.Unmarshal(doc, &role))
 		}
 	}
-	sourceReads, statusPatches := false, false
+	sourceReads, sourceAllocations, statusPatches := false, false, false
 	for _, rule := range role.Rules {
 		for _, group := range rule.APIGroups {
 			if group == "netoperator.vmware.com" {
-				sourceReads = true
-				require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
-				require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
+				if len(rule.Resources) == 1 && rule.Resources[0] == "ipaddressallocations" {
+					sourceAllocations = true
+					require.ElementsMatch(t, []string{"get", "list", "create"}, rule.Verbs)
+				} else {
+					sourceReads = true
+					require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
+					require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
+				}
 			}
 		}
 		for _, resource := range rule.Resources {
@@ -149,5 +155,6 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 		}
 	}
 	require.True(t, sourceReads)
+	require.True(t, sourceAllocations)
 	require.True(t, statusPatches)
 }
