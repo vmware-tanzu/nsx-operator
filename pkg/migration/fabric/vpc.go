@@ -81,7 +81,7 @@ func (s VPCService) reusableID(attachments AttachmentService, req FabricPreparat
 			continue
 		}
 		vpc, ok := s.Store.Get(vpcPath)
-		if !ok || (vpc.MarkedForDelete != nil && *vpc.MarkedForDelete) || !ownedBy(cluster, req.NamespaceUID, vpc.Tags) {
+		if !ok || (vpc.MarkedForDelete != nil && *vpc.MarkedForDelete) || !ownedByCluster(vpc.Tags, cluster) {
 			continue
 		}
 		purpose := tagValue(vpc.Tags, migrationVPCPurposeTagScope)
@@ -107,6 +107,6 @@ func (s VPCService) reusableID(attachments AttachmentService, req FabricPreparat
 	return vpcID, nil
 }
 
-func (s VPCService) expected(project, id string) Resource {
-	return Resource{Kind: VPC, ID: id, Parent: project, Path: project + "/vpcs/" + id}
+func (s VPCService) expected(project, id string, purpose VPCPurpose) Resource {
+	return Resource{Kind: VPC, ID: id, Parent: project, Path: project + "/vpcs/" + id, NamespaceShared: purpose == VPCPurposeWorkload}
 }

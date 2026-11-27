@@ -112,6 +112,59 @@ func TestVPCReuseIsScopedToPurpose(t *testing.T) {
 	primaryReuseID, err := service.reusableID(attachmentService, primaryRequest, cluster, project, "shared", profilePath, name("", "vpc", primaryRequest.Identity))
 	require.NoError(t, err)
 	require.Equal(t, primaryID, primaryReuseID)
+
+	workloadRequest := FabricPreparationRequest{Identity: "tenant-workload", VPCPurpose: VPCPurposeWorkload}
+	workloadID, err := service.reusableID(attachmentService, workloadRequest, cluster, project, "shared", profilePath, "new-workload")
+	require.NoError(t, err)
+	require.Equal(t, "new-workload", workloadID, "workload reuse must not select the infrastructure primary VPC")
+	require.True(t, service.expected(project, "vpc", VPCPurposeWorkload).NamespaceShared)
+	require.False(t, service.expected(project, "vpc", VPCPurposePrimary).NamespaceShared)
+}
+
+func TestVPCNamespaceSharingIsLimitedToWorkloadPurpose(t *testing.T) {
+	project := "/orgs/o/projects/p"
+	clusterTag := model.Tag{Scope: ptr.To(common.TagScopeCluster), Tag: ptr.To("cluster")}
+	namespaceTag := model.Tag{Scope: ptr.To(common.TagScopeNamespaceUID), Tag: ptr.To("legacy-namespace")}
+	primaryPurpose := model.Tag{Scope: ptr.To(migrationVPCPurposeTagScope), Tag: ptr.To(string(VPCPurposePrimary))}
+	workloadPurpose := model.Tag{Scope: ptr.To(migrationVPCPurposeTagScope), Tag: ptr.To(string(VPCPurposeWorkload))}
+
+	primary := (VPCService{}).expected(project, "vpc", VPCPurposePrimary)
+	primary.Tags = []model.Tag{clusterTag, primaryPurpose}
+	legacyTenantPrimary := primary
+	legacyTenantPrimary.Tags = []model.Tag{clusterTag, primaryPurpose, namespaceTag}
+	require.False(t, compatible(primary, legacyTenantPrimary), "primary VPC must reject a tenant-owned object")
+
+	workload := (VPCService{}).expected(project, "vpc", VPCPurposeWorkload)
+	workload.Tags = []model.Tag{clusterTag, workloadPurpose}
+	sharedWorkload := workload
+	sharedWorkload.Tags = []model.Tag{clusterTag, workloadPurpose, namespaceTag}
+	require.True(t, compatible(workload, sharedWorkload), "workload VPCs may be shared across namespaces")
+	require.False(t, compatible(primary, sharedWorkload), "primary and workload VPC roles must remain isolated")
+}
+
+func TestTransitGatewayReuseAllowsVDSAttachmentSuperset(t *testing.T) {
+	project := "/orgs/o/projects/p"
+	path := project + "/transit-gateways/shared"
+	tags := []model.Tag{{Scope: ptr.To(common.TagScopeCluster), Tag: ptr.To("cluster")}}
+	spanValue, errs := common.NewConverter().ConvertToVapi(model.ZoneBasedSpan{
+		Type_: model.ZoneBasedSpan__TYPE_IDENTIFIER, ZoneExternalIds: []string{"zone"},
+		CustomVdsAttachments: []string{"vds-a", "vds-b"},
+	}, model.ZoneBasedSpanBindingType())
+	require.Empty(t, errs)
+	store := NewResourceStore[model.TransitGateway]()
+	require.NoError(t, store.Put(path, &model.TransitGateway{
+		Id: ptr.To("shared"), Path: &path, ParentPath: &project, Tags: tags,
+		Span: spanValue.(*data.StructValue),
+	}))
+	service := TransitGatewayService{Store: store}
+	request := FabricPreparationRequest{ProjectPath: project, Zones: []string{"zone"}, VDS: []string{"vds-a"}}
+	id, err := service.reusableID(request, "cluster", "fallback")
+	require.NoError(t, err)
+	require.Equal(t, "shared", id)
+	require.False(t, resourceConflicts(service.expected(request, project, id), Resource{
+		Kind: TGW, ID: id, Path: path, Parent: project,
+		Zones: []string{"zone"}, VDS: []string{"vds-a", "vds-b"},
+	}))
 }
 
 func TestOwnedBySeparatesClusterAndNamespaceResources(t *testing.T) {
@@ -252,14 +305,15 @@ func TestTrackWorkflowRequiresIndependentRealization(t *testing.T) {
 	require.ErrorContains(t, err, dvc)
 }
 
-func TestProfileReuseAllowsOnlyAcceptedSNATBlock(t *testing.T) {
+func TestProfileReusePreservesExistingInProjectBlocks(t *testing.T) {
 	project := "/orgs/o/projects/p"
 	path := project + "/vpc-connectivity-profiles/reused"
 	tgw := project + "/transit-gateways/t"
 	ordinary := project + "/infra/ip-blocks/ordinary"
+	previous := project + "/infra/ip-blocks/previous-batch"
 	snat := project + "/infra/ip-blocks/accepted-snat"
 	store := NewResourceStore[model.VpcConnectivityProfile]()
-	obj := &model.VpcConnectivityProfile{Id: ptr.To("reused"), Path: &path, ParentPath: &project, TransitGatewayPath: &tgw, ExternalIpBlocks: []string{ordinary, snat}, Tags: []model.Tag{{Scope: ptr.To(common.TagScopeCluster), Tag: ptr.To("cluster")}}}
+	obj := &model.VpcConnectivityProfile{Id: ptr.To("reused"), Path: &path, ParentPath: &project, TransitGatewayPath: &tgw, ExternalIpBlocks: []string{previous, snat}, Tags: []model.Tag{{Scope: ptr.To(common.TagScopeCluster), Tag: ptr.To("cluster")}}}
 	require.NoError(t, store.Put(path, obj))
 	svc := ConnectivityProfileService{Store: store}
 	got, err := svc.reusableID("cluster", project, "t", tgw, []string{ordinary}, "default", snat)
@@ -267,5 +321,14 @@ func TestProfileReuseAllowsOnlyAcceptedSNATBlock(t *testing.T) {
 	require.Equal(t, "reused", got)
 	got, err = svc.reusableID("cluster", project, "t", tgw, []string{ordinary}, "default", project+"/infra/ip-blocks/unrelated")
 	require.NoError(t, err)
-	require.Equal(t, "default", got)
+	require.Equal(t, "reused", got, "same-project ordinary blocks remain compatible across batches")
+	got, err = svc.reusableID("cluster", project, "t", tgw, []string{ordinary}, "default", "")
+	require.NoError(t, err)
+	require.Equal(t, "reused", got)
+
+	obj.ExternalIpBlocks = append(obj.ExternalIpBlocks, "/orgs/o/projects/other/infra/ip-blocks/unrelated")
+	require.NoError(t, store.Put(path, obj))
+	got, err = svc.reusableID("cluster", project, "t", tgw, []string{ordinary}, "default", "")
+	require.NoError(t, err)
+	require.Equal(t, "default", got, "cross-project blocks must reject profile reuse")
 }

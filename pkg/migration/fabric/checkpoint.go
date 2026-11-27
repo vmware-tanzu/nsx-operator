@@ -39,6 +39,7 @@ type ResourceCheckpoint struct {
 // origin during retry, restart, cancellation, or concurrent reconciliation.
 type PreparationCheckpoint struct {
 	Key        CheckpointKey        `json:"key"`
+	PlanDigest string               `json:"planDigest,omitempty"`
 	Identities *FrozenIdentities    `json:"identities,omitempty"`
 	Resources  []ResourceCheckpoint `json:"resources,omitempty"`
 }

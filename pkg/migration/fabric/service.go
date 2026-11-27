@@ -35,6 +35,7 @@ type Resource struct {
 	ID              string      `json:"id"`
 	Path            string      `json:"path"`
 	Parent          string      `json:"parent,omitempty"`
+	NamespaceShared bool        `json:"namespaceShared,omitempty"`
 	Gateway         string      `json:"gateway,omitempty"`
 	Profile         string      `json:"profile,omitempty"`
 	CIDR            string      `json:"cidr,omitempty"`
@@ -62,6 +63,7 @@ type VPCPurpose string
 const (
 	VPCPurposePrimary      VPCPurpose = "primary"
 	VPCPurposeLoadBalancer VPCPurpose = "load-balancer"
+	VPCPurposeWorkload     VPCPurpose = "workload"
 )
 
 // FabricPreparationRequest describes the target topology to prepare in NSX.
@@ -69,7 +71,8 @@ type FabricPreparationRequest struct {
 	ProjectPath, Identity string
 	NamespaceUID          string
 	// VPCPurpose separates VPCs with different roles while allowing VDNs with
-	// the same purpose and owner to reuse a VPC. Empty defaults to primary.
+	// the same purpose and owner to reuse a VPC. Empty defaults to primary;
+	// namespace preparation defaults it to workload.
 	VPCPurpose VPCPurpose
 	// Frozen is optional because transition status does not currently persist
 	// the selected TGW, profile and VPC IDs. Without it, Prepare reselects
@@ -87,10 +90,11 @@ type FabricPreparationRequest struct {
 	// through the connectivity profile. It may grow across level-driven Prepare
 	// calls as the coordinator creates each block. Empty falls back to IPBlockID.
 	ProfileIPBlockIDs []string
-	// Allowed ranges combine the applicable static, DHCP, VKS and VIP pools.
-	// Callers must supply the complete inventory for this block.
+	// Allowed ranges are the validated source allocation ranges. Addresses
+	// outside these ranges are excluded from allocation.
 	IPBlockAllowedIPs []IPRange
-	// Exclusions must be derived from authoritative source network facts by the caller.
+	// Excluded ranges are explicit reservations, including applicable VIP ranges
+	// and an accepted in-block SNAT IP. Derive them from authoritative source facts.
 	IPBlockExcludedIPs     []IPRange
 	IPBlockSubnetExclusive bool
 }
@@ -190,7 +194,7 @@ func (s *FabricService) Prepare(ctx context.Context, req FabricPreparationReques
 	}
 	result.Profile = s.Profiles.expected(base, profileID, result.TGW, profileBlocks)
 
-	result.VPC = s.VPCs.expected(base, vpcID)
+	result.VPC = s.VPCs.expected(base, vpcID, vpcPurpose(req))
 	result.Attachment = s.Attachments.expected(result.VPC, result.Profile)
 	resources := []Resource{result.TGW}
 	if result.IPBlock.Path != "" {
@@ -311,6 +315,18 @@ func (s *FabricService) prepareResource(ctx context.Context, expected Resource, 
 		}
 		return false, nil
 	}
+	if actual.ID != expected.ID || actual.Path != expected.Path || actual.Parent != expected.Parent || resourceConflicts(expected, actual) {
+		return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
+	}
+	for _, required := range expected.Tags {
+		actualTag, found := findTag(actual.Tags, value(required.Scope))
+		if !found {
+			return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
+		}
+		if actualTag != value(required.Tag) {
+			return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
+		}
+	}
 	if expected.Kind == Profile {
 		ordinaryBlocks := make([]string, 0, len(actual.Blocks))
 		hasSNATBlock := false
@@ -322,20 +338,20 @@ func (s *FabricService) prepareResource(ctx context.Context, expected Resource, 
 			ordinaryBlocks = append(ordinaryBlocks, block)
 		}
 		actualForCompare := actual
-		actualForCompare.Blocks = ordinaryBlocks
+		actualForCompare.Blocks = nil
 		expectedForCompare := expected
-		expectedForCompare.Blocks = ordinaryBlocks
+		expectedForCompare.Blocks = nil
 		if !compatible(expectedForCompare, actualForCompare) {
 			return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
 		}
-		if !equalSet(ordinaryBlocks, expected.Blocks) {
-			if !subset(ordinaryBlocks, expected.Blocks) {
-				return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
-			}
-			desiredBlocks := append([]string(nil), expected.Blocks...)
-			if hasSNATBlock {
-				desiredBlocks = append(desiredBlocks, snatBlock)
-			}
+		if !profileBlocksInScope(ordinaryBlocks, expected.Parent) {
+			return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
+		}
+		desiredBlocks := sorted(append(append([]string(nil), ordinaryBlocks...), expected.Blocks...))
+		if hasSNATBlock {
+			desiredBlocks = sorted(append(desiredBlocks, snatBlock))
+		}
+		if !equalSet(actual.Blocks, desiredBlocks) {
 			updater, ok := access.(interface {
 				UpdateBlocks(context.Context, Resource, []string) error
 			})
@@ -347,14 +363,57 @@ func (s *FabricService) prepareResource(ctx context.Context, expected Resource, 
 			}
 			return false, nil
 		}
-		actual.Blocks = ordinaryBlocks
+		actual.Blocks = desiredBlocks
 	} else if !compatible(expected, actual) {
 		return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
 	}
-	if expected.Kind == Profile && !compatible(expected, actual) {
-		return false, &ConflictError{Kind: expected.Kind, Path: expected.Path}
-	}
 	return access.CheckRealization(ctx, actual)
+}
+
+func resourceConflicts(expected, actual Resource) bool {
+	switch expected.Kind {
+	case TGW:
+		// These are declarative Policy fields. A missing or partial span is a
+		// configuration conflict; realization cannot fill it in asynchronously.
+		return !equalSet(actual.Zones, expected.Zones) || !containsAll(actual.VDS, expected.VDS)
+	case Profile:
+		return expected.Gateway != actual.Gateway ||
+			!profileBlocksInScope(actual.Blocks, expected.Parent)
+	case IPBlock:
+		return expected.CIDR != actual.CIDR
+	case Attachment:
+		return expected.Profile != actual.Profile
+	default:
+		return false
+	}
+}
+
+func profileBlocksInScope(blocks []string, project string) bool {
+	prefix := strings.TrimSuffix(project, "/") + "/infra/ip-blocks/"
+	for _, path := range blocks {
+		if !strings.HasPrefix(path, prefix) || !validResourceID(strings.TrimPrefix(path, prefix)) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsPath(paths []string, expected string) bool {
+	for _, path := range paths {
+		if path == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func findTag(tags []model.Tag, scope string) (string, bool) {
+	for _, tag := range tags {
+		if value(tag.Scope) == scope {
+			return value(tag.Tag), true
+		}
+	}
+	return "", false
 }
 
 // ResourceAccess is implemented by the resource-specific services below.
@@ -394,7 +453,9 @@ func (s *FabricService) tags(kind Kind, namespaceUID string, purpose VPCPurpose)
 	// as NSX Operator-created resources, including nsx/managed-by=nsx-op where
 	// applicable. See the VPC and attachment builders before changing ownership tags.
 	tags := []model.Tag{{Scope: common.String(common.TagScopeCluster), Tag: common.String(s.cluster)}}
-	if namespaceUID != "" && (kind == IPBlock || kind == VPC || kind == Attachment) {
+	// Workload VPCs and their default attachments are shared by namespaces
+	// that use the same target span. A single NamespaceUID would prevent reuse.
+	if namespaceUID != "" && kind == IPBlock {
 		tags = append(tags, model.Tag{Scope: common.String(common.TagScopeNamespaceUID), Tag: common.String(namespaceUID)})
 	}
 	if kind == VPC {

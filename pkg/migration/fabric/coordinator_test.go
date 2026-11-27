@@ -84,6 +84,31 @@ func TestInspectAndPrepareNamespacesUsesInspectorBeforeFabric(t *testing.T) {
 	require.Len(t, resolver.requests, 1)
 	require.Len(t, preparer.requests, 1)
 	require.Equal(t, "/orgs/o/projects/p", preparer.requests[0].ProjectPath)
+	require.Equal(t, VPCPurposeWorkload, preparer.requests[0].VPCPurpose)
+}
+
+func TestPrepareInspectedUsesMergedTargetIdentityFromGroup(t *testing.T) {
+	first := coordinatorNetwork("vdn-a", "192.0.2.0/24", "192.0.2.10", "192.0.2.30", "")
+	second := coordinatorNetwork("vdn-b", "198.51.100.0/24", "198.51.100.10", "198.51.100.30", "")
+	first.Target.TGWName = ""
+	first.Target.VPCName = ""
+	first.Target.TGWID = ""
+	first.Target.VPCID = ""
+	second.Target.TGWID = ""
+	second.Target.VPCID = ""
+	second.Target.TGWName = "custom-tgw"
+	second.Target.VPCName = "custom-vpc"
+	resolver := &coordinatorResolverStub{identities: FrozenIdentities{TGWID: "custom-tgw", ProfileID: "profile", VPCID: "custom-vpc"}}
+	coordinator := PreparationCoordinator{
+		Resolver: resolver, Preparer: &coordinatorPreparerStub{},
+		Checkpoints: &coordinatorCheckpointStoreStub{},
+	}
+	_, err := coordinator.PrepareInspected(context.Background(), inspection.Result{Networks: []inspection.Network{first, second}},
+		PreparationOptions{TransitionUID: "transition-uid", ActionGeneration: 4, ProjectPath: "/orgs/o/projects/p"})
+	require.NoError(t, err)
+	require.Len(t, resolver.requests, 1)
+	require.Equal(t, "custom-tgw", resolver.requests[0].TGWID)
+	require.Equal(t, "custom-vpc", resolver.requests[0].VPCID)
 }
 
 func TestProfileBlockExpansionPreservesLiveMetadata(t *testing.T) {

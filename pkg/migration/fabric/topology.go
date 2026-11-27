@@ -42,9 +42,18 @@ func (s *FabricService) reusableIDs(req FabricPreparationRequest, project, reque
 	if err != nil {
 		return "", "", "", err
 	}
-	profileID, err := s.Profiles.reusableID(s.cluster, project, tgwID, tgwPath, profileBlocks, requestedProfile, snatBlock)
-	if err != nil {
-		return "", "", "", err
+	profileID := ""
+	if req.VPCID != "" {
+		profileID, err = attachedProfileForVPC(s.Attachments, s.Profiles, project, req.VPCID, tgwPath, s.cluster)
+		if err != nil {
+			return "", "", "", err
+		}
+	}
+	if profileID == "" {
+		profileID, err = s.Profiles.reusableID(s.cluster, project, tgwID, tgwPath, profileBlocks, requestedProfile, snatBlock)
+		if err != nil {
+			return "", "", "", err
+		}
 	}
 	if req.SNAT != nil {
 		expected := project + "/vpc-connectivity-profiles/"
@@ -77,6 +86,39 @@ func (s *FabricService) reusableIDs(req FabricPreparationRequest, project, reque
 		vpcID = frozenID
 	}
 	return tgwID, profileID, vpcID, nil
+}
+
+func attachedProfileForVPC(attachments AttachmentService, profiles ConnectivityProfileService, project, vpcID, tgwPath, cluster string) (string, error) {
+	vpcPath := project + "/vpcs/" + vpcID
+	var profilePath string
+	for _, attachment := range attachments.Store.List() {
+		if attachment == nil || value(attachment.ParentPath) != vpcPath ||
+			(attachment.MarkedForDelete != nil && *attachment.MarkedForDelete) {
+			continue
+		}
+		candidate := value(attachment.VpcConnectivityProfile)
+		if candidate == "" {
+			continue
+		}
+		if profilePath != "" && profilePath != candidate {
+			return "", fmt.Errorf("VPC %q has conflicting live connectivity profile attachments", vpcID)
+		}
+		profilePath = candidate
+	}
+	if profilePath == "" {
+		return "", nil
+	}
+	profile, found := profiles.Store.Get(profilePath)
+	if !found || profile == nil {
+		return "", fmt.Errorf("VPC %q attachment references an unresolved connectivity profile %q", vpcID, profilePath)
+	}
+	profileID := value(profile.Id)
+	if profileID == "" || value(profile.Path) != profilePath || value(profile.ParentPath) != project ||
+		value(profile.TransitGatewayPath) != tgwPath ||
+		(profile.MarkedForDelete != nil && *profile.MarkedForDelete) || !ownedByCluster(profile.Tags, cluster) {
+		return "", &ConflictError{Kind: Profile, Path: profilePath}
+	}
+	return profileID, nil
 }
 
 // validResourceID validates one path segment used as an NSX resource identity.
@@ -129,7 +171,7 @@ func validate(r FabricPreparationRequest) error {
 	if r.Identity == "" || len(r.Zones) == 0 {
 		return fmt.Errorf("stable identity and zone span are required")
 	}
-	if r.VPCPurpose != "" && r.VPCPurpose != VPCPurposePrimary && r.VPCPurpose != VPCPurposeLoadBalancer {
+	if r.VPCPurpose != "" && r.VPCPurpose != VPCPurposePrimary && r.VPCPurpose != VPCPurposeLoadBalancer && r.VPCPurpose != VPCPurposeWorkload {
 		return fmt.Errorf("unsupported VPC purpose %q", r.VPCPurpose)
 	}
 	if r.SNAT != nil && vpcPurpose(r) != VPCPurposeLoadBalancer {
@@ -209,6 +251,11 @@ func subset(values, set []string) bool {
 	return true
 }
 
+// containsAll reports whether the actual set contains every required value.
+func containsAll(actual, required []string) bool {
+	return subset(required, actual)
+}
+
 func profileBlockPaths(req FabricPreparationRequest, project string) ([]string, error) {
 	ids := append([]string(nil), req.ProfileIPBlockIDs...)
 	if req.IPBlockID != "" {
@@ -230,10 +277,13 @@ func profileBlockPaths(req FabricPreparationRequest, project string) ([]string, 
 	return paths, nil
 }
 func compatible(a, b Resource) bool {
-	if a.Kind != b.Kind || a.ID != b.ID || a.Path != b.Path || a.Parent != b.Parent || a.Gateway != b.Gateway || a.Profile != b.Profile || a.CIDR != b.CIDR || a.SubnetExclusive != b.SubnetExclusive || !slices.Equal(a.ExcludedIPs, b.ExcludedIPs) || !equalSet(a.Zones, b.Zones) || !equalSet(a.VDS, b.VDS) || !equalSet(a.Blocks, b.Blocks) {
+	if a.Kind != b.Kind || a.ID != b.ID || a.Path != b.Path || a.Parent != b.Parent || a.Gateway != b.Gateway || a.Profile != b.Profile || a.CIDR != b.CIDR || a.SubnetExclusive != b.SubnetExclusive || !slices.Equal(a.ExcludedIPs, b.ExcludedIPs) || !equalSet(a.Zones, b.Zones) || !equalSet(a.Blocks, b.Blocks) {
 		return false
 	}
-	if a.Kind == VPC {
+	if a.Kind == TGW && !containsAll(b.VDS, a.VDS) || a.Kind != TGW && !equalSet(a.VDS, b.VDS) {
+		return false
+	}
+	if a.Kind == VPC && !a.NamespaceShared {
 		expectedNamespaceUID := tagValue(a.Tags, common.TagScopeNamespaceUID)
 		if expectedNamespaceUID == "" {
 			if hasTagScope(b.Tags, common.TagScopeNamespaceUID) {

@@ -225,7 +225,7 @@ func (inventory NSXTargetInventory) ListTopology(ctx context.Context) ([]TargetT
 			if e != nil {
 				return nil, e
 			}
-			vpcsByTGW[*profile.TransitGatewayPath] = append(vpcsByTGW[*profile.TransitGatewayPath], TargetTopology{VPCID: vpcID, VPCName: optionalString(vpc.DisplayName), VPCReady: vpcReady, Attached: attached, PortSettings: settings})
+			vpcsByTGW[*profile.TransitGatewayPath] = append(vpcsByTGW[*profile.TransitGatewayPath], TargetTopology{VPCID: vpcID, VPCName: optionalString(vpc.DisplayName), VPCPath: *vpc.Path, VPCReady: vpcReady, Attached: attached, PortSettings: settings})
 		}
 		if len(settings) > 0 && !associated {
 			return nil, fmt.Errorf("VPC %s has tagged PortSettings but no valid connectivity profile", vpcID)
@@ -352,6 +352,66 @@ func (inventory NSXTargetInventory) realized(path string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// VerifyPortSetting re-reads the scoped NSX inventory and confirms exactly one
+// live migration-tagged PortSetting joins the requested DVPG to the expected
+// VPC, DVC and VLAN extension subnet.
+func (inventory NSXTargetInventory) VerifyPortSetting(ctx context.Context, vcenterUUID, portGroupID, vpcPath, dvcPath, subnetPath string) (bool, error) {
+	if vcenterUUID == "" || portGroupID == "" || vpcPath == "" || dvcPath == "" || subnetPath == "" {
+		return false, fmt.Errorf("vCenter, DVPG, VPC, DVC and subnet identities are required")
+	}
+	if inventory.VCenterUUID != vcenterUUID {
+		return false, fmt.Errorf("PortSetting inventory is scoped to a different vCenter")
+	}
+	dvcID, ok := resourcePathID(dvcPath, "/infra/distributed-vlan-connections/")
+	if !ok {
+		return false, fmt.Errorf("invalid expected DVC path %q", dvcPath)
+	}
+	// VPC subnet paths are project scoped and must be children of the VPC
+	// selected for this conversion.
+	subnetPrefix := strings.TrimSuffix(vpcPath, "/") + "/subnets/"
+	subnetID, ok := pathChildID(subnetPath, subnetPrefix)
+	if !ok {
+		return false, fmt.Errorf("invalid expected subnet path %q", subnetPath)
+	}
+	topologies, err := inventory.ListTopology(ctx)
+	if err != nil {
+		return false, err
+	}
+	matches := 0
+	for _, topology := range topologies {
+		if topology.VPCPath != vpcPath {
+			continue
+		}
+		for _, setting := range topology.PortSettings {
+			if setting.PortGroupID == portGroupID && setting.DVCID == dvcID && setting.SubnetID == subnetID {
+				matches++
+			}
+		}
+	}
+	if matches > 1 {
+		return false, fmt.Errorf("multiple live PortSettings match DVPG %s in VPC %s", portGroupID, vpcPath)
+	}
+	return matches == 1, nil
+}
+
+func resourcePathID(path, prefix string) (string, bool) {
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	return pathChildID(path, prefix)
+}
+
+func pathChildID(path, prefix string) (string, bool) {
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	id := strings.TrimPrefix(path, prefix)
+	if id == "" || strings.Contains(id, "/") || id == "." || id == ".." {
+		return "", false
+	}
+	return id, true
 }
 
 func (inventory NSXTargetInventory) portSettings(ctx context.Context, vpcID, vpcPath string, subnetsByVPC map[string][]model.VpcSubnet, settingsBySubnet map[string][]model.VpcSubnetPortSetting, dvcsByID map[string]model.DistributedVlanConnection, topologiesByDVPG map[string]Topology) ([]ConvertedPortSetting, error) {

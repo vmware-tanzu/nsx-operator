@@ -102,9 +102,6 @@ func (coordinator PreparationCoordinator) InspectAndPrepareNamespaces(
 	if err != nil {
 		return InspectedPreparation{}, err
 	}
-	if !inspected.Ready() {
-		return InspectedPreparation{Inspection: inspected}, nil
-	}
 	return coordinator.PrepareInspected(ctx, inspected, options)
 }
 
@@ -113,7 +110,7 @@ func (coordinator PreparationCoordinator) InspectAndPrepareNamespaces(
 // topology. Callers must not construct network facts from source inventory.
 func (coordinator PreparationCoordinator) PrepareInspected(ctx context.Context, inspected inspection.Result, options PreparationOptions) (InspectedPreparation, error) {
 	result := InspectedPreparation{Inspection: inspected}
-	if !inspected.Ready() {
+	if !inspected.Ready() && !checkpointedTargetRetry(inspected) {
 		return result, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -126,6 +123,9 @@ func (coordinator PreparationCoordinator) PrepareInspected(ctx context.Context, 
 		return result, fmt.Errorf("transition UID, action generation and NSX project path are required")
 	}
 	options.ProjectPath = strings.TrimSuffix(options.ProjectPath, "/")
+	if options.VPCPurpose == "" {
+		options.VPCPurpose = VPCPurposeWorkload
+	}
 
 	networks := append([]inspection.Network(nil), inspected.Networks...)
 	sort.Slice(networks, func(i, j int) bool { return networks[i].Source.VDNName < networks[j].Source.VDNName })
@@ -146,10 +146,24 @@ func (coordinator PreparationCoordinator) PrepareInspected(ctx context.Context, 
 	}
 	sort.Strings(groupKeys)
 
+	type groupPlan struct {
+		networks []inspection.Network
+		identity FrozenIdentities
+		blockIDs []string
+	}
+	plans := make([]groupPlan, 0, len(groupKeys))
+	// Resolve and persist every validated group's identity before the first NSX
+	// write. This prevents an earlier group write from changing discovery before
+	// a later group's checkpoint exists.
 	for _, groupKey := range groupKeys {
 		groupNetworks := groups[groupKey]
 		first := groupNetworks[0]
-		groupIdentity := stableIdentity("target", options.TransitionUID, fmt.Sprint(options.ActionGeneration), groupKey)
+		tgwID, vpcID, err := validateGroupTargetIdentity(groupNetworks)
+		if err != nil {
+			return result, err
+		}
+		groupIdentity := stableIdentity("target-plan", options.TransitionUID, fmt.Sprint(options.ActionGeneration), stableGroupPlanID(groupNetworks))
+		planDigest := inspectedGroupDigest(groupNetworks)
 		groupBlockIDs := make([]string, 0, len(groupNetworks))
 		for _, network := range groupNetworks {
 			groupBlockIDs = append(groupBlockIDs, networkBlockID(network, options))
@@ -161,8 +175,8 @@ func (coordinator PreparationCoordinator) PrepareInspected(ctx context.Context, 
 			VPCPurpose:        options.VPCPurpose,
 			Zones:             sourceZones(first),
 			VDS:               sortedUnique(first.Target.VDSUUIDs),
-			TGWID:             targetID(first.Target.TGWID, first.Target.TGWName),
-			VPCID:             targetID(first.Target.VPCID, first.Target.VPCName),
+			TGWID:             tgwID,
+			VPCID:             vpcID,
 			ProfileIPBlockIDs: groupBlockIDs,
 		}
 		checkpointKey := CheckpointKey{TransitionUID: options.TransitionUID, ActionGeneration: options.ActionGeneration, Identity: groupIdentity}
@@ -172,11 +186,16 @@ func (coordinator PreparationCoordinator) PrepareInspected(ctx context.Context, 
 		}
 		var identities FrozenIdentities
 		if found {
-			if checkpoint.Key != checkpointKey || checkpoint.Identities == nil || checkpoint.Identities.TGWID == "" || checkpoint.Identities.ProfileID == "" || checkpoint.Identities.VPCID == "" {
+			if checkpoint.Key != checkpointKey || checkpoint.PlanDigest != planDigest || checkpoint.Identities == nil || checkpoint.Identities.TGWID == "" || checkpoint.Identities.ProfileID == "" || checkpoint.Identities.VPCID == "" {
 				return result, fmt.Errorf("fabric identity checkpoint for topology %s is incomplete or inconsistent", groupIdentity)
 			}
 			identities = *checkpoint.Identities
 		} else {
+			for _, network := range groupNetworks {
+				if network.Target.Pending {
+					return result, nil
+				}
+			}
 			identities, err = coordinator.Resolver.ResolveIdentities(ctx, groupRequest)
 			if err != nil {
 				return result, fmt.Errorf("resolve fabric identities for topology %s: %w", groupIdentity, err)
@@ -184,12 +203,18 @@ func (coordinator PreparationCoordinator) PrepareInspected(ctx context.Context, 
 			if identities.TGWID == "" || identities.ProfileID == "" || identities.VPCID == "" {
 				return result, fmt.Errorf("fabric resolver returned incomplete identities for topology %s", groupIdentity)
 			}
-			checkpoint = PreparationCheckpoint{Key: checkpointKey, Identities: &identities}
+			checkpoint = PreparationCheckpoint{Key: checkpointKey, PlanDigest: planDigest, Identities: &identities}
 			if _, err := coordinator.Checkpoints.Save(ctx, checkpoint, revision); err != nil {
 				return result, fmt.Errorf("persist fabric identity checkpoint for topology %s: %w", groupIdentity, err)
 			}
 		}
+		plans = append(plans, groupPlan{networks: groupNetworks, identity: identities, blockIDs: groupBlockIDs})
+	}
 
+	for _, plan := range plans {
+		groupNetworks := plan.networks
+		identities := plan.identity
+		groupBlockIDs := plan.blockIDs
 		requests := make([]FabricPreparationRequest, 0, len(groupNetworks))
 		for _, network := range groupNetworks {
 			request, err := buildNetworkRequest(network, options, identities, groupBlockIDs)
@@ -240,15 +265,17 @@ func buildNetworkRequest(network inspection.Network, options PreparationOptions,
 		return FabricPreparationRequest{}, fmt.Errorf("build exclusions for VDN %s: %w", network.Source.VDNName, err)
 	}
 	return FabricPreparationRequest{
-		ProjectPath:            options.ProjectPath,
-		Identity:               networkIdentity,
-		NamespaceUID:           options.NamespaceUID,
-		VPCPurpose:             options.VPCPurpose,
-		Frozen:                 &identities,
-		Zones:                  sourceZones(network),
-		VDS:                    sortedUnique(network.Target.VDSUUIDs),
-		TGWID:                  targetID(network.Target.TGWID, network.Target.TGWName),
-		VPCID:                  targetID(network.Target.VPCID, network.Target.VPCName),
+		ProjectPath:  options.ProjectPath,
+		Identity:     networkIdentity,
+		NamespaceUID: options.NamespaceUID,
+		VPCPurpose:   options.VPCPurpose,
+		Frozen:       &identities,
+		Zones:        sourceZones(network),
+		VDS:          sortedUnique(network.Target.VDSUUIDs),
+		// Checkpointed identities are authoritative on retries. Discovery can
+		// expose a different partial candidate after our previous NSX write.
+		TGWID:                  identities.TGWID,
+		VPCID:                  identities.VPCID,
 		IPBlockID:              networkBlockID(network, options),
 		ProfileIPBlockIDs:      append([]string(nil), profileIPBlockIDs...),
 		IPBlockCIDR:            cidr,
@@ -256,6 +283,27 @@ func buildNetworkRequest(network inspection.Network, options PreparationOptions,
 		IPBlockExcludedIPs:     exclusions,
 		IPBlockSubnetExclusive: options.SubnetExclusive,
 	}, nil
+}
+
+func validateGroupTargetIdentity(networks []inspection.Network) (string, string, error) {
+	var tgwID, vpcID string
+	for _, network := range networks {
+		candidateTGW := targetID(network.Target.TGWID, network.Target.TGWName)
+		candidateVPC := targetID(network.Target.VPCID, network.Target.VPCName)
+		if candidateTGW != "" && tgwID != "" && candidateTGW != tgwID {
+			return "", "", fmt.Errorf("VDNs sharing a target span have conflicting TGW identities %q and %q", tgwID, candidateTGW)
+		}
+		if candidateVPC != "" && vpcID != "" && candidateVPC != vpcID {
+			return "", "", fmt.Errorf("VDNs sharing a target span have conflicting VPC identities %q and %q", vpcID, candidateVPC)
+		}
+		if tgwID == "" {
+			tgwID = candidateTGW
+		}
+		if vpcID == "" {
+			vpcID = candidateVPC
+		}
+	}
+	return tgwID, vpcID, nil
 }
 
 func networkBlockID(network inspection.Network, options PreparationOptions) string {
@@ -268,17 +316,69 @@ func targetGroupKey(network inspection.Network) (string, error) {
 	if len(zones) == 0 {
 		return "", fmt.Errorf("VDN %s has no inspected target zones", network.Source.VDNName)
 	}
-	owner := network.Target.SharedWithVDN
-	if owner == "" {
-		owner = network.Source.VDNName
-	}
+	// The source zone/VDS span is stable across reconciles. Target IDs and
+	// SharedWithVDN can change after this transition's own writes, so they must
+	// not participate in the durable plan identity or grouping key.
 	return strings.Join([]string{
-		owner,
 		strings.Join(zones, ","),
 		strings.Join(sortedUnique(network.Target.VDSUUIDs), ","),
-		targetID(network.Target.TGWID, network.Target.TGWName),
-		targetID(network.Target.VPCID, network.Target.VPCName),
 	}, "\x00"), nil
+}
+
+func checkpointedTargetRetry(inspected inspection.Result) bool {
+	if len(inspected.RequiredInputs) != 0 || len(inspected.Problems) != 0 || len(inspected.MissingZones) != 0 || len(inspected.Networks) == 0 {
+		return false
+	}
+	pending := false
+	for _, network := range inspected.Networks {
+		if !network.Addressing.CIDR.IsValid() {
+			return false
+		}
+		pending = pending || network.Target.Pending
+	}
+	return pending
+}
+
+func stableGroupPlanID(networks []inspection.Network) string {
+	ids := make([]string, 0, len(networks))
+	for _, network := range networks {
+		ids = append(ids, network.Source.VDNName)
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, "\x00")
+}
+
+func inspectedGroupDigest(networks []inspection.Network) string {
+	ordered := append([]inspection.Network(nil), networks...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Source.VDNName < ordered[j].Source.VDNName })
+	var facts []string
+	for _, network := range ordered {
+		facts = append(facts, network.Source.VDNName, fmt.Sprint(network.Source.DHCP), network.Addressing.CIDR.String(), network.Addressing.Gateway.String())
+		allocations := append([]api.IPAddressRange(nil), network.Addressing.Ranges...)
+		sort.Slice(allocations, func(i, j int) bool {
+			if allocations[i].Start == allocations[j].Start {
+				return allocations[i].End < allocations[j].End
+			}
+			return allocations[i].Start < allocations[j].Start
+		})
+		for _, allocation := range allocations {
+			facts = append(facts, allocation.Start, allocation.End)
+		}
+		facts = append(facts, "--topologies--")
+		topologies := append([]inspection.Topology(nil), network.Source.Topologies...)
+		sort.Slice(topologies, func(i, j int) bool {
+			left := topologies[i].VCenterUUID + "\x00" + topologies[i].PortGroupID
+			right := topologies[j].VCenterUUID + "\x00" + topologies[j].PortGroupID
+			return left < right
+		})
+		for _, topology := range topologies {
+			facts = append(facts, topology.VCenterUUID, topology.PortGroupID, topology.SwitchUUID)
+			facts = append(facts, sortedUnique(topology.ZoneIDs)...)
+		}
+		facts = append(facts, "--end-network--")
+	}
+	hash := sha256.Sum256([]byte(strings.Join(facts, "\x00")))
+	return hex.EncodeToString(hash[:])
 }
 
 func sourceZones(network inspection.Network) []string {

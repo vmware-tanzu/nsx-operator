@@ -105,7 +105,24 @@ type Result struct {
 }
 
 func (result Result) Ready() bool {
-	return len(result.RequiredInputs) == 0 && len(result.Problems) == 0 && len(result.MissingZones) == 0 && len(result.Networks) > 0
+	if len(result.RequiredInputs) != 0 || len(result.Problems) != 0 || len(result.MissingZones) != 0 || len(result.Networks) == 0 {
+		return false
+	}
+	for _, network := range result.Networks {
+		if network.Target.Pending {
+			return false
+		}
+	}
+	return true
+}
+
+func (result Result) HasPendingTargets() bool {
+	for _, network := range result.Networks {
+		if network.Target.Pending {
+			return true
+		}
+	}
+	return false
 }
 
 type Service struct {
@@ -439,6 +456,9 @@ func (result Result) Apply(target *api.TransitionStatus, generation int64) error
 	phase, reason, message, conditionStatus := api.PhaseEvaluating, "NetworkInspectionComplete", "Source addressing and reusable target topology validated", metav1.ConditionTrue
 	if !result.Ready() {
 		phase, reason, message, conditionStatus = api.PhaseNeedsInput, "MissingNetworkInputs", "Supply the required DHCP network inputs", metav1.ConditionFalse
+	}
+	if result.HasPendingTargets() && len(result.RequiredInputs) == 0 && len(result.Problems) == 0 && len(result.MissingZones) == 0 {
+		phase, reason, message, conditionStatus = api.PhaseEvaluationFailed, "IncompleteTargetTopology", "A target topology is incomplete or incompatible; repair the NSX resources before evaluating migration", metav1.ConditionFalse
 	}
 	if len(result.MissingZones) > 0 {
 		message = strings.Join(result.MissingZones, "; ")

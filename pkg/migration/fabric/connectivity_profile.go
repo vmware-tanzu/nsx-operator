@@ -84,7 +84,7 @@ func (s ConnectivityProfileService) reusableID(cluster, project, tgwID, tgwPath 
 		if !ownedByCluster(candidate.Tags, cluster) || value(candidate.TransitGatewayPath) != tgwPath {
 			continue
 		}
-		if !profileBlocksCompatible(candidate.ExternalIpBlocks, blocks, snatBlock) {
+		if !profileBlocksCompatible(candidate.ExternalIpBlocks, blocks, project, snatBlock) {
 			continue
 		}
 		profileMatches = append(profileMatches, candidate)
@@ -129,7 +129,7 @@ func (s ConnectivityProfileService) UpdateBlocks(ctx context.Context, profile Re
 	return s.Client.Patch(o, p, profile.ID, current)
 }
 
-func profileBlocksCompatible(actual, ordinary []string, allowedSNATBlock string) bool {
+func profileBlocksCompatible(actual, requested []string, project, allowedSNATBlock string) bool {
 	filtered := make([]string, 0, len(actual))
 	for _, block := range actual {
 		if allowedSNATBlock != "" && block == allowedSNATBlock {
@@ -137,5 +137,8 @@ func profileBlocksCompatible(actual, ordinary []string, allowedSNATBlock string)
 		}
 		filtered = append(filtered, block)
 	}
-	return equalSet(filtered, ordinary)
+	if len(requested) != 0 && len(filtered) == 0 {
+		return false
+	}
+	return profileBlocksInScope(filtered, project)
 }

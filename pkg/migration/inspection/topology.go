@@ -28,6 +28,7 @@ type TargetTopology struct {
 	TGWID, TGWName     string
 	ZoneIDs, VDSUUIDs  []string
 	VPCID, VPCName     string
+	VPCPath            string
 	VPCReady, Attached bool
 	PortSettings       []ConvertedPortSetting
 }
@@ -43,6 +44,9 @@ type ConvertedPortSetting struct {
 type TargetDecision struct {
 	TGWID, TGWName, VPCID, VPCName string
 	CreateTGW, CreateVPC           bool
+	// Pending marks a discovered target pair that is incomplete and may be
+	// resumed only from a matching durable preparation checkpoint.
+	Pending bool
 	// SharedWithVDN identifies the network whose target plan creates the pair.
 	// Empty for the plan owner or when an existing pair is reused.
 	SharedWithVDN string
@@ -156,8 +160,23 @@ func resolveTargetTopology(vdnName string, zoneIDs, requiredVDSUUIDs []string, s
 		}
 	} else {
 		candidate := matchingTGWs[0]
+		if names.TGWName != "" && candidate.TGWID != "" && string(names.TGWName) != candidate.TGWID {
+			return TargetDecision{}, nil, fmt.Errorf("tgwName conflicts with reusable TGW ID %q", candidate.TGWID)
+		}
+		if names.VPCName != "" && candidate.VPCID != "" && string(names.VPCName) != candidate.VPCID {
+			return TargetDecision{}, nil, fmt.Errorf("vpcName conflicts with reusable VPC ID %q", candidate.VPCID)
+		}
 		if candidate.TGWID == "" || candidate.VPCID == "" || !candidate.VPCReady || !candidate.Attached {
-			return TargetDecision{}, nil, fmt.Errorf("matching TGW/VPC pair is incomplete or has no valid attachment")
+			decision.TGWID = candidate.TGWID
+			decision.VPCID = candidate.VPCID
+			if candidate.TGWName != "" {
+				decision.TGWName = candidate.TGWName
+			}
+			if candidate.VPCName != "" {
+				decision.VPCName = candidate.VPCName
+			}
+			decision.Pending = true
+			return decision, nil, nil
 		}
 		if !containsAll(candidate.VDSUUIDs, requiredVDSUUIDs) {
 			return TargetDecision{}, nil, fmt.Errorf("matching TGW/VPC pair has unverified or incompatible VDS attachments")

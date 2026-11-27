@@ -55,15 +55,15 @@ func transitGatewayResource(x model.TransitGateway) (Resource, bool, error) {
 	out := resourceFrom(TGW, value(x.Id), value(x.Path), value(x.ParentPath))
 	out.Tags = x.Tags
 	if x.Span == nil {
-		return out, true, fmt.Errorf("transit gateway span missing")
+		return out, true, &ConflictError{Kind: TGW, Path: out.Path}
 	}
 	decoded, errs := common.NewConverter().ConvertToGolang(x.Span, model.ZoneBasedSpanBindingType())
 	if len(errs) > 0 {
-		return out, true, fmt.Errorf("decode TGW span: %v", errs)
+		return out, true, &ConflictError{Kind: TGW, Path: out.Path}
 	}
 	span, ok := decoded.(model.ZoneBasedSpan)
 	if !ok || span.Type_ != model.ZoneBasedSpan__TYPE_IDENTIFIER {
-		return out, true, fmt.Errorf("unsupported TGW span")
+		return out, true, &ConflictError{Kind: TGW, Path: out.Path}
 	}
 	out.Zones, out.VDS = span.ZoneExternalIds, span.CustomVdsAttachments
 	return out, true, nil
@@ -99,7 +99,7 @@ func (s TransitGatewayService) reusableID(req FabricPreparationRequest, cluster,
 			continue
 		}
 		span, ok := decoded.(model.ZoneBasedSpan)
-		if ok && span.Type_ == model.ZoneBasedSpan__TYPE_IDENTIFIER && equalSet(span.ZoneExternalIds, req.Zones) && equalSet(span.CustomVdsAttachments, req.VDS) {
+		if ok && span.Type_ == model.ZoneBasedSpan__TYPE_IDENTIFIER && equalSet(span.ZoneExternalIds, req.Zones) && containsAll(span.CustomVdsAttachments, req.VDS) {
 			tgwMatches = append(tgwMatches, candidate)
 		}
 	}
