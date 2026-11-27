@@ -56,8 +56,9 @@ var (
 	readerPath      = "/"
 	readerRole      = "cluster_info_reader"
 
-	antreaClusterResourceType = "AntreaClusterControlPlane"
-	revision1                 = int64(1)
+	antreaClusterResourceType  = "AntreaClusterControlPlane"
+	revision1                  = int64(1)
+	principalAlreadyExistsCode = int64(2039)
 
 	proxyLabels = map[string]string{"mgmt-proxy.antrea-nsx.vmware.com": ""}
 )
@@ -410,6 +411,12 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 	if !hasCCP != (ccpObj == nil) {
 		return "", fmt.Errorf("old CCP exists")
 	}
+	if ccpObj != nil {
+		ccp := ccpObj.(*model.ClusterControlPlane)
+		if !ccpOwnedByAccount(ccp, obj.UID) {
+			return "", fmt.Errorf("cluster control plane %s is not owned by NSXServiceAccount %s/%s", normalizedClusterName, obj.Namespace, obj.Name)
+		}
+	}
 	// Only new CCPs consume capacity. Allow credential updates for existing
 	// accounts even when another account has exhausted the connection limit.
 	if ccpObj == nil {
@@ -443,15 +450,30 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		})
 		err = nsxutil.TransNSXApiError(err)
 		if err != nil {
+			if !nsxutil.HasAnyErrorCode(err, principalAlreadyExistsCode) {
+				return "", err
+			}
+			// NSX may have committed the PI before a failed response reached us.
+			// Only adopt an exact identity owned by this NSXServiceAccount.
+			existing, findErr := s.findOwnedPrincipalIdentity(normalizedClusterName, obj)
+			if findErr != nil {
+				return "", fmt.Errorf("recover PI after create failed: %w", findErr)
+			}
+			if findErr = s.updatePICert(existing, normalizedClusterName, cert); findErr != nil {
+				return "", findErr
+			}
+		} else if err := s.PrincipalIdentityStore.Add(&pi); err != nil {
 			return "", err
 		}
-		s.PrincipalIdentityStore.Add(&pi)
 	} else if !hasPI != (piObj == nil) {
 		log.Error(fmt.Errorf("conflicting old PI exists"), "Failed to create PI and CCPN", "!hasPI", !hasPI, "piObj == nil", piObj == nil)
 		return "", fmt.Errorf("old PI exists")
 	} else if hasPI && (piObj != nil) {
 		log.Debug("update PI with new cert")
 		pi := piObj.(*mpmodel.PrincipalIdentity)
+		if !principalOwnedByAccount(pi, obj.UID) {
+			return "", fmt.Errorf("principal identity %s is not owned by NSXServiceAccount %s/%s", normalizedClusterName, obj.Namespace, obj.Name)
+		}
 		err := s.updatePICert(pi, normalizedClusterName, cert)
 		if err != nil {
 			return "", err
@@ -486,8 +508,106 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 	}
 	// Preserve the node ID in the cache when NSX omits it from the response.
 	updated.NodeId = nodeID
-	s.ClusterControlPlaneStore.Add(&updated)
+	if err := s.ClusterControlPlaneStore.Add(&updated); err != nil {
+		return "", err
+	}
 	return *nodeID, nil
+}
+
+func (s *NSXServiceAccountService) findOwnedPrincipalIdentity(name string, obj *v1alpha1.NSXServiceAccount) (*mpmodel.PrincipalIdentity, error) {
+	list, err := s.NSXClient.PrincipalIdentitiesClient.List()
+	if err != nil {
+		return nil, nsxutil.TransNSXApiError(err)
+	}
+	if list.Cursor != nil && *list.Cursor != "" {
+		// The PI list API has no cursor argument. Use the paginated MP search
+		// API when its response is incomplete, without changing the live store.
+		if obj.UID == "" {
+			return nil, fmt.Errorf("cannot recover principal identity without an NSXServiceAccount UID")
+		}
+		query := fmt.Sprintf("resource_type:%s AND tags.scope:nsx-op\\/nsx_service_account_uid AND tags.tag:%s", common.ResourceTypePrincipalIdentity, obj.UID)
+		var cursor *string
+		seen := make(map[string]bool)
+		pageSize := int64(1000)
+		list.Results = nil
+		for {
+			page, err := s.NSXClient.MPQueryClient.List(query, cursor, nil, &pageSize, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("search principal identities: %w", nsxutil.TransNSXApiError(err))
+			}
+			for _, result := range page.Results {
+				value, errs := common.NewConverter().ConvertToGolang(result, mpmodel.PrincipalIdentityBindingType())
+				if len(errs) != 0 {
+					return nil, fmt.Errorf("decode principal identity: %w", errs[0])
+				}
+				pi, ok := value.(mpmodel.PrincipalIdentity)
+				if !ok {
+					return nil, fmt.Errorf("search returned an invalid principal identity")
+				}
+				list.Results = append(list.Results, pi)
+			}
+			if page.Cursor == nil || *page.Cursor == "" {
+				break
+			}
+			if seen[*page.Cursor] {
+				return nil, fmt.Errorf("search principal identities returned a repeated cursor")
+			}
+			seen[*page.Cursor] = true
+			cursor = page.Cursor
+		}
+	}
+	var match *mpmodel.PrincipalIdentity
+	for i := range list.Results {
+		pi := &list.Results[i]
+		if pi.Name == nil || *pi.Name != name || pi.NodeId == nil || *pi.NodeId != name {
+			continue
+		}
+		if match != nil {
+			return nil, fmt.Errorf("multiple principal identities match %s", name)
+		}
+		match = pi
+	}
+	if match == nil || match.Id == nil || *match.Id == "" {
+		return nil, fmt.Errorf("principal identity %s was not found or has no ID", name)
+	}
+	if !principalOwnedByAccount(match, obj.UID) {
+		return nil, fmt.Errorf("principal identity %s is not owned by NSXServiceAccount %s/%s", name, obj.Namespace, obj.Name)
+	}
+	return match, nil
+}
+
+func principalOwnedByAccount(pi *mpmodel.PrincipalIdentity, uid types.UID) bool {
+	if uid == "" {
+		return false
+	}
+	owned := false
+	for _, tag := range pi.Tags {
+		if tag.Scope == nil || *tag.Scope != common.TagScopeNSXServiceAccountCRUID {
+			continue
+		}
+		if tag.Tag == nil || *tag.Tag != string(uid) {
+			return false
+		}
+		owned = true
+	}
+	return owned
+}
+
+func ccpOwnedByAccount(ccp *model.ClusterControlPlane, uid types.UID) bool {
+	if uid == "" {
+		return false
+	}
+	owned := false
+	for _, tag := range ccp.Tags {
+		if tag.Scope == nil || *tag.Scope != common.TagScopeNSXServiceAccountCRUID {
+			continue
+		}
+		if tag.Tag == nil || *tag.Tag != string(uid) {
+			return false
+		}
+		owned = true
+	}
+	return owned
 }
 
 func (s *NSXServiceAccountService) getProxyType(obj *v1alpha1.NSXServiceAccount) v1alpha1.NSXServiceAccountProxyType {
@@ -767,7 +887,21 @@ func (s *NSXServiceAccountService) updateClusterControlPlane(name string, ccp mo
 		}
 		return model.ClusterControlPlane{}, err
 	}
-	s.ClusterControlPlaneStore.Add(&updated)
+	if updated.Id != nil && *updated.Id != name {
+		return model.ClusterControlPlane{}, fmt.Errorf("cluster control plane update returned a different ID for %s", name)
+	}
+	if updated.Id == nil {
+		updated.Id = &name
+	}
+	if updated.Tags == nil {
+		updated.Tags = ccp.Tags
+	}
+	if updated.NodeId == nil {
+		updated.NodeId = ccp.NodeId
+	}
+	if err := s.ClusterControlPlaneStore.Add(&updated); err != nil {
+		return model.ClusterControlPlane{}, err
+	}
 	return updated, nil
 }
 
@@ -778,6 +912,9 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 	ccpObj := s.ClusterControlPlaneStore.GetByKey(normalizedClusterName)
 	if !hasPI || !hasCCP || piObj == nil || ccpObj == nil {
 		return fmt.Errorf("missing PI or CCP, cluster=%s", normalizedClusterName)
+	}
+	if !principalOwnedByAccount(piObj.(*mpmodel.PrincipalIdentity), types.UID(uid)) || !ccpOwnedByAccount(ccpObj.(*model.ClusterControlPlane), types.UID(uid)) {
+		return fmt.Errorf("PI or CCP is not owned by NSXServiceAccount UID %s, cluster=%s", uid, normalizedClusterName)
 	}
 
 	ccp := *ccpObj.(*model.ClusterControlPlane)
@@ -805,6 +942,9 @@ func (s *NSXServiceAccountService) updatePICert(pi *mpmodel.PrincipalIdentity, n
 		err = nsxutil.TransNSXApiError(err)
 		return err
 	}
+	if len(certList.Results) == 0 || certList.Results[0].Id == nil || *certList.Results[0].Id == "" {
+		return fmt.Errorf("imported certificate for principal identity %s has no ID", normalizedClusterName)
+	}
 
 	if pi2, err := s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
 		CertificateId:       certList.Results[0].Id,
@@ -813,13 +953,21 @@ func (s *NSXServiceAccountService) updatePICert(pi *mpmodel.PrincipalIdentity, n
 		err = nsxutil.TransNSXApiError(err)
 		return err
 	} else {
-		pi = &pi2
-		s.PrincipalIdentityStore.Add(pi)
+		// NSX may return a partial representation. Retain the verified identity
+		// and its ownership tags, while rejecting a response for another PI.
+		if (pi2.Name != nil && *pi2.Name != normalizedClusterName) || (pi2.Id != nil && (pi.Id == nil || *pi2.Id != *pi.Id)) {
+			return fmt.Errorf("certificate update returned a different principal identity for %s", normalizedClusterName)
+		}
+		updatedPI := *pi
+		updatedPI.CertificateId = certList.Results[0].Id
+		if err := s.PrincipalIdentityStore.Add(&updatedPI); err != nil {
+			return err
+		}
 	}
-	if oldCertId != "" {
+	if oldCertId != "" && oldCertId != *certList.Results[0].Id {
 		if err := s.NSXClient.CertificatesClient.Delete(oldCertId); err != nil {
 			err = nsxutil.TransNSXApiError(err)
-			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Old Certificate", *pi.CertificateId)
+			log.Error(err, "failed to delete old principal identity certificate", "PrincipalIdentity", normalizedClusterName, "Old Certificate", oldCertId)
 		}
 	}
 	return nil
