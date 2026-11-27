@@ -245,12 +245,12 @@ func TestWorkloadControllerCheckpointAndFields(t *testing.T) {
 	})
 	t.Run("annotation cleanup requires exact absence", func(t *testing.T) {
 		oldObject := &unstructured.Unstructured{Object: map[string]interface{}{
-			"metadata": map[string]interface{}{"name": "vm", "uid": "uid"},
+			"metadata": map[string]interface{}{"name": "vm", "uid": "uid", "generation": int64(1)},
 			"spec":     map[string]interface{}{"networkInterfaces": []interface{}{map[string]interface{}{"name": "old"}}},
 		}}
 		expected := &ExpectedVMUpdate{NetworkInterfaces: []interface{}{map[string]interface{}{"name": "new"}}}
 		clean := &unstructured.Unstructured{Object: map[string]interface{}{
-			"metadata": map[string]interface{}{"name": "vm", "uid": "uid"},
+			"metadata": map[string]interface{}{"name": "vm", "uid": "uid", "generation": int64(2)},
 			"spec":     map[string]interface{}{"networkInterfaces": []interface{}{map[string]interface{}{"name": "new"}}},
 		}}
 		residual := clean.DeepCopy()

@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/namespaces"
 )
 
 const (
@@ -110,6 +111,16 @@ func (v NamespaceLifecycleValidator) Handle(ctx context.Context, req admission.R
 			!onlyVPCNetworkConfigChanged(oldObject, object) {
 			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q is protected by unresolved migration transition %s; only its migration controller may change the network provider configuration", name, protectedBy.name))
 		}
+		if protectedBy.identity == nil {
+			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q has no recorded migration identity", name))
+		}
+		if oldObject.GetUID() != types.UID(protectedBy.identity.SupervisorNamespaceUID) ||
+			object.GetUID() != types.UID(protectedBy.identity.SupervisorNamespaceUID) {
+			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q UID does not match the migration's recorded identity", name))
+		}
+		if err := namespaces.ValidateSnapshot(ctx, v.Reader, []string{name}, []api.NamespaceIdentityStatus{*protectedBy.identity}); err != nil {
+			return admission.Denied(fmt.Sprintf("namespace %q identity does not match the migration's recorded identity: %v", name, err))
+		}
 		return admission.Allowed("designated migration controller changed only network provider configuration")
 	}
 
@@ -165,6 +176,7 @@ type namespaceProtection struct {
 	name                string
 	controllerMayChange bool
 	transition          *api.NamespaceNetworkTransition
+	identity            *api.NamespaceIdentityStatus
 }
 
 func (v NamespaceLifecycleValidator) protectingTransition(ctx context.Context, namespace string) (*namespaceProtection, error) {

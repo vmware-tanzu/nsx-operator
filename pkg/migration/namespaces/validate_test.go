@@ -13,8 +13,11 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 )
 
 func TestValidateNamespaceMembers(t *testing.T) {
@@ -75,4 +78,73 @@ func TestValidateNamespaceMembers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateRejectsMalformedNamespaceLists(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		names   []string
+		wantErr string
+	}{
+		{name: "empty namespace name", names: []string{""}, wantErr: "empty namespace name"},
+		{name: "duplicate namespace", names: []string{"tenant", "tenant"}, wantErr: `namespace "tenant" appears more than once`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := client.Reader(nil)
+			if tc.name == "duplicate namespace" {
+				reader = liveNamespaceReader()
+			}
+			err := Validate(context.Background(), reader, tc.names)
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+	require.NoError(t, Validate(context.Background(), nil, nil), "empty input is a no-op; the CRD independently requires at least one namespace")
+	_, err := Snapshot(context.Background(), nil, nil)
+	require.ErrorContains(t, err, "at least one namespace")
+	require.ErrorContains(t, ValidateSnapshot(context.Background(), nil, nil, nil), "at least one namespace")
+}
+
+func TestValidateSnapshotRejectsNamespaceObjectReplacement(t *testing.T) {
+	ctx := context.Background()
+	expected := []api.NamespaceIdentityStatus{{
+		Namespace: "tenant", NamespaceUID: "namespace-original", SupervisorNamespaceUID: "supervisor-original",
+	}}
+	for _, tc := range []struct {
+		name               string
+		namespaceUID       string
+		supervisorUID      string
+		wantError          string
+		expectedIdentities []api.NamespaceIdentityStatus
+	}{
+		{name: "Kubernetes Namespace replacement", namespaceUID: "namespace-replacement", supervisorUID: "supervisor-original", wantError: "object UID changed"},
+		{name: "SupervisorNamespace replacement", namespaceUID: "namespace-original", supervisorUID: "supervisor-replacement", wantError: "object UID changed"},
+		{name: "snapshot contains a different namespace", namespaceUID: "namespace-original", supervisorUID: "supervisor-original", expectedIdentities: []api.NamespaceIdentityStatus{{Namespace: "other", NamespaceUID: "ns", SupervisorNamespaceUID: "sn"}}, wantError: `namespace "tenant" is missing`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			expectedIdentities := tc.expectedIdentities
+			if expectedIdentities == nil {
+				expectedIdentities = expected
+			}
+			err := ValidateSnapshot(ctx, namespaceIdentityReader(tc.namespaceUID, tc.supervisorUID), []string{"tenant"}, expectedIdentities)
+			require.ErrorContains(t, err, tc.wantError)
+		})
+	}
+}
+
+func liveNamespaceReader() client.Reader {
+	return namespaceIdentityReader("namespace-uid", "supervisor-uid")
+}
+
+func namespaceIdentityReader(namespaceUID, supervisorUID string) client.Reader {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	gv := schema.GroupVersion{Group: "iaas.vmware.com", Version: "v1alpha2"}
+	scheme.AddKnownTypeWithName(gv.WithKind("SupervisorNamespace"), &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(gv.WithKind("SupervisorNamespaceList"), &unstructured.UnstructuredList{})
+	namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: types.UID(namespaceUID)}}
+	supervisor := &unstructured.Unstructured{Object: map[string]interface{}{
+		"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
+		"metadata": map[string]interface{}{"name": "tenant", "uid": supervisorUID},
+	}}
+	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(namespace, supervisor).Build()
 }

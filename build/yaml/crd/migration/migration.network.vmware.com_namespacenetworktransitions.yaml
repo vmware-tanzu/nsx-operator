@@ -350,6 +350,41 @@ spec:
                 - Commit
                 - Finalize
                 type: string
+              namespaceIdentities:
+                description: |-
+                  NamespaceIdentities pins each batch member to the Kubernetes and
+                  SupervisorNamespace object incarnations observed during Evaluate.
+                items:
+                  description: NamespaceIdentityStatus records the object UIDs for
+                    one namespace batch member.
+                  properties:
+                    namespace:
+                      description: Namespace is the Kubernetes namespace name.
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    namespaceUID:
+                      description: NamespaceUID identifies this Kubernetes Namespace
+                        incarnation.
+                      maxLength: 128
+                      minLength: 1
+                      type: string
+                    supervisorNamespaceUID:
+                      description: SupervisorNamespaceUID identifies the matching
+                        SupervisorNamespace object.
+                      maxLength: 128
+                      minLength: 1
+                      type: string
+                  required:
+                  - namespace
+                  - namespaceUID
+                  - supervisorNamespaceUID
+                  type: object
+                maxItems: 1000
+                type: array
+                x-kubernetes-list-map-keys:
+                - namespace
+                x-kubernetes-list-type: map
               namespaceStatuses:
                 description: |-
                   NamespaceStatuses records progress without creating separate status resources.

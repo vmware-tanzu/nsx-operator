@@ -9,9 +9,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -29,13 +32,17 @@ func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 			ctx := context.Background()
 			scheme := runtime.NewScheme()
 			require.NoError(t, api.AddToScheme(scheme))
+			require.NoError(t, corev1.AddToScheme(scheme))
+			supervisorGVK := schema.GroupVersion{Group: "iaas.vmware.com", Version: "v1alpha2"}.WithKind("SupervisorNamespace")
+			scheme.AddKnownTypeWithName(supervisorGVK, &unstructured.Unstructured{})
+			scheme.AddKnownTypeWithName(supervisorGVK.GroupVersion().WithKind("SupervisorNamespaceList"), &unstructured.UnstructuredList{})
 			action, active, complete := api.ActionCommit, "Committing", "Committed"
 			if stage == transition.Infrastructure {
 				action, active, complete = api.ActionFinalize, "Finalizing", "Finalized"
 			}
 			workflows := []api.NSXWorkflowStatus{{VDNName: "network-a", WorkflowID: "workflow-a"}, {VDNName: "network-b", WorkflowID: "workflow-b"}}
 			initial := api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, NSXWorkflows: workflows}
-			var obj client.Object = &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 5}, Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: action}, Namespaces: []string{"tenant"}}, Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: initial}}
+			var obj client.Object = &api.NamespaceNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 5}, Spec: api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: action}, Namespaces: []string{"tenant"}}, Status: &api.NamespaceNetworkTransitionStatus{TransitionStatus: initial, NamespaceIdentities: []api.NamespaceIdentityStatus{{Namespace: "tenant", NamespaceUID: "namespace-uid", SupervisorNamespaceUID: "supervisor-uid"}}}}
 			if stage == transition.Infrastructure {
 				obj = &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 5}, Spec: api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: action}}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: initial}}
 			}
@@ -48,7 +55,12 @@ func TestIrreversibleRecoveryAcrossStatusFailures(t *testing.T) {
 				return c.SubResource(subresource).Update(ctx, obj, opts...)
 			}})
 			if stage == transition.Namespaces {
-				builder.WithObjects(&api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 4}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: "InfraTransitionComplete", Conditions: []metav1.Condition{{Type: "InfraTransitionComplete", Status: metav1.ConditionTrue, Reason: "CutoverVerified", LastTransitionTime: metav1.Now()}}}}})
+				supervisor := &unstructured.Unstructured{Object: map[string]interface{}{"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace", "metadata": map[string]interface{}{"name": "tenant", "uid": "supervisor-uid"}}}
+				supervisor.SetGroupVersionKind(supervisorGVK)
+				builder.WithObjects(
+					&api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 4}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: "InfraTransitionComplete", Conditions: []metav1.Condition{{Type: "InfraTransitionComplete", Status: metav1.ConditionTrue, Reason: "CutoverVerified", LastTransitionTime: metav1.Now()}}}}},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "namespace-uid"}}, supervisor,
+				)
 			}
 			c := builder.Build()
 			key := client.ObjectKeyFromObject(obj)

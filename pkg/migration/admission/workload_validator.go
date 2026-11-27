@@ -132,6 +132,10 @@ func onlyAllowedWorkloadFieldsChanged(username, resource string, oldObject, newO
 
 	oldValue, newValue := oldObject.DeepCopy().Object, newObject.DeepCopy().Object
 	for _, object := range []map[string]interface{}{oldValue, newValue} {
+		// The API server increments generation when spec.networkInterfaces changes.
+		// Generation is bookkeeping here; the allowlist below already compares the
+		// requested network interfaces with trusted migration state.
+		unstructured.RemoveNestedField(object, "metadata", "generation")
 		unstructured.RemoveNestedField(object, "metadata", "annotations", "migration.vmoperator.vmware.com/in-transition")
 		// Removing the only annotation can leave an empty map on one side.
 		if annotations, found, _ := unstructured.NestedMap(object, "metadata", "annotations"); found && len(annotations) == 0 {
@@ -305,10 +309,20 @@ func findNamespaceProtectionFor(ctx context.Context, reader client.Reader, names
 			return nil, fmt.Errorf("namespace %q is covered by multiple unresolved transitions %s and %s", namespace, found.transition.Name, transition.Name)
 		}
 		transitionCopy := transition.DeepCopy()
+		var identity *api.NamespaceIdentityStatus
+		if transitionCopy.Status != nil {
+			for j := range transitionCopy.Status.NamespaceIdentities {
+				if transitionCopy.Status.NamespaceIdentities[j].Namespace == namespace {
+					identity = &transitionCopy.Status.NamespaceIdentities[j]
+					break
+				}
+			}
+		}
 		found = &namespaceProtection{
 			name:                transition.Name,
 			controllerMayChange: namespaceControllerMayChange(transition),
 			transition:          transitionCopy,
+			identity:            identity,
 		}
 	}
 	return found, nil

@@ -6,6 +6,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -93,12 +94,31 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 			return ctrl.Result{}, err
 		}
 		if r.Engine.Enabled && r.Stage == transition.Namespaces &&
-			(action == api.ActionExecute || action == api.ActionRollback) &&
 			r.Engine.Handlers[transition.Key{Stage: r.Stage, Action: action}] != nil {
-			if err := namespaces.Validate(ctx, r.reader(), obj.(*api.NamespaceNetworkTransition).Spec.Namespaces); err != nil {
-				transition.Block(status, obj.GetGeneration(), "NamespaceUnavailable",
-					fmt.Sprintf("Could not validate namespace members before %s: %v", action, err))
-				reconcileErr = fmt.Errorf("validating namespace members before %s: %w", action, err)
+			batch := obj.(*api.NamespaceNetworkTransition)
+			var identityErr error
+			switch action {
+			case api.ActionEvaluate:
+				// A new Evaluate generation may intentionally change the namespace
+				// batch, so capture its identity set once for that generation. Retries
+				// of the same generation must preserve and validate the original set.
+				if len(batch.Status.NamespaceIdentities) == 0 || status.ActionGeneration != obj.GetGeneration() {
+					batch.Status.NamespaceIdentities, identityErr = namespaces.Snapshot(ctx, r.reader(), batch.Spec.Namespaces)
+				} else {
+					identityErr = namespaces.ValidateSnapshot(ctx, r.reader(), batch.Spec.Namespaces, batch.Status.NamespaceIdentities)
+				}
+			case api.ActionExecute, api.ActionRollback, api.ActionCommit:
+				identityErr = namespaces.ValidateSnapshot(ctx, r.reader(), batch.Spec.Namespaces, batch.Status.NamespaceIdentities)
+			}
+			if identityErr != nil {
+				reason := "NamespaceIdentityMismatch"
+				var unavailable *namespaces.UnavailableError
+				if errors.As(identityErr, &unavailable) {
+					reason = "NamespaceUnavailable"
+				}
+				transition.Block(status, obj.GetGeneration(), reason,
+					fmt.Sprintf("Could not validate namespace identities before %s: %v", action, identityErr))
+				reconcileErr = fmt.Errorf("validating namespace identities before %s: %w", action, identityErr)
 			} else {
 				result, reconcileErr = r.Engine.Reconcile(ctx, request)
 			}
@@ -106,6 +126,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 			result, reconcileErr = r.Engine.Reconcile(ctx, request)
 		}
 	}
+	// Persist status mutations even when the engine returned an error so the
+	// failed action result remains observable.
 	if !equality.Semantic.DeepEqual(previous, obj) {
 		if err := r.Status().Update(ctx, obj); err != nil {
 			return ctrl.Result{}, fmt.Errorf("persisting transition status: %w", err)

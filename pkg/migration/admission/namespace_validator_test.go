@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -260,19 +261,38 @@ func TestNamespaceLifecycleValidatorSupportsV1Alpha2NetworkingUnion(t *testing.T
 		scheme := runtime.NewScheme()
 		require.NoError(t, api.AddToScheme(scheme))
 		require.NoError(t, corev1.AddToScheme(scheme))
+		supervisorGVK := schema.GroupVersion{Group: SupervisorNamespaceGroup, Version: "v1alpha2"}.WithKind("SupervisorNamespace")
+		scheme.AddKnownTypeWithName(supervisorGVK, &unstructured.Unstructured{})
+		scheme.AddKnownTypeWithName(supervisorGVK.GroupVersion().WithKind("SupervisorNamespaceList"), &unstructured.UnstructuredList{})
 		transition := &api.NamespaceNetworkTransition{
 			ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 3},
 			Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
-			Status:     &api.NamespaceNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 3, ObservedGeneration: 3}},
+			Status: &api.NamespaceNetworkTransitionStatus{
+				TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 3, ObservedGeneration: 3},
+				NamespaceIdentities: []api.NamespaceIdentityStatus{{
+					Namespace: "tenant", NamespaceUID: "k8s-ns-uid", SupervisorNamespaceUID: "supervisor-ns-uid",
+				}},
+			},
 		}
-		validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "k8s-ns-uid"}}).Build(), ControllerUser: "controller"}
+		supervisor := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
+			"metadata": map[string]interface{}{"name": "tenant", "uid": "supervisor-ns-uid"},
+		}}
+		supervisor.SetGroupVersionKind(supervisorGVK)
+		validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+			transition,
+			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "k8s-ns-uid"}},
+			supervisor,
+		).Build(), ControllerUser: "controller"}
 		oldObject := `{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"networking":{"vsphereNetworkConfig":{}},"other":"same"}}`
 		newObject := `{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"networking":{"vpcNetworkConfig":{}},"other":"same"}}`
 		request := supervisorNamespaceRequest(admissionv1.Update, newObject, "controller")
 		request.OldObject = runtime.RawExtension{Raw: []byte(oldObject)}
 		require.True(t, validator.Handle(context.Background(), request).Allowed)
 		request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant","uid":"replacement-uid"},"spec":{"networking":{"vpcNetworkConfig":{}} ,"other":"same"}}`)}
-		require.False(t, validator.Handle(context.Background(), request).Allowed, "controller updates must preserve the API object UID")
+		response := validator.Handle(context.Background(), request)
+		require.False(t, response.Allowed, "controller updates must preserve the API object UID")
+		require.Contains(t, response.Result.Message, "only its migration controller may change")
 
 		request.Object = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant","uid":"supervisor-ns-uid"},"spec":{"networking":{"vpcNetworkConfig":{}},"other":"changed"}}`)}
 		require.False(t, validator.Handle(context.Background(), request).Allowed)
@@ -290,6 +310,54 @@ func supervisorNamespaceRequest(operation admissionv1.Operation, object, usernam
 		UserInfo: authenticationv1.UserInfo{Username: username},
 		Object:   runtime.RawExtension{Raw: []byte(object)},
 	}}
+}
+
+func TestNamespaceLifecycleRejectsControllerUpdatesWithoutMatchingRecordedIdentity(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, api.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	supervisorGVK := schema.GroupVersion{Group: SupervisorNamespaceGroup, Version: "v1alpha2"}.WithKind("SupervisorNamespace")
+	scheme.AddKnownTypeWithName(supervisorGVK, &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(supervisorGVK.GroupVersion().WithKind("SupervisorNamespaceList"), &unstructured.UnstructuredList{})
+
+	for _, tc := range []struct {
+		name       string
+		identity   *api.NamespaceIdentityStatus
+		wantReason string
+	}{
+		{name: "missing recorded identity", wantReason: "has no recorded migration identity"},
+		{name: "different Namespace UID", identity: &api.NamespaceIdentityStatus{Namespace: "tenant", NamespaceUID: "replacement-k8s-uid", SupervisorNamespaceUID: "supervisor-uid"}, wantReason: "object UID changed"},
+		{name: "different SupervisorNamespace UID", identity: &api.NamespaceIdentityStatus{Namespace: "tenant", NamespaceUID: "k8s-uid", SupervisorNamespaceUID: "replacement-supervisor-uid"}, wantReason: "UID does not match"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transition := &api.NamespaceNetworkTransition{
+				ObjectMeta: metav1.ObjectMeta{Name: "batch", Generation: 3},
+				Spec:       api.NamespaceNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionExecute}, Namespaces: []string{"tenant"}},
+				Status: &api.NamespaceNetworkTransitionStatus{
+					TransitionStatus: api.TransitionStatus{LastAction: api.ActionExecute, ActionState: api.ActionStateRunning, ActionGeneration: 3, ObservedGeneration: 3},
+				},
+			}
+			if tc.identity != nil {
+				transition.Status.NamespaceIdentities = []api.NamespaceIdentityStatus{*tc.identity}
+			}
+			supervisor := &unstructured.Unstructured{Object: map[string]interface{}{
+				"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
+				"metadata": map[string]interface{}{"name": "tenant", "uid": "supervisor-uid"},
+			}}
+			supervisor.SetGroupVersionKind(supervisorGVK)
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+				transition,
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "k8s-uid"}},
+				supervisor,
+			).Build()
+			request := supervisorNamespaceRequest(admissionv1.Update,
+				`{"metadata":{"name":"tenant","uid":"supervisor-uid"},"spec":{"networking":{"vpcNetworkConfig":{}}}}`, "controller")
+			request.OldObject = runtime.RawExtension{Raw: []byte(`{"metadata":{"name":"tenant","uid":"supervisor-uid"},"spec":{"networking":{"vsphereNetworkConfig":{}}}}`)}
+			response := (NamespaceLifecycleValidator{Reader: reader, ControllerUser: "controller"}).Handle(context.Background(), request)
+			require.False(t, response.Allowed)
+			require.Contains(t, response.Result.Message, tc.wantReason)
+		})
+	}
 }
 
 func TestNamespaceProviderDetectionHelpers(t *testing.T) {

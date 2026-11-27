@@ -34,10 +34,10 @@ func TestNamespaceTransitionCreateValidatesLiveMembers(t *testing.T) {
 			require.NoError(t, corev1.AddToScheme(scheme))
 			gv := schema.GroupVersion{Group: SupervisorNamespaceGroup, Version: "v1alpha2"}
 			scheme.AddKnownTypeWithName(gv.WithKind("SupervisorNamespace"), &unstructured.Unstructured{})
-			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant"}}
+			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "namespace-uid"}}
 			supervisor := &unstructured.Unstructured{Object: map[string]interface{}{
 				"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
-				"metadata": map[string]interface{}{"name": "tenant"},
+				"metadata": map[string]interface{}{"name": "tenant", "uid": "supervisor-uid"},
 			}}
 			if state == "terminating Namespace" {
 				now := metav1.Now()

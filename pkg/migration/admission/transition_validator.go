@@ -47,6 +47,7 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	hasAcceptedSNATAllocation := false
 	rollbackComplete := false
 	var namespaceNames []string
+	var namespaceIdentities []api.NamespaceIdentityStatus
 	switch req.Resource.Resource {
 	case "controlplanenetworktransitions":
 		var oldObj, newObj api.ControlPlaneNetworkTransition
@@ -69,6 +70,7 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 		if oldObj.Status != nil {
 			status = &oldObj.Status.TransitionStatus
 			rollbackComplete = oldObj.Status.RollbackComplete
+			namespaceIdentities = oldObj.Status.NamespaceIdentities
 		}
 	default:
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unexpected migration resource %q", req.Resource.Resource))
@@ -146,6 +148,11 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Errored(http.StatusBadRequest, fmt.Errorf("the existing migration transition has no UID"))
 		}
 		if isNamespace {
+			if len(namespaceNames) != 0 {
+				if err := namespaces.ValidateSnapshot(ctx, v.Reader, namespaceNames, namespaceIdentities); err != nil {
+					return admission.Denied(fmt.Sprintf("Namespace batch identity changed since Evaluate: %v", err))
+				}
+			}
 			complete, err := stageOneComplete(ctx, v.Reader)
 			if err != nil {
 				return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking Stage 1 migration completion: %w", err))

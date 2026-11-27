@@ -553,13 +553,13 @@ namespace list, requested action and durable status; API read failures and
 multiple active transitions fail closed. The provider-write restriction ends
 after a current successful Completed/Committed or whole-batch RolledBack checkpoint.
 
-No namespace UID snapshot is stored in transition status. Batch admission and
-Execute/Rollback dispatch read both member objects through the direct API reader
-and reject missing or terminating objects. Controller provider updates must
-preserve the request object's UID and cannot operate on a terminating object.
-These checks and webhook protection survive a process restart without local
-identity state. Namespace and NNT admission reads are separate API operations;
-they do not provide an atomic cross-resource admission protocol. The Execute
+The first Evaluate reconcile records each batch member's Kubernetes Namespace
+and SupervisorNamespace UIDs in transition status. Later Evaluate, Execute,
+Rollback and Commit handling re-reads both objects and rejects missing,
+terminating or same-name replacement objects. Protected SupervisorNamespace
+updates also check the recorded namespace identity. This status snapshot survives
+process restarts. Namespace and NNT admission reads are separate API operations
+and do not provide an atomic cross-resource admission protocol. The Execute
 inventory barrier must still settle requests admitted before protection began.
 
 `build/yaml/migration/admission/` supplies a Service and a cert-manager Issuer
@@ -602,8 +602,12 @@ During Stage 2, a workload is in scope when its namespace is listed in an
 unresolved `NamespaceNetworkTransition`. In either scope, users cannot create,
 update or delete protected workloads. The workload webhook denies create and
 delete in the protected scope. With a current Running or Failed Execute
-checkpoint (or namespace Rollback checkpoint), Net Operator may update a VM's
-transition annotation and networkInterfaces while preserving its UID. Other
+checkpoint (or namespace Rollback checkpoint), the handler permits Net Operator
+to update a VM's transition annotation and `networkInterfaces` only when a
+trusted expected-state resolver is configured and the requested values match.
+The current manager registration does not configure that resolver, so protected
+VM updates fail closed and cutover remains blocked until its trusted state source
+is integrated. Other
 workload fields and controller writes remain denied pending confirmation of the
 required operations with their owners. This provisional allowlist can block
 cutover or recovery until those integrations are confirmed. It does not verify
