@@ -25,6 +25,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DHCPv6Lease":                             schema_pkg_apis_eas_v1alpha1_DHCPv6Lease(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.DNSClientConfig":                         schema_pkg_apis_eas_v1alpha1_DNSClientConfig(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.EndpointStatistics":                      schema_pkg_apis_eas_v1alpha1_EndpointStatistics(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPAddressAllocationEntry":                schema_pkg_apis_eas_v1alpha1_IPAddressAllocationEntry(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsage":                            schema_pkg_apis_eas_v1alpha1_IPBlockUsage(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPBlockUsageList":                        schema_pkg_apis_eas_v1alpha1_IPBlockUsageList(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPPoolRange":                             schema_pkg_apis_eas_v1alpha1_IPPoolRange(ref),
@@ -35,6 +36,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerLeases":                  schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerLeases(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerStats":                   schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStats(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerStatsList":               schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStatsList(ref),
+		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetIPPoolAllocations":                 schema_pkg_apis_eas_v1alpha1_SubnetIPPoolAllocations(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetIPPools":                           schema_pkg_apis_eas_v1alpha1_SubnetIPPools(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetIPPoolsList":                       schema_pkg_apis_eas_v1alpha1_SubnetIPPoolsList(ref),
 		"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetStatus":                            schema_pkg_apis_eas_v1alpha1_SubnetStatus(ref),
@@ -460,6 +462,42 @@ func schema_pkg_apis_eas_v1alpha1_EndpointStatistics(ref common.ReferenceCallbac
 						},
 					},
 				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_IPAddressAllocationEntry(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "IPAddressAllocationEntry represents a single IP address allocation from a static IP pool.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the identifier of the allocation.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"allocationIP": {
+						SchemaProps: spec.SchemaProps{
+							Description: "AllocationIP is the user-specified IP that was requested from the pool at creation time. Empty if no specific IP was requested, which is the common case for auto-allocated static IPs.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"allocatedIP": {
+						SchemaProps: spec.SchemaProps{
+							Description: "AllocatedIP is the actual IP address that has been realized and committed for this allocation.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"name"},
 			},
 		},
 	}
@@ -1055,6 +1093,60 @@ func schema_pkg_apis_eas_v1alpha1_SubnetDHCPServerStatsList(ref common.Reference
 		},
 		Dependencies: []string{
 			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.SubnetDHCPServerStats", v1.ListMeta{}.OpenAPIModelName()},
+	}
+}
+
+func schema_pkg_apis_eas_v1alpha1_SubnetIPPoolAllocations(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "SubnetIPPoolAllocations lists all IP allocations from a specific static IP pool.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref(v1.ObjectMeta{}.OpenAPIModelName()),
+						},
+					},
+					"ipAddressAllocations": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-type": "atomic",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "IPAddressAllocations contains the list of IP addresses currently allocated from the pool.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPAddressAllocationEntry"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/vmware-tanzu/nsx-operator/pkg/apis/eas/v1alpha1.IPAddressAllocationEntry", v1.ObjectMeta{}.OpenAPIModelName()},
 	}
 }
 
