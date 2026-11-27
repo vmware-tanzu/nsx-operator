@@ -47,10 +47,14 @@ spec:
               More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           ipAddressType:
+            allOf:
+            - enum:
+              - IPv4
+              - IPv6
+            - enum:
+              - IPv4
+              - IPv6
             description: 'IP family of IP addresses: must be IPv4 or IPv6.'
-            enum:
-            - IPv4
-            - IPv6
             type: string
           kind:
             description: |-

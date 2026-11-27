@@ -50,7 +50,7 @@ type DNSRecordSpec struct {
 
 // DNSRecordStatus defines the observed state of DNSRecord.
 type DNSRecordStatus struct {
-	// FQDN is the fully qualified domain name returned by NSX after a successful sync.
+	// FQDN is the fully qualified domain name returned after a successful sync.
 	// +optional
 	FQDN string `json:"fqdn,omitempty"`
 
