@@ -16,6 +16,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	nsxcommon "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
+	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
 
 // SubnetIPPoolsStorage implements REST operations for SubnetIPPools.
@@ -40,7 +41,9 @@ func (s *SubnetIPPoolsStorage) Get(ctx context.Context, namespace, name string) 
 	if err != nil {
 		return nil, err
 	}
-	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil && *subnet.SubnetDhcpConfig.Mode == "DHCP_SERVER" {
+	// Mixed-mode subnets expose static IP pools alongside DHCP statistics.
+	if subnet.SubnetDhcpConfig != nil && subnet.SubnetDhcpConfig.Mode != nil && *subnet.SubnetDhcpConfig.Mode == "DHCP_SERVER" &&
+		!util.NSXSubnetStaticIPAllocationEnabled(&subnet) {
 		return nil, fmt.Errorf("SubnetIPPools %s/%s: subnet DHCP mode is DHCP_SERVER, use SubnetDHCPServerStats instead", namespace, name)
 	}
 	return s.fetchIPPools(namespace, *subnet.Id, name, info)

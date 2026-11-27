@@ -60,7 +60,11 @@ func TestSubnetIPPoolsStorage_Get_OK(t *testing.T) {
 	crName := "sub1"
 	subnets := model.VpcSubnetListResult{
 		Results: []model.VpcSubnet{
-			{Id: &subnetID, Tags: subnetOwnershipTags(crName, "sub1-uid", "ns1")},
+			{
+				Id:               &subnetID,
+				Tags:             subnetOwnershipTags(crName, "sub1-uid", "ns1"),
+				SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: ptr.To("DHCP_DEACTIVATED")},
+			},
 		},
 	}
 	c := &nsx.Client{}
@@ -219,28 +223,127 @@ func TestSubnetIPPoolsStorage_Get_RejectsIDFallback(t *testing.T) {
 	assert.True(t, k8serrors.IsNotFound(err))
 }
 func TestSubnetIPPoolsStorage_Get_DHCPServerMode(t *testing.T) {
-	// Subnet ownership matches but mode is DHCP_SERVER → use SubnetDHCPServerStats instead.
-	subnetID := "subnet-1"
-	crName := "sub1"
-	dhcpMode := "DHCP_SERVER"
-	subnets := model.VpcSubnetListResult{
-		Results: []model.VpcSubnet{
-			{
-				Id:               &subnetID,
-				Tags:             subnetOwnershipTags(crName, "sub1-uid", "ns1"),
-				SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: &dhcpMode},
+	for _, tc := range []struct {
+		name     string
+		advanced *model.SubnetAdvancedConfig
+	}{
+		{name: "missing advanced config"},
+		{name: "missing static allocation config", advanced: &model.SubnetAdvancedConfig{}},
+		{
+			name: "unset static allocation enabled",
+			advanced: &model.SubnetAdvancedConfig{
+				StaticIpAllocation: &model.StaticIpAllocation{},
 			},
 		},
+		{
+			name: "disabled static allocation",
+			advanced: &model.SubnetAdvancedConfig{
+				StaticIpAllocation: &model.StaticIpAllocation{Enabled: ptr.To(false)},
+			},
+		},
+		{
+			name: "pool ranges without enabled static allocation",
+			advanced: &model.SubnetAdvancedConfig{
+				StaticIpAllocation: &model.StaticIpAllocation{PoolRanges: []string{"172.26.2.4-172.26.2.6"}},
+			},
+		},
+		{
+			name: "pool ranges with disabled static allocation",
+			advanced: &model.SubnetAdvancedConfig{
+				StaticIpAllocation: &model.StaticIpAllocation{
+					Enabled: ptr.To(false), PoolRanges: []string{"172.26.2.4-172.26.2.6"},
+				},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pools := &fakeIPPoolClient{result: model.IpAddressPoolListResult{
+				Results: []model.IpAddressPool{{IpAddressType: ptr.To("IPV4")}},
+			}}
+			c := &nsx.Client{
+				SubnetsClient: &fakeSubnetsClient{results: model.VpcSubnetListResult{
+					Results: []model.VpcSubnet{{
+						Id:               ptr.To("subnet-1"),
+						Tags:             subnetOwnershipTags("sub1", "sub1-uid", "ns1"),
+						SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: ptr.To("DHCP_SERVER")},
+						AdvancedConfig:   tc.advanced,
+					}},
+				}},
+				IPPoolClient: pools,
+			}
+			subnetCR := &vpcv1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
+				Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
+			}
+
+			result, err := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR)).Get(context.Background(), "ns1", "sub1")
+
+			require.EqualError(t, err, "SubnetIPPools ns1/sub1: subnet DHCP mode is DHCP_SERVER, use SubnetDHCPServerStats instead")
+			assert.Nil(t, result)
+			assert.Empty(t, pools.subnetIDs, "DHCP-only Subnets must be rejected before querying IP pools")
+		})
 	}
-	c := &nsx.Client{}
-	c.SubnetsClient = &fakeSubnetsClient{results: subnets}
-	subnetCR := &vpcv1alpha1.Subnet{
-		ObjectMeta: metav1.ObjectMeta{Name: "sub1", Namespace: "ns1", UID: "sub1-uid"},
-		Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
+}
+
+func TestSubnetIPPoolsStorage_Get_MixedSubnet(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		poolRanges []string
+	}{
+		{name: "explicit static pool ranges", poolRanges: []string{"172.26.2.4-172.26.2.6", "172.26.2.10"}},
+		{name: "default static pool ranges"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pools := &fakeIPPoolClient{result: model.IpAddressPoolListResult{
+				Results: []model.IpAddressPool{{
+					IpAddressType: ptr.To("IPV4"),
+					PoolUsage: &model.PolicyPoolUsage{
+						TotalIps:               ptr.To(int64(4)),
+						AvailableIps:           ptr.To(int64(2)),
+						AllocatedIpAllocations: ptr.To(int64(1)),
+						RequestedIpAllocations: ptr.To(int64(1)),
+						ReservedIps:            ptr.To("1"),
+					},
+				}},
+			}}
+			c := &nsx.Client{
+				SubnetsClient: &fakeSubnetsClient{results: model.VpcSubnetListResult{
+					Results: []model.VpcSubnet{{
+						Id:               ptr.To("mixed-subnet-nsx-id"),
+						Tags:             subnetOwnershipTags("mixed-subnet", "mixed-uid", "ns1"),
+						SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: ptr.To("DHCP_SERVER")},
+						AdvancedConfig: &model.SubnetAdvancedConfig{
+							StaticIpAllocation: &model.StaticIpAllocation{Enabled: ptr.To(true), PoolRanges: tc.poolRanges},
+						},
+					}},
+				}},
+				IPPoolClient: pools,
+			}
+			subnetCR := &vpcv1alpha1.Subnet{
+				ObjectMeta: metav1.ObjectMeta{Name: "mixed-subnet", Namespace: "ns1", UID: "mixed-uid"},
+				Spec:       vpcv1alpha1.SubnetSpec{VPCName: "p1:vpc1"},
+			}
+
+			result, err := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR)).Get(context.Background(), "ns1", "mixed-subnet")
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, "SubnetIPPoolsList", result.Kind)
+			assert.Equal(t, "eas.nsx.vmware.com/v1alpha1", result.APIVersion)
+			require.Len(t, result.Items, 1)
+			item := result.Items[0]
+			assert.Equal(t, "SubnetIPPools", item.Kind)
+			assert.Equal(t, result.APIVersion, item.APIVersion)
+			assert.Equal(t, "mixed-subnet", item.Name)
+			assert.Equal(t, "ns1", item.Namespace)
+			assert.Equal(t, "IPv4", item.IPAddressType)
+			require.NotNil(t, item.PoolUsage)
+			assert.Equal(t, int64(4), item.PoolUsage.TotalIPs)
+			assert.Equal(t, int64(2), item.PoolUsage.AvailableIPs)
+			assert.Equal(t, int64(1), item.PoolUsage.AllocatedIPAllocations)
+			assert.Equal(t, int64(1), item.PoolUsage.RequestedIPAllocations)
+			assert.Equal(t, "1", item.PoolUsage.ReservedIPs)
+			assert.Equal(t, []string{"mixed-subnet-nsx-id"}, pools.subnetIDs)
+		})
 	}
-	s := NewSubnetIPPoolsStorage(c, newFakeK8sClient(subnetCR))
-	_, err := s.Get(context.Background(), "ns1", "sub1")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "DHCP_SERVER")
-	assert.Contains(t, err.Error(), "SubnetDHCPServerStats")
 }
