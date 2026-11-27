@@ -31,7 +31,7 @@ type RuntimeEvaluateHandler struct {
 
 func (handler RuntimeEvaluateHandler) Reconcile(ctx context.Context, request transition.Request) (transition.Result, error) {
 	resource, ok := request.Object.(*api.ControlPlaneNetworkTransition)
-	if !ok || request.Stage != transition.Infrastructure || request.Action != api.ActionEvaluate || resource.Status == nil || request.Status == nil {
+	if !ok || resource == nil || request.Stage != transition.Infrastructure || request.Action != api.ActionEvaluate || resource.Status == nil || request.Status == nil {
 		return transition.Result{}, fmt.Errorf("control-plane Evaluate transition is required")
 	}
 	if handler.Clients == nil || handler.Clients.VCenter == nil || handler.Clients.VCenterREST == nil || handler.Clients.NSX == nil || handler.KubernetesClient == nil || handler.KubernetesReader == nil || handler.SupervisorID == "" || handler.NetOperatorNamespace == "" {

@@ -250,7 +250,7 @@ func (scope VCenterControlPlaneScope) SourceNetworks(ctx context.Context) ([]str
 	}
 	portGroupIDs, err := scope.Networks.PortGroupIDs(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, newEvaluationDiagnostic("could not resolve the control plane or Supervisor Service networks from WCP", err)
 	}
 	vdnNames, err := sourceVDNsForPortGroups(ctx, scope.Reader, portGroupIDs)
 	if err != nil {
@@ -261,7 +261,7 @@ func (scope VCenterControlPlaneScope) SourceNetworks(ctx context.Context) ([]str
 	for _, vdnName := range vdnNames {
 		discovered, err := scope.Inventory.Resolve(ctx, vdnName)
 		if err != nil {
-			return nil, nil, fmt.Errorf("resolve Supervisor VDN %q: %w", vdnName, err)
+			return nil, nil, newEvaluationDiagnostic(fmt.Sprintf("could not resolve Supervisor VDN %q", vdnName), err)
 		}
 		workloadTopologies = append(workloadTopologies, discovered.Topologies...)
 	}
@@ -277,7 +277,7 @@ func sourceVDNsForPortGroups(ctx context.Context, reader client.Reader, portGrou
 	for _, portGroupID := range portGroupIDs {
 		matched := vdnNames[portGroupID]
 		if len(matched) == 0 {
-			return nil, fmt.Errorf("Supervisor DVPG %q has no Net Operator VDN", portGroupID)
+			return nil, newEvaluationDiagnostic(fmt.Sprintf("Supervisor DVPG %q has no Net Operator VDN", portGroupID), nil)
 		}
 		for _, vdnName := range matched {
 			vdnSet[vdnName] = struct{}{}
@@ -294,7 +294,7 @@ func sourceVDNsForPortGroups(ctx context.Context, reader client.Reader, portGrou
 func listVDNsByPortGroup(ctx context.Context, reader client.Reader) (map[string][]string, error) {
 	var vdns netop.VSphereDistributedNetworkList
 	if err := reader.List(ctx, &vdns); err != nil {
-		return nil, fmt.Errorf("list Net Operator VDNs: %w", err)
+		return nil, newEvaluationDiagnostic("could not list Net Operator VDNs", err)
 	}
 	backings := make(map[string][]string)
 	for _, vdn := range vdns.Items {

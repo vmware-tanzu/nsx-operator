@@ -123,6 +123,7 @@ func (validator NSXDVPGCompatibilityValidator) Validate(ctx context.Context, tra
 		return DVPGValidationResult{}, err
 	}
 	outcome := DVPGValidationResult{}
+	var completedWorkflows []string
 	for _, group := range groups {
 		if err := ctx.Err(); err != nil {
 			return outcome, err
@@ -131,13 +132,16 @@ func (validator NSXDVPGCompatibilityValidator) Validate(ctx context.Context, tra
 		workflow, err := validator.API.Get(workflowID)
 		if isNSXNotFound(err) {
 			if err := validator.API.Update(workflowID, validationWorkflow(workflowID, group)); err != nil {
-				return outcome, fmt.Errorf("start DVPG validation for VDS %s: %w", group.vdsRef, err)
+				return outcome, newEvaluationDiagnostic("could not start the NSX validation workflow", err)
 			}
 			outcome.InProgress = true
 			continue
 		}
 		if err != nil {
-			return outcome, fmt.Errorf("read DVPG validation for VDS %s: %w", group.vdsRef, err)
+			return outcome, newEvaluationDiagnostic("could not read the NSX validation workflow", err)
+		}
+		if workflow == nil {
+			return outcome, newEvaluationDiagnostic("NSX returned an empty validation workflow", nil)
 		}
 		if workflow.WorkflowState == nil || workflow.WorkflowState.Status == nil {
 			outcome.InProgress = true
@@ -146,31 +150,44 @@ func (validator NSXDVPGCompatibilityValidator) Validate(ctx context.Context, tra
 		switch strings.ToUpper(*workflow.WorkflowState.Status) {
 		case "IN_PROGRESS":
 			outcome.InProgress = true
+			continue
 		case "FAILED":
 			failures := workflowFailure(workflow)
 			if len(failures) == 0 {
 				failures = []string{fmt.Sprintf("DVPG validation failed for VDS %s", group.vdsRef)}
 			}
 			outcome.Problems = append(outcome.Problems, failures...)
-			if err := validator.API.Delete(workflowID); err != nil && !isNSXNotFound(err) {
-				return outcome, fmt.Errorf("delete failed DVPG validation workflow %s: %w", workflowID, err)
-			}
 		case "SUCCESS":
 			results, err := validator.API.ListResults(workflowID)
 			if err != nil {
-				return outcome, fmt.Errorf("read DVPG validation results for VDS %s: %w", group.vdsRef, err)
+				return outcome, newEvaluationDiagnostic("could not read the NSX per-DVPG validation results", err)
 			}
 			if err := appendValidationFindings(&outcome, group, results); err != nil {
-				return outcome, err
-			}
-			if err := validator.API.Delete(workflowID); err != nil && !isNSXNotFound(err) {
-				return outcome, fmt.Errorf("delete completed DVPG validation workflow %s: %w", workflowID, err)
+				return outcome, newEvaluationDiagnostic("NSX returned incomplete or invalid per-DVPG validation results", err)
 			}
 		default:
-			return outcome, fmt.Errorf("NSX returned unknown DVPG validation status %q", *workflow.WorkflowState.Status)
+			return outcome, newEvaluationDiagnostic("NSX returned an unknown DVPG validation workflow status", nil)
+		}
+		completedWorkflows = append(completedWorkflows, workflowID)
+	}
+	if !outcome.InProgress {
+		outcome.cleanup = func(ctx context.Context) error {
+			return validator.deleteWorkflows(ctx, completedWorkflows)
 		}
 	}
 	return outcome, nil
+}
+
+func (validator NSXDVPGCompatibilityValidator) deleteWorkflows(ctx context.Context, workflowIDs []string) error {
+	for _, workflowID := range workflowIDs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := validator.API.Delete(workflowID); err != nil && !isNSXNotFound(err) {
+			return newEvaluationDiagnostic("could not delete a completed NSX validation workflow", err)
+		}
+	}
+	return nil
 }
 
 func groupDVPGs(networks []inspection.Network) ([]dvpgValidationGroup, error) {

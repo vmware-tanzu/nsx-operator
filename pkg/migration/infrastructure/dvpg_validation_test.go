@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
 	stdErrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/utils/ptr"
+
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
 )
 
 type fakeDVPGValidationAPI struct {
@@ -69,6 +70,29 @@ func TestNSXDVPGCompatibilityValidatorStartsOneValidationPerVDS(t *testing.T) {
 	require.Equal(t, model.BaseWorkflowObject_RESOURCE_TYPE_DVPGTOSUBNETWORKFLOW, workflow.ResourceType)
 	require.Equal(t, "vc-1:dvs-1", *workflow.VdsRef)
 	require.Len(t, workflow.DvpgSpec, 2)
+
+	firstID, secondID := *workflow.Id, *api.updated[1].Id
+	workflow.WorkflowState = &model.DvpgToSubnetWorkflowState{Status: ptr.To("FAILED")}
+	api.updated[1].WorkflowState = &model.DvpgToSubnetWorkflowState{Status: ptr.To("IN_PROGRESS")}
+	result, err = validator.Validate(context.Background(), "transition-uid", 7, networks)
+	require.NoError(t, err)
+	require.True(t, result.InProgress)
+	require.Equal(t, []string{"DVPG validation failed for VDS vc-1:dvs-1"}, result.Problems)
+	require.Nil(t, result.cleanup)
+	require.Empty(t, api.deleted)
+
+	api.updated[1].WorkflowState.Status = ptr.To("FAILED")
+	result, err = validator.Validate(context.Background(), "transition-uid", 7, networks)
+	require.NoError(t, err)
+	require.False(t, result.InProgress)
+	require.Equal(t, []string{
+		"DVPG validation failed for VDS vc-1:dvs-1",
+		"DVPG validation failed for VDS vc-1:dvs-2",
+	}, result.Problems)
+	require.Len(t, api.updated, 2)
+	require.Empty(t, api.deleted)
+	require.NoError(t, result.deleteWorkflows(context.Background()))
+	require.ElementsMatch(t, []string{firstID, secondID}, api.deleted)
 }
 
 func TestNSXDVPGCompatibilityValidatorRejectsUnresolvedTopology(t *testing.T) {
@@ -106,6 +130,7 @@ func TestNSXDVPGCompatibilityValidatorReportsUnsupportedDVPG(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, result.InProgress)
 	require.Equal(t, []string{"DVPG workload-network is not supported for conversion"}, result.Problems)
+	require.NoError(t, result.deleteWorkflows(context.Background()))
 	require.Equal(t, []string{workflowID}, api.deleted)
 }
 

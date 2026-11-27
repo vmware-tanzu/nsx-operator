@@ -5,6 +5,7 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +19,28 @@ import (
 )
 
 const ConditionDVPGConversionValidated = "DVPGConversionValidated"
+
+// evaluationDiagnostic carries a message safe for transition status alongside
+// the underlying error. Build the message without raw API error text.
+type evaluationDiagnostic struct {
+	message string
+	cause   error
+}
+
+func (diagnostic *evaluationDiagnostic) Error() string { return diagnostic.message }
+func (diagnostic *evaluationDiagnostic) Unwrap() error { return diagnostic.cause }
+
+func newEvaluationDiagnostic(message string, cause error) error {
+	return &evaluationDiagnostic{message: message, cause: cause}
+}
+
+func evaluationFailure(message string, err error) error {
+	var diagnostic *evaluationDiagnostic
+	if errors.As(err, &diagnostic) {
+		message += ": " + diagnostic.message
+	}
+	return errors.New(message)
+}
 
 // ControlPlaneScope discovers the VDNs used by CPVMs and Supervisor Services.
 // It must read their actual membership; spec.networkConfiguration is only input.
@@ -38,6 +61,16 @@ type DVPGValidationResult struct {
 	InProgress bool
 	Problems   []string
 	Warnings   []string
+	// cleanup is ready once all workflows finish. Evaluate keeps the workflows
+	// while another check can still require a retry of this generation.
+	cleanup func(context.Context) error
+}
+
+func (result DVPGValidationResult) deleteWorkflows(ctx context.Context) error {
+	if result.cleanup == nil {
+		return nil
+	}
+	return result.cleanup(ctx)
 }
 
 // SourceSNAT ensures the one source reservation selected by inspection. The
@@ -56,7 +89,7 @@ type EvaluateHandler struct {
 
 func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition.Request) (transition.Result, error) {
 	resource, ok := request.Object.(*api.ControlPlaneNetworkTransition)
-	if !ok || request.Stage != transition.Infrastructure || request.Action != api.ActionEvaluate || resource.Status == nil || request.Status == nil {
+	if !ok || resource == nil || request.Stage != transition.Infrastructure || request.Action != api.ActionEvaluate || resource.Status == nil || request.Status == nil {
 		return transition.Result{}, fmt.Errorf("control-plane Evaluate transition is required")
 	}
 	if handler.Scope == nil || handler.Inspector == nil || handler.DVPGValidator == nil || handler.SNAT == nil {
@@ -68,12 +101,8 @@ func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition
 			return transition.Result{}, applyErr
 		}
 		reportDVPGValidation(DVPGValidationResult{}, err, false, &request.Status.Conditions, request.Generation)
-		meta.SetStatusCondition(&request.Status.Conditions, metav1.Condition{
-			Type: "EvaluationPreview", Status: metav1.ConditionUnknown,
-			Reason: "SourcePreviewUnavailable", Message: "Source network preview is unavailable until discovery succeeds",
-			ObservedGeneration: request.Generation,
-		})
-		return transition.Result{}, fmt.Errorf("CPVM and Service network discovery is unavailable; retry Evaluate")
+		reportEvaluationPreview(inspection.Result{}, request.Status, request.Generation)
+		return transition.Result{}, evaluationFailure("CPVM and Service network discovery is unavailable", err)
 	}
 	findings, inspectionErr := handler.Inspector.InspectControlPlane(ctx, resource, vDNs, workloadTopologies...)
 	var validation DVPGValidationResult
@@ -88,39 +117,28 @@ func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition
 	}
 	if inspectionErr != nil {
 		reportDVPGValidation(DVPGValidationResult{}, inspectionErr, false, &request.Status.Conditions, request.Generation)
+		reportEvaluationPreview(inspection.Result{}, request.Status, request.Generation)
 		return transition.Result{}, fmt.Errorf("source network inspection failed; inspect NetworkInputsValidated")
 	}
 	reportDVPGValidation(validation, validationErr, len(findings.Networks) > 0, &request.Status.Conditions, request.Generation)
+	reportEvaluationPreview(findings, request.Status, request.Generation)
 	if validationErr != nil {
-		return transition.Result{}, fmt.Errorf("DVPG conversion compatibility validation failed; retry Evaluate")
+		return transition.Result{}, evaluationFailure("DVPG conversion compatibility validation failed", validationErr)
 	}
 	if findings.LBSNAT != nil {
 		resource.Status.SourceLBProvider = api.LoadBalancerProvider("VSPHERE_FOUNDATION")
 	}
-	if len(findings.Networks) > 0 {
-		meta.SetStatusCondition(&request.Status.Conditions, metav1.Condition{
-			Type: "EvaluationPreview", Status: metav1.ConditionTrue,
-			Reason: "SourcePreviewReady", Message: evaluationPreview(findings),
-			ObservedGeneration: request.Generation,
-		})
-	} else {
-		meta.SetStatusCondition(&request.Status.Conditions, metav1.Condition{
-			Type: "EvaluationPreview", Status: metav1.ConditionUnknown,
-			Reason: "SourcePreviewUnavailable", Message: "Source network preview is unavailable until discovery succeeds",
-			ObservedGeneration: request.Generation,
-		})
-	}
-	if len(findings.Problems) > 0 {
-		return transition.Result{}, fmt.Errorf("source network configuration is incompatible; inspect NetworkInputsValidated")
-	}
-	if len(findings.RequiredInputs) > 0 {
-		if validation.InProgress {
-			return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: 5 * time.Second}, nil
-		}
-		return transition.Result{Outcome: transition.OutcomeNeedsInput}, nil
-	}
 	if validation.InProgress {
 		return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: 5 * time.Second}, nil
+	}
+	if len(findings.Problems) > 0 || len(findings.RequiredInputs) > 0 {
+		if err := validation.deleteWorkflows(ctx); err != nil {
+			return transition.Result{}, err
+		}
+		if len(findings.Problems) > 0 {
+			return transition.Result{}, fmt.Errorf("source network configuration is incompatible; inspect NetworkInputsValidated")
+		}
+		return transition.Result{Outcome: transition.OutcomeNeedsInput}, nil
 	}
 	if len(findings.MissingZones) > 0 {
 		return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: 30 * time.Second}, nil
@@ -130,12 +148,15 @@ func (handler EvaluateHandler) Reconcile(ctx context.Context, request transition
 	}
 	allocation, ready, err := handler.SNAT.Ensure(ctx, resource, *findings.LBSNAT)
 	if err != nil {
-		return transition.Result{}, fmt.Errorf("LB SNAT source reservation failed; retry Evaluate")
+		return transition.Result{}, evaluationFailure("LB SNAT source reservation failed", err)
 	}
 	if !ready {
 		return transition.Result{Outcome: transition.OutcomeInProgress, RequeueAfter: 5 * time.Second}, nil
 	}
 	resource.Status.LBSNATIPAllocations = []api.IPAllocationStatus{allocation}
+	if err := validation.deleteWorkflows(ctx); err != nil {
+		return transition.Result{}, err
+	}
 	return transition.Result{Outcome: transition.OutcomeSucceeded}, nil
 }
 
@@ -148,7 +169,7 @@ func reportDVPGValidation(result DVPGValidationResult, err error, foundNetworks 
 	case err != nil:
 		condition.Status = metav1.ConditionUnknown
 		condition.Reason = "ValidationUnavailable"
-		condition.Message = "DVPG conversion compatibility validation is unavailable; Evaluate will retry"
+		condition.Message = evaluationFailure("DVPG conversion compatibility validation is unavailable", err).Error()
 	case !foundNetworks:
 		condition.Status = metav1.ConditionUnknown
 		condition.Reason = "NoSourceDVPGs"
@@ -170,6 +191,20 @@ func reportDVPGValidation(result DVPGValidationResult, err error, foundNetworks 
 		condition.Message = condition.Message[:4093] + "..."
 	}
 	meta.SetStatusCondition(conditions, condition)
+}
+
+func reportEvaluationPreview(findings inspection.Result, status *api.TransitionStatus, generation int64) {
+	condition := metav1.Condition{
+		Type: "EvaluationPreview", Status: metav1.ConditionUnknown,
+		Reason: "SourcePreviewUnavailable", Message: "Source network preview is unavailable until discovery succeeds",
+		ObservedGeneration: generation,
+	}
+	if len(findings.Networks) > 0 {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "SourcePreviewReady"
+		condition.Message = evaluationPreview(findings)
+	}
+	meta.SetStatusCondition(&status.Conditions, condition)
 }
 
 func evaluationPreview(findings inspection.Result) string {

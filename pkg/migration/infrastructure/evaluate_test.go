@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
@@ -32,10 +34,16 @@ func (inspector evaluationInspector) InspectControlPlane(_ context.Context, _ *a
 	return inspector.result, nil
 }
 
-type evaluationSNAT struct{ calls int }
+type evaluationSNAT struct {
+	calls   int
+	pending bool
+}
 
 func (snat *evaluationSNAT) Ensure(_ context.Context, _ *api.ControlPlaneNetworkTransition, _ inspection.LBSNATDecision) (api.IPAllocationStatus, bool, error) {
 	snat.calls++
+	if snat.pending {
+		return api.IPAllocationStatus{}, false, nil
+	}
 	return api.IPAllocationStatus{IPAddress: "192.0.2.10", AllocationRef: &api.NamespacedName{Namespace: "vmware-system-netop", Name: "migration-snat"}}, true, nil
 }
 
@@ -86,6 +94,8 @@ func TestEvaluateHandlerClearsOldFindingsWhenScopeDiscoveryFails(t *testing.T) {
 
 	_, err := handler.Reconcile(context.Background(), evaluationRequest(resource))
 	require.ErrorContains(t, err, "network discovery is unavailable")
+	require.ErrorContains(t, err, "could not list Net Operator VDNs")
+	require.NotContains(t, err.Error(), "injected scope failure")
 	require.Empty(t, resource.Status.RequiredInputs)
 	require.Equal(t, metav1.ConditionUnknown, meta.FindStatusCondition(resource.Status.Conditions, inspection.ConditionNetworkInputsValidated).Status)
 	require.Equal(t, "NetworkDiscoveryUnavailable", meta.FindStatusCondition(resource.Status.Conditions, inspection.ConditionNetworkInputsValidated).Reason)
@@ -93,12 +103,14 @@ func TestEvaluateHandlerClearsOldFindingsWhenScopeDiscoveryFails(t *testing.T) {
 	validation := meta.FindStatusCondition(resource.Status.Conditions, ConditionDVPGConversionValidated)
 	require.Equal(t, metav1.ConditionUnknown, validation.Status)
 	require.Equal(t, "ValidationUnavailable", validation.Reason)
+	require.Contains(t, validation.Message, "could not list Net Operator VDNs")
+	require.NotContains(t, validation.Message, "injected scope failure")
 }
 
 type failingEvaluationScope struct{}
 
 func (failingEvaluationScope) SourceNetworks(context.Context) ([]string, []inspection.Topology, error) {
-	return nil, nil, fmt.Errorf("injected scope failure")
+	return nil, nil, newEvaluationDiagnostic("could not list Net Operator VDNs", fmt.Errorf("injected scope failure"))
 }
 
 type failingEvaluationInspector struct{}
@@ -109,6 +121,10 @@ func (failingEvaluationInspector) InspectControlPlane(context.Context, *api.Cont
 
 func TestEvaluateHandlerMarksDVPGValidationUnknownWhenInspectionFails(t *testing.T) {
 	resource := evaluationTransition()
+	meta.SetStatusCondition(&resource.Status.Conditions, metav1.Condition{
+		Type: "EvaluationPreview", Status: metav1.ConditionTrue,
+		Reason: "SourcePreviewReady", Message: "previous preview", ObservedGeneration: 1,
+	})
 	meta.SetStatusCondition(&resource.Status.Conditions, metav1.Condition{
 		Type: ConditionDVPGConversionValidated, Status: metav1.ConditionTrue,
 		Reason: "DVPGsCompatible", Message: "previously validated DVPGs", ObservedGeneration: 1,
@@ -122,6 +138,7 @@ func TestEvaluateHandlerMarksDVPGValidationUnknownWhenInspectionFails(t *testing
 	validation := meta.FindStatusCondition(resource.Status.Conditions, ConditionDVPGConversionValidated)
 	require.Equal(t, metav1.ConditionUnknown, validation.Status)
 	require.Equal(t, "ValidationUnavailable", validation.Reason)
+	require.Equal(t, metav1.ConditionUnknown, meta.FindStatusCondition(resource.Status.Conditions, "EvaluationPreview").Status)
 }
 
 func TestEvaluateHandlerRecordsAcceptedSourceReservation(t *testing.T) {
@@ -161,6 +178,52 @@ func TestEvaluateHandlerWaitsForDVPGCompatibilityBeforeSNAT(t *testing.T) {
 	require.Equal(t, transition.OutcomeInProgress, result.Outcome)
 	require.Equal(t, 0, snat.calls)
 	require.Equal(t, metav1.ConditionUnknown, meta.FindStatusCondition(resource.Status.Conditions, ConditionDVPGConversionValidated).Status)
+}
+
+func TestEvaluateHandlerReusesFinishedDVPGValidationWhileSNATIsPending(t *testing.T) {
+	ctx := context.Background()
+	resource := evaluationTransition()
+	snat := &evaluationSNAT{pending: true}
+	validationAPI := &fakeDVPGValidationAPI{
+		workflows: make(map[string]*model.DvpgToSubnetWorkflow),
+		results:   make(map[string][]model.DvpgValidationResult),
+	}
+	handler := EvaluateHandler{
+		Scope: evaluationScope{},
+		Inspector: evaluationInspector{result: inspection.Result{
+			Networks: []inspection.Network{{Source: inspection.Source{
+				VDNName: "cp-network", Topologies: []inspection.Topology{{
+					VCenterUUID: "vc-1", SwitchID: "dvs-1", PortGroupID: "dvpg-1",
+				}},
+			}}},
+			LBSNAT: &inspection.LBSNATDecision{Selection: inspection.AllocateFromBackendNetwork, AllocationSource: "dvpg-1"},
+		}},
+		DVPGValidator: NSXDVPGCompatibilityValidator{API: validationAPI},
+		SNAT:          snat,
+	}
+
+	result, err := handler.Reconcile(ctx, evaluationRequest(resource))
+	require.NoError(t, err)
+	require.Equal(t, transition.OutcomeInProgress, result.Outcome)
+	require.Len(t, validationAPI.updated, 1)
+	workflow := validationAPI.updated[0]
+	workflow.WorkflowState = &model.DvpgToSubnetWorkflowState{Status: ptr.To("SUCCESS")}
+	validationAPI.results[*workflow.Id] = []model.DvpgValidationResult{{
+		DvpgRef: ptr.To("vc-1:dvpg-1"), Compatibility: ptr.To(model.DvpgValidationResult_COMPATIBILITY_SUPPORTED),
+	}}
+
+	result, err = handler.Reconcile(ctx, evaluationRequest(resource))
+	require.NoError(t, err)
+	require.Equal(t, transition.OutcomeInProgress, result.Outcome)
+	require.Equal(t, 1, snat.calls)
+	require.Empty(t, validationAPI.deleted)
+
+	snat.pending = false
+	result, err = handler.Reconcile(ctx, evaluationRequest(resource))
+	require.NoError(t, err)
+	require.Equal(t, transition.OutcomeSucceeded, result.Outcome)
+	require.Len(t, validationAPI.updated, 1)
+	require.Equal(t, []string{*workflow.Id}, validationAPI.deleted)
 }
 
 func TestEvaluateHandlerRejectsIncompatibleDVPGBeforeSNAT(t *testing.T) {

@@ -28,7 +28,7 @@ const (
 	sourceSNATNetworkLabel = "migration.network.vmware.com/source-network-uid"
 )
 
-var errVIPUnavailable = errors.New("VIP address unavailable")
+var errVIPUnavailable = newEvaluationDiagnostic("Net Operator could not reserve the requested IPv4 address", nil)
 
 // +kubebuilder:rbac:groups=netoperator.vmware.com,resources=ipaddressallocations,verbs=get;list;create
 
@@ -60,10 +60,10 @@ func (service NetOperatorSNAT) Ensure(ctx context.Context, transition *api.Contr
 			return api.IPAllocationStatus{}, false, err
 		}
 		if allocation.Status.IPAddress != accepted.IPAddress {
-			return api.IPAllocationStatus{}, false, fmt.Errorf("accepted LB SNAT source allocation changed address")
+			return api.IPAllocationStatus{}, false, newEvaluationDiagnostic("accepted LB SNAT source allocation changed address", nil)
 		}
 		if !sourceAllocationReady(allocation) {
-			return api.IPAllocationStatus{}, false, fmt.Errorf("accepted LB SNAT source allocation is no longer Ready")
+			return api.IPAllocationStatus{}, false, newEvaluationDiagnostic("accepted LB SNAT source allocation is no longer Ready", nil)
 		}
 		return accepted, true, nil
 	}
@@ -84,7 +84,10 @@ func (service NetOperatorSNAT) Ensure(ctx context.Context, transition *api.Contr
 		if configured && errors.Is(err, ErrNoManagedSourceNetwork) {
 			return api.IPAllocationStatus{IPAddress: decision.IPAddress}, true, nil
 		}
-		return api.IPAllocationStatus{}, false, err
+		if errors.Is(err, ErrNoManagedSourceNetwork) {
+			return api.IPAllocationStatus{}, false, newEvaluationDiagnostic("no managed Net Operator Network matches the selected source backing", err)
+		}
+		return api.IPAllocationStatus{}, false, newEvaluationDiagnostic("could not resolve the source Network for LB SNAT", err)
 	}
 	if networkKey.Name == "" || networkKey.Namespace == "" {
 		return api.IPAllocationStatus{}, false, fmt.Errorf("source Network must have Namespace and name")
@@ -126,7 +129,7 @@ func (service NetOperatorSNAT) Ensure(ctx context.Context, transition *api.Contr
 			return allocation, ready, err
 		}
 	}
-	return api.IPAllocationStatus{}, false, fmt.Errorf("no free IPv4 address remains in the FLB VIP ranges")
+	return api.IPAllocationStatus{}, false, newEvaluationDiagnostic("no free IPv4 address remains in the FLB VIP ranges", nil)
 }
 
 func (service NetOperatorSNAT) ensureAllocation(ctx context.Context, transition *api.ControlPlaneNetworkTransition, network *netop.Network, requestedIP string) (api.IPAllocationStatus, bool, error) {
@@ -135,7 +138,7 @@ func (service NetOperatorSNAT) ensureAllocation(ctx context.Context, transition 
 	desired := netop.IPAddressAllocationSpec{PoolRef: corev1.TypedLocalObjectReference{APIGroup: ptr.To(netop.GroupName), Kind: "Network", Name: network.Name}, RequestedIP: requestedIP}
 	allocation := &netop.IPAddressAllocation{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace, Labels: map[string]string{sourceSNATOwnerLabel: string(transition.UID), sourceSNATNetworkLabel: string(network.UID)}}, Spec: desired}
 	if err := service.Client.Create(ctx, allocation); err != nil && !apierrors.IsAlreadyExists(err) {
-		return api.IPAllocationStatus{}, false, err
+		return api.IPAllocationStatus{}, false, newEvaluationDiagnostic("could not create the Net Operator IPAddressAllocation", err)
 	}
 	allocation, err := service.readAllocation(ctx, transition, key, requestedIP)
 	if err != nil {
@@ -149,7 +152,7 @@ func (service NetOperatorSNAT) ensureAllocation(ctx context.Context, transition 
 			if condition.Reason == netop.IPAddressAllocationConditionFailureReasonCannotAllocIP && requestedIP != "" {
 				return api.IPAllocationStatus{}, false, errVIPUnavailable
 			}
-			return api.IPAllocationStatus{}, false, fmt.Errorf("source allocation failed: %s", condition.Reason)
+			return api.IPAllocationStatus{}, false, newEvaluationDiagnostic("Net Operator reported a failed IPAddressAllocation", nil)
 		}
 		if condition.Type == netop.IPAddressAllocationReady && condition.Status == corev1.ConditionTrue {
 			ip, err := netip.ParseAddr(allocation.Status.IPAddress)
@@ -174,7 +177,7 @@ func sourceAllocationReady(allocation *netop.IPAddressAllocation) bool {
 func (service NetOperatorSNAT) readAllocation(ctx context.Context, transition *api.ControlPlaneNetworkTransition, key client.ObjectKey, requestedIP string) (*netop.IPAddressAllocation, error) {
 	allocation := &netop.IPAddressAllocation{}
 	if err := service.Reader.Get(ctx, key, allocation); err != nil {
-		return nil, err
+		return nil, newEvaluationDiagnostic("could not read the Net Operator IPAddressAllocation", err)
 	}
 	if allocation.Labels[sourceSNATOwnerLabel] != string(transition.UID) || !allocation.DeletionTimestamp.IsZero() {
 		return nil, fmt.Errorf("source allocation is not owned by this transition")
