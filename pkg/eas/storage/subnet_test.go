@@ -14,6 +14,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vpcv1alpha1 "github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
@@ -265,6 +266,8 @@ func TestResolveSubnet_SharedErrors(t *testing.T) {
 		{name: "backend error", err: fmt.Errorf("backend unavailable"), wantError: "backend unavailable"},
 		{name: "missing ID", wantError: "does not match the association"},
 		{name: "wrong ID", subnet: model.VpcSubnet{Id: strPtr("other-subnet")}, wantError: "does not match the association"},
+		{name: "wrong path", subnet: model.VpcSubnet{Id: strPtr("subnet"), Path: strPtr("/orgs/default/projects/p1/vpcs/another-vpc/subnets/subnet")}, wantError: "path does not match the association"},
+		{name: "marked for deletion", subnet: model.VpcSubnet{Id: strPtr("subnet"), MarkedForDelete: ptr.To(true)}, isError: k8serrors.IsNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cr := &vpcv1alpha1.Subnet{
@@ -297,6 +300,16 @@ func TestResolveSubnet_SharedFlagDoesNotBypassOwnership(t *testing.T) {
 	require.True(t, k8serrors.IsNotFound(err), "got %v", err)
 }
 
+func TestResolveSubnet_SharedMissingVPC(t *testing.T) {
+	cr := &vpcv1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{Name: "alias", Namespace: "ns1", UID: "uid",
+			Annotations: map[string]string{common.AnnotationAssociatedResource: "default:vpc1:subnet"}},
+	}
+	// The VPC consistency check must fail before any NSX client is used.
+	_, _, err := resolveSubnet(context.Background(), newFakeK8sClient(cr), &nsx.Client{}, "ns1", cr.Name, "subnetippools")
+	require.ErrorContains(t, err, "subnet CR ns1/alias has empty spec.vpcName")
+}
+
 func TestResolveSubnet_SharedDefaultProject(t *testing.T) {
 	cr := &vpcv1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{Name: "alias", Namespace: "ns1", UID: "uid",
@@ -305,15 +318,93 @@ func TestResolveSubnet_SharedDefaultProject(t *testing.T) {
 	}
 	c := &nsx.Client{SubnetsClient: &fakeSubnetsClient{get: func(orgID, projectID, vpcID, subnetID string) (model.VpcSubnet, error) {
 		require.Equal(t, []string{"default", "default", "vpc1", "subnet"}, []string{orgID, projectID, vpcID, subnetID})
-		return model.VpcSubnet{Id: strPtr(subnetID)}, nil
+		return model.VpcSubnet{Id: strPtr(subnetID), MarkedForDelete: ptr.To(false)}, nil
 	}}}
 	subnet, info, err := resolveSubnet(context.Background(), newFakeK8sClient(cr), c, "ns1", cr.Name, "subnetstatuses")
 	require.NoError(t, err)
+	require.Equal(t, "default", info.OrgID)
 	require.Equal(t, "default", info.ProjectID)
 	require.Equal(t, "subnet", *subnet.Id)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err = resolveSharedSubnet(ctx, &nsx.Client{}, cr, info, "subnetstatuses")
+	_, _, err = resolveSharedSubnet(ctx, &nsx.Client{}, cr, "subnetstatuses")
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// Sharing creates independent namespaced aliases; NSX ownership belongs to the
+// original subnet and cannot identify any of the consumer CRs.
+func TestSubnetEAS_SharedAliasesAcrossNamespaces(t *testing.T) {
+	for _, resource := range []string{"subnetippools", "subnetstatuses", "subnetdhcpserverstats", "subnetdhcpserverleases"} {
+		t.Run(resource, func(t *testing.T) {
+			aliases := []struct{ namespace, name, backend string }{
+				{"consumer-a", "test-public-subnet-1", "original-NSX-subnet"},
+				{"consumer-b", "application-network", "original-NSX-subnet"},
+				{"consumer-c", "test-public-subnet-1", "different-NSX-subnet"},
+			}
+			var objects []k8sclient.Object
+			for _, alias := range aliases {
+				objects = append(objects, &vpcv1alpha1.Subnet{
+					ObjectMeta: metav1.ObjectMeta{Name: alias.name, Namespace: alias.namespace, UID: types.UID(alias.namespace),
+						Annotations: map[string]string{common.AnnotationAssociatedResource: "default:provider-vpc:" + alias.backend}},
+					Spec: vpcv1alpha1.SubnetSpec{VPCName: ":provider-vpc"},
+				})
+			}
+			k8s := newFakeK8sClient(objects...)
+			for _, alias := range aliases {
+				var lookedUp []string
+				pools := &fakeIPPoolClient{result: model.IpAddressPoolListResult{Results: []model.IpAddressPool{{IpAddressType: strPtr("IPV4")}}}}
+				stats := &fakeDHCPStatsClient{}
+				status := &fakeSubnetStatusClient{list: func(_, _, _, _ string) (model.VpcSubnetStatusListResult, error) {
+					return model.VpcSubnetStatusListResult{}, nil
+				}}
+				leases := &fakeSubnetDHCPLeasesClient{t: t, list: func(_ string, _ *string) (model.DhcpLeasesResult, error) {
+					return model.DhcpLeasesResult{}, nil
+				}}
+				c := &nsx.Client{
+					SubnetsClient: &fakeSubnetsClient{
+						get: func(org, project, vpc, subnet string) (model.VpcSubnet, error) {
+							lookedUp = append(lookedUp, subnet)
+							require.Equal(t, []string{"default", "default", "provider-vpc", alias.backend}, []string{org, project, vpc, subnet})
+							mode := "DHCP_SERVER"
+							if resource == "subnetippools" {
+								mode = "DHCP_DEACTIVATED"
+							}
+							return model.VpcSubnet{Id: strPtr(subnet), DisplayName: strPtr("unrelated display name"),
+								Path:             strPtr("/orgs/default/projects/default/vpcs/provider-vpc/subnets/" + subnet),
+								Tags:             subnetOwnershipTags("provider-original-name", "provider-uid", "provider-namespace"),
+								SubnetDhcpConfig: &model.SubnetDhcpConfig{Mode: strPtr(mode)}}, nil
+						},
+						list: func(_, _, _ string, _ *string) (model.VpcSubnetListResult, error) {
+							t.Fatal("shared aliases must be resolved by their association, without listing NSX subnets")
+							return model.VpcSubnetListResult{}, nil
+						},
+					},
+					IPPoolClient: pools, DhcpServerConfigStatsClient: stats,
+					SubnetStatusClient: status, SubnetDHCPServerLeasesClient: leases,
+				}
+				var result metav1.Object
+				var err error
+				ctx := context.Background()
+				switch resource {
+				case "subnetippools":
+					result, err = getSubnetEAS(ctx, false, c, k8s, alias.namespace, alias.name)
+					require.Equal(t, []string{alias.backend}, pools.subnetIDs)
+				case "subnetdhcpserverstats":
+					result, err = NewSubnetDHCPStatsStorage(c, k8s).Get(ctx, alias.namespace, alias.name)
+					require.Equal(t, []string{alias.backend}, stats.subnetIDs)
+				case "subnetstatuses":
+					result, err = NewSubnetStatusStorage(c, k8s).Get(ctx, alias.namespace, alias.name)
+					require.Equal(t, [][]string{{"default", "default", "provider-vpc", alias.backend}}, status.calls)
+				case "subnetdhcpserverleases":
+					result, err = NewSubnetDHCPServerLeasesStorage(c, k8s).Get(ctx, alias.namespace, alias.name)
+					require.Equal(t, [][]string{{"default", "default", "provider-vpc", alias.backend}}, leases.calls)
+				}
+				require.NoError(t, err)
+				require.Equal(t, alias.namespace, result.GetNamespace())
+				require.Equal(t, alias.name, result.GetName())
+				require.Equal(t, []string{alias.backend}, lookedUp)
+			}
+		})
+	}
 }
