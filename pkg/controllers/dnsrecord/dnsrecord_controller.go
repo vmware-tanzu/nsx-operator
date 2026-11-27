@@ -222,6 +222,10 @@ func (r *DNSRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			// Keep retrying; the service may already have cleaned up stale records.
 			reason = ReasonDNSRecordValidationFailed
 			message = "DNS record conflict or build validation failed"
+			// Stale-owner cleanup removed the previously published record from NSX;
+			// clear the stale FQDN so the status reflects what is actually published.
+			statusErr := r.updateFailureStatus(ctx, obj, reason, err, message, "")
+			return ResultRequeue, errors.Join(err, statusErr)
 		}
 		statusErr := r.updateFailureStatus(ctx, obj, reason, err, message)
 		return ResultRequeue, errors.Join(err, statusErr)
@@ -372,8 +376,27 @@ func updateDNSRecordStatusConditions(k8sClient client.Client, ctx context.Contex
 func (r *DNSRecordReconciler) setupWithManager(mgr ctrl.Manager) error {
 	vpcPredicate := common.VPCNamespacePredicate(r.Client)
 	r.usePriorityQueue = mgr.GetControllerOptions().UsePriorityQueue
+	// Namespace is cluster-scoped, so fan out on its name rather than its namespace.
+	nsWatch, err := common.NewRetryingNamespaceHandlerWithExtractor(mgr, r.requestsForNamespace, client.Object.GetName)
+	if err != nil {
+		return err
+	}
+	niWatch, err := common.NewRetryingNamespaceHandler(mgr, r.requestsForNamespace)
+	if err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.DNSRecord{}, builder.WithPredicates(predicateDNSRecordDesiredStateChanged(), vpcPredicate)).
+		Watches(
+			&corev1.Namespace{},
+			nsWatch,
+			builder.WithPredicates(predicateNamespaceBecameVPC()),
+		).
+		Watches(
+			&v1alpha1.NetworkInfo{},
+			niWatch,
+			builder.WithPredicates(predicateNetworkInfoDNSStateChanged(), vpcPredicate),
+		).
 		Watches(
 			&v1alpha1.VPCNetworkConfiguration{},
 			handler.EnqueueRequestsFromMapFunc(r.networkConfigToDNSRecordRequests),

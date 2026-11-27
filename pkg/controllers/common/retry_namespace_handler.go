@@ -21,11 +21,19 @@ type retryNamespaceHandler struct {
 	mu     sync.RWMutex
 	target workqueue.TypedRateLimitingInterface[reconcile.Request]
 	list   func(context.Context, string) ([]reconcile.Request, error)
+	// nsOf maps an event object to the namespace to fan out; defaults to GetNamespace.
+	nsOf func(client.Object) string
 }
 
 // NewRetryingNamespaceHandler creates a managed handler that retries failed namespace fan-out.
 func NewRetryingNamespaceHandler(mgr manager.Manager, list func(context.Context, string) ([]reconcile.Request, error)) (handler.EventHandler, error) {
-	h := &retryNamespaceHandler{queue: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()), list: list}
+	return NewRetryingNamespaceHandlerWithExtractor(mgr, list, nil)
+}
+
+// NewRetryingNamespaceHandlerWithExtractor is NewRetryingNamespaceHandler with a custom
+// namespace extractor, for cluster-scoped sources such as Namespace events (use GetName).
+func NewRetryingNamespaceHandlerWithExtractor(mgr manager.Manager, list func(context.Context, string) ([]reconcile.Request, error), nsOf func(client.Object) string) (handler.EventHandler, error) {
+	h := &retryNamespaceHandler{queue: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()), list: list, nsOf: nsOf}
 	if err := mgr.Add(h); err != nil {
 		return nil, err
 	}
@@ -33,13 +41,20 @@ func NewRetryingNamespaceHandler(mgr manager.Manager, list func(context.Context,
 }
 
 func (h *retryNamespaceHandler) enqueue(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if obj == nil || obj.GetNamespace() == "" {
+	if obj == nil {
+		return
+	}
+	namespace := obj.GetNamespace()
+	if h.nsOf != nil {
+		namespace = h.nsOf(obj)
+	}
+	if namespace == "" {
 		return
 	}
 	h.mu.Lock()
 	h.target = q
 	h.mu.Unlock()
-	h.queue.Add(obj.GetNamespace())
+	h.queue.Add(namespace)
 }
 func (h *retryNamespaceHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.enqueue(e.Object, q)
