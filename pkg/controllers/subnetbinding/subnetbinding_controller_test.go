@@ -425,6 +425,23 @@ func TestValidateDependency(t *testing.T) {
 			UID:       types.UID("target-set-uuid"),
 		},
 	}
+	preCreatedTargetSubnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "preCreatedTargetSubnet",
+			Namespace: namespace,
+			UID:       types.UID("pre-created-target-uuid"),
+		},
+	}
+	preCreatedTargetSubnetSetCR := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      targetSubnetSet,
+			Namespace: namespace,
+			UID:       types.UID("target-set-uuid"),
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			SubnetNames: &[]string{"preCreatedTargetSubnet"},
+		},
+	}
 
 	bindingCR1 := &v1alpha1.SubnetConnectionBindingMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -564,6 +581,30 @@ func TestValidateDependency(t *testing.T) {
 					return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent")}}
 				})
 				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{}
+				})
+				return patches
+			},
+			expSubnet:        "/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child",
+			expTargetSubnets: []string{"/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent"},
+		}, {
+			name:       "pre-created parent subnetSet is ready",
+			bindingMap: bindingCR2,
+			objects:    []client.Object{childSubnetCR, preCreatedTargetSubnetSetCR, preCreatedTargetSubnetCR},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					if key == common.TagScopeSubnetCRUID && value == "child-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s1"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-child")}}
+					}
+					if key == common.TagScopeSubnetCRUID && value == "pre-created-target-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("s2"), Path: common.String("/orgs/default/projects/default/vpcs/ns-1/subnets/subnet-parent")}}
+					}
+					return []*model.VpcSubnet{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByParentSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
+					return []*model.SubnetConnectionBindingMap{}
+				})
+				patches.ApplyMethod(reflect.TypeOf(r.SubnetBindingService), "GetSubnetConnectionBindingMapsByChildSubnet", func(_ *subnetbinding.BindingService, subnetPath string) []*model.SubnetConnectionBindingMap {
 					return []*model.SubnetConnectionBindingMap{}
 				})
 				return patches
@@ -892,11 +933,34 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			UID:       "subnetset-uuid-1",
 		},
 	}
+	preCreatedSubnetCR := &v1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "subnet-1",
+			Namespace: namespace,
+			UID:       "subnet-1-uuid",
+		},
+	}
+	preCreatedSubnetSetCR := &v1alpha1.SubnetSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			UID:       "subnetset-uuid-1",
+		},
+		Spec: v1alpha1.SubnetSetSpec{
+			SubnetNames: &[]string{"subnet-1"},
+		},
+	}
 	sharedSubnetCR := &v1alpha1.Subnet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "subnet-1",
 			Namespace: namespace,
 			UID:       "subnet-1-uuid",
+			Annotations: map[string]string{
+				common.AnnotationAssociatedResource: "project-1:vpc-1:subnet-1",
+			},
+		},
+		Status: v1alpha1.SubnetStatus{
+			Conditions: []v1alpha1.Condition{{Type: v1alpha1.Ready, Status: corev1.ConditionTrue}},
 		},
 	}
 	sharedSubnetSetCR := &v1alpha1.SubnetSet{
@@ -951,17 +1015,36 @@ func TestValidateVpcSubnetsBySubnetSetCR(t *testing.T) {
 			expErr:  "",
 			paths:   []string{"/subnet-1"},
 		}, {
-			name:    "SubnetSet CR with shared Subnet",
-			objects: []client.Object{sharedSubnetSetCR, sharedSubnetCR},
+			name:    "pre-created SubnetSet resolves member Subnet",
+			objects: []client.Object{preCreatedSubnetSetCR, preCreatedSubnetCR},
 			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
 				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
-					return []*model.VpcSubnet{{Id: common.String("subnet-1"), Path: common.String("/subnet-1")}}
+					if key == common.TagScopeSubnetCRUID && value == "subnet-1-uuid" {
+						return []*model.VpcSubnet{{Id: common.String("subnet-1"), Path: common.String("/precreated-subnet-1")}}
+					}
+					return []*model.VpcSubnet{}
 				})
 				return patches
 			},
 			expMsg: "",
 			expErr: "",
-			paths:  []string{"/subnet-1"},
+			paths:  []string{"/precreated-subnet-1"},
+		}, {
+			name:    "pre-created SubnetSet member Subnet is not realized",
+			objects: []client.Object{preCreatedSubnetSetCR, preCreatedSubnetCR},
+			patches: func(t *testing.T, r *Reconciler) *gomonkey.Patches {
+				patches := gomonkey.ApplyMethod(reflect.TypeOf(r.SubnetService.SubnetStore), "GetByIndex", func(_ *subnet.SubnetStore, key, value string) []*model.VpcSubnet {
+					return []*model.VpcSubnet{}
+				})
+				return patches
+			},
+			expMsg: "Subnet CR subnet-1 is not realized on NSX",
+			expErr: "not found NSX VpcSubnets created by Subnet CR 'default/subnet-1'",
+		}, {
+			name:    "shared Subnet in pre-created SubnetSet cannot be trunk",
+			objects: []client.Object{sharedSubnetSetCR, sharedSubnetCR},
+			expMsg:  "Subnet default/subnet-1 is a pre-created Subnet",
+			expErr:  "pre-created Subnet default/subnet-1 cannot be a trunk Subnet",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
