@@ -25,3 +25,8 @@ webhooks:
         operations: [CREATE, UPDATE, DELETE]
         resources: [supervisornamespaces]
         scope: Cluster
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, DELETE]
+        resources: [namespaces]
+        scope: Cluster

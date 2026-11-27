@@ -176,6 +176,25 @@ type TransitionStatus struct {
 	OptionalInputs []OptionalInput `json:"optionalInputs,omitempty"`
 }
 
+// NamespaceIdentityStatus records the object UIDs for one namespace batch member.
+type NamespaceIdentityStatus struct {
+	// Namespace is the Kubernetes namespace name.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	Namespace string `json:"namespace"`
+	// NamespaceUID identifies this Kubernetes Namespace incarnation.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	NamespaceUID string `json:"namespaceUID"`
+	// SupervisorNamespaceUID identifies the matching SupervisorNamespace object.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	SupervisorNamespaceUID string `json:"supervisorNamespaceUID"`
+}
+
 // NSXWorkflowStatus records a resumable NSX conversion workflow for one source VDN.
 type NSXWorkflowStatus struct {
 	// VDNName identifies the source VSphereDistributedNetwork for this workflow.

@@ -14,14 +14,60 @@ import (
 
 	"github.com/stretchr/testify/require"
 	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 )
+
+func TestNamespaceTransitionCreateValidatesLiveMembers(t *testing.T) {
+	for _, state := range []string{"ready", "missing Namespace", "missing SupervisorNamespace", "terminating Namespace", "terminating SupervisorNamespace"} {
+		t.Run(state, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, api.AddToScheme(scheme))
+			require.NoError(t, corev1.AddToScheme(scheme))
+			gv := schema.GroupVersion{Group: SupervisorNamespaceGroup, Version: "v1alpha2"}
+			scheme.AddKnownTypeWithName(gv.WithKind("SupervisorNamespace"), &unstructured.Unstructured{})
+			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "tenant", UID: "namespace-uid"}}
+			supervisor := &unstructured.Unstructured{Object: map[string]interface{}{
+				"apiVersion": "iaas.vmware.com/v1alpha2", "kind": "SupervisorNamespace",
+				"metadata": map[string]interface{}{"name": "tenant", "uid": "supervisor-uid"},
+			}}
+			if state == "terminating Namespace" {
+				now := metav1.Now()
+				namespace.DeletionTimestamp = &now
+				namespace.Finalizers = []string{"test.example/retain"}
+			}
+			if state == "terminating SupervisorNamespace" {
+				now := metav1.Now()
+				supervisor.SetDeletionTimestamp(&now)
+				supervisor.SetFinalizers([]string{"test.example/retain"})
+			}
+			var objects []client.Object
+			if state != "missing Namespace" {
+				objects = append(objects, namespace)
+			}
+			if state != "missing SupervisorNamespace" {
+				objects = append(objects, supervisor)
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+				Operation: admissionv1.Create,
+				Resource:  metav1.GroupVersionResource{Group: api.GroupVersion.Group, Version: api.GroupVersion.Version, Resource: "namespacenetworktransitions"},
+				Object:    runtime.RawExtension{Raw: []byte(`{"spec":{"action":"Evaluate","namespaces":["tenant"]}}`)},
+			}}
+			response := (TransitionValidator{Reader: reader}).Handle(context.Background(), req)
+			require.Equal(t, state == "ready", response.Allowed, "%v", response.Result)
+			require.False(t, (TransitionValidator{}).Handle(context.Background(), req).Allowed, "missing reader must fail closed")
+		})
+	}
+}
 
 func TestEvaluateToExecuteCheckpoint(t *testing.T) {
 	for _, resource := range []string{"controlplanenetworktransitions", "namespacenetworktransitions"} {

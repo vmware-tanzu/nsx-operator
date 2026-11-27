@@ -151,12 +151,6 @@ func startManager(ctx context.Context, opts *options, deps managerDependencies) 
 		}})
 		server.Register(migrationadmission.WorkloadValidationPath, &webhookadmission.Webhook{Handler: migrationadmission.WorkloadCutoverValidator{
 			Reader: mgr.GetAPIReader(),
-			ControllerUsers: []string{
-				migrationadmission.NCPControllerUser,
-				migrationadmission.NetOperatorControllerUser,
-				migrationadmission.VMOperatorControllerUser,
-				migrationadmission.AKOControllerUser,
-			},
 		}})
 		if err := mgr.AddReadyzCheck("migration-admission", server.StartedChecker()); err != nil {
 			return err

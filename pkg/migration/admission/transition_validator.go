@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/namespaces"
 )
 
 const TransitionValidationPath = "/validate-migration-transition"
@@ -45,6 +46,8 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 	isNamespace := false
 	hasAcceptedSNATAllocation := false
 	rollbackComplete := false
+	var namespaceNames []string
+	var namespaceIdentities []api.NamespaceIdentityStatus
 	switch req.Resource.Resource {
 	case "controlplanenetworktransitions":
 		var oldObj, newObj api.ControlPlaneNetworkTransition
@@ -63,9 +66,11 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Errored(http.StatusBadRequest, err)
 		}
 		oldAction, newAction, oldGeneration, currentUID = oldObj.Spec.Action, newObj.Spec.Action, oldObj.Generation, oldObj.UID
+		namespaceNames = newObj.Spec.Namespaces
 		if oldObj.Status != nil {
 			status = &oldObj.Status.TransitionStatus
 			rollbackComplete = oldObj.Status.RollbackComplete
+			namespaceIdentities = oldObj.Status.NamespaceIdentities
 		}
 	default:
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unexpected migration resource %q", req.Resource.Resource))
@@ -117,6 +122,14 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 		if newAction != api.ActionEvaluate {
 			return admission.Denied("A transition must start with Evaluate")
 		}
+		if isNamespace && len(namespaceNames) != 0 {
+			if v.Reader == nil {
+				return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("namespace lifecycle reader is not configured"))
+			}
+			if err := namespaces.Validate(ctx, v.Reader, namespaceNames); err != nil {
+				return admission.Denied(fmt.Sprintf("Namespace batch members are unavailable: %v", err))
+			}
+		}
 		return admission.Allowed("new transition starts with Evaluate")
 	}
 	// Status-only updates and unchanged actions must remain recoverable even
@@ -135,6 +148,11 @@ func (v TransitionValidator) Handle(ctx context.Context, req admission.Request) 
 			return admission.Errored(http.StatusBadRequest, fmt.Errorf("the existing migration transition has no UID"))
 		}
 		if isNamespace {
+			if len(namespaceNames) != 0 {
+				if err := namespaces.ValidateSnapshot(ctx, v.Reader, namespaceNames, namespaceIdentities); err != nil {
+					return admission.Denied(fmt.Sprintf("Namespace batch identity changed since Evaluate: %v", err))
+				}
+			}
 			complete, err := stageOneComplete(ctx, v.Reader)
 			if err != nil {
 				return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking Stage 1 migration completion: %w", err))

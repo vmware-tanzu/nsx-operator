@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/namespaces"
 )
 
 const (
@@ -39,27 +40,16 @@ func (v NamespaceLifecycleValidator) Handle(ctx context.Context, req admission.R
 	if req.SubResource != "" || (req.Operation != admissionv1.Create && req.Operation != admissionv1.Update && req.Operation != admissionv1.Delete) {
 		return admission.Allowed("not a SupervisorNamespace lifecycle request")
 	}
-	if req.Resource.Group != SupervisorNamespaceGroup || req.Resource.Resource != "supervisornamespaces" {
+	isNamespace := req.Resource.Group == "" && req.Resource.Resource == "namespaces"
+	if !isNamespace && (req.Resource.Group != SupervisorNamespaceGroup || req.Resource.Resource != "supervisornamespaces") {
 		return admission.Errored(http.StatusBadRequest, fmt.Errorf("unexpected namespace API resource %s", req.Resource.String()))
+	}
+	if isNamespace && req.Operation == admissionv1.Update {
+		return admission.Allowed("not a Kubernetes Namespace create or delete request")
 	}
 	if v.Reader == nil {
 		return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("namespace lifecycle reader is not configured"))
 	}
-	if req.Name == "" {
-		return admission.Errored(http.StatusBadRequest, fmt.Errorf("SupervisorNamespace name is required"))
-	}
-
-	protectedBy, err := v.protectingTransition(ctx, req.Name)
-	if err != nil {
-		return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking namespace migration protection: %w", err))
-	}
-	if req.Operation == admissionv1.Delete {
-		if protectedBy != nil {
-			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q is protected by unresolved migration transition %s", req.Name, protectedBy.name))
-		}
-		return admission.Allowed("namespace is outside unresolved migration scope")
-	}
-
 	var object, oldObject *unstructured.Unstructured
 	if req.Operation == admissionv1.Create || req.Operation == admissionv1.Update {
 		object = &unstructured.Unstructured{}
@@ -67,43 +57,91 @@ func (v NamespaceLifecycleValidator) Handle(ctx context.Context, req admission.R
 			return admission.Errored(http.StatusBadRequest, fmt.Errorf("decoding SupervisorNamespace: %w", err))
 		}
 	}
-	if req.Operation == admissionv1.Update {
+	if req.Operation == admissionv1.Update || req.Operation == admissionv1.Delete {
 		oldObject = &unstructured.Unstructured{}
 		if err := json.Unmarshal(req.OldObject.Raw, &oldObject.Object); err != nil {
 			return admission.Errored(http.StatusBadRequest, fmt.Errorf("decoding old SupervisorNamespace: %w", err))
 		}
 	}
 
+	name := req.Name
+	if name == "" && object != nil {
+		name = object.GetName()
+	}
+	if name == "" && oldObject != nil {
+		name = oldObject.GetName()
+	}
+	// A generated name cannot be matched against a transition's explicit namespace
+	// list before the API server assigns the final name. Continue with cluster-wide
+	// Stage 1/provider checks for this new object.
+	hasGeneratedName := req.Operation == admissionv1.Create && object != nil && object.GetGenerateName() != ""
+	if name == "" && !hasGeneratedName {
+		return admission.Errored(http.StatusBadRequest, fmt.Errorf("SupervisorNamespace name is required"))
+	}
+	if req.Operation == admissionv1.Create || req.Operation == admissionv1.Delete {
+		if name != "" {
+			protection, err := findNamespaceProtectionFor(ctx, v.Reader, name, namespaceTransitionPinsNamespace)
+			if err != nil {
+				return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking namespace lifecycle protection: %w", err))
+			}
+			if protection != nil {
+				return admission.Denied(fmt.Sprintf("namespace %q cannot be created or deleted while transition %s remains uncommitted", name, protection.name))
+			}
+		}
+		if isNamespace || req.Operation == admissionv1.Delete {
+			return admission.Allowed("namespace is outside uncommitted migration scope")
+		}
+	}
+
+	var protectedBy *namespaceProtection
+	if name != "" {
+		var err error
+		protectedBy, err = v.protectingTransition(ctx, name)
+		if err != nil {
+			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking namespace migration protection: %w", err))
+		}
+	}
 	if protectedBy != nil {
 		if req.Operation == admissionv1.Create {
-			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q is protected by unresolved migration transition %s", req.Name, protectedBy.name))
+			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q is protected by unresolved migration transition %s", name, protectedBy.name))
 		}
 		if req.UserInfo.Username != v.ControllerUser || v.ControllerUser == "" || !protectedBy.controllerMayChange ||
+			oldObject.GetUID() == "" || oldObject.GetUID() != object.GetUID() ||
+			!oldObject.GetDeletionTimestamp().IsZero() || !object.GetDeletionTimestamp().IsZero() ||
 			!onlyVPCNetworkConfigChanged(oldObject, object) {
-			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q is protected by unresolved migration transition %s; only its migration controller may change the network provider configuration", req.Name, protectedBy.name))
+			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q is protected by unresolved migration transition %s; only its migration controller may change the network provider configuration", name, protectedBy.name))
+		}
+		if protectedBy.identity == nil {
+			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q has no recorded migration identity", name))
+		}
+		if oldObject.GetUID() != types.UID(protectedBy.identity.SupervisorNamespaceUID) ||
+			object.GetUID() != types.UID(protectedBy.identity.SupervisorNamespaceUID) {
+			return admission.Denied(fmt.Sprintf("SupervisorNamespace %q UID does not match the migration's recorded identity", name))
+		}
+		if err := namespaces.ValidateSnapshot(ctx, v.Reader, []string{name}, []api.NamespaceIdentityStatus{*protectedBy.identity}); err != nil {
+			return admission.Denied(fmt.Sprintf("namespace %q identity does not match the migration's recorded identity: %v", name, err))
 		}
 		return admission.Allowed("designated migration controller changed only network provider configuration")
 	}
 
 	if req.Operation == admissionv1.Create {
+		requestsVDS := explicitlyRequestsVDS(object)
+		requestsVPC := hasVPCNetworkConfig(object) || explicitlyRequestsVPC(object)
+
 		coexistence, err := v.inCoexistenceMode(ctx)
 		if err != nil {
 			return admission.Errored(http.StatusServiceUnavailable, fmt.Errorf("checking Stage 1 completion: %w", err))
 		}
-		if !coexistence && (hasVPCNetworkConfig(object) || explicitlyRequestsVPC(object)) {
+		if !coexistence && requestsVPC {
 			return admission.Denied("Stage 1 is not complete; new namespaces must use VDS networking")
 		}
-		if coexistence && explicitlyRequestsVDS(object) {
+		if coexistence && requestsVDS {
 			return admission.Denied("Cluster is in NSX VPC migration coexistence mode; new namespaces must use VPC network configuration")
 		}
-		// In coexistence mode, omitted provider selection is intentional: the
-		// Supervisor namespace API defaults the new namespace to VPC.
 		if coexistence {
-			return admission.Allowed("Supervisor defaults a new namespace to VPC in coexistence mode")
+			return admission.Allowed("new namespace defaults to VPC in coexistence mode")
 		}
-		// VDS is the only available provider until Stage 1 completes, so keep
-		// accepting new namespaces throughout Stage 1.
-		return admission.Allowed("new namespace is admitted on the Stage 1 VDS provider")
+		return admission.Allowed("new namespace defaults to VDS during Stage 1")
 	}
 	if req.Operation == admissionv1.Update && namespaceProviderConfigurationChanged(oldObject, object) {
 		coexistence, err := v.inCoexistenceMode(ctx)
@@ -138,6 +176,7 @@ type namespaceProtection struct {
 	name                string
 	controllerMayChange bool
 	transition          *api.NamespaceNetworkTransition
+	identity            *api.NamespaceIdentityStatus
 }
 
 func (v NamespaceLifecycleValidator) protectingTransition(ctx context.Context, namespace string) (*namespaceProtection, error) {
@@ -145,6 +184,9 @@ func (v NamespaceLifecycleValidator) protectingTransition(ctx context.Context, n
 }
 
 func namespaceTransitionProtects(transition *api.NamespaceNetworkTransition) bool {
+	if !namespaceTransitionPinsNamespace(transition) {
+		return false
+	}
 	if transition == nil || transition.DeletionTimestamp != nil {
 		return transition != nil
 	}
@@ -193,6 +235,16 @@ func namespaceTransitionProtects(transition *api.NamespaceNetworkTransition) boo
 	default:
 		return false
 	}
+}
+
+// Namespace existence stays protected even after Execute or Rollback completes:
+// both can be followed by more work on the same immutable namespace batch.
+// Historical committed records no longer pin namespaces, including during CR deletion.
+func namespaceTransitionPinsNamespace(batch *api.NamespaceNetworkTransition) bool {
+	return batch != nil && (batch.Spec.Action != api.ActionCommit || batch.Status == nil ||
+		!currentSuccessfulCheckpoint(&batch.Status.TransitionStatus, batch.Generation, api.ActionCommit) ||
+		batch.Status.ObservedGeneration != batch.Generation || batch.Status.Phase != api.PhaseCommitted ||
+		batch.Status.IrreversibleAction != string(api.ActionCommit))
 }
 
 func namespaceControllerMayChange(transition *api.NamespaceNetworkTransition) bool {

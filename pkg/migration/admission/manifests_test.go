@@ -90,10 +90,14 @@ func TestNamespaceWebhookMatchesAllSupervisorNamespaceVersions(t *testing.T) {
 	require.Len(t, config.Webhooks, 1)
 	hook := config.Webhooks[0]
 	require.Equal(t, admissionv1.Fail, *hook.FailurePolicy)
-	require.Len(t, hook.Rules, 1)
+	require.Len(t, hook.Rules, 2)
 	require.Equal(t, []string{"iaas.vmware.com"}, hook.Rules[0].APIGroups)
 	require.Equal(t, []string{"*"}, hook.Rules[0].APIVersions)
 	require.Equal(t, []string{"supervisornamespaces"}, hook.Rules[0].Resources)
+	require.Equal(t, []string{""}, hook.Rules[1].APIGroups)
+	require.Equal(t, []string{"v1"}, hook.Rules[1].APIVersions)
+	require.Equal(t, []string{"namespaces"}, hook.Rules[1].Resources)
+	require.Equal(t, []admissionv1.OperationType{admissionv1.Create, admissionv1.Delete}, hook.Rules[1].Operations)
 }
 
 func TestWorkloadWebhookFiltersOnlyLoadBalancerServices(t *testing.T) {
@@ -122,6 +126,8 @@ func TestWorkloadWebhookFiltersOnlyLoadBalancerServices(t *testing.T) {
 	require.Contains(t, serviceHook.MatchConditions[0].Expression, "object != null")
 	require.Contains(t, serviceHook.MatchConditions[0].Expression, "oldObject != null")
 	require.Contains(t, serviceHook.MatchConditions[0].Expression, "LoadBalancer")
+	require.Empty(t, workloadHook.MatchConditions, "pod requests must not bypass the migration validator by controller identity")
+	require.Empty(t, virtualMachineHook.MatchConditions, "VM requests must not bypass the migration validator by controller identity")
 	require.Len(t, workloadHook.Rules, 1)
 	require.Equal(t, []string{"pods"}, workloadHook.Rules[0].Resources)
 	require.NotNil(t, workloadHook.NamespaceSelector)

@@ -90,6 +90,13 @@ type NamespaceResourceNaming struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.irreversibleAction) || self.irreversibleAction == 'Commit'",message="Namespace irreversibleAction must be Commit"
 type NamespaceNetworkTransitionStatus struct {
 	TransitionStatus `json:",inline"`
+	// NamespaceIdentities pins each batch member to the Kubernetes and
+	// SupervisorNamespace object incarnations observed during Evaluate.
+	// +optional
+	// +listType=map
+	// +listMapKey=namespace
+	// +kubebuilder:validation:MaxItems=1000
+	NamespaceIdentities []NamespaceIdentityStatus `json:"namespaceIdentities,omitempty"`
 	// RollbackComplete records that a successful Rollback fully restored the batch.
 	// It remains true during Evaluate so infrastructure Finalize can recognize the
 	// batch as closed while inputs are re-evaluated. A new Execute, Rollback, or

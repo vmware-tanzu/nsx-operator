@@ -32,6 +32,18 @@ rules:
   - patch
   - update
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - iaas.vmware.com
+  resources:
+  - supervisornamespaces
+  verbs:
+  - get
+- apiGroups:
   - netoperator.vmware.com
   resources:
   - ippools

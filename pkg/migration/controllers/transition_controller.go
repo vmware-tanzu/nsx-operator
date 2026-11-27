@@ -6,6 +6,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/namespaces"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 )
 
@@ -35,6 +37,8 @@ type Reconciler struct {
 // +kubebuilder:rbac:groups=migration.network.vmware.com,resources=controlplanenetworktransitions/status;namespacenetworktransitions/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=vmware-system-nsx
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
+// +kubebuilder:rbac:groups=iaas.vmware.com,resources=supervisornamespaces,verbs=get
 
 // Reconcile persists observed status separately from desired state.
 func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Result, error) {
@@ -89,8 +93,41 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		if err := r.checkCurrentRequest(ctx, request); err != nil {
 			return ctrl.Result{}, err
 		}
-		result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		if r.Engine.Enabled && r.Stage == transition.Namespaces &&
+			r.Engine.Handlers[transition.Key{Stage: r.Stage, Action: action}] != nil {
+			batch := obj.(*api.NamespaceNetworkTransition)
+			var identityErr error
+			switch action {
+			case api.ActionEvaluate:
+				// A new Evaluate generation may intentionally change the namespace
+				// batch, so capture its identity set once for that generation. Retries
+				// of the same generation must preserve and validate the original set.
+				if len(batch.Status.NamespaceIdentities) == 0 || status.ActionGeneration != obj.GetGeneration() {
+					batch.Status.NamespaceIdentities, identityErr = namespaces.Snapshot(ctx, r.reader(), batch.Spec.Namespaces)
+				} else {
+					identityErr = namespaces.ValidateSnapshot(ctx, r.reader(), batch.Spec.Namespaces, batch.Status.NamespaceIdentities)
+				}
+			case api.ActionExecute, api.ActionRollback, api.ActionCommit:
+				identityErr = namespaces.ValidateSnapshot(ctx, r.reader(), batch.Spec.Namespaces, batch.Status.NamespaceIdentities)
+			}
+			if identityErr != nil {
+				reason := "NamespaceIdentityMismatch"
+				var unavailable *namespaces.UnavailableError
+				if errors.As(identityErr, &unavailable) {
+					reason = "NamespaceUnavailable"
+				}
+				transition.Block(status, obj.GetGeneration(), reason,
+					fmt.Sprintf("Could not validate namespace identities before %s: %v", action, identityErr))
+				reconcileErr = fmt.Errorf("validating namespace identities before %s: %w", action, identityErr)
+			} else {
+				result, reconcileErr = r.Engine.Reconcile(ctx, request)
+			}
+		} else {
+			result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		}
 	}
+	// Persist status mutations even when the engine returned an error so the
+	// failed action result remains observable.
 	if !equality.Semantic.DeepEqual(previous, obj) {
 		if err := r.Status().Update(ctx, obj); err != nil {
 			return ctrl.Result{}, fmt.Errorf("persisting transition status: %w", err)
