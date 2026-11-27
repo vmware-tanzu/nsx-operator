@@ -144,7 +144,13 @@ func (r *Reconciler) namespaceExecuteBlock(ctx context.Context, current *api.Nam
 			otherStatus = &other.Status.TransitionStatus
 		}
 		if other.Spec.Action == api.ActionRollback && !completedRollback(otherStatus, other.Generation) {
-			return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Rollback; %q must wait", other.Name, current.Name), nil
+			// A pending Rollback must not strand an Execute that already owns the
+			// execution slot. The Rollback reconciler will wait for this Execute,
+			// then checkpoint and run Rollback.
+			if rollbackStarted(otherStatus, other.Generation) || !currentStarted {
+				return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Rollback; %q must wait", other.Name, current.Name), nil
+			}
+			continue
 		}
 		if other.Spec.Action != api.ActionExecute {
 			continue
@@ -212,6 +218,11 @@ func completedExecute(status *api.TransitionStatus, generation int64) bool {
 func completedRollback(status *api.TransitionStatus, generation int64) bool {
 	return status != nil && status.LastAction == api.ActionRollback && status.ActionState == api.ActionStateSucceeded &&
 		status.ActionGeneration == generation && status.Phase == api.PhaseRolledBack
+}
+
+func rollbackStarted(status *api.TransitionStatus, generation int64) bool {
+	return status != nil && status.LastAction == api.ActionRollback && status.ActionGeneration == generation &&
+		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed)
 }
 
 func terminalNamespaceExecutePhase(phase string) bool {
