@@ -72,31 +72,62 @@ func (inventory KubernetesInventory) NamespaceVDNs(ctx context.Context, namespac
 	}
 	uniqueVDNs := map[string]struct{}{}
 	for _, namespaceName := range namespaces {
-		if namespaceName == "" {
-			return nil, fmt.Errorf("namespace must not be empty")
-		}
-		networkList := &netop.NetworkList{}
-		if err := inventory.Reader.List(ctx, networkList, client.InNamespace(namespaceName)); err != nil {
+		vdns, err := inventory.namespaceVDNs(ctx, namespaceName, false)
+		if err != nil {
 			return nil, err
 		}
-		if len(networkList.Items) == 0 {
-			return nil, invalid("namespace %s has no source Networks", namespaceName)
-		}
-		for _, sourceNetwork := range networkList.Items {
-			networkSpec := sourceNetwork.Spec
-			providerRef := networkSpec.ProviderRef
-			if networkSpec.Type != netop.NetworkTypeVDS || providerRef.APIGroup != netop.GroupName || providerRef.Kind != "VSphereDistributedNetwork" || providerRef.Name == "" || providerRef.Namespace != "" || (providerRef.APIVersion != "" && providerRef.APIVersion != netAPIVersion && providerRef.APIVersion != "v1alpha1") {
-				return nil, invalid("Network %s/%s has unsupported source provider", namespaceName, sourceNetwork.GetName())
-			}
-			uniqueVDNs[providerRef.Name] = struct{}{}
+		for _, vdn := range vdns {
+			uniqueVDNs[vdn] = struct{}{}
 		}
 	}
-	vdns := make([]string, 0, len(uniqueVDNs))
-	for vdnName := range uniqueVDNs {
-		vdns = append(vdns, vdnName)
+	return sortedKeys(uniqueVDNs), nil
+}
+
+// RetainedNamespaceVDNs reads legacy VDS Networks for a member whose migration
+// checkpoint has been verified by the caller. Net Operator keeps legacy VDS
+// resources functional while publishing VPC Networks during cutover.
+func (inventory KubernetesInventory) RetainedNamespaceVDNs(ctx context.Context, namespace string) ([]string, error) {
+	if inventory.Reader == nil || namespace == "" {
+		return nil, fmt.Errorf("reader and namespace are required")
 	}
-	sort.Strings(vdns)
-	return vdns, nil
+	settings := &netop.NetworkSettings{}
+	if err := inventory.Reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "default"}, settings); err != nil {
+		return nil, fmt.Errorf("read NetworkSettings/default: %w", err)
+	}
+	source := settings.Provider == netop.NetworkProviderVSphereDistributed && settings.LegacyProvider == ""
+	migrated := settings.Provider == netop.NetworkProviderVPC && settings.LegacyProvider == netop.NetworkProviderVSphereDistributed
+	if !source && !migrated {
+		return nil, invalid("namespace %s has no effective or legacy VDS provider", namespace)
+	}
+	return inventory.namespaceVDNs(ctx, namespace, true)
+}
+
+func (inventory KubernetesInventory) namespaceVDNs(ctx context.Context, namespace string, retained bool) ([]string, error) {
+	if namespace == "" {
+		return nil, fmt.Errorf("namespace must not be empty")
+	}
+	var networks netop.NetworkList
+	if err := inventory.Reader.List(ctx, &networks, client.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	vdns := map[string]struct{}{}
+	for _, network := range networks.Items {
+		if retained && network.Spec.Type == netop.NetworkTypeNSXTVPC {
+			continue
+		}
+		ref := network.Spec.ProviderRef
+		if network.Spec.Type != netop.NetworkTypeVDS || ref.APIGroup != netop.GroupName || ref.Kind != "VSphereDistributedNetwork" || ref.Name == "" || ref.Namespace != "" || (ref.APIVersion != "" && ref.APIVersion != netAPIVersion && ref.APIVersion != "v1alpha1") {
+			return nil, invalid("Network %s/%s has unsupported source provider", namespace, network.Name)
+		}
+		if !network.DeletionTimestamp.IsZero() {
+			return nil, invalid("source Network %s/%s is deleting", namespace, network.Name)
+		}
+		vdns[ref.Name] = struct{}{}
+	}
+	if len(vdns) == 0 {
+		return nil, invalid("namespace %s has no source Networks", namespace)
+	}
+	return sortedKeys(vdns), nil
 }
 
 func (inventory KubernetesInventory) Resolve(ctx context.Context, vdnName string) (DiscoveredSource, error) {
