@@ -145,6 +145,8 @@ func validateServiceAccountSecretIdentity(secret *v1.Secret, obj *v1alpha1.NSXSe
 }
 
 // reusableServiceAccountCertificate validates credentials before reusing them on a retry.
+// TODO: Also validate the subject against util.DefaultSubject, allowing only
+// CommonName to differ, and require CommonName to equal normalizedClusterName.
 func reusableServiceAccountCertificate(secret *v1.Secret, rotate bool, now time.Time) bool {
 	pair, err := tls.X509KeyPair(secret.Data[SecretCertName], secret.Data[SecretKeyName])
 	if err != nil || len(pair.Certificate) == 0 {
@@ -271,6 +273,9 @@ func (s *NSXServiceAccountService) ensureServiceAccountSecret(ctx context.Contex
 }
 
 func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+	// TODO: Serialize credential changes per account with garbage-collection
+	// certificate rotation in ValidateAndUpdateRealizedNSXServiceAccount. Secret
+	// conflict retries alone cannot coordinate changes to the Secret, PI and CCP.
 	clusterName := s.getClusterName(string(obj.UID), obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
 	// TODO: Use WCPConfig.NSXTProject as project when WCPConfig.EnableWCPVPCNetwork is true
