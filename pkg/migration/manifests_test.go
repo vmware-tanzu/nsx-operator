@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -100,9 +101,20 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 		}
 	}
 	require.Equal(t, "vmware-system-nsx", leaseRole.Namespace)
-	require.Len(t, leaseRole.Rules, 1)
-	require.Equal(t, []string{"leases"}, leaseRole.Rules[0].Resources)
-	require.ElementsMatch(t, []string{"get", "create", "update"}, leaseRole.Rules[0].Verbs)
+	require.Len(t, leaseRole.Rules, 2)
+	var leaseRule, podRule *rbacv1.PolicyRule
+	for _, rule := range leaseRole.Rules {
+		switch {
+		case slices.Contains(rule.Resources, "leases"):
+			leaseRule = &rule
+		case slices.Contains(rule.Resources, "pods"):
+			podRule = &rule
+		}
+	}
+	require.NotNil(t, leaseRule)
+	require.NotNil(t, podRule)
+	require.ElementsMatch(t, []string{"get", "create", "update"}, leaseRule.Verbs)
+	require.Equal(t, []string{"list"}, podRule.Verbs)
 	bindings := 0
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/bindings.yaml") {
 		var resource struct{ Kind string }
@@ -120,7 +132,7 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 	require.Equal(t, 1, bindings)
 }
 
-func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
+func TestMigrationRBACProvidesRequiredInventoryAccess(t *testing.T) {
 	var role rbacv1.ClusterRole
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
 		var resource struct{ Kind string }
@@ -129,13 +141,19 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 			require.NoError(t, json.Unmarshal(doc, &role))
 		}
 	}
-	sourceReads, statusPatches := false, false
+	sourcePermissions := map[string]map[string]bool{}
+	statusPatches := false
 	for _, rule := range role.Rules {
 		for _, group := range rule.APIGroups {
 			if group == "netoperator.vmware.com" {
-				sourceReads = true
-				require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
-				require.ElementsMatch(t, []string{"networks", "vspheredistributednetworks", "ippools"}, rule.Resources)
+				for _, resource := range rule.Resources {
+					if sourcePermissions[resource] == nil {
+						sourcePermissions[resource] = map[string]bool{}
+					}
+					for _, verb := range rule.Verbs {
+						sourcePermissions[resource][verb] = true
+					}
+				}
 			}
 		}
 		for _, resource := range rule.Resources {
@@ -148,6 +166,27 @@ func TestNetworkInspectionRBACIsReadOnly(t *testing.T) {
 			}
 		}
 	}
-	require.True(t, sourceReads)
+	expectedSourcePermissions := map[string][]string{
+		"networks":                      {"get", "list"},
+		"vspheredistributednetworks":    {"get", "list"},
+		"ippools":                       {"get", "list"},
+		"workloadnetworkconfigurations": {"get"},
+	}
+	actualResources := make([]string, 0, len(sourcePermissions))
+	for resource := range sourcePermissions {
+		actualResources = append(actualResources, resource)
+	}
+	expectedResources := make([]string, 0, len(expectedSourcePermissions))
+	for resource := range expectedSourcePermissions {
+		expectedResources = append(expectedResources, resource)
+	}
+	require.ElementsMatch(t, expectedResources, actualResources)
+	for resource, expectedVerbs := range expectedSourcePermissions {
+		actualVerbs := make([]string, 0, len(sourcePermissions[resource]))
+		for verb := range sourcePermissions[resource] {
+			actualVerbs = append(actualVerbs, verb)
+		}
+		require.ElementsMatch(t, expectedVerbs, actualVerbs, "unexpected verbs for %s", resource)
+	}
 	require.True(t, statusPatches)
 }

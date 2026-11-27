@@ -167,6 +167,7 @@ func TestControlPlaneWorkloadProtection(t *testing.T) {
 		completed := transition.DeepCopy()
 		completed.Status = &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
 			LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, ObservedGeneration: 4, Phase: api.PhaseInfraTransitionComplete,
+			Conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue, ObservedGeneration: 4}},
 		}}
 		validator := makeValidator(completed, systemNamespace)
 		require.True(t, validator.Handle(context.Background(), makeRequest("system", admissionv1.Update, "user", oldVM, updatedVM)).Allowed)
@@ -175,6 +176,29 @@ func TestControlPlaneWorkloadProtection(t *testing.T) {
 		stale.Status.ObservedGeneration = 3
 		validator = makeValidator(stale, systemNamespace)
 		require.False(t, validator.Handle(context.Background(), makeRequest("system", admissionv1.Update, "user", oldVM, updatedVM)).Allowed)
+	})
+
+	t.Run("pending Finalize preserves verified workload completion after preflight failure", func(t *testing.T) {
+		finalizing := transition.DeepCopy()
+		finalizing.Generation = 5
+		finalizing.Spec.Action = api.ActionFinalize
+		finalizing.Status = &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+			LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, ObservedGeneration: 5, Phase: api.PhaseBlocked,
+			Conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue, ObservedGeneration: 4}},
+		}}
+		validator := makeValidator(finalizing, systemNamespace)
+		request := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+			Namespace: "kube-system", Operation: admissionv1.Create,
+			Resource: metav1.GroupVersionResource{Version: "v1", Resource: "pods"},
+			Object:   runtime.RawExtension{Raw: []byte(`{"metadata":{"generateName":"replacement-"}}`)},
+		}}
+		require.True(t, validator.Handle(context.Background(), request).Allowed,
+			"a verified Execute milestone permits replacement Pods while Finalize waits to retry")
+
+		finalizing.Status.Conditions[0].Status = metav1.ConditionFalse
+		validator = makeValidator(finalizing, systemNamespace)
+		require.False(t, validator.Handle(context.Background(), request).Allowed,
+			"a missing successful cutover milestone must keep workload protection active")
 	})
 }
 

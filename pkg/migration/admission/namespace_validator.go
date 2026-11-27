@@ -13,6 +13,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -223,12 +224,10 @@ func (v NamespaceLifecycleValidator) inCoexistenceMode(ctx context.Context) (boo
 	if status.Phase == api.PhaseInfraTransitionComplete || status.Phase == api.PhaseFinalizing || status.Phase == api.PhaseFinalized {
 		return true, nil
 	}
-	if status.Phase == api.PhaseFailed && status.LastAction == api.ActionFinalize {
-		for _, condition := range status.Conditions {
-			if condition.Type == api.ConditionInfraTransitionComplete && condition.Status == "True" {
-				return true, nil
-			}
-		}
+	// Finalize retries must preserve coexistence mode even if a transient
+	// prerequisite failure changes Phase to Blocked before or during dispatch.
+	if transition.Spec.Action == api.ActionFinalize && meta.IsStatusConditionTrue(status.Conditions, api.ConditionInfraTransitionComplete) {
+		return true, nil
 	}
 	return false, nil
 }

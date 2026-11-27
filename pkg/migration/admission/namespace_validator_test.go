@@ -181,6 +181,31 @@ func TestNamespaceLifecycleValidatorSupportsV1Alpha2NetworkingUnion(t *testing.T
 		require.False(t, response.Allowed, "the legacy top-level VDS config remains protected")
 	})
 
+	t.Run("blocked Finalize retries preserve coexistence namespace policy", func(t *testing.T) {
+		scheme := runtime.NewScheme()
+		require.NoError(t, api.AddToScheme(scheme))
+		infra := &api.ControlPlaneNetworkTransition{
+			ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName, Generation: 5},
+			Spec:       api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: api.ActionFinalize}},
+			Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{
+				LastAction: api.ActionExecute, ActionState: api.ActionStateSucceeded, ActionGeneration: 4, Phase: api.PhaseBlocked,
+				Conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue, ObservedGeneration: 4}},
+			}},
+		}
+		validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(infra).Build()}
+
+		vpcRequest := supervisorNamespaceRequest(admissionv1.Create,
+			`{"metadata":{"name":"tenant"},"spec":{"vpcNetworkConfig":{}}}`, "")
+		require.True(t, validator.Handle(context.Background(), vpcRequest).Allowed,
+			"the completed infrastructure milestone keeps VPC namespace creation available during Finalize retries")
+
+		vdsRequest := supervisorNamespaceRequest(admissionv1.Create,
+			`{"metadata":{"name":"tenant"},"spec":{"vsphereNetworkConfig":{}}}`, "")
+		response := validator.Handle(context.Background(), vdsRequest)
+		require.False(t, response.Allowed, "explicit VDS requests remain rejected during coexistence")
+		require.Contains(t, response.Result.Message, "coexistence mode")
+	})
+
 	t.Run("controller may switch the nested provider union only", func(t *testing.T) {
 		scheme := runtime.NewScheme()
 		require.NoError(t, api.AddToScheme(scheme))
@@ -287,16 +312,21 @@ func TestNamespaceCoexistenceReaderOutcomes(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		phase      string
+		action     api.Action
+		lastAction api.Action
 		conditions []metav1.Condition
 		want       bool
 	}{
 		{name: "infra complete", phase: api.PhaseInfraTransitionComplete, want: true},
 		{name: "finalizing with completion condition", phase: api.PhaseFinalizing, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue}}, want: true},
-		{name: "failed finalization with completion condition", phase: api.PhaseFailed, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue}}, want: true},
-		{name: "failed finalization without completion condition", phase: api.PhaseFailed, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionFalse}}},
+		{name: "blocked before finalize checkpoint retains coexistence", phase: api.PhaseBlocked, action: api.ActionFinalize, lastAction: api.ActionExecute, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue}}, want: true},
+		{name: "blocked finalize retry retains coexistence", phase: api.PhaseBlocked, action: api.ActionFinalize, lastAction: api.ActionFinalize, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue}}, want: true},
+		{name: "failed finalization with completion condition", phase: api.PhaseFailed, action: api.ActionFinalize, lastAction: api.ActionFinalize, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue}}, want: true},
+		{name: "blocked finalize without completion condition", phase: api.PhaseBlocked, action: api.ActionFinalize, lastAction: api.ActionFinalize, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionFalse}}},
+		{name: "blocked non-finalize with stale completion condition", phase: api.PhaseBlocked, action: api.ActionEvaluate, lastAction: api.ActionEvaluate, conditions: []metav1.Condition{{Type: api.ConditionInfraTransitionComplete, Status: metav1.ConditionTrue}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			transition := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{Phase: tc.phase, LastAction: api.ActionFinalize, Conditions: tc.conditions}}}
+			transition := &api.ControlPlaneNetworkTransition{ObjectMeta: metav1.ObjectMeta{Name: api.ControlPlaneNetworkTransitionName}, Spec: api.ControlPlaneNetworkTransitionSpec{TransitionSpec: api.TransitionSpec{Action: tc.action}}, Status: &api.ControlPlaneNetworkTransitionStatus{TransitionStatus: api.TransitionStatus{Phase: tc.phase, LastAction: tc.lastAction, Conditions: tc.conditions}}}
 			validator := NamespaceLifecycleValidator{Reader: fake.NewClientBuilder().WithScheme(scheme).WithObjects(transition).Build()}
 			got, err := validator.inCoexistenceMode(ctx)
 			require.NoError(t, err)

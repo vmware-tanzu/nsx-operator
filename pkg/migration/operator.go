@@ -10,6 +10,7 @@ import (
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/controllers"
+	"github.com/vmware-tanzu/nsx-operator/pkg/migration/infrastructure"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
 	nsxmigration "github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/migration"
 )
@@ -39,8 +40,12 @@ func newEngine(reader client.Reader, workflows transition.WorkflowDeleter) *tran
 }
 
 func registerControllers(c client.Client, reader client.Reader, engine *transition.Engine, register func(*controllers.Reconciler) error) error {
+	starter := &infrastructure.Service{Readiness: &infrastructure.KubernetesReadiness{Reader: reader}, Projects: nsxmigration.NewService()}
 	for _, stage := range []transition.Stage{transition.Infrastructure, transition.Namespaces} {
 		r := &controllers.Reconciler{Client: c, APIReader: reader, Engine: engine, Stage: stage}
+		if stage == transition.Infrastructure {
+			r.Infrastructure = starter
+		}
 		if err := register(r); err != nil {
 			return err
 		}

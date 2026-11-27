@@ -13,6 +13,8 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -186,12 +188,15 @@ func controlPlaneTransitionProtectsWorkloads(transition *api.ControlPlaneNetwork
 		return false
 	}
 	status := transition.Status
-	if status != nil && status.LastAction == api.ActionExecute &&
-		status.ActionState == api.ActionStateSucceeded && status.Phase == api.PhaseInfraTransitionComplete &&
-		status.ActionGeneration > 0 && status.ObservedGeneration == status.ActionGeneration &&
-		(status.ActionGeneration == transition.Generation ||
-			(transition.Spec.Action == api.ActionFinalize && status.ActionGeneration+1 == transition.Generation)) {
-		return false
+	if status != nil && status.LastAction == api.ActionExecute && status.ActionState == api.ActionStateSucceeded && status.ActionGeneration > 0 {
+		condition := meta.FindStatusCondition(status.Conditions, api.ConditionInfraTransitionComplete)
+		milestoneCurrent := condition != nil && condition.Status == metav1.ConditionTrue && condition.ObservedGeneration == status.ActionGeneration
+		currentExecute := status.ActionGeneration == transition.Generation && status.ObservedGeneration == status.ActionGeneration
+		// A preflight Block can advance ObservedGeneration before Engine checkpoints Finalize.
+		pendingFinalize := transition.Spec.Action == api.ActionFinalize && status.ActionGeneration+1 == transition.Generation
+		if milestoneCurrent && (currentExecute || pendingFinalize) {
+			return false
+		}
 	}
 
 	// Persisting Execute starts protection, even before Running is recorded.
