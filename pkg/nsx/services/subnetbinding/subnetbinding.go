@@ -144,6 +144,12 @@ func (s *BindingService) createOrUpdateBindingMapInternal(
 		}
 	}
 
+	// Skip the NSX PATCH and realization check when there is nothing to create,
+	// update, or delete.
+	if len(updatedBindingMaps) == 0 {
+		return nil
+	}
+
 	if err := s.Apply(subnetPath, updatedBindingMaps); err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/vpc/v1alpha1"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 	"github.com/vmware-tanzu/nsx-operator/pkg/util"
 )
@@ -20,12 +21,18 @@ var (
 
 func (s *BindingService) buildSubnetBindings(binding *v1alpha1.SubnetConnectionBindingMap, vlanID int64, targetSubnetPaths []string) []*model.SubnetConnectionBindingMap {
 	tags := util.BuildBasicTags(s.NSXConfig.Cluster, binding, "")
+	// SubnetAssociation defaults to TRUNK when unset in the CR, aligning with the
+	// NSX API default so that the desired object matches the realized object.
+	sa := model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK
+	if binding.Spec.IsBranchAssociation() {
+		sa = model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH
+	}
+	// The subnet_association field is only supported since NSX 9.2.0. When the CR
+	// does not specify it explicitly, leave it unset on NSX versions without the
+	// SubnetAssociation feature (e.g. NSX 9.1) to keep the request compatible;
+	// NSX treats an omitted association as TRUNK.
 	var subnetAssociation *string
-	if binding.Spec.SubnetAssociation != "" {
-		sa := model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_TRUNK
-		if binding.Spec.IsBranchAssociation() {
-			sa = model.SubnetConnectionBindingMap_SUBNET_ASSOCIATION_BRANCH
-		}
+	if binding.Spec.SubnetAssociation != "" || s.NSXClient.NSXCheckVersion(nsx.SubnetAssociation) {
 		subnetAssociation = String(sa)
 	}
 	bindingMaps := make([]*model.SubnetConnectionBindingMap, len(targetSubnetPaths))

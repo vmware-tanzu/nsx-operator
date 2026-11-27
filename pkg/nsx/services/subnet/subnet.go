@@ -430,6 +430,9 @@ func (service *SubnetService) UpdateSubnetSetStatus(obj *v1alpha1.SubnetSet) err
 		}
 		subnetInfoList = append(subnetInfoList, subnetInfo)
 	}
+	// Sort the subnetInfoList to ensure the SubnetSet status is updated in a deterministic
+	// order, as the Subnet store returns the NSX Subnets in a nondeterministic order.
+	sortSubnetInfoList(subnetInfoList)
 	if reflect.DeepEqual(obj.Status.Subnets, subnetInfoList) {
 		return nil
 	}
@@ -1272,6 +1275,19 @@ func (service *SubnetService) removeSubnetSetConditionOnSuccess(obj client.Objec
 	if retryErr != nil {
 		log.Error(retryErr, "Failed to update SubnetSet status", "SubnetSet", obj.GetName())
 	}
+}
+
+// sortSubnetInfoList sorts the SubnetInfo list in place by network addresses
+// (falling back to gateway addresses) to produce a deterministic order.
+func sortSubnetInfoList(subnetInfoList []v1alpha1.SubnetInfo) {
+	sort.SliceStable(subnetInfoList, func(i, j int) bool {
+		iKey := strings.Join(subnetInfoList[i].NetworkAddresses, ",")
+		jKey := strings.Join(subnetInfoList[j].NetworkAddresses, ",")
+		if iKey != jKey {
+			return iKey < jKey
+		}
+		return strings.Join(subnetInfoList[i].GatewayAddresses, ",") < strings.Join(subnetInfoList[j].GatewayAddresses, ",")
+	})
 }
 
 func splitAddressesByIPType(addresses []string) ([]string, []string) {

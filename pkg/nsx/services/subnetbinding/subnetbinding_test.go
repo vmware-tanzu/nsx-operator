@@ -241,6 +241,11 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 	mockOrgRootClient := orgroot_mocks.NewMockOrgRootClient(ctrl)
 	mockSubnetBindingClient := bindingmap_mocks.NewMockSubnetConnectionBindingMapsClient(ctrl)
 
+	// Simulate NSX >= 9.2.0 where the subnet_association field is supported, so
+	// the builder defaults SubnetAssociation to TRUNK for CRs that do not set it.
+	patches := gomonkey.ApplyMethodFunc(&nsx.Client{}, "NSXCheckVersion", func(feature int) bool { return true })
+	defer patches.Reset()
+
 	oriBM2 := *bindingMap2
 	oriBM2.Path = String(fmt.Sprintf("%s/subnet-connection-binding-maps/%s", *childSubnet.Path, *oriBM2.Id))
 	oriBM2.VlanTrafficTag = Int64(200)
@@ -351,6 +356,14 @@ func TestCreateOrUpdateSubnetConnectionBindingMap(t *testing.T) {
 			},
 			expErr:                "",
 			existingBindingMaps:   []*model.SubnetConnectionBindingMap{createdBM1, &oriBM2},
+			expBindingMapsInStore: []*model.SubnetConnectionBindingMap{createdBM2},
+		}, {
+			name: "no change, skip NSX patch",
+			prepareFunc: func() {
+				// No Patch/List expectations: any NSX call fails the test, proving
+				// Apply is skipped when nothing needs to be created, updated or deleted.
+			},
+			existingBindingMaps:   []*model.SubnetConnectionBindingMap{createdBM2},
 			expBindingMapsInStore: []*model.SubnetConnectionBindingMap{createdBM2},
 		},
 	} {
