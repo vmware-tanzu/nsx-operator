@@ -702,6 +702,16 @@ func TestGettersAndSetMixedModeStateForTest(t *testing.T) {
 		resetMixedModeState()
 		assert.False(t, IsMixedModeStateInitialized())
 	})
+
+	t.Run("InitAntreaNSXOnlyMode disables VPC T1 and per-namespace providers", func(t *testing.T) {
+		resetMixedModeState()
+		SetMixedModeStateForTest(true, true)
+		InitAntreaNSXOnlyMode()
+		assert.False(t, HasT1Namespaces())
+		assert.False(t, HasVPCNamespaces())
+		assert.False(t, IsPerNamespaceProvidersSupported())
+		assert.True(t, IsMixedModeStateInitialized())
+	})
 }
 
 func TestResolveNamespaceProvider_Dedup(t *testing.T) {
