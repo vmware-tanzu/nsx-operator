@@ -30,6 +30,20 @@ func (service *SecurityPolicyService) isNamespaceGroupSupported() bool {
 	return nsx.NamespaceGroupFeatureEnabled(service.NSXClient, service.NSXConfig)
 }
 
+// nativeNamespaceMemberType returns the inventory member type used for namespace
+// conditions in native inventory-based groups. On WCP Supervisor clusters
+// (vpc_wcp_enhance enabled) namespaces are registered as "SupervisorNamespace",
+// which belongs to the compute inventory family and is the only namespace member
+// type compatible with VirtualMachine conditions in a NestedExpression (using
+// "Namespace" there triggers NSX error 500059). Vanilla Kubernetes clusters use
+// "Namespace" (container inventory).
+func (service *SecurityPolicyService) nativeNamespaceMemberType() string {
+	if service.NSXConfig != nil && service.NSXConfig.NsxConfig.VpcWcpEnhanceEnabled() {
+		return common.MemberTypeSupervisorNamespace
+	}
+	return common.MemberTypeNamespace
+}
+
 // buildNativeCondition builds a Condition expression for inventory-based groups.
 // The NSX API uses: resource_type=Condition, member_type, key=Tag, operator, value=scope|tag, scope_operator.
 func (service *SecurityPolicyService) buildNativeCondition(memberType, value, operator, scopeOp string) *data.StructValue {
@@ -39,11 +53,13 @@ func (service *SecurityPolicyService) buildNativeCondition(memberType, value, op
 	return condition
 }
 
-// buildNativeNamespaceCondition builds a Namespace tag condition for the given memberType.
+// buildNativeNamespaceCondition builds a namespace tag condition using the member
+// type matching the current environment (SupervisorNamespace on WCP, Namespace
+// otherwise).
 // value format: "scope|tag" (e.g., "vm_namespace|ns-uid-123")
 func (service *SecurityPolicyService) buildNativeNamespaceCondition(tagScope, tagValue, operator string) *data.StructValue {
 	return service.buildNativeCondition(
-		common.MemberTypeNamespace,
+		service.nativeNamespaceMemberType(),
 		fmt.Sprintf("%s|%s", tagScope, tagValue),
 		operator, "EQUALS",
 	)
@@ -319,10 +335,11 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 	var allBaseConditions []*data.StructValue
 	var nsInExpr *v1.LabelSelectorRequirement
 	var vmInExpr *v1.LabelSelectorRequirement
+	nsMemberType := service.nativeNamespaceMemberType()
 
 	// Build namespace conditions
 	if peer.NamespaceSelector != nil {
-		nsConds, nsIn, err := service.buildNativeSelectorConditions(peer.NamespaceSelector, common.MemberTypeNamespace)
+		nsConds, nsIn, err := service.buildNativeSelectorConditions(peer.NamespaceSelector, nsMemberType)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -388,7 +405,7 @@ func (service *SecurityPolicyService) updateNativePeerExpressions(
 			// Empty strings are valid In values; only skip the placeholder when no In values exist.
 			if nsInExpr != nil && len(nsInExpr.Values) > 0 {
 				branchConds = append(branchConds, service.buildNativeCondition(
-					common.MemberTypeNamespace,
+					nsMemberType,
 					fmt.Sprintf("%s|%s", nsInExpr.Key, nsVal),
 					"EQUALS", "EQUALS",
 				))

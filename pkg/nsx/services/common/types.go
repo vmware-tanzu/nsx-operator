@@ -199,10 +199,15 @@ const (
 	// (full path: /orgs/{org}/projects/{project}/dns-records/{id}). Must match PolicyResourceDnsRecord.PathKey.
 	PathSegmentDnsRecords = "dns-records"
 
-	MemberTypeNamespace      = "Namespace"
-	MemberTypeVirtualMachine = "VirtualMachine"
-	VMTypePod                = "POD"
-	VMTypeRegular            = "REGULAR"
+	MemberTypeNamespace = "Namespace"
+	// MemberTypeSupervisorNamespace is the inventory member type for namespaces on
+	// WCP Supervisor clusters. Unlike "Namespace" (container inventory), it belongs
+	// to the compute inventory family and is compatible with "VirtualMachine"
+	// conditions in a NestedExpression.
+	MemberTypeSupervisorNamespace = "SupervisorNamespace"
+	MemberTypeVirtualMachine      = "VirtualMachine"
+	VMTypePod                     = "POD"
+	VMTypeRegular                 = "REGULAR"
 )
 
 var (
