@@ -15,6 +15,7 @@ import (
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/identity"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/transition"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx/services/common"
 )
 
 // RuntimeEvaluateHandler builds Evaluate services from the manager's
@@ -25,7 +26,6 @@ type RuntimeEvaluateHandler struct {
 	SupervisorID         string
 	KubernetesClient     client.Client
 	KubernetesReader     client.Reader
-	DefaultProject       string
 	NetOperatorNamespace string
 }
 
@@ -57,10 +57,7 @@ func (handler RuntimeEvaluateHandler) Reconcile(ctx context.Context, request tra
 
 	projectID := resource.Spec.NSXProjectID
 	if projectID == "" {
-		projectID = handler.DefaultProject
-	}
-	if projectID == "" {
-		projectID = "default"
+		projectID = common.DefaultProject
 	}
 	service, err := inspection.NewService(inspection.ServiceConfig{
 		KubernetesReader: handler.KubernetesReader,
@@ -97,9 +94,13 @@ func (handler RuntimeEvaluateHandler) Reconcile(ctx context.Context, request tra
 		Inventory: service.Inventory,
 	}
 	evaluator := EvaluateHandler{
-		Scope:         scope,
-		Inspector:     service,
-		DVPGValidator: NSXDVPGCompatibilityValidator{API: validationAPI},
+		Scope:     scope,
+		Inspector: service,
+		DVPGValidator: NSXDVPGCompatibilityValidator{
+			API:              validationAPI,
+			ComputeManagerID: resolvedSource.NSXComputeManagerID,
+			VCenterUUID:      resolvedSource.VCenterInstanceUUID,
+		},
 		SNAT: NetOperatorSNAT{
 			Client:   handler.KubernetesClient,
 			Reader:   handler.KubernetesReader,

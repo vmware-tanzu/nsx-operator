@@ -80,8 +80,8 @@ func readManifestDocuments(t *testing.T, path string) [][]byte {
 	return documents
 }
 
-func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
-	var leaseRole rbacv1.Role
+func TestMigrationRoleMatchesSharedNCPServiceAccount(t *testing.T) {
+	var migrationRole rbacv1.Role
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/role.yaml") {
 		var resource struct{ Kind string }
 		require.NoError(t, json.Unmarshal(doc, &resource))
@@ -96,13 +96,14 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 				require.NotContains(t, rule.Resources, "namespacenetworktransitions/finalizers")
 			}
 		case "Role":
-			require.NoError(t, json.Unmarshal(doc, &leaseRole))
+			require.NoError(t, json.Unmarshal(doc, &migrationRole))
 		}
 	}
-	require.Equal(t, "vmware-system-nsx", leaseRole.Namespace)
-	require.Len(t, leaseRole.Rules, 1)
-	require.Equal(t, []string{"leases"}, leaseRole.Rules[0].Resources)
-	require.ElementsMatch(t, []string{"get", "create", "update"}, leaseRole.Rules[0].Verbs)
+	require.Equal(t, "vmware-system-nsx", migrationRole.Namespace)
+	require.ElementsMatch(t, []rbacv1.PolicyRule{
+		{APIGroups: []string{""}, Resources: []string{"configmaps"}, ResourceNames: []string{"nsx-ncp-config"}, Verbs: []string{"get"}},
+		{APIGroups: []string{"coordination.k8s.io"}, Resources: []string{"leases"}, Verbs: []string{"create", "get", "update"}},
+	}, migrationRole.Rules)
 	bindings := 0
 	for _, doc := range readManifestDocuments(t, "../../build/yaml/migration/rbac/bindings.yaml") {
 		var resource struct{ Kind string }
@@ -110,8 +111,8 @@ func TestLeaseRBACMatchesSharedNCPServiceAccount(t *testing.T) {
 		if resource.Kind == "RoleBinding" {
 			var binding rbacv1.RoleBinding
 			require.NoError(t, json.Unmarshal(doc, &binding))
-			require.Equal(t, leaseRole.Namespace, binding.Namespace)
-			require.Equal(t, leaseRole.Name, binding.RoleRef.Name)
+			require.Equal(t, migrationRole.Namespace, binding.Namespace)
+			require.Equal(t, migrationRole.Name, binding.RoleRef.Name)
 			require.Equal(t, "Role", binding.RoleRef.Kind)
 			require.Contains(t, binding.Subjects, rbacv1.Subject{Kind: "ServiceAccount", Name: "ncp-svc-account", Namespace: "vmware-system-nsx"})
 			bindings++

@@ -198,7 +198,7 @@ func TestEvaluateHandlerReusesFinishedDVPGValidationWhileSNATIsPending(t *testin
 			}}},
 			LBSNAT: &inspection.LBSNATDecision{Selection: inspection.AllocateFromBackendNetwork, AllocationSource: "dvpg-1"},
 		}},
-		DVPGValidator: NSXDVPGCompatibilityValidator{API: validationAPI},
+		DVPGValidator: NSXDVPGCompatibilityValidator{API: validationAPI, ComputeManagerID: "cm-1", VCenterUUID: "vc-1"},
 		SNAT:          snat,
 	}
 
@@ -209,7 +209,7 @@ func TestEvaluateHandlerReusesFinishedDVPGValidationWhileSNATIsPending(t *testin
 	workflow := validationAPI.updated[0]
 	workflow.WorkflowState = &model.DvpgToSubnetWorkflowState{Status: ptr.To("SUCCESS")}
 	validationAPI.results[*workflow.Id] = []model.DvpgValidationResult{{
-		DvpgRef: ptr.To("vc-1:dvpg-1"), Compatibility: ptr.To(model.DvpgValidationResult_COMPATIBILITY_SUPPORTED),
+		DvpgRef: ptr.To("cm-1:dvpg-1"), Compatibility: ptr.To(model.DvpgValidationResult_COMPATIBILITY_SUPPORTED),
 	}}
 
 	result, err = handler.Reconcile(ctx, evaluationRequest(resource))

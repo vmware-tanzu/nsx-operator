@@ -372,8 +372,10 @@ The handler and its WCP, NSX validation, and SNAT adapters have unit coverage.
 With migration enabled, the manager registers the ControlPlane Evaluate handler
 with authenticated vCenter and NSX clients. It reads the Supervisor ID from
 `[coe].cluster` in `nsx-ncp-config` unless an override is supplied, then verifies
-the ID against vCenter during Evaluate. Cleanup of a source allocation after a
-changed or deleted evaluation request remains open.
+the ID against vCenter during Evaluate. Evaluate uses `spec.nsxProjectID` when
+set and the NSX `default` project when omitted, matching the infrastructure
+prerequisite checks. Cleanup of a source allocation after a changed or deleted
+evaluation request remains open.
 
 ## Design contract
 

@@ -57,11 +57,11 @@ func (api *NSXDVPGValidationAPI) Get(id string) (*model.DvpgToSubnetWorkflow, er
 	if len(conversionErrors) > 0 {
 		return nil, conversionErrors[0]
 	}
-	workflow, ok := converted.(*model.DvpgToSubnetWorkflow)
+	workflow, ok := converted.(model.DvpgToSubnetWorkflow)
 	if !ok {
 		return nil, fmt.Errorf("NSX returned an unexpected DVPG workflow type %T", converted)
 	}
-	return workflow, nil
+	return &workflow, nil
 }
 
 func (api *NSXDVPGValidationAPI) Update(id string, workflow *model.DvpgToSubnetWorkflow) error {
@@ -106,7 +106,9 @@ func (api *NSXDVPGValidationAPI) Delete(id string) error {
 // NSXDVPGCompatibilityValidator runs one validation workflow per VDS. It keeps
 // validation workflow IDs deterministic so retries resume the same check.
 type NSXDVPGCompatibilityValidator struct {
-	API DVPGValidationAPI
+	API              DVPGValidationAPI
+	ComputeManagerID string
+	VCenterUUID      string
 }
 
 type dvpgValidationGroup struct {
@@ -118,7 +120,10 @@ func (validator NSXDVPGCompatibilityValidator) Validate(ctx context.Context, tra
 	if validator.API == nil || transitionUID == "" {
 		return DVPGValidationResult{}, fmt.Errorf("DVPG validation API and transition UID are required")
 	}
-	groups, err := groupDVPGs(networks)
+	if validator.ComputeManagerID == "" || validator.VCenterUUID == "" {
+		return DVPGValidationResult{}, fmt.Errorf("NSX compute manager and vCenter identities are required for DVPG validation")
+	}
+	groups, err := validator.groupDVPGs(networks)
 	if err != nil {
 		return DVPGValidationResult{}, err
 	}
@@ -190,7 +195,7 @@ func (validator NSXDVPGCompatibilityValidator) deleteWorkflows(ctx context.Conte
 	return nil
 }
 
-func groupDVPGs(networks []inspection.Network) ([]dvpgValidationGroup, error) {
+func (validator NSXDVPGCompatibilityValidator) groupDVPGs(networks []inspection.Network) ([]dvpgValidationGroup, error) {
 	groupsByVDS := make(map[string]*dvpgValidationGroup)
 	for _, network := range networks {
 		if len(network.Source.Topologies) == 0 {
@@ -200,13 +205,16 @@ func groupDVPGs(networks []inspection.Network) ([]dvpgValidationGroup, error) {
 			if topology.VCenterUUID == "" || topology.SwitchID == "" || topology.PortGroupID == "" {
 				return nil, fmt.Errorf("DVPG %q is missing vCenter, VDS or DVPG identity", topology.PortGroupID)
 			}
-			vdsRef := topology.VCenterUUID + ":" + topology.SwitchID
+			if topology.VCenterUUID != validator.VCenterUUID {
+				return nil, fmt.Errorf("DVPG %q does not belong to the resolved source vCenter", topology.PortGroupID)
+			}
+			vdsRef := validator.ComputeManagerID + ":" + topology.SwitchID
 			group := groupsByVDS[vdsRef]
 			if group == nil {
 				group = &dvpgValidationGroup{vdsRef: vdsRef, dvpgs: make(map[string]struct{})}
 				groupsByVDS[vdsRef] = group
 			}
-			group.dvpgs[topology.VCenterUUID+":"+topology.PortGroupID] = struct{}{}
+			group.dvpgs[validator.ComputeManagerID+":"+topology.PortGroupID] = struct{}{}
 		}
 	}
 	if len(groupsByVDS) == 0 {
@@ -321,8 +329,9 @@ func workflowFailure(workflow *model.DvpgToSubnetWorkflow) []string {
 }
 
 func isNSXNotFound(err error) bool {
-	var notFound *stdErrors.NotFound
-	return errors.As(err, &notFound)
+	var notFound stdErrors.NotFound
+	var notFoundPointer *stdErrors.NotFound
+	return errors.As(err, &notFound) || errors.As(err, &notFoundPointer)
 }
 
 func optionalString(value *string) string {

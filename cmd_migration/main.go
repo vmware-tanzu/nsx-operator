@@ -122,7 +122,6 @@ func run() error {
 			SupervisorID:         supervisorID,
 			KubernetesClient:     mgr.GetClient(),
 			KubernetesReader:     mgr.GetAPIReader(),
-			DefaultProject:       operatorConfig.DefaultProject,
 			NetOperatorNamespace: opts.netOperatorNS,
 		}
 		return migration.SetupWithEvaluateHandler(mgr, evaluateHandler)

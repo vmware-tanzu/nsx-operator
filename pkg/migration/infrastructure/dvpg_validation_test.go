@@ -5,15 +5,69 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	stdErrors "github.com/vmware/vsphere-automation-sdk-go/lib/vapi/std/errors"
+	policyclient "github.com/vmware/vsphere-automation-sdk-go/runtime/protocol/client"
 	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt/model"
 	"k8s.io/utils/ptr"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/migration/inspection"
+	"github.com/vmware-tanzu/nsx-operator/pkg/nsx"
 )
+
+func TestNSXDVPGCompatibilityValidatorCreatesWorkflowAfterNotFound(t *testing.T) {
+	workflowID := validationWorkflowID("transition-uid", 7, dvpgValidationGroup{
+		vdsRef: "cm-1:dvs-1", dvpgs: map[string]struct{}{"cm-1:dvpg-1": {}},
+	})
+	var createCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		assert.Equal(t, "/policy/api/v1/workflows/"+workflowID, request.URL.Path)
+		response.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case http.MethodGet:
+			if createCalls.Load() == 0 {
+				response.WriteHeader(http.StatusNotFound)
+				_, _ = response.Write([]byte(`{"error_code":600,"error_message":"workflow not found"}`))
+				return
+			}
+		case http.MethodPut:
+			var body map[string]any
+			assert.NoError(t, json.NewDecoder(request.Body).Decode(&body))
+			assert.Equal(t, workflowID, body["id"])
+			assert.Equal(t, "VALIDATION", body["desired_state"])
+			assert.Equal(t, "cm-1:dvs-1", body["vds_ref"])
+			assert.Equal(t, []any{map[string]any{"dvpg_ref": "cm-1:dvpg-1"}}, body["dvpg_spec"])
+			createCalls.Add(1)
+		default:
+			t.Errorf("unexpected HTTP method %s", request.Method)
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		_, _ = response.Write([]byte(`{"id":"` + workflowID + `","resource_type":"DvpgToSubnetWorkflow","workflow_state":{"status":"IN_PROGRESS"}}`))
+	}))
+	t.Cleanup(server.Close)
+	connector := policyclient.NewConnector(server.URL, policyclient.UsingRest(nil), policyclient.WithHttpClient(server.Client()))
+	api, err := NewNSXDVPGValidationAPI(&nsx.Client{RestConnector: connector})
+	require.NoError(t, err)
+	validator := NSXDVPGCompatibilityValidator{API: api, ComputeManagerID: "cm-1", VCenterUUID: "vc-1"}
+	networks := []inspection.Network{{Source: inspection.Source{Topologies: []inspection.Topology{{
+		VCenterUUID: "vc-1", SwitchID: "dvs-1", PortGroupID: "dvpg-1",
+	}}}}}
+
+	for range 2 {
+		result, err := validator.Validate(context.Background(), "transition-uid", 7, networks)
+		require.NoError(t, err)
+		require.True(t, result.InProgress)
+		require.EqualValues(t, 1, createCalls.Load())
+	}
+}
 
 type fakeDVPGValidationAPI struct {
 	workflows map[string]*model.DvpgToSubnetWorkflow
@@ -48,7 +102,7 @@ func (api *fakeDVPGValidationAPI) Delete(id string) error {
 
 func TestNSXDVPGCompatibilityValidatorStartsOneValidationPerVDS(t *testing.T) {
 	api := &fakeDVPGValidationAPI{workflows: make(map[string]*model.DvpgToSubnetWorkflow)}
-	validator := NSXDVPGCompatibilityValidator{API: api}
+	validator := NSXDVPGCompatibilityValidator{API: api, ComputeManagerID: "cm-1", VCenterUUID: "vc-1"}
 	networks := []inspection.Network{
 		{Source: inspection.Source{Topologies: []inspection.Topology{
 			{VCenterUUID: "vc-1", SwitchID: "dvs-1", PortGroupID: "dvpg-1"},
@@ -68,7 +122,7 @@ func TestNSXDVPGCompatibilityValidatorStartsOneValidationPerVDS(t *testing.T) {
 	workflow := api.updated[0]
 	require.Equal(t, model.DvpgToSubnetWorkflow_DESIRED_STATE_VALIDATION, *workflow.DesiredState)
 	require.Equal(t, model.BaseWorkflowObject_RESOURCE_TYPE_DVPGTOSUBNETWORKFLOW, workflow.ResourceType)
-	require.Equal(t, "vc-1:dvs-1", *workflow.VdsRef)
+	require.Equal(t, "cm-1:dvs-1", *workflow.VdsRef)
 	require.Len(t, workflow.DvpgSpec, 2)
 
 	firstID, secondID := *workflow.Id, *api.updated[1].Id
@@ -77,7 +131,7 @@ func TestNSXDVPGCompatibilityValidatorStartsOneValidationPerVDS(t *testing.T) {
 	result, err = validator.Validate(context.Background(), "transition-uid", 7, networks)
 	require.NoError(t, err)
 	require.True(t, result.InProgress)
-	require.Equal(t, []string{"DVPG validation failed for VDS vc-1:dvs-1"}, result.Problems)
+	require.Equal(t, []string{"DVPG validation failed for VDS cm-1:dvs-1"}, result.Problems)
 	require.Nil(t, result.cleanup)
 	require.Empty(t, api.deleted)
 
@@ -86,8 +140,8 @@ func TestNSXDVPGCompatibilityValidatorStartsOneValidationPerVDS(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, result.InProgress)
 	require.Equal(t, []string{
-		"DVPG validation failed for VDS vc-1:dvs-1",
-		"DVPG validation failed for VDS vc-1:dvs-2",
+		"DVPG validation failed for VDS cm-1:dvs-1",
+		"DVPG validation failed for VDS cm-1:dvs-2",
 	}, result.Problems)
 	require.Len(t, api.updated, 2)
 	require.Empty(t, api.deleted)
@@ -97,7 +151,7 @@ func TestNSXDVPGCompatibilityValidatorStartsOneValidationPerVDS(t *testing.T) {
 
 func TestNSXDVPGCompatibilityValidatorRejectsUnresolvedTopology(t *testing.T) {
 	api := &fakeDVPGValidationAPI{workflows: make(map[string]*model.DvpgToSubnetWorkflow)}
-	validator := NSXDVPGCompatibilityValidator{API: api}
+	validator := NSXDVPGCompatibilityValidator{API: api, ComputeManagerID: "cm-1", VCenterUUID: "vc-1"}
 
 	_, err := validator.Validate(context.Background(), "transition-uid", 7, []inspection.Network{{
 		Source: inspection.Source{VDNName: "workload-network"},
@@ -108,7 +162,7 @@ func TestNSXDVPGCompatibilityValidatorRejectsUnresolvedTopology(t *testing.T) {
 
 func TestNSXDVPGCompatibilityValidatorReportsUnsupportedDVPG(t *testing.T) {
 	api := &fakeDVPGValidationAPI{workflows: make(map[string]*model.DvpgToSubnetWorkflow), results: make(map[string][]model.DvpgValidationResult)}
-	validator := NSXDVPGCompatibilityValidator{API: api}
+	validator := NSXDVPGCompatibilityValidator{API: api, ComputeManagerID: "cm-1", VCenterUUID: "vc-1"}
 	networks := []inspection.Network{{Source: inspection.Source{Topologies: []inspection.Topology{{
 		VCenterUUID: "vc-1", SwitchID: "dvs-1", PortGroupID: "dvpg-1",
 	}}}}}
@@ -117,13 +171,13 @@ func TestNSXDVPGCompatibilityValidatorReportsUnsupportedDVPG(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, first.InProgress)
 	workflowID := validationWorkflowID("transition-uid", 7, dvpgValidationGroup{
-		vdsRef: "vc-1:dvs-1", dvpgs: map[string]struct{}{"vc-1:dvpg-1": {}},
+		vdsRef: "cm-1:dvs-1", dvpgs: map[string]struct{}{"cm-1:dvpg-1": {}},
 	})
 	api.workflows[workflowID] = &model.DvpgToSubnetWorkflow{WorkflowState: &model.DvpgToSubnetWorkflowState{Status: ptr.To("SUCCESS")}}
 	api.results[workflowID] = []model.DvpgValidationResult{{
 		Compatibility: ptr.To(model.DvpgValidationResult_COMPATIBILITY_UNSUPPORTED),
 		DvpgName:      ptr.To("workload-network"),
-		DvpgRef:       ptr.To("vc-1:dvpg-1"),
+		DvpgRef:       ptr.To("cm-1:dvpg-1"),
 	}}
 
 	result, err := validator.Validate(context.Background(), "transition-uid", 7, networks)
@@ -135,6 +189,6 @@ func TestNSXDVPGCompatibilityValidatorReportsUnsupportedDVPG(t *testing.T) {
 }
 
 func TestValidationWorkflowIDChangesWithGeneration(t *testing.T) {
-	group := dvpgValidationGroup{vdsRef: "vc-1:dvs-1", dvpgs: map[string]struct{}{"vc-1:dvpg-1": {}}}
+	group := dvpgValidationGroup{vdsRef: "cm-1:dvs-1", dvpgs: map[string]struct{}{"cm-1:dvpg-1": {}}}
 	require.NotEqual(t, validationWorkflowID("transition-uid", 1, group), validationWorkflowID("transition-uid", 2, group))
 }
