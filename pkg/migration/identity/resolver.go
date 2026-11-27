@@ -7,7 +7,6 @@ package identity
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,9 +34,9 @@ type SupervisorTopologyReader interface {
 }
 
 type ComputeManager struct {
-	ID         string
-	OriginType string
-	Server     string
+	ID           string
+	OriginType   string
+	InstanceUUID string
 }
 
 // ComputeManagerReader returns NSX's registered compute managers.
@@ -51,7 +50,6 @@ type Resolver struct {
 	SupervisorTopology SupervisorTopologyReader
 	ComputeManagers    ComputeManagerReader
 	VCenterUUID        string
-	VCenterServer      string
 }
 
 // NewResolver connects the authenticated clients to the identity lookups.
@@ -66,24 +64,18 @@ func NewResolver(clients *AuthenticatedClients) (Resolver, error) {
 		return Resolver{}, fmt.Errorf("authenticated vCenter SOAP/REST and NSX clients are required")
 	}
 	vCenterUUID := clients.VCenter.ServiceContent.About.InstanceUuid
-	vCenterURL := clients.VCenter.URL()
-	if vCenterURL == nil {
-		return Resolver{}, fmt.Errorf("authenticated vCenter identity is incomplete")
-	}
-	server := vCenterURL.Hostname()
-	if vCenterUUID == "" || server == "" {
+	if vCenterUUID == "" {
 		return Resolver{}, fmt.Errorf("authenticated vCenter identity is incomplete")
 	}
 	return Resolver{
 		SupervisorTopology: &VCenterSupervisorTopology{Client: clients.VCenterREST, credentials: clients.vCenterRESTCredentials},
 		ComputeManagers:    NSXComputeManagers{Client: fabric.NewComputeManagersClient(clients.NSX.RestConnector)},
 		VCenterUUID:        vCenterUUID,
-		VCenterServer:      server,
 	}, nil
 }
 
 func (resolver Resolver) Resolve(ctx context.Context, supervisorID string, generation int64) (api.ResolvedSourceContext, error) {
-	if resolver.SupervisorTopology == nil || resolver.ComputeManagers == nil || resolver.VCenterUUID == "" || resolver.VCenterServer == "" || !validSupervisorID(supervisorID) || generation < 1 {
+	if resolver.SupervisorTopology == nil || resolver.ComputeManagers == nil || resolver.VCenterUUID == "" || !validSupervisorID(supervisorID) || generation < 1 {
 		return api.ResolvedSourceContext{}, fmt.Errorf("authenticated vCenter and NSX clients, Supervisor ID, and Evaluate generation are required")
 	}
 
@@ -99,18 +91,17 @@ func (resolver Resolver) Resolve(ctx context.Context, supervisorID string, gener
 	if err != nil {
 		return api.ResolvedSourceContext{}, fmt.Errorf("list NSX compute managers: %w", err)
 	}
-	wantServer := normalizeServer(resolver.VCenterServer)
 	var matchingIDs []string
 	for _, manager := range managers {
-		if strings.EqualFold(manager.OriginType, "VCENTER") && normalizeServer(manager.Server) == wantServer {
+		if strings.EqualFold(manager.OriginType, "VCENTER") && strings.EqualFold(manager.InstanceUUID, resolver.VCenterUUID) {
 			matchingIDs = append(matchingIDs, manager.ID)
 		}
 	}
 	if len(matchingIDs) != 1 {
-		return api.ResolvedSourceContext{}, fmt.Errorf("expected one NSX vCenter compute manager for %q, found %d", resolver.VCenterServer, len(matchingIDs))
+		return api.ResolvedSourceContext{}, fmt.Errorf("expected one NSX compute manager for vCenter instance UUID %q, found %d", resolver.VCenterUUID, len(matchingIDs))
 	}
 	if matchingIDs[0] == "" {
-		return api.ResolvedSourceContext{}, fmt.Errorf("NSX vCenter compute manager for %q has an empty ID", resolver.VCenterServer)
+		return api.ResolvedSourceContext{}, fmt.Errorf("NSX compute manager for vCenter instance UUID %q has an empty ID", resolver.VCenterUUID)
 	}
 
 	return api.ResolvedSourceContext{
@@ -145,16 +136,6 @@ func validateTopology(zones []SupervisorZone) error {
 		return fmt.Errorf("topology contains no enabled clusters")
 	}
 	return nil
-}
-
-func normalizeServer(server string) string {
-	server = strings.TrimSpace(server)
-	if parsed, err := url.Parse(server); err == nil && parsed.Host != "" {
-		server = parsed.Hostname()
-	} else if host, _, err := net.SplitHostPort(server); err == nil {
-		server = host
-	}
-	return strings.TrimSuffix(strings.ToLower(server), ".")
 }
 
 // VCenterSupervisorTopology reads topology through an authenticated REST client.
@@ -269,7 +250,14 @@ func (reader NSXComputeManagers) ListComputeManagers(ctx context.Context) ([]Com
 			}
 			result := computeManagerPage{Cursor: page.Cursor}
 			for _, manager := range page.Results {
-				result.Managers = append(result.Managers, ComputeManager{ID: stringValue(manager.Id), OriginType: stringValue(manager.OriginType), Server: stringValue(manager.Server)})
+				record := ComputeManager{ID: stringValue(manager.Id), OriginType: stringValue(manager.OriginType)}
+				for _, property := range manager.OriginProperties {
+					if stringValue(property.Key) == "instanceUuid" {
+						record.InstanceUUID = stringValue(property.Value)
+						break
+					}
+				}
+				result.Managers = append(result.Managers, record)
 			}
 			return result, nil
 		}

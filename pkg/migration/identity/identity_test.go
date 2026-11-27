@@ -12,23 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/vapi/rest"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/fabric"
+	"github.com/vmware/vsphere-automation-sdk-go/services/nsxt-mp/nsx/model"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	api "github.com/vmware-tanzu/nsx-operator/pkg/apis/migration/v1alpha1"
 )
-
-func TestNormalizeServer(t *testing.T) {
-	for _, tc := range []struct {
-		name, input, want string
-	}{
-		{name: "URL with scheme and port", input: " HTTPS://VCENTER.EXAMPLE.COM:443/sdk ", want: "vcenter.example.com"},
-		{name: "host and port", input: "VCENTER.EXAMPLE.COM:443", want: "vcenter.example.com"},
-		{name: "trailing dot", input: "VCENTER.EXAMPLE.COM.", want: "vcenter.example.com"},
-		{name: "bare host", input: "vcenter.example.com", want: "vcenter.example.com"},
-	} {
-		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, normalizeServer(tc.input)) })
-	}
-}
 
 type topologyReaderFunc func(context.Context, string) ([]SupervisorZone, error)
 
@@ -42,26 +31,44 @@ func (reader computeManagerReaderFunc) ListComputeManagers(ctx context.Context) 
 	return reader(ctx)
 }
 
+type computeManagersClientStub struct {
+	fabric.ComputeManagersClient
+	results []model.ComputeManager
+}
+
+func (stub computeManagersClientStub) List(*string, *string, *string, *int64, *string, *bool, *string) (model.ComputeManagerListResult, error) {
+	return model.ComputeManagerListResult{Results: stub.results}, nil
+}
+
 func TestResolverResolve(t *testing.T) {
 	const supervisorID = "123e4567-e89b-12d3-a456-426614174000"
+	const vCenterUUID = "abcdef12-3456-789a-bcde-f0123456789a"
 	zones := []SupervisorZone{{Zone: "zone-1", Clusters: []string{"cluster-1"}}}
 	resolver := func(topology []SupervisorZone, topologyErr error, managers []ComputeManager, managersErr error) Resolver {
 		return Resolver{
 			SupervisorTopology: topologyReaderFunc(func(context.Context, string) ([]SupervisorZone, error) { return topology, topologyErr }),
 			ComputeManagers:    computeManagerReaderFunc(func(context.Context) ([]ComputeManager, error) { return managers, managersErr }),
-			VCenterUUID:        "vc-uuid",
-			VCenterServer:      "vcenter.example.com.",
+			VCenterUUID:        vCenterUUID,
 		}
 	}
 
-	t.Run("matches one vCenter manager", func(t *testing.T) {
-		reader := resolver(zones, nil, []ComputeManager{
-			{ID: "cm-id", OriginType: "vCenter", Server: "https://VCENTER.EXAMPLE.COM:443/sdk"},
-			{ID: "other", OriginType: "NSX", Server: "vcenter.example.com"},
-		}, nil)
+	t.Run("matches vCenter by instance UUID regardless of server", func(t *testing.T) {
+		reader := resolver(zones, nil, nil, nil)
+		reader.ComputeManagers = NSXComputeManagers{Client: computeManagersClientStub{results: []model.ComputeManager{
+			{Id: stringPointer("wrong-uuid"), OriginType: stringPointer("VCENTER"), Server: stringPointer("vcenter.example.com"),
+				OriginProperties: []model.KeyValuePair{
+					{Key: stringPointer("otherProperty"), Value: stringPointer(vCenterUUID)},
+					{Key: stringPointer("instanceUuid"), Value: stringPointer("abcdef12-3456-789a-bcde-f0123456789b")},
+				}},
+			{Id: stringPointer("missing-uuid"), OriginType: stringPointer("VCENTER"), Server: stringPointer("vcenter.example.com")},
+			{Id: stringPointer("wrong-origin"), OriginType: stringPointer("NSX"),
+				OriginProperties: []model.KeyValuePair{{Key: stringPointer("instanceUuid"), Value: stringPointer(vCenterUUID)}}},
+			{Id: stringPointer("cm-id"), OriginType: stringPointer("vCenter"), Server: stringPointer("192.0.2.10"),
+				OriginProperties: []model.KeyValuePair{{Key: stringPointer("instanceUuid"), Value: stringPointer("ABCDEF12-3456-789A-BCDE-F0123456789A")}}},
+		}}}
 		got, err := reader.Resolve(context.Background(), supervisorID, 6)
 		require.NoError(t, err)
-		require.Equal(t, api.ResolvedSourceContext{EvaluatedGeneration: 6, VCenterInstanceUUID: "vc-uuid", NSXComputeManagerID: "cm-id"}, got)
+		require.Equal(t, api.ResolvedSourceContext{EvaluatedGeneration: 6, VCenterInstanceUUID: vCenterUUID, NSXComputeManagerID: "cm-id"}, got)
 	})
 
 	t.Run("rejects invalid Supervisor ID before lookups", func(t *testing.T) {
@@ -114,9 +121,9 @@ func TestResolverResolve(t *testing.T) {
 			managers []ComputeManager
 			message  string
 		}{
-			{name: "no match", managers: []ComputeManager{{ID: "other", OriginType: "VCENTER", Server: "other.example.com"}}, message: "found 0"},
-			{name: "duplicate matches", managers: []ComputeManager{{ID: "one", OriginType: "VCENTER", Server: "vcenter.example.com"}, {ID: "two", OriginType: "vcenter", Server: "VCENTER.EXAMPLE.COM."}}, message: "found 2"},
-			{name: "empty manager ID", managers: []ComputeManager{{OriginType: "VCENTER", Server: "vcenter.example.com"}}, message: "has an empty ID"},
+			{name: "no match", managers: []ComputeManager{{ID: "other", OriginType: "VCENTER"}}, message: "found 0"},
+			{name: "duplicate matches", managers: []ComputeManager{{ID: "one", OriginType: "VCENTER", InstanceUUID: vCenterUUID}, {ID: "two", OriginType: "vcenter", InstanceUUID: vCenterUUID}}, message: "found 2"},
+			{name: "empty manager ID", managers: []ComputeManager{{OriginType: "VCENTER", InstanceUUID: vCenterUUID}}, message: "has an empty ID"},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				_, err := resolver(zones, nil, tc.managers, nil).Resolve(context.Background(), supervisorID, 6)
