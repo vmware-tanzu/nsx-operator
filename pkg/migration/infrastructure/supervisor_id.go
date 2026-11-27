@@ -16,6 +16,8 @@ import (
 
 const ncpConfigMapName = "nsx-ncp-config"
 
+// +kubebuilder:rbac:groups="",resources=configmaps,resourceNames=nsx-ncp-config,verbs=get,namespace=vmware-system-nsx
+
 // ReadSupervisorIDCandidateFromNCPConfig reads the NCP adaptor's cluster
 // identifier from [coe].cluster. The caller must verify it against vCenter
 // before treating it as the Supervisor ID.
