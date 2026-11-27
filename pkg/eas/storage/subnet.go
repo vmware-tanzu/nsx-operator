@@ -27,6 +27,9 @@ func resolveSubnet(ctx context.Context, k8sClient k8sclient.Client, nsxClient *n
 	if err := k8sClient.Get(ctx, k8sclient.ObjectKey{Namespace: namespace, Name: name}, subnetCR); err != nil {
 		return model.VpcSubnet{}, info, HandleEASError(err, resource, name, fmt.Errorf("failed to get subnet CR %s/%s: %w", namespace, name, err))
 	}
+	if nsxcommon.IsSharedSubnet(subnetCR) {
+		return resolveSharedSubnet(ctx, nsxClient, subnetCR, resource)
+	}
 	if subnetCR.Spec.VPCName == "" {
 		return model.VpcSubnet{}, info, fmt.Errorf("subnet CR %s/%s has empty spec.vpcName", namespace, name)
 	}
@@ -34,9 +37,6 @@ func resolveSubnet(ctx context.Context, k8sClient k8sclient.Client, nsxClient *n
 		return model.VpcSubnet{}, info, fmt.Errorf("subnet CR %s/%s has empty UID", namespace, name)
 	}
 	info.OrgID, info.ProjectID, info.VPCID = parseSubnetVPCName(subnetCR.Spec.VPCName)
-	if nsxcommon.IsSharedSubnet(subnetCR) {
-		return resolveSharedSubnet(ctx, nsxClient, subnetCR, info, resource)
-	}
 	var match *model.VpcSubnet
 	var cursor *string
 	seenCursors := make(map[string]struct{})
@@ -76,9 +76,11 @@ func resolveSubnet(ctx context.Context, k8sClient k8sclient.Client, nsxClient *n
 }
 
 // Shared Subnet associations are set by the operator and protected by admission.
-// A pre-created subnet can be shared by several CRs and has no per-CR ownership
-// tags. Resolve its explicit association within the VPC recorded on the CR.
-func resolveSharedSubnet(ctx context.Context, nsxClient *nsx.Client, subnetCR *vpcv1alpha1.Subnet, info nsxcommon.VPCResourceInfo, resource string) (model.VpcSubnet, nsxcommon.VPCResourceInfo, error) {
+// An NSX subnet can be exposed through different names and UIDs in different
+// namespaces. Its protected association, not an alias or ownership tag, supplies
+// the backend identity. The CR's VPC is an independent consistency check.
+func resolveSharedSubnet(ctx context.Context, nsxClient *nsx.Client, subnetCR *vpcv1alpha1.Subnet, resource string) (model.VpcSubnet, nsxcommon.VPCResourceInfo, error) {
+	var info nsxcommon.VPCResourceInfo
 	associatedResource := subnetCR.Annotations[nsxcommon.AnnotationAssociatedResource]
 	parts := strings.Split(associatedResource, ":")
 	if len(parts) != 3 {
@@ -89,7 +91,15 @@ func resolveSharedSubnet(ctx context.Context, nsxClient *nsx.Client, subnetCR *v
 			return model.VpcSubnet{}, info, fmt.Errorf("invalid associated resource on Subnet CR %s/%s: identifiers must be nonempty path segments", subnetCR.Namespace, subnetCR.Name)
 		}
 	}
-	if parts[0] != info.ProjectID || parts[1] != info.VPCID {
+	if subnetCR.Spec.VPCName == "" {
+		return model.VpcSubnet{}, info, fmt.Errorf("subnet CR %s/%s has empty spec.vpcName", subnetCR.Namespace, subnetCR.Name)
+	}
+	// The shared-Subnet association contains project/VPC/Subnet IDs, but no
+	// organization ID. Use the default organization, as the operator's
+	// GetSubnetPathFromAssociatedResource and parseSubnetVPCName helpers do.
+	info.OrgID, info.ProjectID, info.VPCID = "default", parts[0], parts[1]
+	_, projectID, vpcID := parseSubnetVPCName(subnetCR.Spec.VPCName)
+	if info.ProjectID != projectID || info.VPCID != vpcID {
 		return model.VpcSubnet{}, info, fmt.Errorf("associated resource on Subnet CR %s/%s does not match spec.vpcName", subnetCR.Namespace, subnetCR.Name)
 	}
 	if err := ctx.Err(); err != nil {
@@ -101,6 +111,13 @@ func resolveSharedSubnet(ctx context.Context, nsxClient *nsx.Client, subnetCR *v
 	}
 	if subnet.Id == nil || *subnet.Id != parts[2] {
 		return model.VpcSubnet{}, info, fmt.Errorf("NSX shared subnet does not match the association on Subnet CR %s/%s", subnetCR.Namespace, subnetCR.Name)
+	}
+	expectedPath := fmt.Sprintf("/orgs/%s/projects/%s/vpcs/%s/subnets/%s", info.OrgID, info.ProjectID, info.VPCID, parts[2])
+	if subnet.Path != nil && *subnet.Path != expectedPath {
+		return model.VpcSubnet{}, info, fmt.Errorf("NSX shared subnet path does not match the association on Subnet CR %s/%s", subnetCR.Namespace, subnetCR.Name)
+	}
+	if subnet.MarkedForDelete != nil && *subnet.MarkedForDelete {
+		return model.VpcSubnet{}, info, k8serrors.NewNotFound(schema.GroupResource{Group: easv1alpha1.GroupVersion.Group, Resource: resource}, subnetCR.Name)
 	}
 	return subnet, info, nil
 }
