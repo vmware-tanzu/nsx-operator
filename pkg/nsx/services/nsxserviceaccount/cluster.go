@@ -23,6 +23,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/vmware-tanzu/nsx-operator/pkg/apis/legacy/v1alpha1"
 	"github.com/vmware-tanzu/nsx-operator/pkg/logger"
@@ -104,6 +105,9 @@ func (s *NSXServiceAccountService) SetUpStore() {
 }
 
 func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
+	// Always derive the name and VPC path from trusted inputs (operator config and the object's
+	// namespace/name). Status is not a trusted input (it may be writable by users depending on RBAC),
+	// so it must not select which NSX PI/CCP or VPC gets created or updated.
 	clusterName := s.getClusterName(obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
 	// TODO: Use WCPConfig.NSXTProject as project when WCPConfig.EnableWCPVPCNetwork is true
@@ -129,35 +133,47 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 		return err
 	}
 
-	// create PI and CCP
-	clusterId, err := s.createPIAndCCP(normalizedClusterName, vpcPath, cert, nil, obj)
+	// Reuse the recorded ClusterID, if any, so that PI/CCP missing from NSX (e.g. after an NSX restore)
+	// are recreated with the same node ID, while existing ones just get their certificates updated.
+	// Note: the NSX cluster control plane API doesn't allow updating node_id (aka clusterID), so
+	// reusing existingClusterId here is safe. NSX will not allow an arbitrary obj.Status.ClusterID
+	// value to impersonate another cluster's control plane.
+	var existingClusterId *string
+	if obj.Status.ClusterID != "" {
+		existingClusterId = &obj.Status.ClusterID
+	}
+	clusterId, err := s.createPIAndCCP(normalizedClusterName, vpcPath, cert, existingClusterId, obj)
 	if err != nil {
 		return err
 	}
 
-	// create Secret
+	// Persist credentials only after PI and CCP have been reconciled.
 	secretName := obj.Name + SecretSuffix
 	secretNamespace := obj.Namespace
-	if err := s.Client.Create(ctx, &v1.Secret{
+	secret := &v1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
 			Namespace: secretNamespace,
-			// TODO: Add labels/annotations
-			Labels:      nil,
-			Annotations: nil,
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion:         obj.APIVersion,
-				Kind:               obj.Kind,
-				Name:               obj.Name,
-				UID:                obj.UID,
-				Controller:         nil,
-				BlockOwnerDeletion: nil,
-			}},
-			Finalizers: nil,
 		},
-		Immutable: nil,
-		Data:      map[string][]byte{SecretCertName: []byte(cert), SecretKeyName: []byte(key), CAName: s.NSXConfig.GetCACert()},
-		Type:      "",
+	}
+	if _, err := controllerutil.CreateOrUpdate(ctx, s.Client, secret, func() error {
+		// Replace stale ownership on the nsxserviceaccount's certificate Secret.
+		secret.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: obj.APIVersion,
+			Kind:       obj.Kind,
+			Name:       obj.Name,
+			UID:        obj.UID,
+		}}
+		if secret.Data == nil {
+			secret.Data = make(map[string][]byte)
+		}
+		secret.Data[SecretCertName] = []byte(cert)
+		secret.Data[SecretKeyName] = []byte(key)
+		// Always include ca.crt on creation; an empty configuration preserves an existing CA.
+		if ca := s.NSXConfig.GetCACert(); secret.ResourceVersion == "" || len(ca) > 0 {
+			secret.Data[CAName] = ca
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -298,10 +314,42 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		if err != nil {
 			return "", err
 		}
+		if ccp.NodeId != nil {
+			clusterId = *ccp.NodeId
+		} else if existingClusterId != nil {
+			clusterId = *existingClusterId
+		}
+		// Keep the node ID in the store even if NSX omitted it from the response, so later reconciles
+		// can still report it.
+		if clusterId != "" {
+			ccp.NodeId = &clusterId
+		}
 		s.ClusterControlPlaneStore.Add(&ccp)
-		clusterId = *ccp.NodeId
 	} else if !hasCCP != (ccpObj == nil) {
 		return "", fmt.Errorf("old CCP exists")
+	} else {
+		// The CCP already exists, e.g. a previous reconcile created it but failed before updating the
+		// NSXServiceAccount status, or the NSXServiceAccount was realized earlier and later moved out of
+		// the realized phase (e.g. by a failed version check). Refresh its certificate and report its
+		// existing node ID so the caller does not record an empty ClusterID when the node ID is known.
+		updated := *ccpObj.(*model.ClusterControlPlane)
+		updated.Certificate = &cert
+		ccp, err := s.NSXClient.ClusterControlPlanesClient.Update(siteId, enforcementpointId, normalizedClusterName, updated)
+		err = nsxutil.TransNSXApiError(err)
+		if err != nil {
+			return "", err
+		}
+		if ccp.NodeId != nil {
+			clusterId = *ccp.NodeId
+		} else if updated.NodeId != nil {
+			clusterId = *updated.NodeId
+		}
+		// Keep the node ID in the store even if NSX omitted it from the response, so later reconciles
+		// can still report it.
+		if clusterId != "" {
+			ccp.NodeId = &clusterId
+		}
+		s.ClusterControlPlaneStore.Add(&ccp)
 	}
 	return clusterId, nil
 }
