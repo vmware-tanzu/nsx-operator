@@ -89,7 +89,33 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		if err := r.checkCurrentRequest(ctx, request); err != nil {
 			return ctrl.Result{}, err
 		}
-		result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		if r.Engine.Enabled && r.Stage == transition.Namespaces && action == api.ActionExecute &&
+			r.Engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionExecute}] != nil {
+			waiting, err := r.namespaceExecuteBlock(ctx, obj.(*api.NamespaceNetworkTransition), status)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if waiting != "" {
+				transition.Block(status, obj.GetGeneration(), "ExecuteInProgress", waiting)
+				result.RequeueAfter = 30 * time.Second
+			} else {
+				result, reconcileErr = r.Engine.Reconcile(ctx, request)
+			}
+		} else if r.Engine.Enabled && r.Stage == transition.Namespaces && action == api.ActionRollback &&
+			r.Engine.Handlers[transition.Key{Stage: transition.Namespaces, Action: api.ActionRollback}] != nil {
+			waiting, err := r.namespaceRollbackBlock(ctx, obj.(*api.NamespaceNetworkTransition))
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if waiting != "" {
+				transition.Block(status, obj.GetGeneration(), "ExecuteInProgress", waiting)
+				result.RequeueAfter = 30 * time.Second
+			} else {
+				result, reconcileErr = r.Engine.Reconcile(ctx, request)
+			}
+		} else {
+			result, reconcileErr = r.Engine.Reconcile(ctx, request)
+		}
 	}
 	if !equality.Semantic.DeepEqual(previous, obj) {
 		if err := r.Status().Update(ctx, obj); err != nil {
@@ -97,6 +123,115 @@ func (r *Reconciler) Reconcile(ctx context.Context, key ctrl.Request) (ctrl.Resu
 		}
 	}
 	return ctrl.Result{RequeueAfter: result.RequeueAfter}, reconcileErr
+}
+
+// namespaceExecuteBlock closes the race in admission's list check. The reconcile
+// lock stays held through this live read, the Execute checkpoint, and its status
+// write, so simultaneous requests cannot both claim the namespace Execute slot.
+func (r *Reconciler) namespaceExecuteBlock(ctx context.Context, current *api.NamespaceNetworkTransition, status *api.TransitionStatus) (string, error) {
+	currentStarted := namespaceExecuteStarted(status, current.Generation)
+	var namespaces api.NamespaceNetworkTransitionList
+	if err := r.reader().List(ctx, &namespaces); err != nil {
+		return "", fmt.Errorf("listing NamespaceNetworkTransition objects to check Execute exclusivity: %w", err)
+	}
+	for i := range namespaces.Items {
+		other := &namespaces.Items[i]
+		if other.Name == current.Name || !other.DeletionTimestamp.IsZero() {
+			continue
+		}
+		var otherStatus *api.TransitionStatus
+		if other.Status != nil {
+			otherStatus = &other.Status.TransitionStatus
+		}
+		if other.Spec.Action == api.ActionRollback && !completedRollback(otherStatus, other.Generation) {
+			// A pending Rollback must not strand an Execute that already owns the
+			// execution slot. The Rollback reconciler will wait for this Execute,
+			// then checkpoint and run Rollback.
+			if rollbackStarted(otherStatus, other.Generation) || !currentStarted {
+				return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Rollback; %q must wait", other.Name, current.Name), nil
+			}
+			continue
+		}
+		if other.Spec.Action != api.ActionExecute {
+			continue
+		}
+		if namespaceExecuteStarted(otherStatus, other.Generation) {
+			return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Execute; %q must wait", other.Name, current.Name), nil
+		}
+		if completedExecute(otherStatus, other.Generation) {
+			continue
+		}
+		// Both requests may have passed admission before either status checkpoint
+		// was written. Let exactly one stable name claim the slot.
+		if !currentStarted && canRequestExecute(otherStatus) && other.Name < current.Name {
+			return fmt.Sprintf("NamespaceNetworkTransition %q has priority under simultaneous Execute requests; %q must wait", other.Name, current.Name), nil
+		}
+	}
+	return "", nil
+}
+
+// namespaceRollbackBlock prevents Rollback from overlapping another batch's
+// active Execute. The shared reconcile lock ensures that one pending action
+// persists its checkpoint before another request is arbitrated.
+func (r *Reconciler) namespaceRollbackBlock(ctx context.Context, current *api.NamespaceNetworkTransition) (string, error) {
+	var namespaces api.NamespaceNetworkTransitionList
+	if err := r.reader().List(ctx, &namespaces); err != nil {
+		return "", fmt.Errorf("listing NamespaceNetworkTransition objects to check Rollback exclusivity: %w", err)
+	}
+	for i := range namespaces.Items {
+		other := &namespaces.Items[i]
+		if other.Name == current.Name || !other.DeletionTimestamp.IsZero() || other.Spec.Action != api.ActionExecute {
+			continue
+		}
+		var otherStatus *api.TransitionStatus
+		if other.Status != nil {
+			otherStatus = &other.Status.TransitionStatus
+		}
+		if namespaceExecuteStarted(otherStatus, other.Generation) {
+			return fmt.Sprintf("NamespaceNetworkTransition %q has an unfinished Execute; Rollback for %q must wait", other.Name, current.Name), nil
+		}
+	}
+	return "", nil
+}
+
+func canRequestExecute(status *api.TransitionStatus) bool {
+	if status == nil {
+		return false
+	}
+	if status.LastAction == api.ActionEvaluate && status.ActionState == api.ActionStateSucceeded {
+		return true
+	}
+	return status.LastAction == api.ActionExecute &&
+		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed || status.ActionState == api.ActionStateSucceeded)
+}
+
+func namespaceExecuteStarted(status *api.TransitionStatus, generation int64) bool {
+	return status != nil && status.LastAction == api.ActionExecute && status.ActionGeneration == generation &&
+		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed)
+}
+
+func completedExecute(status *api.TransitionStatus, generation int64) bool {
+	return status != nil && status.LastAction == api.ActionExecute && status.ActionState == api.ActionStateSucceeded &&
+		status.ActionGeneration == generation && terminalNamespaceExecutePhase(status.Phase)
+}
+
+func completedRollback(status *api.TransitionStatus, generation int64) bool {
+	return status != nil && status.LastAction == api.ActionRollback && status.ActionState == api.ActionStateSucceeded &&
+		status.ActionGeneration == generation && status.Phase == api.PhaseRolledBack
+}
+
+func rollbackStarted(status *api.TransitionStatus, generation int64) bool {
+	return status != nil && status.LastAction == api.ActionRollback && status.ActionGeneration == generation &&
+		(status.ActionState == api.ActionStateRunning || status.ActionState == api.ActionStateFailed)
+}
+
+func terminalNamespaceExecutePhase(phase string) bool {
+	switch phase {
+	case api.PhaseCompleted, api.PhaseCommitted, api.PhaseRolledBack:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Reconciler) reader() client.Reader {
