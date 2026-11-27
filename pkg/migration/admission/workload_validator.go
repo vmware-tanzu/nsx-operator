@@ -132,10 +132,10 @@ func onlyAllowedWorkloadFieldsChanged(username, resource string, oldObject, newO
 
 	oldValue, newValue := oldObject.DeepCopy().Object, newObject.DeepCopy().Object
 	for _, object := range []map[string]interface{}{oldValue, newValue} {
-		// The API server increments generation when spec.networkInterfaces changes.
-		// Generation is bookkeeping here; the allowlist below already compares the
+		// Normalize API server bookkeeping; the allowlist below already compares
 		// requested network interfaces with trusted migration state.
 		unstructured.RemoveNestedField(object, "metadata", "generation")
+		unstructured.RemoveNestedField(object, "metadata", "managedFields")
 		unstructured.RemoveNestedField(object, "metadata", "annotations", "migration.vmoperator.vmware.com/in-transition")
 		// Removing the only annotation can leave an empty map on one side.
 		if annotations, found, _ := unstructured.NestedMap(object, "metadata", "annotations"); found && len(annotations) == 0 {
