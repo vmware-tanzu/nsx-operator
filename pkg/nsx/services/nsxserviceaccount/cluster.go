@@ -4,12 +4,15 @@
 package nsxserviceaccount
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +69,23 @@ type NSXServiceAccountService struct {
 	common.Service
 	PrincipalIdentityStore   *PrincipalIdentityStore
 	ClusterControlPlaneStore *ClusterControlPlaneStore
+
+	// accountLocks holds one *sync.Mutex per normalized cluster name. Reconcile, restore
+	// and the GC-driven cert rotation run on different goroutines and the workqueue only
+	// serializes reconciles of the same key against each other, so without this they
+	// could update the PI/CCP and the Secret of one NSXServiceAccount concurrently.
+	accountLocks sync.Map
+}
+
+// lockAccount serializes the operations that read or change the credentials of one
+// NSXServiceAccount (Secret, PI and CCP). Use it as `defer s.lockAccount(name)()` in
+// the exported entry points only, never in helpers they call, as the mutex is not reentrant.
+// Mutexes are kept for the life of the process; there is one per NSXServiceAccount.
+func (s *NSXServiceAccountService) lockAccount(normalizedClusterName string) func() {
+	m, _ := s.accountLocks.LoadOrStore(normalizedClusterName, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // InitializeNSXServiceAccount sync NSX resources
@@ -273,6 +293,9 @@ func (s *NSXServiceAccountService) ensureServiceAccountSecret(ctx context.Contex
 func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	clusterName := s.getClusterName(string(obj.UID), obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
+	// Held from before the Secret is read so that a concurrent cert rotation cannot
+	// replace the Secret's cert after we picked it but before it is sent to NSX.
+	defer s.lockAccount(normalizedClusterName)()
 	// TODO: Use WCPConfig.NSXTProject as project when WCPConfig.EnableWCPVPCNetwork is true
 	project := s.NSXConfig.CoeConfig.Cluster
 	vpcName := obj.Namespace + "-default-vpc"
@@ -333,6 +356,7 @@ func (s *NSXServiceAccountService) CreateOrUpdateNSXServiceAccount(ctx context.C
 // NSXServiceAccount, including a PI left behind by a failed CCP restore.
 func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.Context, obj *v1alpha1.NSXServiceAccount) error {
 	normalizedClusterName := obj.Status.ClusterName
+	defer s.lockAccount(normalizedClusterName)()
 
 	// check PI and CCP is missing
 	hasPI := len(s.PrincipalIdentityStore.GetByIndex(common.TagScopeNSXServiceAccountCRUID, string(obj.UID))) > 0
@@ -359,9 +383,14 @@ func (s *NSXServiceAccountService) RestoreRealizedNSXServiceAccount(ctx context.
 	cert := secret.Data[SecretCertName]
 
 	if hasPI && hasCCP && piObj != nil && ccpObj != nil {
-		detail := true
-		certificate, _ := s.NSXClient.CertificatesClient.Get(*(pi.CertificateId), &detail, nil)
-		if string(cert) != "" && (certificate.PemEncoded == nil || *(certificate.PemEncoded) != string(cert)) {
+		if string(cert) == "" {
+			return nil
+		}
+		same, err := s.piHasCertificate(pi, string(cert))
+		if err != nil {
+			return err
+		}
+		if !same {
 			return s.updatePICert(pi, normalizedClusterName, string(cert))
 		}
 		return nil
@@ -450,11 +479,21 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		log.Error(fmt.Errorf("conflicting old PI exists"), "Failed to create PI and CCPN", "!hasPI", !hasPI, "piObj == nil", piObj == nil)
 		return "", fmt.Errorf("old PI exists")
 	} else if hasPI && (piObj != nil) {
-		log.Debug("update PI with new cert")
 		pi := piObj.(*mpmodel.PrincipalIdentity)
-		err := s.updatePICert(pi, normalizedClusterName, cert)
+		// The cert is reused from the Secret across reconciles, so the PI may already
+		// hold it (e.g. a duplicate reconcile right after a successful one). NSX rejects
+		// importing the same certificate again with MP2038, so only update on a change.
+		same, err := s.piHasCertificate(pi, cert)
 		if err != nil {
 			return "", err
+		}
+		if same {
+			log.Info("PI already has the certificate, skip updating it", "PrincipalIdentity", normalizedClusterName)
+		} else {
+			log.Info("Update PI with new cert", "PrincipalIdentity", normalizedClusterName)
+			if err := s.updatePICert(pi, normalizedClusterName, cert); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -469,10 +508,19 @@ func (s *NSXServiceAccountService) createPIAndCCP(normalizedClusterName string, 
 		// Another worker may have discovered full capacity during the PI call.
 		return "", err
 	}
-	ccp.Certificate = &cert
-	updated, err := s.updateClusterControlPlane(normalizedClusterName, ccp)
-	if err != nil {
-		return "", err
+	updated := ccp
+	if ccp.Certificate != nil && samePEMCertificate(*ccp.Certificate, cert) {
+		// The cert is reused from the Secret across reconciles, so the CCP may already
+		// hold it. NSX rejects re-sending an unchanged CCP (HTTP 500, error code 100),
+		// so only write the CCP when its certificate changes.
+		log.Debug("CCP already has the certificate, skip updating it")
+	} else {
+		ccp.Certificate = &cert
+		var err error
+		updated, err = s.updateClusterControlPlane(normalizedClusterName, ccp)
+		if err != nil {
+			return "", err
+		}
 	}
 	nodeID := updated.NodeId
 	if nodeID == nil {
@@ -627,7 +675,7 @@ func (s *NSXServiceAccountService) DeleteNSXServiceAccount(ctx context.Context, 
 		if pi.CertificateId != nil && *pi.CertificateId != "" {
 			if err := s.NSXClient.CertificatesClient.Delete(*pi.CertificateId); err != nil {
 				err = nsxutil.TransNSXApiError(err)
-				log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Certificate", *pi.CertificateId)
+				log.Error(err, "Failed to delete the certificate of the PrincipalIdentity", "PrincipalIdentity", *pi.Name, "Certificate", *pi.CertificateId)
 				return err
 			}
 		}
@@ -645,6 +693,9 @@ func (s *NSXServiceAccountService) ValidateAndUpdateRealizedNSXServiceAccount(ct
 
 	clusterName := s.getClusterName(string(obj.UID), obj.Namespace, obj.Name)
 	normalizedClusterName := util.NormalizeId(clusterName)
+	// Cert rotation changes the PI, CCP and Secret together, so it must not interleave
+	// with a reconcile or restore of the same NSXServiceAccount.
+	defer s.lockAccount(normalizedClusterName)()
 	secretName := obj.Name + SecretSuffix
 	secretNamespace := obj.Namespace
 	secret := &v1.Secret{}
@@ -767,6 +818,11 @@ func (s *NSXServiceAccountService) updateClusterControlPlane(name string, ccp mo
 		}
 		return model.ClusterControlPlane{}, err
 	}
+	// Keep the certificate we wrote in the cache even if NSX omits it from the response,
+	// so that later reconciles can tell the CCP already has it and skip rewriting it.
+	if updated.Certificate == nil {
+		updated.Certificate = ccp.Certificate
+	}
 	s.ClusterControlPlaneStore.Add(&updated)
 	return updated, nil
 }
@@ -791,35 +847,220 @@ func (s *NSXServiceAccountService) updatePIAndCCPCert(normalizedClusterName, uid
 	return s.updatePICert(pi, normalizedClusterName, cert)
 }
 
+// samePEMCertificate reports whether two PEM strings hold the same X.509 certificate.
+// It compares the DER bytes of the first CERTIFICATE block so that differences in
+// line endings, trailing newlines or surrounding text do not matter.
+func samePEMCertificate(a, b string) bool {
+	derA := firstCertificateDER(a)
+	return len(derA) > 0 && bytes.Equal(derA, firstCertificateDER(b))
+}
+
+func firstCertificateDER(pemData string) []byte {
+	rest := []byte(pemData)
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return nil
+		}
+		if block.Type == "CERTIFICATE" {
+			return block.Bytes
+		}
+	}
+}
+
+// piHasCertificate reports whether the certificate currently attached to the PI
+// in NSX is the given PEM certificate.
+func (s *NSXServiceAccountService) piHasCertificate(pi *mpmodel.PrincipalIdentity, cert string) (bool, error) {
+	if pi.CertificateId == nil || *pi.CertificateId == "" {
+		return false, nil
+	}
+	detail := true
+	existing, err := s.NSXClient.CertificatesClient.Get(*pi.CertificateId, &detail, nil)
+	if err != nil {
+		err = nsxutil.TransNSXApiError(err)
+		// A certificate that no longer exists in NSX is not the given one. This happens
+		// when the cached CertificateId is stale (e.g. after an NSX restore), and the
+		// caller must then go on to import the certificate as it did before this check.
+		if nsxErr, ok := err.(*nsxutil.NSXApiError); ok && nsxErr.Type() == vapierrors.ErrorType_NOT_FOUND {
+			return false, nil
+		}
+		return false, err
+	}
+	if existing.PemEncoded == nil {
+		return false, nil
+	}
+	return samePEMCertificate(*existing.PemEncoded, cert), nil
+}
+
+// certSearchPageSize is the page size for the certificate thumbprint search. The
+// search normally returns one hit, the pagination is only a safeguard.
+var certSearchPageSize = int64(50)
+
+// certificateThumbprint returns the SHA-256 thumbprint of the first certificate in the PEM
+// in the format NSX stores it (upper case hex separated by colons), or "" if there is none.
+func certificateThumbprint(pemData string) string {
+	der := firstCertificateDER(pemData)
+	if len(der) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(der)
+	parts := make([]string, len(sum))
+	for i, b := range sum {
+		parts[i] = fmt.Sprintf("%02X", b)
+	}
+	return strings.Join(parts, ":")
+}
+
+// findCertificateID looks up the ID of a certificate that is already imported in NSX.
+// It searches by thumbprint without a resource_type filter, because NSX (observed on
+// 9.2) indexes a self-signed certificate imported without a private key as
+// certificate_ca, not certificate_self_signed. The DER bytes are compared as well, so
+// that only the very same certificate is returned.
+// It returns "" if the certificate is not found, e.g. because the search index lags
+// behind the import by a moment.
+func (s *NSXServiceAccountService) findCertificateID(cert string) (string, error) {
+	thumbprint := certificateThumbprint(cert)
+	if thumbprint == "" {
+		return "", fmt.Errorf("invalid certificate PEM")
+	}
+	query := fmt.Sprintf("leaf_certificate_sha_256_thumbprint:\"%s\"", thumbprint)
+	var cursor *string
+	for {
+		resp, err := s.NSXClient.MPQueryClient.List(query, cursor, nil, &certSearchPageSize, nil, nil)
+		if err != nil {
+			return "", nsxutil.TransNSXApiError(err)
+		}
+		for _, entity := range resp.Results {
+			obj, errs := common.NewConverter().ConvertToGolang(entity, mpmodel.CertificateBindingType())
+			if len(errs) > 0 {
+				// One unreadable hit must not hide a matching one.
+				log.Error(errs[0], "Failed to convert a certificate search result, skipping it")
+				continue
+			}
+			found, ok := obj.(mpmodel.Certificate)
+			if !ok || found.Id == nil || found.PemEncoded == nil {
+				continue
+			}
+			if samePEMCertificate(*found.PemEncoded, cert) {
+				return *found.Id, nil
+			}
+		}
+		if resp.Cursor == nil || *resp.Cursor == "" {
+			return "", nil
+		}
+		cursor = resp.Cursor
+	}
+}
+
+// refreshPI re-reads the PI from NSX and updates the store, so that decisions are not
+// made on a cached PI that went stale, e.g. after an Updatecertificate whose response was lost.
+func (s *NSXServiceAccountService) refreshPI(pi *mpmodel.PrincipalIdentity) (*mpmodel.PrincipalIdentity, error) {
+	if pi.Id == nil {
+		return nil, fmt.Errorf("PrincipalIdentity has no ID")
+	}
+	fresh, err := s.NSXClient.PrincipalIdentitiesClient.Get(*pi.Id)
+	if err != nil {
+		return nil, nsxutil.TransNSXApiError(err)
+	}
+	if fresh.Name == nil {
+		// The store is keyed by name, which NSX always returns; don't rely on it.
+		fresh.Name = pi.Name
+	}
+	s.PrincipalIdentityStore.Add(&fresh)
+	return &fresh, nil
+}
+
 func (s *NSXServiceAccountService) updatePICert(pi *mpmodel.PrincipalIdentity, normalizedClusterName, cert string) error {
 	// update PI cert
 	oldCertId := ""
 	if pi.CertificateId != nil {
 		oldCertId = *pi.CertificateId
 	}
+	// imported is true if this call imported the certificate, so that only then it is
+	// this call's job to remove it again if the PI cannot be switched to it.
+	imported := true
+	var newCertId *string
 	certList, err := s.NSXClient.CertificatesClient.Importcertificate(mpmodel.TrustObjectData{
 		DisplayName: &normalizedClusterName,
 		PemEncoded:  &cert,
 	})
 	if err != nil {
 		err = nsxutil.TransNSXApiError(err)
-		return err
+		if !nsxutil.HasAnyErrorCode(err, nsxutil.CertificateAlreadyExistsErrorCode) {
+			return err
+		}
+		// MP2038: the certificate is already in NSX. Either the PI already uses it, or an
+		// earlier attempt imported it and was interrupted before switching the PI to it
+		// (or the switch succeeded but its response was lost). The cached PI may be stale,
+		// so recover from NSX's current state instead of failing on every retry.
+		imported = false
+		fresh, refreshErr := s.refreshPI(pi)
+		if refreshErr != nil {
+			return refreshErr
+		}
+		pi = fresh
+		if same, getErr := s.piHasCertificate(pi, cert); getErr != nil {
+			return getErr
+		} else if same {
+			log.Info("PrincipalIdentity already has the certificate, skip updating it", "PrincipalIdentity", normalizedClusterName)
+			return nil
+		}
+		existingId, findErr := s.findCertificateID(cert)
+		if findErr != nil {
+			return findErr
+		}
+		if existingId == "" {
+			// Probably temporary: the search index can lag behind an import for a moment, so
+			// a later retry should find the certificate. The error is returned for that retry.
+			return fmt.Errorf("certificate already exists in NSX but was not found by thumbprint yet, will retry: %w", err)
+		}
+		log.Info("Reusing certificate already imported in NSX", "PrincipalIdentity", normalizedClusterName, "Certificate", existingId)
+		newCertId = &existingId
+	} else {
+		if len(certList.Results) == 0 || certList.Results[0].Id == nil {
+			// Without its ID the certificate cannot be attached to the PI. It stays in NSX,
+			// and the next retry finds it through the MP2038 recovery.
+			return fmt.Errorf("NSX imported the certificate for PrincipalIdentity %s but returned no certificate ID", normalizedClusterName)
+		}
+		newCertId = certList.Results[0].Id
 	}
 
-	if pi2, err := s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
-		CertificateId:       certList.Results[0].Id,
+	pi2, err := s.NSXClient.PrincipalIdentitiesClient.Updatecertificate(mpmodel.UpdatePrincipalIdentityCertificateRequest{
+		CertificateId:       newCertId,
 		PrincipalIdentityId: pi.Id,
-	}); err != nil {
+	})
+	if err != nil {
 		err = nsxutil.TransNSXApiError(err)
-		return err
-	} else {
-		pi = &pi2
-		s.PrincipalIdentityStore.Add(pi)
+		// The failure may be a lost response of an update NSX did apply, so look at the PI
+		// in NSX before deciding whether the imported certificate is orphaned.
+		fresh, refreshErr := s.refreshPI(pi)
+		if refreshErr != nil {
+			// Unknown state: keep the certificate. The next retry hits MP2038 again and
+			// recovers from it, provided the thumbprint search finds the certificate.
+			return err
+		}
+		if fresh.CertificateId != nil && *fresh.CertificateId == *newCertId {
+			log.Info("PrincipalIdentity certificate was updated despite the error", "PrincipalIdentity", normalizedClusterName, "error", err.Error())
+			pi2 = *fresh
+		} else {
+			if imported {
+				if delErr := s.NSXClient.CertificatesClient.Delete(*newCertId); delErr != nil {
+					log.Error(nsxutil.TransNSXApiError(delErr), "Failed to delete the orphaned certificate", "PrincipalIdentity", normalizedClusterName, "Certificate", *newCertId)
+				}
+			}
+			return err
+		}
 	}
-	if oldCertId != "" {
+	pi = &pi2
+	s.PrincipalIdentityStore.Add(pi)
+	if oldCertId != "" && oldCertId != *newCertId {
 		if err := s.NSXClient.CertificatesClient.Delete(oldCertId); err != nil {
 			err = nsxutil.TransNSXApiError(err)
-			log.Error(err, "failed to delete", "PrincipalIdentity", *pi.Name, "Old Certificate", *pi.CertificateId)
+			// The PI already uses the new certificate, so this is only a leftover in NSX.
+			log.Error(err, "Failed to delete the old certificate of the PrincipalIdentity", "PrincipalIdentity", normalizedClusterName, "Old Certificate", oldCertId)
+		} else {
+			log.Info("Deleted the old certificate of the PrincipalIdentity", "PrincipalIdentity", normalizedClusterName, "Old Certificate", oldCertId)
 		}
 	}
 	return nil
